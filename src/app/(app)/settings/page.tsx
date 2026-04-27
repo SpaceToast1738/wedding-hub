@@ -1,5 +1,37 @@
-import { ComingSoon } from "@/components/ui/ComingSoon";
+import { db } from "@/lib/db";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { canEdit } from "@/lib/permissions";
+import { requireUser } from "@/lib/actions";
+import { PermissionMatrix } from "./PermissionMatrix";
 
-export default function Page() {
-  return <ComingSoon title="Settings" subtitle="Members, permissions and custom fields" />;
+export default async function SettingsPage() {
+  const user = await requireUser();
+  const editable = await canEdit(user, "settings");
+
+  const [users, permissions] = await Promise.all([
+    db.user.findMany({ orderBy: [{ isCouple: "desc" }, { name: "asc" }] }),
+    db.permission.findMany(),
+  ]);
+
+  return (
+    <>
+      <PageHeader
+        title="Settings"
+        subtitle="Members and per-section permissions"
+      />
+      <div className="flex-1 overflow-auto">
+        <div className="max-w-6xl mx-auto p-6 space-y-4">
+          <div className="bg-marigold-100/40 border border-marigold-700/20 text-marigold-700 rounded-md px-4 py-2.5 text-xs">
+            ⓘ Sign-in is gated by the <code>AUTH_ALLOWED_EMAILS</code> env var. To add a new member, add their email there and have them sign in once — the row will appear here, then you can grant them per-section access.
+          </div>
+          <PermissionMatrix
+            users={users.map((u) => ({ id: u.id, name: u.name, email: u.email, role: u.role, isCouple: u.isCouple }))}
+            permissions={permissions.map((p) => ({ userId: p.userId, section: p.section, level: p.level }))}
+            currentUserId={user.id}
+            canEdit={editable}
+          />
+        </div>
+      </div>
+    </>
+  );
 }

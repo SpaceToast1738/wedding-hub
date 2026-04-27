@@ -1,5 +1,43 @@
-import { ComingSoon } from "@/components/ui/ComingSoon";
+import { db } from "@/lib/db";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { requireUser } from "@/lib/actions";
+import { redirect } from "next/navigation";
+import { BudgetClient } from "./BudgetClient";
 
-export default function Page() {
-  return <ComingSoon title="Budget" subtitle="Categories, lines and totals — couple only" />;
+export default async function BudgetPage() {
+  const user = await requireUser();
+  if (!user.isCouple) redirect("/");
+
+  const [categories, suppliers] = await Promise.all([
+    db.budgetCategory.findMany({
+      orderBy: { order: "asc" },
+      include: { lines: { orderBy: [{ order: "asc" }, { createdAt: "asc" }] } },
+    }),
+    db.supplier.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
+  ]);
+
+  return (
+    <>
+      <PageHeader
+        title="Budget"
+        subtitle="Categories, lines, and totals — couple only"
+      />
+      <BudgetClient
+        categories={categories.map((c) => ({
+          id: c.id,
+          name: c.name,
+          lines: c.lines.map((l) => ({
+            id: l.id,
+            description: l.description,
+            estimated: l.estimated,
+            actual: l.actual,
+            paid: l.paid,
+            supplierId: l.supplierId,
+            notes: l.notes,
+          })),
+        }))}
+        suppliers={suppliers}
+      />
+    </>
+  );
 }
