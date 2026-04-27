@@ -11,7 +11,7 @@
 - **Repo:** [SpaceToast1738/wedding-hub](https://github.com/SpaceToast1738/wedding-hub) · `claude/main` (releases) + `dev` (work-in-progress)
 - **Stack:** Next.js 15 · TypeScript · Tailwind v4 · Prisma · Postgres 16 · Auth.js v5 · Caddy · Docker Compose
 - **Working tree:** `C:\Users\Admin\Code\wedding-hub` (local SSD). The old `\\TOWER\Jamie Spencer\Claude\wedding-hub` mirror is no longer in use — run `Remove-Item -Recurse -Force "\\TOWER\Jamie Spencer\Claude\wedding-hub"` from a fresh PowerShell to delete it.
-- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com — production has run v0.3.2 → v0.4.0 → v0.4.1; v0.5.0 (current) adds per-file visibility (couple-only / everyone), folder grouping, inline rename + move, multi-file upload. Pending Pull-and-Up on the host. Migration `20260427150000_add_file_visibility` runs on container start.
+- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (currently v0.5.0). v0.6.0 (this iteration) ships Phase D2: drag-and-drop seating canvas with SVG-based table layout, pointer-event drag (mouse + touch), grid snap, keyboard nudging, and a canvas/list view toggle. No new migration.
 
 ## Phase status
 
@@ -21,7 +21,7 @@
 | **B** | All 12 prototype pages ported with server actions, audit logs, permission gates | ✅ Done |
 | **C** | Docker stack: Caddy + web + db + backup, hardening, Cloudflare Tunnel alt | ✅ Done |
 | **D1** | Real file uploads — multipart action, /api/files/[id] download, MIME allowlist, 25 MB cap | ✅ Done |
-| **D2** | Drag-and-drop seating canvas with constraint rules | 🟡 Not started |
+| **D2** | Drag-and-drop seating canvas (SVG, pointer-event drag, grid snap, keyboard nudge, view toggle) | ✅ Done |
 | **E** | CSV / Say I Do guest import wizards + diff sync UI | 🟡 Not started |
 | **F** | Photography shot list, dietary aggregate, catering export PDF | 🟡 Not started |
 | **G** | Spotify playlist sync, day-of mode, quick-capture (`C`) modal | 🟡 Not started |
@@ -67,6 +67,14 @@ Each section has server actions wrapped with `requireEdit(section)` + `audit()`,
 - Backup service with **7d / 4w / 12m** pg_dump retention to `./backups/`
 - README has full deploy walkthrough, ops commands, hardening notes, Cloudflare Tunnel alternative
 
+### Phase D2 — Seating canvas (v0.6.0)
+- [src/app/(app)/seating/SeatingCanvas.tsx](src/app/(app)/seating/SeatingCanvas.tsx) — SVG canvas, viewBox 1400×900, faint grid pattern, tables drawn as circle (round) / rounded rect (rectangle / head). Visual size scales with capacity.
+- Pointer Events for unified mouse/touch drag with `setPointerCapture`. Drag updates local positions only; on `pointerup`, snaps to a 20-unit grid (when within 10 px of a grid point) and commits via `updateTablePosition` server action.
+- Click-without-drag focuses the table and opens a side panel with seat assignments (reusing the seat-dropdown UX from the list view) plus a delete button.
+- Keyboard accessibility: arrow keys nudge the focused table by 20 units; ⇧+arrow does 80. Tables are tabbable with descriptive aria-labels.
+- [src/app/(app)/seating/SeatingClient.tsx](src/app/(app)/seating/SeatingClient.tsx) — view toggle between Canvas and List; choice persists to `localStorage` so it survives reloads.
+- [src/app/(app)/seating/actions.ts](src/app/(app)/seating/actions.ts) — new `updateTablePosition(id, x, y, rotation?)` action, gated by `requireEdit("seating")` and audited. `createTable` now spreads new tables across a 3-column / 280×240 grid instead of stacking them all at (0,0).
+
 ### Phase D1 — File uploads (v0.4.0)
 - [src/lib/uploads.ts](src/lib/uploads.ts) — MIME allowlist, 25 MB cap, content-addressable filename, path-traversal defence
 - [src/app/(app)/files/actions.ts](src/app/(app)/files/actions.ts) — `uploadFile` multipart server action (replaces the old reference-only `registerFile`) with on-error rollback of the on-disk write; deletion removes both DB row and physical file
@@ -82,7 +90,7 @@ Ranked roughly by usefulness × ease.
 ### High value
 - **CSV guest import** — paste CSV, column-map UI, dry-run diff, commit. Deferred from Phase B (Guests).
 - **Catering export** — printable PDF / page aggregating dietary needs by table for the venue. Deferred from Phase B (Guests / Wedding Book).
-- **Drag-and-drop seating canvas (Phase D2)** — replaces the dropdown UI. The `Table.posX/posY/rotation` schema fields exist for this. Most likely the next chunk to ship after v0.4.0.
+- **Seating constraint rules** — must-sit-together / must-not-sit / prefer-group hints, plus violation indicators on the canvas. The prototype had a richer rules panel; we shipped the canvas without it for v0.6.0.
 
 ### Medium value
 - **Photography shot list** — checklist within Wedding Book section. New model: `PhotographyShot`.
@@ -190,11 +198,23 @@ When wrapping up a meaningful iteration:
 
 ### Current version
 
-`0.5.0` on both branches — per-file visibility + file management UX. Includes the first additive Prisma migration since the initial schema (`20260427150000_add_file_visibility`); container entrypoint applies it on next deploy.
+`0.6.0` on `dev` — Phase D2 seating canvas. No new migration. `claude/main` at `v0.5.0` (currently in production once Pull-and-Up runs).
 
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-27 · v0.6.0 — Phase D2: drag-and-drop seating canvas
+
+The Seating page now has a real canvas. Tables render as SVG shapes (circle for round, rounded rectangle for rectangle/head) at their `posX`/`posY` coordinates, sized by capacity. Drag with mouse or touch — Pointer Events with `setPointerCapture` so a fast flick doesn't lose the grab. On drop, positions snap to a 20-unit grid (only if within 10 px tolerance, so deliberate off-grid placements survive). Position changes commit via a new `updateTablePosition` server action that's audited but doesn't `revalidatePath` (would interrupt the drag flow); the page revalidates on assign / create / delete as before.
+
+Click-without-drag focuses a table → side panel slides in with the seat-assignment dropdowns (same UX as the existing list view, just relocated). Keyboard nudging on the focused table: arrow keys = 20 units, ⇧+arrow = 80. Tables are tabbable with aria-labels reading "Table X, N of M seated".
+
+View toggle (Canvas | List) lives at the top right of the Seating page; the choice persists to `localStorage` so reloads keep your preference. The list view (existing `TableCard` grid) is unchanged and remains the better mobile / accessibility option.
+
+`createTable` now positions new tables in a 3-column / 280×240 grid based on existing count, so they no longer stack at (0,0). Existing tables in production keep their stored positions.
+
+Seating constraint rules (must-sit-together / must-not / prefer-group) are deferred to a future iteration — captured in the backlog.
 
 ### 2026-04-27 · v0.5.0 — Per-file visibility + file management UX
 

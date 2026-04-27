@@ -6,7 +6,7 @@ import { assignGuestToSeat, deleteTable } from "./actions";
 
 type Seat = { id: string; index: number; guest: { id: string; firstName: string; lastName: string } | null };
 type Table = { id: string; name: string; shape: string; capacity: number; seats: Seat[] };
-type GuestOpt = { id: string; firstName: string; lastName: string; tableSeatId: string | null };
+type GuestOpt = { id: string; firstName: string; lastName: string };
 
 export function TableCard({
   table,

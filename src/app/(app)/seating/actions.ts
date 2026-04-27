@@ -12,6 +12,20 @@ const tableSchema = z.object({
   capacity: z.coerce.number().int().min(1).max(40),
 });
 
+// New tables drop into the canvas in a 3-column grid based on how many
+// already exist. Keeps them from stacking at (0,0) which is the schema
+// default.
+function nextGridPosition(existingCount: number): { posX: number; posY: number } {
+  const cols = 3;
+  const colWidth = 280;
+  const rowHeight = 240;
+  const startX = 180;
+  const startY = 160;
+  const col = existingCount % cols;
+  const row = Math.floor(existingCount / cols);
+  return { posX: startX + col * colWidth, posY: startY + row * rowHeight };
+}
+
 export async function createTable(formData: FormData) {
   const user = await requireEdit("seating");
   const parsed = tableSchema.parse({
@@ -19,10 +33,19 @@ export async function createTable(formData: FormData) {
     shape: formData.get("shape") || TableShape.ROUND,
     capacity: formData.get("capacity") || 8,
   });
+
+  const existing = await db.table.count();
+  const { posX, posY } = nextGridPosition(existing);
+
   const table = await db.table.create({
-    data: { name: parsed.name, shape: parsed.shape, capacity: parsed.capacity },
+    data: {
+      name: parsed.name,
+      shape: parsed.shape,
+      capacity: parsed.capacity,
+      posX,
+      posY,
+    },
   });
-  // Auto-create seats
   await db.seat.createMany({
     data: Array.from({ length: parsed.capacity }, (_, i) => ({
       tableId: table.id,
@@ -38,6 +61,39 @@ export async function deleteTable(id: string) {
   await db.table.delete({ where: { id } });
   await audit(user, { action: "delete", entity: "Table", entityId: id });
   revalidatePath("/seating");
+}
+
+const positionSchema = z.object({
+  posX: z.number().min(0).max(5000),
+  posY: z.number().min(0).max(5000),
+  rotation: z.number().min(-360).max(720).optional(),
+});
+
+export async function updateTablePosition(
+  id: string,
+  posX: number,
+  posY: number,
+  rotation?: number,
+) {
+  const user = await requireEdit("seating");
+  const parsed = positionSchema.parse({ posX, posY, rotation });
+  await db.table.update({
+    where: { id },
+    data: {
+      posX: parsed.posX,
+      posY: parsed.posY,
+      ...(parsed.rotation !== undefined && { rotation: parsed.rotation }),
+    },
+  });
+  // Position changes happen often during drag — audit but don't revalidate
+  // every time. The page already revalidates on assign / create / delete,
+  // and the canvas updates locally in the meantime.
+  await audit(user, {
+    action: "position",
+    entity: "Table",
+    entityId: id,
+    metadata: { posX: parsed.posX, posY: parsed.posY, rotation: parsed.rotation },
+  });
 }
 
 export async function assignGuestToSeat(seatId: string, guestId: string | null) {
