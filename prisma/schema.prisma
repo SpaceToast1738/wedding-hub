@@ -16,7 +16,9 @@ datasource db {
 model User {
   id            String     @id @default(cuid())
   email         String     @unique
-  name          String?
+  name          String?    // legacy single-string display name; auto-synced from firstName + lastName when those are set
+  firstName     String?
+  lastName      String?
   image         String?
   emailVerified DateTime?
   role          UserRole   @default(VIEWER)

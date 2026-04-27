@@ -11,7 +11,7 @@
 - **Repo:** [SpaceToast1738/wedding-hub](https://github.com/SpaceToast1738/wedding-hub) · `claude/main` (releases) + `dev` (work-in-progress)
 - **Stack:** Next.js 15 · TypeScript · Tailwind v4 · Prisma · Postgres 16 · Auth.js v5 · Caddy · Docker Compose
 - **Working tree:** `C:\Users\Admin\Code\wedding-hub` (local SSD). The old `\\TOWER\Jamie Spencer\Claude\wedding-hub` mirror is no longer in use — run `Remove-Item -Recurse -Force "\\TOWER\Jamie Spencer\Claude\wedding-hub"` from a fresh PowerShell to delete it.
-- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (currently v0.5.0). v0.6.0 (this iteration) ships Phase D2: drag-and-drop seating canvas with SVG-based table layout, pointer-event drag (mouse + touch), grid snap, keyboard nudging, and a canvas/list view toggle. No new migration.
+- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (currently v0.6.0). v0.7.0 (this iteration) ships first/last name fields on the User model, a one-time `/welcome` prompt for newly-signed-in users, and self-edit profile panel in Settings. Includes additive Prisma migration `20260427160000_add_user_name_fields`.
 
 ## Phase status
 
@@ -198,11 +198,23 @@ When wrapping up a meaningful iteration:
 
 ### Current version
 
-`0.6.0` on `dev` — Phase D2 seating canvas. No new migration. `claude/main` at `v0.5.0` (currently in production once Pull-and-Up runs).
+`0.7.0` on `dev` — first/last name + welcome prompt + Settings profile panel. Additive Prisma migration. `claude/main` at `v0.6.0`.
 
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-27 · v0.7.0 — First / last name fields + welcome prompt + Settings profile panel
+
+The User model now has dedicated `firstName` and `lastName` columns alongside the legacy `name` (which is auto-synced as `${firstName} ${lastName}` whenever the named-fields are set, so existing display sites — sidebar, members matrix, avatar initials — keep working without touching their queries).
+
+**First-time prompt.** Signing in for the first time used to leave you with a `name=null` row that displayed as your bare email. Now the `(app)` layout server-component runs a fresh DB lookup on every render and redirects to `/welcome` if neither `firstName` nor `name` is set. `/welcome` lives outside the `(app)` group, so the redirect doesn't loop. The form prefills from the legacy `name` field when present (split on first space) so seed-bootstrapped users don't have to retype.
+
+**Settings → Your profile.** A new panel above the permission matrix lets the signed-in user rename themselves any time. Same `setMyName` action backs both the welcome flow and the inline edit — single source of truth for validation (1–80 chars, both required) and audit logging.
+
+**Seed update.** `prisma/seed.ts` now sets `firstName` + `lastName` on the placeholder rows alongside the auto-derived `name`. Existing production rows get the new columns as NULL via the additive migration; their `name` field stays populated (so they still display correctly until they next sign in and hit the welcome flow).
+
+**Migration:** `20260427160000_add_user_name_fields` adds the two NULLable columns. No data backfill needed — the legacy `name` column remains the canonical display source until firstName lands.
 
 ### 2026-04-27 · v0.6.0 — Phase D2: drag-and-drop seating canvas
 

@@ -16,26 +16,28 @@ const NON_COUPLE_SECTIONS = [
 type SeedUser = {
   envKey: string;
   fallback: string;
-  name: string;
+  firstName: string;
+  lastName: string;
   role: UserRole;
   isCouple: boolean;
 };
 
 const USERS: SeedUser[] = [
-  { envKey: "USER_JAMIE_EMAIL",   fallback: "jamie@example.com",   name: "Jamie Spencer",       role: UserRole.COUPLE,        isCouple: true  },
-  { envKey: "USER_BRYONY_EMAIL",  fallback: "bryony@example.com",  name: "Bryony Olwyn-Davis",  role: UserRole.COUPLE,        isCouple: true  },
-  { envKey: "USER_JOSH_EMAIL",    fallback: "josh@example.com",    name: "Joshua Dickson",      role: UserRole.WEDDING_PARTY, isCouple: false },
-  { envKey: "USER_AIMEE_EMAIL",   fallback: "aimee@example.com",   name: "Aimee Hollingsworth", role: UserRole.WEDDING_PARTY, isCouple: false },
-  { envKey: "USER_PLANNER_EMAIL", fallback: "planner@example.com", name: "Bespoke Weddings",    role: UserRole.PLANNER,       isCouple: false },
+  { envKey: "USER_JAMIE_EMAIL",   fallback: "jamie@example.com",   firstName: "Jamie",   lastName: "Spencer",       role: UserRole.COUPLE,        isCouple: true  },
+  { envKey: "USER_BRYONY_EMAIL",  fallback: "bryony@example.com",  firstName: "Bryony",  lastName: "Olwyn-Davis",   role: UserRole.COUPLE,        isCouple: true  },
+  { envKey: "USER_JOSH_EMAIL",    fallback: "josh@example.com",    firstName: "Joshua",  lastName: "Dickson",       role: UserRole.WEDDING_PARTY, isCouple: false },
+  { envKey: "USER_AIMEE_EMAIL",   fallback: "aimee@example.com",   firstName: "Aimee",   lastName: "Hollingsworth", role: UserRole.WEDDING_PARTY, isCouple: false },
+  { envKey: "USER_PLANNER_EMAIL", fallback: "planner@example.com", firstName: "Bespoke", lastName: "Weddings",      role: UserRole.PLANNER,       isCouple: false },
 ];
 
 async function seedUsersAndPermissions() {
   for (const u of USERS) {
     const email = (process.env[u.envKey] ?? u.fallback).toLowerCase();
+    const name = `${u.firstName} ${u.lastName}`;
     const user = await db.user.upsert({
       where: { email },
-      create: { email, name: u.name, role: u.role, isCouple: u.isCouple },
-      update: { name: u.name, role: u.role, isCouple: u.isCouple },
+      create: { email, name, firstName: u.firstName, lastName: u.lastName, role: u.role, isCouple: u.isCouple },
+      update: { name, firstName: u.firstName, lastName: u.lastName, role: u.role, isCouple: u.isCouple },
     });
 
     const sections = u.isCouple ? EDIT_ALL_SECTIONS : NON_COUPLE_SECTIONS;
