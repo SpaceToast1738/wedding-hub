@@ -1,16 +1,21 @@
-# Wedding Hub — production stack
+# Wedding Hub — production stack (Cloudflare Tunnel + ghcr.io image)
 #
-# Network model:
-#   - `edge`     ← only Caddy attaches here AND publishes ports to the host.
-#   - `internal` ← caddy + web + db + backup. No host port mappings.
+# Network model (changed from upstream):
+#   - `br0`      ← Caddy attaches here with static IP 192.168.50.25.
+#                  Cloudflared (already on br0 with its own LAN IP) reaches
+#                  Caddy directly via this IP. No host port mapping.
+#   - `internal` ← caddy + web + db + backup. Egress allowed (web needs
+#                  outbound for Resend SMTP).
 #
-# Hardening:
+# Hardening (unchanged from upstream):
 #   - web runs as UID 1000, read-only FS, no-new-privileges, cap_drop ALL
-#   - db never binds to a host port; only reachable via the internal network
-#   - backups land on a host bind-mount with 7d/4w/12m retention
-#   - JSON log driver capped at 10 MB × 3 files per service (30 MB ceiling)
+#   - db never binds to a host port
+#   - JSON log driver capped at 10 MB × 3 files per service
+#
+# Bind-mount paths use absolute /mnt/user/appdata/wedding-hub/ rather than
+# relative ./ — Compose Manager Plus stores stack YAML on /boot/ (USB key),
+# and we don't want bind mounts living there.
 
-# ── Shared logging policy (caps disk usage of the JSON file driver) ────────
 x-logging: &default-logging
   driver: json-file
   options:
@@ -22,20 +27,16 @@ services:
     image: caddy:2-alpine
     restart: unless-stopped
     logging: *default-logging
-    ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"  # HTTP/3
     volumes:
-      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - /mnt/user/appdata/wedding-hub/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
     networks:
-      - edge
-      - internal
+      br0:
+        ipv4_address: 192.168.50.25
+      internal: {}
     environment:
       DOMAIN: ${DOMAIN:?DOMAIN required (e.g. wedding.spencer-net.com)}
-      TLS_EMAIL: ${TLS_EMAIL:?TLS_EMAIL required for Let's Encrypt}
     depends_on:
       web:
         condition: service_healthy
@@ -43,10 +44,10 @@ services:
       - no-new-privileges:true
 
   web:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: wedding-hub-web:latest
+    # Pull the CI-built image from GHCR. `pull_policy: always` so a `compose up`
+    # always grabs the latest :dev tag — no manual `docker pull` step.
+    image: ghcr.io/spacetoast1738/wedding-hub:dev
+    pull_policy: always
     restart: unless-stopped
     logging: *default-logging
     user: "1000:1000"
@@ -73,7 +74,7 @@ services:
       EMAIL_SERVER_PORT: ${EMAIL_SERVER_PORT:-587}
       EMAIL_SERVER_USER: ${EMAIL_SERVER_USER:-}
       EMAIL_SERVER_PASSWORD: ${EMAIL_SERVER_PASSWORD:-}
-      EMAIL_FROM: ${EMAIL_FROM:-Wedding Hub <noreply@example.com>}
+      EMAIL_FROM: ${EMAIL_FROM:-Wedding Hub <noreply@spencer-net.com>}
       WEDDING_DATE: ${WEDDING_DATE:-2026-09-26T14:00:00Z}
     volumes:
       - uploads:/app/uploads
@@ -102,7 +103,6 @@ services:
       start_period: 10s
     security_opt:
       - no-new-privileges:true
-    # No `ports:` — db is not reachable from the host.
 
   backup:
     image: prodrigestivill/postgres-backup-local:16-alpine
@@ -125,7 +125,7 @@ services:
       BACKUP_KEEP_MONTHS: "12"
       HEALTHCHECK_PORT: "8080"
     volumes:
-      - ./backups:/backups
+      - /mnt/user/appdata/wedding-hub/backups:/backups
     security_opt:
       - no-new-privileges:true
 
@@ -136,8 +136,10 @@ volumes:
   caddy_config:
 
 networks:
-  edge:
-    driver: bridge
+  # Existing Unraid macvlan network (where cloudflared also lives).
+  br0:
+    external: true
+  # Internal compose bridge for service-to-service traffic. Egress allowed
+  # so the web container can reach Resend's SMTP endpoint.
   internal:
     driver: bridge
-    internal: false  # caddy needs egress for ACME; switch to true if using Cloudflare Tunnel
