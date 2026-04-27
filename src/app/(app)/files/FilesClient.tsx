@@ -1,12 +1,12 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
-import { deleteFile, registerFile } from "./actions";
+import { deleteFile, uploadFile } from "./actions";
 import { formatDate } from "@/lib/format";
 
-type File = {
+type FileRow = {
   id: string;
   name: string;
   storedPath: string;
@@ -24,28 +24,31 @@ function formatSize(bytes: number): string {
   return `${(bytes / Math.pow(k, i)).toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
 }
 
-export function FilesClient({ files, canEdit }: { files: File[]; canEdit: boolean }) {
-  const [adding, setAdding] = useState(false);
+const MIME_ICONS: Array<[RegExp, string]> = [
+  [/^application\/pdf$/, "📄"],
+  [/^image\//, "🖼"],
+  [/word|officedocument\.wordprocessing/, "📝"],
+  [/excel|officedocument\.spreadsheet/, "📊"],
+  [/presentation/, "📽"],
+  [/zip|compressed/, "🗜"],
+  [/^text\//, "📃"],
+];
 
+function iconFor(mime: string): string {
+  for (const [re, icon] of MIME_ICONS) if (re.test(mime)) return icon;
+  return "📎";
+}
+
+export function FilesClient({ files, canEdit }: { files: FileRow[]; canEdit: boolean }) {
   return (
     <div className="flex-1 overflow-auto">
       <div className="max-w-5xl mx-auto p-6 space-y-4">
-        <div className="bg-marigold-100 border border-marigold-700/30 text-marigold-700 rounded-md px-4 py-3 text-xs">
-          ⓘ Direct file uploads will land in Phase C alongside the Docker storage volume. For now you can register a reference to a file already stored elsewhere (Drive, Dropbox, S3 path, etc.) so it appears in this index.
-        </div>
-
-        {canEdit && (
-          adding ? (
-            <RegisterForm onDone={() => setAdding(false)} />
-          ) : (
-            <div className="flex justify-end">
-              <Button variant="primary" size="sm" onClick={() => setAdding(true)}>+ Register file reference</Button>
-            </div>
-          )
-        )}
+        {canEdit && <UploadDropzone />}
 
         {files.length === 0 ? (
-          <p className="text-sm text-ink-tertiary text-center py-12">No files yet.</p>
+          <p className="text-sm text-ink-tertiary text-center py-12">
+            No files yet. {canEdit && "Upload your first one above."}
+          </p>
         ) : (
           <div className="bg-surface border border-border-soft rounded-md shadow-sm overflow-x-auto">
             <table className="w-full text-sm">
@@ -60,7 +63,9 @@ export function FilesClient({ files, canEdit }: { files: File[]; canEdit: boolea
                 </tr>
               </thead>
               <tbody>
-                {files.map((f) => <FileRow key={f.id} file={f} canEdit={canEdit} />)}
+                {files.map((f) => (
+                  <FileTableRow key={f.id} file={f} canEdit={canEdit} />
+                ))}
               </tbody>
             </table>
           </div>
@@ -70,66 +75,137 @@ export function FilesClient({ files, canEdit }: { files: File[]; canEdit: boolea
   );
 }
 
-function FileRow({ file, canEdit }: { file: File; canEdit: boolean }) {
+function FileTableRow({ file, canEdit }: { file: FileRow; canEdit: boolean }) {
   const [pending, startTransition] = useTransition();
 
   function onDelete() {
-    if (!confirm(`Delete reference to "${file.name}"?`)) return;
-    startTransition(async () => { await deleteFile(file.id); });
+    if (!confirm(`Delete "${file.name}"?`)) return;
+    startTransition(async () => {
+      await deleteFile(file.id);
+    });
   }
 
   return (
     <tr className="border-b border-border-soft last:border-b-0 hover:bg-muted/30">
       <td className="px-4 py-2.5">
-        <div className="text-sm text-ink-primary">{file.name}</div>
-        <div className="text-[11px] text-ink-tertiary truncate">{file.storedPath}</div>
+        <a
+          href={`/api/files/${file.id}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center gap-2 text-sm text-ink-primary hover:text-moss-700"
+        >
+          <span className="text-base flex-shrink-0">{iconFor(file.mimeType)}</span>
+          <span className="hover:underline truncate">{file.name}</span>
+        </a>
       </td>
       <td className="px-4 py-2.5 text-xs text-ink-tertiary">{file.folder ?? "—"}</td>
-      <td className="px-4 py-2.5 text-xs text-ink-tertiary">{file.mimeType}</td>
-      <td className="px-4 py-2.5 text-right text-xs text-ink-secondary tabular-nums">{formatSize(file.sizeBytes)}</td>
+      <td className="px-4 py-2.5 text-xs text-ink-tertiary truncate max-w-[180px]">{file.mimeType}</td>
+      <td className="px-4 py-2.5 text-right text-xs text-ink-secondary tabular-nums">
+        {formatSize(file.sizeBytes)}
+      </td>
       <td className="px-4 py-2.5 text-xs text-ink-tertiary">{formatDate(file.createdAt)}</td>
       <td className="px-4 py-2.5">
-        {canEdit && <Button variant="ghost" size="sm" onClick={onDelete} disabled={pending}>×</Button>}
+        {canEdit && (
+          <Button variant="ghost" size="sm" onClick={onDelete} disabled={pending}>
+            ×
+          </Button>
+        )}
       </td>
     </tr>
   );
 }
 
-function RegisterForm({ onDone }: { onDone: () => void }) {
+function UploadDropzone() {
+  const inputRef = useRef<HTMLInputElement>(null);
   const [pending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  const [folder, setFolder] = useState("");
+  const [progress, setProgress] = useState<{ name: string } | null>(null);
+  const [dragOver, setDragOver] = useState(false);
+
+  async function submit(file: File) {
+    setError(null);
+    setProgress({ name: file.name });
+    const fd = new FormData();
+    fd.set("file", file);
+    if (folder) fd.set("folder", folder);
+    startTransition(async () => {
+      try {
+        await uploadFile(fd);
+        if (inputRef.current) inputRef.current.value = "";
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Upload failed");
+      } finally {
+        setProgress(null);
+      }
+    });
+  }
+
+  function onPick(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0];
+    if (f) submit(f);
+  }
+
+  function onDrop(e: React.DragEvent<HTMLLabelElement>) {
+    e.preventDefault();
+    setDragOver(false);
+    const f = e.dataTransfer.files?.[0];
+    if (f) submit(f);
+  }
+
   return (
-    <form
-      action={(fd) => startTransition(async () => { await registerFile(fd); onDone(); })}
-      className="bg-surface border border-moss-100 rounded-md p-4 shadow-sm space-y-3"
-    >
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <div>
-          <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">Name</label>
-          <Input name="name" required autoFocus placeholder="Photographer contract.pdf" />
+    <div className="bg-surface border border-border-soft rounded-md p-4 shadow-sm space-y-3">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
+        <div className="sm:col-span-2">
+          <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">
+            Folder (optional)
+          </label>
+          <Input
+            value={folder}
+            onChange={(e) => setFolder(e.target.value)}
+            placeholder="contracts, menus, photos…"
+            disabled={pending}
+          />
         </div>
-        <div>
-          <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">Folder</label>
-          <Input name="folder" placeholder="contracts" />
-        </div>
-      </div>
-      <div>
-        <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">Stored path / URL</label>
-        <Input name="storedPath" required placeholder="https://drive.google.com/…  or  /uploads/contracts/…" />
-      </div>
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">MIME type</label>
-          <Input name="mimeType" defaultValue="application/pdf" />
-        </div>
-        <div>
-          <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">Size (bytes)</label>
-          <Input name="sizeBytes" type="number" min="0" placeholder="optional" />
+        <div className="text-[11px] text-ink-tertiary leading-tight">
+          PDF, images, Word/Excel, txt/csv, zip.<br />
+          Max 25 MB per file.
         </div>
       </div>
-      <div className="flex gap-2 justify-end">
-        <Button type="button" variant="ghost" size="sm" onClick={onDone} disabled={pending}>Cancel</Button>
-        <Button type="submit" variant="primary" size="sm" disabled={pending}>{pending ? "Saving…" : "Register"}</Button>
-      </div>
-    </form>
+
+      <label
+        onDragOver={(e) => {
+          e.preventDefault();
+          setDragOver(true);
+        }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={onDrop}
+        className={[
+          "block border-2 border-dashed rounded-md p-6 text-center cursor-pointer transition-colors",
+          dragOver
+            ? "border-moss-500 bg-moss-50"
+            : pending
+              ? "border-border-soft bg-muted/40 cursor-wait"
+              : "border-border-strong bg-canvas hover:border-moss-300 hover:bg-moss-50/40",
+        ].join(" ")}
+      >
+        <input
+          ref={inputRef}
+          type="file"
+          onChange={onPick}
+          disabled={pending}
+          className="sr-only"
+        />
+        {progress ? (
+          <span className="text-sm text-ink-secondary">Uploading {progress.name}…</span>
+        ) : (
+          <span className="text-sm text-ink-secondary">
+            <span className="font-medium text-moss-700">Click to upload</span> or drop a file here
+          </span>
+        )}
+      </label>
+
+      {error && <p className="text-xs text-danger">{error}</p>}
+    </div>
   );
 }

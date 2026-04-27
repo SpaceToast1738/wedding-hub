@@ -46,10 +46,11 @@
 	@scans path_regexp ^/(wp-admin|wp-login|xmlrpc|phpmyadmin|.well-known/acme-challenge/dummy)
 	respond @scans 404
 
-	# Cap any single request body. Sign-in posts are tiny;
-	# 4 MB leaves headroom for the future file-upload action.
+	# Cap any single request body. The app accepts files up to 25 MB
+	# (see src/lib/uploads.ts MAX_UPLOAD_BYTES), so 26 MB here gives a
+	# small allowance for multipart framing overhead.
 	request_body {
-		max_size 4MB
+		max_size 26MB
 	}
 
 	# ── Reverse proxy to the Next.js container ───────────────────────────

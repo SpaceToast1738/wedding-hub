@@ -44,8 +44,15 @@ docker compose --env-file .env exec web node prisma/seed.js
 ```
 The transpiled `prisma/seed.js` ships in the image — the production container does NOT have `tsx` available, so use `node prisma/seed.js`, not `tsx`.
 
-### Auth allowlist
-`AUTH_ALLOWED_EMAILS` (CSV) gates sign-in. Set in `.env` on the deploy host. Bouncing happens at the Auth.js callback layer with a friendly redirect to `/signin/error`.
+### Auth allowlist + bootstrap admin
+`AUTH_ALLOWED_EMAILS` (CSV) gates sign-in. Set in `.env` on the deploy host. Anyone not on the list bounces at the Auth.js callback layer with a friendly redirect to `/signin/error`.
+
+**First-sign-in bootstrap:** while no couple-tier user has actually authenticated yet (`count(User where isCouple=true AND emailVerified IS NOT NULL) === 0`), the next user to come through the `signIn` callback gets promoted to COUPLE automatically. After that, new sign-ins default to VIEWER and the existing admin promotes them via the Settings matrix. No env-var or SQL surgery needed for the initial admin.
+
+The seed creates `jamie@example.com` etc. as couple-tier rows with `emailVerified=null`, so they don't satisfy the bootstrap predicate — those rows are placeholders, not real signed-in users. Safe to delete from production once a real admin has bootstrapped.
+
+### File uploads land in /app/uploads
+Multipart server action at `src/app/(app)/files/actions.ts` writes physical bytes under `UPLOADS_DIR` (defaults to `/app/uploads` in production, `./uploads` in dev). The Dockerfile creates this directory with `node:node` ownership before the named volume mount; downloads go through `src/app/api/files/[id]/route.ts` with a session + `canView("files")` gate. Body-size budget: Caddy `request_body max_size 26MB` → Next `serverActions.bodySizeLimit: "26mb"` → app-level `MAX_UPLOAD_BYTES = 25 MB`. MIME allowlist in `src/lib/uploads.ts` — extending it requires updating `MIME_EXTENSIONS` there.
 
 ### Caddy is on TWO networks
 `caddy` joins both `br0` (static IP `192.168.50.25` for inbound from cloudflared) AND `internal` (so it can reach `web:3000` by service name). When editing the compose, **don't drop either network** from the caddy service or the inbound or upstream side breaks.

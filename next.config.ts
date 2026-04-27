@@ -7,7 +7,12 @@ const nextConfig: NextConfig = {
   productionBrowserSourceMaps: false,
   experimental: {
     serverActions: {
-      bodySizeLimit: "2mb",
+      // Headroom for the file upload action — see src/lib/uploads.ts where
+      // MAX_UPLOAD_BYTES (25 MB) is enforced after the request reaches us.
+      // Caddy also caps inbound bodies at 4 MB by default, so the practical
+      // ceiling is whichever is lower; raise the Caddyfile `request_body
+      // max_size` if you want to use the full 26 MB.
+      bodySizeLimit: "26mb",
     },
   },
   // Caddy handles security headers; keep one defensive default here too.

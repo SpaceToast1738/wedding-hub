@@ -44,6 +44,12 @@ ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
 
+# Pre-create /app/uploads with node:node ownership BEFORE the named volume
+# mounts at runtime. Docker initialises a fresh volume from the image's
+# directory contents (and ownership), so this gives the running `node` user
+# write permission inside the otherwise read-only filesystem.
+RUN mkdir -p /app/uploads && chown node:node /app/uploads
+
 # Standalone Next.js bundle (includes server.js + traced node_modules)
 COPY --from=builder --chown=node:node /app/.next/standalone ./
 COPY --from=builder --chown=node:node /app/.next/static ./.next/static

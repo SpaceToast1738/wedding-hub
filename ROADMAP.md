@@ -11,7 +11,7 @@
 - **Repo:** [SpaceToast1738/wedding-hub](https://github.com/SpaceToast1738/wedding-hub) · `claude/main` (releases) + `dev` (work-in-progress)
 - **Stack:** Next.js 15 · TypeScript · Tailwind v4 · Prisma · Postgres 16 · Auth.js v5 · Caddy · Docker Compose
 - **Working tree:** `C:\Users\Admin\Code\wedding-hub` (local SSD). The old `\\TOWER\Jamie Spencer\Claude\wedding-hub` mirror is no longer in use — run `Remove-Item -Recurse -Force "\\TOWER\Jamie Spencer\Claude\wedding-hub"` from a fresh PowerShell to delete it.
-- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com — deployed from `dev` on 27 April 2026, 152 days out from the wedding. Jamie's signed in, Resend delivers magic links, the 4-service stack is stable on Unraid behind a Cloudflare Tunnel. Repo `dev` is at v0.3.2; `claude/main` still at v0.3.1 (pre-deploy-config refactor).
+- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com on v0.3.2 since 27 April 2026, 152 days out from the wedding. v0.4.0 (this iteration) ships file uploads, an env-driven couple-promotion path, and a properly styled magic-link email — pending Pull-and-Up on the host.
 
 ## Phase status
 
@@ -20,7 +20,8 @@
 | **A** | Bootable shell — auth, AppShell, Today page, stub pages, /api/health | ✅ Done |
 | **B** | All 12 prototype pages ported with server actions, audit logs, permission gates | ✅ Done |
 | **C** | Docker stack: Caddy + web + db + backup, hardening, Cloudflare Tunnel alt | ✅ Done |
-| **D** | Real file uploads + drag-drop seating canvas | 🟡 Not started |
+| **D1** | Real file uploads — multipart action, /api/files/[id] download, MIME allowlist, 25 MB cap | ✅ Done |
+| **D2** | Drag-and-drop seating canvas with constraint rules | 🟡 Not started |
 | **E** | CSV / Say I Do guest import wizards + diff sync UI | 🟡 Not started |
 | **F** | Photography shot list, dietary aggregate, catering export PDF | 🟡 Not started |
 | **G** | Spotify playlist sync, day-of mode, quick-capture (`C`) modal | 🟡 Not started |
@@ -66,17 +67,24 @@ Each section has server actions wrapped with `requireEdit(section)` + `audit()`,
 - Backup service with **7d / 4w / 12m** pg_dump retention to `./backups/`
 - README has full deploy walkthrough, ops commands, hardening notes, Cloudflare Tunnel alternative
 
+### Phase D1 — File uploads (v0.4.0)
+- [src/lib/uploads.ts](src/lib/uploads.ts) — MIME allowlist, 25 MB cap, content-addressable filename, path-traversal defence
+- [src/app/(app)/files/actions.ts](src/app/(app)/files/actions.ts) — `uploadFile` multipart server action (replaces the old reference-only `registerFile`) with on-error rollback of the on-disk write; deletion removes both DB row and physical file
+- [src/app/api/files/[id]/route.ts](src/app/api/files/[id]/route.ts) — auth-gated streaming download, `inline` for PDFs/images/text, `attachment` for everything else, RFC 5987 filenames
+- [src/app/(app)/files/FilesClient.tsx](src/app/(app)/files/FilesClient.tsx) — drag-and-drop or click-to-upload zone, MIME-aware row icons, click-to-download links
+- [next.config.ts](next.config.ts) + [caddy/Caddyfile](caddy/Caddyfile) — body-size budget raised to 26 MB at both layers
+- [Dockerfile](Dockerfile) — pre-creates `/app/uploads` with `node:node` ownership so the named volume mounts writable for UID 1000
+
 ## Deferred / Backlog
 
 Ranked roughly by usefulness × ease.
 
 ### High value
-- **Real file uploads** — multipart server action writing to `/app/uploads` volume; needs body-size bump in `next.config.ts` and probably MIME/size validation. Volume is already wired up. Deferred from Phase B/C.
 - **CSV guest import** — paste CSV, column-map UI, dry-run diff, commit. Deferred from Phase B (Guests).
 - **Catering export** — printable PDF / page aggregating dietary needs by table for the venue. Deferred from Phase B (Guests / Wedding Book).
+- **Drag-and-drop seating canvas (Phase D2)** — replaces the dropdown UI. The `Table.posX/posY/rotation` schema fields exist for this. Most likely the next chunk to ship after v0.4.0.
 
 ### Medium value
-- **Drag-and-drop seating canvas** — replaces the dropdown UI. The `Table.posX/posY/rotation` schema fields exist for this. Deferred from Phase B (Seating).
 - **Photography shot list** — checklist within Wedding Book section. New model: `PhotographyShot`.
 - **Day-of mode** — live timeline with status (now/next/past), on-call contacts, simulated mode for testing. Deferred from Phase A/B (Today).
 - **Quick-capture (`C` shortcut) modal** — global capture for task/question/payment/event. Deferred from Phase A (AppShell).
@@ -182,11 +190,23 @@ When wrapping up a meaningful iteration:
 
 ### Current version
 
-`0.3.2` on `dev` — post-deploy back-ports + CLAUDE.md context file. `claude/main` still at `0.3.1`; promote when the next chunk is ready.
+`0.4.0` on `dev` — file uploads (Phase D1), bootstrap-admin auth fix, styled magic-link email. `claude/main` at `v0.3.2` (live in production). Promote when verified after Pull-and-Up.
 
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-27 · v0.4.0 — Phase D1 file uploads + bootstrap admin + pretty magic-link email
+
+**Three things in one bump.** First production minor since going live this morning.
+
+**Phase D1 — file uploads.** The Files page now actually accepts files instead of letting users register references to files-elsewhere. Drag-and-drop or click-to-upload, 25 MB cap, MIME allowlist (PDF / common images / Office docs / txt+csv / zip), content-addressable storage on the existing `uploads:` named volume. Downloads stream through `/api/files/[id]` with a session + `canView("files")` gate; safe types (PDFs, images, text) render inline, others force `attachment`. Body-size budget raised at all three layers — Caddy, Next, app — to 26 MB. The Dockerfile now pre-creates `/app/uploads` with `node:node` ownership so the volume initialises writable for UID 1000.
+
+**Bootstrap admin.** The first user to actually authenticate gets promoted to couple-tier automatically (predicate: `count(User where isCouple=true AND emailVerified IS NOT NULL) === 0`). After that, new sign-ins join as VIEWER and the existing admin promotes them via the Settings matrix. No env var, no SQL surgery. Replaces an earlier (rejected) `COUPLE_EMAILS` design — see the feedback memory if you're tempted to introduce another env-var enumeration of users.
+
+**Pretty magic-link email.** Replaced the one-paragraph placeholder with a proper inline-CSS HTML email — wedding-themed (moss-green CTA, Fraunces-fallback serif heading, soft canvas background), 600 px table layout that stacks on mobile, plain-text fallback for clients that strip HTML. Subject unchanged.
+
+Phase D split: D1 (uploads) ✅ shipped here, D2 (drag-drop seating canvas) is the next chunk.
 
 ### 2026-04-27 · v0.3.2 — 🚀 Live on Unraid + post-deploy back-ports
 
