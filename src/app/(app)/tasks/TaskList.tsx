@@ -1,9 +1,12 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { TaskRow } from "./TaskRow";
-import { FilterTabs, type Filter } from "./FilterTabs";
+import { TaskBoard } from "./TaskBoard";
+import { FilterTabs, type Filter, type View } from "./FilterTabs";
 import type { UserOpt } from "./TaskForm";
+
+const VIEW_KEY = "wh_tasks_view";
 
 type Task = {
   id: string;
@@ -30,6 +33,24 @@ export function TaskList({
   canEdit: boolean;
 }) {
   const [filter, setFilter] = useState<Filter>("all");
+  const [view, setView] = useState<View>("list");
+
+  // Restore view preference. SSR renders 'list' so the markup stays stable.
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(VIEW_KEY);
+      if (saved === "list" || saved === "board") setView(saved);
+    } catch {
+      // ignore
+    }
+  }, []);
+  useEffect(() => {
+    try {
+      localStorage.setItem(VIEW_KEY, view);
+    } catch {
+      // ignore
+    }
+  }, [view]);
 
   const usersById = useMemo(() => {
     const m = new Map<string, UserOpt>();
@@ -48,31 +69,35 @@ export function TaskList({
 
   return (
     <>
-      <FilterTabs value={filter} onChange={setFilter} />
-      <div className="flex-1 overflow-auto">
-        <div className="max-w-4xl mx-auto p-6">
-          {filtered.length === 0 ? (
-            <p className="text-sm text-ink-tertiary text-center py-12">
-              No tasks match this filter.
-            </p>
-          ) : (
-            <ol className="bg-surface border border-border-soft rounded-md shadow-sm">
-              {filtered.map((t) => {
-                const assignee = t.assigneeId ? usersById.get(t.assigneeId) : null;
-                return (
-                  <TaskRow
-                    key={t.id}
-                    task={t}
-                    users={users}
-                    canEdit={canEdit}
-                    assigneeName={assignee?.name ?? assignee?.email ?? null}
-                  />
-                );
-              })}
-            </ol>
-          )}
+      <FilterTabs value={filter} onChange={setFilter} view={view} onViewChange={setView} />
+      {view === "board" ? (
+        <TaskBoard tasks={filtered} users={users} canEdit={canEdit} />
+      ) : (
+        <div className="flex-1 overflow-auto">
+          <div className="max-w-4xl mx-auto p-6">
+            {filtered.length === 0 ? (
+              <p className="text-sm text-ink-tertiary text-center py-12">
+                No tasks match this filter.
+              </p>
+            ) : (
+              <ol className="bg-surface border border-border-soft rounded-md shadow-sm">
+                {filtered.map((t) => {
+                  const assignee = t.assigneeId ? usersById.get(t.assigneeId) : null;
+                  return (
+                    <TaskRow
+                      key={t.id}
+                      task={t}
+                      users={users}
+                      canEdit={canEdit}
+                      assigneeName={assignee?.name ?? assignee?.email ?? null}
+                    />
+                  );
+                })}
+              </ol>
+            )}
+          </div>
         </div>
-      </div>
+      )}
     </>
   );
 }

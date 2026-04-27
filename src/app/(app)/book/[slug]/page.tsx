@@ -30,6 +30,25 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
       <div className="flex-1 overflow-auto">
         <div className="max-w-3xl mx-auto p-6 space-y-4">
           <Link href="/book" className="text-xs text-moss-500 hover:underline inline-block">← Wedding Book</Link>
+
+          {/* On-page anchor row — quick jumps for long sections. */}
+          {section.subsections.length > 1 && (
+            <nav className="flex flex-wrap gap-1.5" aria-label="On this page">
+              <span className="text-[10px] font-bold text-ink-tertiary uppercase tracking-wider self-center mr-1">
+                On this page
+              </span>
+              {section.subsections.map((s) => (
+                <a
+                  key={s.id}
+                  href={`#${s.slug}`}
+                  className="text-[11px] px-2 py-0.5 rounded-full bg-canvas border border-border-soft text-ink-secondary hover:text-moss-700 hover:border-moss-300"
+                >
+                  {s.title}
+                </a>
+              ))}
+            </nav>
+          )}
+
           {section.subsections.length === 0 ? (
             <p className="text-sm text-ink-tertiary text-center py-12">
               This section has no pages yet. {editable && "Add one above."}

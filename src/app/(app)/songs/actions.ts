@@ -85,6 +85,30 @@ export async function deleteSong(id: string) {
   revalidatePath("/songs");
 }
 
+// Move a song up/down within its playlist by swapping with its neighbour.
+export async function moveSong(id: string, delta: -1 | 1) {
+  const user = await requireEdit("songs");
+  const song = await db.song.findUnique({ where: { id } });
+  if (!song) return;
+  const songs = await db.song.findMany({
+    where: { playlistId: song.playlistId },
+    orderBy: [{ order: "asc" }, { createdAt: "asc" }],
+    select: { id: true, order: true },
+  });
+  const idx = songs.findIndex((s) => s.id === id);
+  if (idx === -1) return;
+  const swap = idx + delta;
+  if (swap < 0 || swap >= songs.length) return;
+  const a = songs[idx]!;
+  const b = songs[swap]!;
+  await db.$transaction([
+    db.song.update({ where: { id: a.id }, data: { order: b.order } }),
+    db.song.update({ where: { id: b.id }, data: { order: a.order } }),
+  ]);
+  await audit(user, { action: "reorder", entity: "Song", entityId: id });
+  revalidatePath("/songs");
+}
+
 // ── Spotify sync ───────────────────────────────────────────────────────────
 
 const setSpotifyUrlSchema = z.object({

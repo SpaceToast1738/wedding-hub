@@ -123,13 +123,16 @@ async function seedSampleHouseholds() {
 
 async function seedBookSections() {
   const sections = [
-    { slug: "ceremony",    title: "Ceremony",                order: 1 },
-    { slug: "reception",   title: "Reception",               order: 2 },
-    { slug: "logistics",   title: "Logistics",               order: 3 },
+    { slug: "ceremony",     title: "Ceremony",                order: 1 },
+    { slug: "reception",    title: "Reception",               order: 2 },
+    { slug: "logistics",    title: "Logistics",               order: 3 },
     // Photography is a special section — `/book/photography` resolves to a
     // dedicated route with a checklist UI rather than the generic subsection
     // editor. The BookSection row exists so it appears as a card on /book.
-    { slug: "photography", title: "Photography & Shot list", order: 4 },
+    { slug: "photography",  title: "Photography & Shot list", order: 4 },
+    // Wedding party section: outfits, roles, stag/hen, day-of logistics,
+    // ring-keeper hand-off. Uses the standard BookSubsection editor.
+    { slug: "wedding-party", title: "Wedding party",          order: 5 },
   ];
   for (const s of sections) {
     await db.bookSection.upsert({
@@ -139,6 +142,29 @@ async function seedBookSections() {
     });
   }
   console.log(`  ✓ ${sections.length} book sections`);
+}
+
+// Seed the Wedding Party subsections only on first run — never overwrite
+// real notes the couple has added.
+async function seedWeddingPartySubsections() {
+  const section = await db.bookSection.findUnique({ where: { slug: "wedding-party" } });
+  if (!section) return;
+  const existing = await db.bookSubsection.count({ where: { sectionId: section.id } });
+  if (existing > 0) {
+    console.log(`  ✓ wedding party subsections already present (${existing}); skipping seed`);
+    return;
+  }
+  const subs = [
+    { slug: "roles",          title: "Roles",                order: 1, body: "Best Man · Joshua Dickson\nMaid of Honour · Aimee Hollingsworth\nGroomsmen · …\nBridesmaids · …" },
+    { slug: "outfits",        title: "Outfits",              order: 2, body: "Suits via Slaters — fitting on …\nDresses ordered from …\nBouquets and buttonholes from Paintbox Blooms" },
+    { slug: "ring-keepers",   title: "Ring keepers",         order: 3, body: "Joshua holds both rings until the ceremony.\nHand-off in the groomsmen room at 1:30pm.\nConfirm with Aimee day-of." },
+    { slug: "stag-hen",       title: "Stag & Hen",           order: 4, body: "Stag · …\nHen · …" },
+    { slug: "day-of",         title: "Day-of logistics",     order: 5, body: "Bridesmaids arrive at the bridal suite 11:00.\nGroomsmen arrive at the manor 12:30.\nPhotographer with the groomsmen 12:45.\nPhotographer with the bridesmaids 13:00." },
+  ];
+  await db.bookSubsection.createMany({
+    data: subs.map((s) => ({ ...s, sectionId: section.id })),
+  });
+  console.log(`  ✓ ${subs.length} wedding party subsections`);
 }
 
 // Idempotent: only seeds when there are zero shots in the DB. Real shots
@@ -168,6 +194,7 @@ async function main() {
   await seedSampleTasks();
   await seedSampleHouseholds();
   await seedBookSections();
+  await seedWeddingPartySubsections();
   await seedPhotographyShots();
   console.log("Done.");
 }

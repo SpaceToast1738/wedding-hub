@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
-import { createSong, deletePlaylist, deleteSong, setPlaylistSpotifyUrl, syncPlaylistFromSpotify } from "./actions";
+import { createSong, deletePlaylist, deleteSong, moveSong, setPlaylistSpotifyUrl, syncPlaylistFromSpotify } from "./actions";
 
 type Song = { id: string; title: string; artist: string | null; source: string | null; spotifyUri: string | null };
 type Playlist = {
@@ -69,6 +69,12 @@ export function PlaylistCard({
     if (!confirm(`Remove "${title}"?`)) return;
     startTransition(async () => {
       await deleteSong(id);
+    });
+  }
+
+  function onMoveSong(id: string, delta: -1 | 1) {
+    startTransition(async () => {
+      await moveSong(id, delta);
     });
   }
 
@@ -190,12 +196,17 @@ export function PlaylistCard({
       )}
 
       <ul className="divide-y divide-border-soft">
-        {playlist.songs.map((s) => {
+        {playlist.songs.map((s, i) => {
           const spotifyUrl = s.spotifyUri
             ? `https://open.spotify.com/track/${s.spotifyUri.replace(/^spotify:track:/, "")}`
             : null;
+          const isFirst = i === 0;
+          const isLast = i === playlist.songs.length - 1;
           return (
-            <li key={s.id} className="flex items-center gap-3 px-4 py-2">
+            <li key={s.id} className="flex items-center gap-2 px-4 py-2 group">
+              <span className="text-[10px] text-ink-tertiary tabular-nums w-5 flex-shrink-0">
+                {i + 1}.
+              </span>
               <div className="flex-1 min-w-0">
                 <div className="text-sm text-ink-primary truncate flex items-center gap-1.5">
                   {spotifyUrl ? (
@@ -219,7 +230,27 @@ export function PlaylistCard({
               </div>
               {s.source && <span className="text-[10px] text-ink-tertiary bg-canvas border border-border-soft px-1.5 py-px rounded-md">{s.source}</span>}
               {canEdit && (
-                <Button variant="ghost" size="sm" onClick={() => onDeleteSong(s.id, s.title)} disabled={pending}>×</Button>
+                <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+                  <button
+                    type="button"
+                    onClick={() => onMoveSong(s.id, -1)}
+                    disabled={pending || isFirst}
+                    title="Move up"
+                    className="text-[10px] px-1 text-ink-tertiary hover:text-ink-primary disabled:opacity-30 disabled:cursor-not-allowed"
+                  >
+                    ↑
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onMoveSong(s.id, 1)}
+                    disabled={pending || isLast}
+                    title="Move down"
+                    className="text-[10px] px-1 text-ink-tertiary hover:text-ink-primary disabled:opacity-30 disabled:cursor-not-allowed"
+                  >
+                    ↓
+                  </button>
+                  <Button variant="ghost" size="sm" onClick={() => onDeleteSong(s.id, s.title)} disabled={pending}>×</Button>
+                </div>
               )}
             </li>
           );

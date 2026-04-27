@@ -11,7 +11,7 @@
 - **Repo:** [SpaceToast1738/wedding-hub](https://github.com/SpaceToast1738/wedding-hub) · `claude/main` (releases) + `dev` (work-in-progress)
 - **Stack:** Next.js 15 · TypeScript · Tailwind v4 · Prisma · Postgres 16 · Auth.js v5 · Caddy · Docker Compose
 - **Working tree:** `C:\Users\Admin\Code\wedding-hub` (local SSD). The old `\\TOWER\Jamie Spencer\Claude\wedding-hub` mirror is no longer in use — run `Remove-Item -Recurse -Force "\\TOWER\Jamie Spencer\Claude\wedding-hub"` from a fresh PowerShell to delete it.
-- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` at **v0.14.0**, promoted 27 Apr 2026). v0.15.0 (this iteration on `dev`) closes **Phase G** with **day-of mode** at `/today/day-of` — live timeline (now/next/past auto-computed from current time vs schedule), tappable day-of contacts pulled from booked suppliers, catering aggregates, and quick links. Also ships **quick-capture** — press `C` from anywhere to drop a Task / Question / Event into the right list. No new env vars; no migration.
+- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` at **v0.14.0**, promoted 27 Apr 2026). v1.0.0 (this iteration on `dev`) is the **first release-1 design polish** — all 12 prototype pages now match the design brief in structure and interaction. Polished: Today (countdown unit toggle, RSVP snapshot strip, persona filter on events), Tasks (kanban view), Schedule (vertical timeline + print), Suppliers (detail page with contacts/contracts/communications), Questions (type/priority filters + search), Budget (collapsible categories + stacked progress bar), Files (type filter pills + image thumbnails), Songs (in-playlist reorder), Wedding-party section (seeded), Book (on-page anchor nav). Also closed Phase G2 (day-of mode + quick-capture) along the way.
 
 ## Phase status
 
@@ -34,6 +34,7 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
+| _(unreleased on `dev`)_ | 2026-04-27 | [v1.0.0 — Release-1 design polish across all pages](#2026-04-27--v100--release-1-design-polish-across-all-pages) |
 | _(unreleased on `dev`)_ | 2026-04-27 | [v0.15.0 — Phase G2 day-of mode + quick-capture](#2026-04-27--v0150--phase-g2-day-of-mode--quick-capture) |
 | **v0.14.0** | 2026-04-27 | [Phase G1 Spotify playlist sync](#2026-04-27--v0140--phase-g1-spotify-playlist-sync) |
 | v0.13.0 | 2026-04-27 | [Phase F2 photography shot list](#2026-04-27--v0130--phase-f2-photography-shot-list) |
@@ -228,11 +229,61 @@ When wrapping up a meaningful iteration:
 
 ### Current version
 
-`0.15.0` on `dev`, `claude/main` at `v0.14.0`. No schema or env changes — promote when day-of mode + quick-capture have been smoke-tested in dev. `C` shortcut should pop the modal from any page; the day-of page should render even before the wedding date.
+`1.0.0` on `dev`, `claude/main` at `v0.14.0`. **Release-1 cut.** Promote when the polish has been smoke-tested in dev — every domain page got a structural change so it's worth opening each one. No schema or env changes since v0.14.0.
 
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-27 · v1.0.0 — Release-1 design polish across all pages
+
+A focused pass through every domain page to close the gap between the prototype and the live app. After this release, the design audit produces "no significant gaps" — pages have moved from functional to polished.
+
+**Today** ([page.tsx](src/app/(app)/page.tsx) + [CountdownCard.tsx](src/app/(app)/CountdownCard.tsx) + [TodayEventsCard.tsx](src/app/(app)/TodayEventsCard.tsx))
+- Countdown card has a months/weeks/days segmented toggle, persisted to `localStorage` (`wh_countdown_unit`).
+- "Mine" / "Everyone" persona filter on the upcoming-events card; "Mine" matches `ScheduleEvent.audience` against the session-user role with sensible aliases (couple ↔ bride/groom, wedding_party ↔ party, planner ↔ suppliers).
+- New RSVP / catering snapshot strip beneath the columns: invited / attending / pending / declined / dietary / children + highchairs — picked up via a `groupBy` on `Guest.rsvp` and a single dietary flatten.
+
+**Tasks** ([TaskBoard.tsx](src/app/(app)/tasks/TaskBoard.tsx))
+- New `Board` view alongside `List`. Three columns (To do / Doing / Done) with subtle accent left-borders. `WAITING` shows in Doing; `ARCHIVED` is hidden.
+- Each card: priority dot, title, due-date (with overdue red), tag chips (max 2), assignee avatar, and three move buttons that change status with one click. No drag-drop in v1.0 — the click-to-move buttons are accessible and keyboard-friendly, which beats half-broken DnD.
+- View choice persists to `localStorage` (`wh_tasks_view`).
+
+**Schedule** ([ScheduleTimeline.tsx](src/app/(app)/schedule/ScheduleTimeline.tsx) + [EventNode.tsx](src/app/(app)/schedule/EventNode.tsx))
+- Vertical timeline with a left-aligned hairline rule and round node markers on each event. Events grouped by calendar day with a sticky date header.
+- Print button on the page header — reuses the existing `@media print` plumbing via a new `.schedule-page` print scope and a print-only letterhead. Schedule prints clean on A4 with day headers preserved and edit affordances hidden.
+
+**Suppliers detail** ([suppliers/[id]/page.tsx](src/app/(app)/suppliers/[id]/page.tsx) + [SupplierDetailClient.tsx](src/app/(app)/suppliers/[id]/SupplierDetailClient.tsx))
+- Click any supplier name → full detail page with status, agreed/paid/outstanding tiles, **contacts** (with mailto + tel links + primary toggle that auto-unmarks others), **contracts** (signed-or-pending pill, amount, signed-on date, notes), **communications log** (channel icon, summary, follow-up date, relative time), and a read-only payment list linked to `/payments`.
+- Five new server actions (`createSupplierContact`, `createSupplierContract`, `createSupplierCommunication`, plus `delete*` siblings), all gated by `requireEdit("suppliers")` and audited.
+- Setting a contact as Primary auto-clears any other primary on that supplier — used by the day-of-mode contacts panel which picks the primary contact.
+
+**Questions** ([QuestionsClient.tsx](src/app/(app)/questions/QuestionsClient.tsx))
+- Search box + Type filter pills (All / Questions / Decisions) + Priority filter pills (All / High / Med / Low). Filters compose; empty result state is preserved per filter set.
+- Section headers (Open / Answered) only render when their bucket has items after filtering, so the page never has lonely "Open" headings.
+
+**Budget** ([BudgetClient.tsx](src/app/(app)/budget/BudgetClient.tsx))
+- Categories are collapsible — header shows line count + per-category Planned/Paid subtotals on wide viewports.
+- Summary bar gains a stacked progress bar: paid (moss) layered over committed/actual (marigold), with percentage labels and an "⚠ Actual exceeds planned by £X" callout when applicable.
+
+**Files** ([FilesClient.tsx](src/app/(app)/files/FilesClient.tsx))
+- Type filter pills (All / Images / PDFs / Documents / Other) with live counts.
+- Image files render inline thumbnails (via `/api/files/[id]`) replacing the 🖼 icon — couple can scan a folder of photos visually rather than by filename.
+
+**Songs** ([PlaylistCard.tsx](src/app/(app)/songs/PlaylistCard.tsx) + new `moveSong` action)
+- Each song shows its position number and reveals up/down arrow buttons on hover — matches the photography shot list reorder pattern.
+- Spotify-synced rows are still safe to reorder; a re-sync wholesale-replaces synced rows so the order resets to Spotify's, which is intentional and documented.
+
+**Wedding party section** ([prisma/seed.ts](prisma/seed.ts))
+- New `wedding-party` BookSection with five seeded subsections (Roles / Outfits / Ring keepers / Stag & Hen / Day-of logistics). Idempotent: only seeds when the section is empty, so re-running `db:seed` never overwrites real notes.
+- Renders through the existing `/book/[slug]` editor — no special-case route needed, in contrast to `/book/photography` which has a custom checklist UI.
+
+**Book on-page anchors** ([book/[slug]/page.tsx](src/app/(app)/book/[slug]/page.tsx))
+- Sticky "On this page" pill row at the top of every section with subsection links. Each `SubsectionEditor` renders an `id={sub.slug}` and `scroll-mt-24` so anchor navigation lands cleanly below the page header.
+
+**Why 1.0.0** — the original criterion was "good for the wedding day itself, after the rehearsal data is real." The data is real (CSV imports landed), the day-of view is wired, every page in the prototype has a faithful counterpart, and the polish gap from the design audit has been closed. There's still a deferred backlog (audit log viewer, custom-fields UI, seating constraints, glance dashboard) but none of it is load-bearing for the wedding. Pre-1.0 caveat in the versioning section is satisfied. We're calling 1.0.0 from here.
+
+No schema changes; no env-var changes. typecheck + lint + build all clean.
 
 ### 2026-04-27 · v0.15.0 — Phase G2: day-of mode + quick-capture
 

@@ -83,3 +83,142 @@ export async function deleteSupplier(id: string) {
   await audit(user, { action: "delete", entity: "Supplier", entityId: id });
   revalidatePath("/suppliers");
 }
+
+// ── Supplier sub-resources ────────────────────────────────────────────────
+
+const contactSchema = z.object({
+  supplierId: z.string().min(1),
+  name: z.string().min(1).max(200),
+  role: z.string().max(100).optional().nullable(),
+  email: z.string().max(200).optional().nullable(),
+  phone: z.string().max(50).optional().nullable(),
+  primary: z.boolean().optional(),
+});
+
+export async function createSupplierContact(formData: FormData) {
+  const user = await requireEdit("suppliers");
+  const parsed = contactSchema.parse({
+    supplierId: formData.get("supplierId"),
+    name: formData.get("name"),
+    role: formData.get("role") || null,
+    email: formData.get("email") || null,
+    phone: formData.get("phone") || null,
+    primary: formData.get("primary") === "on",
+  });
+
+  // If marking primary, unmark any other contact on this supplier first.
+  await db.$transaction([
+    ...(parsed.primary
+      ? [db.supplierContact.updateMany({
+          where: { supplierId: parsed.supplierId, primary: true },
+          data: { primary: false },
+        })]
+      : []),
+    db.supplierContact.create({
+      data: {
+        supplierId: parsed.supplierId,
+        name: parsed.name,
+        role: parsed.role ?? null,
+        email: parsed.email ?? null,
+        phone: parsed.phone ?? null,
+        primary: !!parsed.primary,
+      },
+    }),
+  ]);
+  await audit(user, { action: "create", entity: "SupplierContact", metadata: { supplierId: parsed.supplierId } });
+  revalidatePath(`/suppliers/${parsed.supplierId}`);
+  revalidatePath("/today/day-of");
+}
+
+export async function deleteSupplierContact(id: string, supplierId: string) {
+  const user = await requireEdit("suppliers");
+  await db.supplierContact.delete({ where: { id } });
+  await audit(user, { action: "delete", entity: "SupplierContact", entityId: id });
+  revalidatePath(`/suppliers/${supplierId}`);
+  revalidatePath("/today/day-of");
+}
+
+const communicationSchema = z.object({
+  supplierId: z.string().min(1),
+  channel: z.enum(["email", "call", "meeting", "message"]),
+  summary: z.string().min(1).max(5000),
+  followUpAt: z.string().optional().nullable(),
+});
+
+export async function createSupplierCommunication(formData: FormData) {
+  const user = await requireEdit("suppliers");
+  const parsed = communicationSchema.parse({
+    supplierId: formData.get("supplierId"),
+    channel: formData.get("channel"),
+    summary: formData.get("summary"),
+    followUpAt: formData.get("followUpAt") || null,
+  });
+  const followUpAt = parsed.followUpAt ? new Date(parsed.followUpAt) : null;
+  const created = await db.supplierCommunication.create({
+    data: {
+      supplierId: parsed.supplierId,
+      channel: parsed.channel,
+      summary: parsed.summary,
+      followUpAt,
+      createdById: user.id,
+    },
+  });
+  await audit(user, {
+    action: "create",
+    entity: "SupplierCommunication",
+    entityId: created.id,
+    metadata: { supplierId: parsed.supplierId, channel: parsed.channel },
+  });
+  revalidatePath(`/suppliers/${parsed.supplierId}`);
+}
+
+export async function deleteSupplierCommunication(id: string, supplierId: string) {
+  const user = await requireEdit("suppliers");
+  await db.supplierCommunication.delete({ where: { id } });
+  await audit(user, { action: "delete", entity: "SupplierCommunication", entityId: id });
+  revalidatePath(`/suppliers/${supplierId}`);
+}
+
+const contractSchema = z.object({
+  supplierId: z.string().min(1),
+  signed: z.boolean().optional(),
+  signedAt: z.string().optional().nullable(),
+  amount: z.string().optional().nullable(),
+  notes: z.string().max(2000).optional().nullable(),
+});
+
+export async function createSupplierContract(formData: FormData) {
+  const user = await requireEdit("suppliers");
+  const parsed = contractSchema.parse({
+    supplierId: formData.get("supplierId"),
+    signed: formData.get("signed") === "on",
+    signedAt: formData.get("signedAt") || null,
+    amount: formData.get("amount") || null,
+    notes: formData.get("notes") || null,
+  });
+  const signedAt = parsed.signedAt ? new Date(parsed.signedAt) : parsed.signed ? new Date() : null;
+  const amount = parsed.amount ? parseAmount(parsed.amount) : null;
+  const created = await db.supplierContract.create({
+    data: {
+      supplierId: parsed.supplierId,
+      signed: !!parsed.signed,
+      signedAt,
+      amount,
+      notes: parsed.notes ?? null,
+    },
+  });
+  await audit(user, {
+    action: "create",
+    entity: "SupplierContract",
+    entityId: created.id,
+    metadata: { supplierId: parsed.supplierId },
+  });
+  revalidatePath(`/suppliers/${parsed.supplierId}`);
+}
+
+export async function deleteSupplierContract(id: string, supplierId: string) {
+  const user = await requireEdit("suppliers");
+  await db.supplierContract.delete({ where: { id } });
+  await audit(user, { action: "delete", entity: "SupplierContract", entityId: id });
+  revalidatePath(`/suppliers/${supplierId}`);
+}

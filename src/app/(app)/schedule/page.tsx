@@ -2,8 +2,12 @@ import { db } from "@/lib/db";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { canEdit } from "@/lib/permissions";
 import { requireUser } from "@/lib/actions";
-import { EventRow } from "./EventRow";
+import { ScheduleTimeline } from "./ScheduleTimeline";
 import { AddEventToggle } from "./AddEventToggle";
+import { PrintScheduleButton } from "./PrintScheduleButton";
+
+const WEDDING_VENUE = process.env.WEDDING_VENUE ?? "Alveston Manor";
+const COUPLE_NAME = process.env.WEDDING_COUPLE ?? "Spencer · Olwyn-Davis Wedding";
 
 export default async function SchedulePage() {
   const user = await requireUser();
@@ -21,20 +25,40 @@ export default async function SchedulePage() {
       <PageHeader
         title="Schedule"
         subtitle={`${total} events · ${upcoming} upcoming`}
-        actions={editable ? <AddEventToggle /> : undefined}
+        actions={
+          <>
+            <PrintScheduleButton />
+            {editable && <AddEventToggle />}
+          </>
+        }
       />
-      <div className="flex-1 overflow-auto">
+      <div className="flex-1 overflow-auto schedule-page">
         <div className="max-w-3xl mx-auto px-6 py-6">
+          {/* Print-only letterhead */}
+          <div className="print-only-block border-b-2 border-ink-primary pb-3 mb-6">
+            <h1 className="font-display text-2xl text-ink-primary">{COUPLE_NAME}</h1>
+            <div className="text-xs text-ink-tertiary mt-1">
+              Running schedule · {WEDDING_VENUE}
+            </div>
+          </div>
+
           {events.length === 0 ? (
             <p className="text-sm text-ink-tertiary text-center py-12">
               No events yet. {editable && "Add the first one above."}
             </p>
           ) : (
-            <ol className="bg-surface border border-border-soft rounded-md shadow-sm divide-y divide-border-soft px-3">
-              {events.map((e) => (
-                <EventRow key={e.id} event={e} canEditSection={editable} />
-              ))}
-            </ol>
+            <ScheduleTimeline
+              events={events.map((e) => ({
+                id: e.id,
+                title: e.title,
+                startTime: e.startTime,
+                endTime: e.endTime,
+                location: e.location,
+                audience: e.audience,
+                notes: e.notes,
+              }))}
+              canEdit={editable}
+            />
           )}
         </div>
       </div>

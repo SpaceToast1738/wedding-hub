@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import Link from "next/link";
 import { Button } from "@/components/ui/Button";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { SupplierForm } from "./SupplierForm";
@@ -75,7 +76,13 @@ export function SupplierCard({ supplier, canEdit }: { supplier: Supplier; canEdi
     <div className="bg-surface border border-border-soft rounded-md p-4 shadow-sm flex flex-col gap-2">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <div className="text-sm font-semibold text-ink-primary truncate">{supplier.name}</div>
+          <Link
+            href={`/suppliers/${supplier.id}`}
+            className="text-sm font-semibold text-ink-primary truncate hover:text-moss-700 hover:underline"
+            title="Open supplier details"
+          >
+            {supplier.name}
+          </Link>
           <div className="text-xs text-ink-tertiary">{supplier.category}</div>
         </div>
         <StatusPill status={STATUS_TO_PILL[supplier.status] ?? "LEAD"} label={supplier.status.toLowerCase()} />

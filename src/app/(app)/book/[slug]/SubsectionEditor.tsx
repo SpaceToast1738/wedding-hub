@@ -30,7 +30,7 @@ export function SubsectionEditor({ sub, canEdit }: { sub: Sub; canEdit: boolean 
   }
 
   return (
-    <article className="bg-surface border border-border-soft rounded-md shadow-sm p-5">
+    <article id={sub.slug} className="bg-surface border border-border-soft rounded-md shadow-sm p-5 scroll-mt-24">
       {canEdit ? (
         <Input
           value={title}

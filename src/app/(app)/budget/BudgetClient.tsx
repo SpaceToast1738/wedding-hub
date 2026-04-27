@@ -68,18 +68,60 @@ function SummaryBar({ totals, remaining }: { totals: { estimated: number; actual
       </div>
     </div>
   );
+
+  // Stacked progress: paid (moss) + (actual - paid) outstanding (marigold)
+  // shown against the planned total. If actual > planned the bar caps at
+  // the actual total instead and we surface a small "over" note.
+  const denominator = Math.max(totals.estimated, totals.actual);
+  const paidPct = denominator === 0 ? 0 : (totals.paid / denominator) * 100;
+  const actualPct = denominator === 0 ? 0 : (totals.actual / denominator) * 100;
+  const overBudget = totals.actual > totals.estimated && totals.estimated > 0;
+
   return (
-    <div className="flex flex-wrap gap-3">
-      <Tile label="Planned" value={formatMoneyDecimal(totals.estimated as unknown as { toString(): string })} />
-      <Tile label="Actual" value={formatMoneyDecimal(totals.actual as unknown as { toString(): string })} />
-      <Tile label="Paid" value={formatMoneyDecimal(totals.paid as unknown as { toString(): string })} accent="text-moss-700" />
-      <Tile label="Outstanding" value={formatMoneyDecimal(remaining as unknown as { toString(): string })} accent={remaining > 0 ? "text-marigold-700" : "text-ink-primary"} />
+    <div className="space-y-3">
+      <div className="flex flex-wrap gap-3">
+        <Tile label="Planned" value={formatMoneyDecimal(totals.estimated as unknown as { toString(): string })} />
+        <Tile label="Actual" value={formatMoneyDecimal(totals.actual as unknown as { toString(): string })} accent={overBudget ? "text-danger" : "text-ink-primary"} />
+        <Tile label="Paid" value={formatMoneyDecimal(totals.paid as unknown as { toString(): string })} accent="text-moss-700" />
+        <Tile label="Outstanding" value={formatMoneyDecimal(remaining as unknown as { toString(): string })} accent={remaining > 0 ? "text-marigold-700" : "text-ink-primary"} />
+      </div>
+      {denominator > 0 && (
+        <div>
+          <div className="relative h-2 bg-canvas border border-border-soft rounded-full overflow-hidden">
+            <div
+              className="absolute inset-y-0 left-0 bg-marigold-500"
+              style={{ width: `${Math.min(actualPct, 100)}%` }}
+              aria-hidden
+            />
+            <div
+              className="absolute inset-y-0 left-0 bg-moss-500"
+              style={{ width: `${Math.min(paidPct, 100)}%` }}
+              aria-hidden
+            />
+          </div>
+          <div className="text-[11px] text-ink-tertiary mt-1.5 flex justify-between flex-wrap gap-2">
+            <span>
+              <span className="inline-block w-2 h-2 rounded-full bg-moss-500 mr-1 align-middle" />
+              Paid {paidPct.toFixed(0)}%
+              <span className="mx-2">·</span>
+              <span className="inline-block w-2 h-2 rounded-full bg-marigold-500 mr-1 align-middle" />
+              Committed {actualPct.toFixed(0)}%
+            </span>
+            {overBudget && (
+              <span className="text-danger font-medium">
+                ⚠ Actual exceeds planned by {formatMoneyDecimal((totals.actual - totals.estimated) as unknown as { toString(): string })}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
 function CategoryBlock({ category, suppliers }: { category: Category; suppliers: Supplier[] }) {
   const [adding, setAdding] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
   const [pending, startTransition] = useTransition();
 
   function onDeleteCat() {
@@ -93,15 +135,44 @@ function CategoryBlock({ category, suppliers }: { category: Category; suppliers:
     });
   }
 
+  // Subtotals so the user gets per-category numbers without having to scan rows.
+  const subtotals = category.lines.reduce(
+    (acc, l) => ({
+      estimated: acc.estimated + num(l.estimated),
+      actual: acc.actual + num(l.actual),
+      paid: acc.paid + num(l.paid),
+    }),
+    { estimated: 0, actual: 0, paid: 0 },
+  );
+
   return (
     <section className="bg-surface border border-border-soft rounded-md shadow-sm">
-      <div className="flex items-center justify-between px-4 py-2.5 border-b border-border-soft">
-        <h2 className="text-sm font-semibold text-ink-primary">{category.name}</h2>
-        <div className="flex gap-1">
+      <div className="flex items-center justify-between px-4 py-2.5 border-b border-border-soft gap-2">
+        <button
+          type="button"
+          onClick={() => setCollapsed((v) => !v)}
+          className="flex items-baseline gap-2 flex-1 text-left hover:text-moss-700"
+          aria-expanded={!collapsed}
+        >
+          <span className="text-ink-tertiary text-xs">{collapsed ? "▸" : "▾"}</span>
+          <h2 className="text-sm font-semibold text-ink-primary">{category.name}</h2>
+          <span className="text-[11px] text-ink-tertiary">
+            {category.lines.length} {category.lines.length === 1 ? "line" : "lines"}
+          </span>
+          <span className="flex-1" />
+          <span className="text-xs text-ink-secondary tabular-nums hidden sm:inline">
+            Planned {formatMoneyDecimal(subtotals.estimated as unknown as { toString(): string })}
+          </span>
+          <span className="text-xs text-moss-700 tabular-nums font-medium hidden sm:inline">
+            Paid {formatMoneyDecimal(subtotals.paid as unknown as { toString(): string })}
+          </span>
+        </button>
+        <div className="flex gap-1 flex-shrink-0">
           <Button variant="ghost" size="sm" onClick={() => setAdding(true)} disabled={pending}>+ Line</Button>
           <Button variant="ghost" size="sm" onClick={onDeleteCat} disabled={pending}>Delete</Button>
         </div>
       </div>
+      {!collapsed && (
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
@@ -126,6 +197,7 @@ function CategoryBlock({ category, suppliers }: { category: Category; suppliers:
           </tbody>
         </table>
       </div>
+      )}
       {adding && (
         <div className="border-t border-border-soft p-3">
           <NewLineForm

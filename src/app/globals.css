@@ -185,6 +185,15 @@ kbd {
     padding: 0 !important;
     color: #000;
   }
+
+  /* Schedule print: keep the timeline visual but force black ink, lighter
+     borders, and avoid mid-event page breaks. */
+  .schedule-page {
+    max-width: none !important;
+    padding: 0 !important;
+    color: #000;
+  }
+  .schedule-page ol { border-color: #999 !important; }
   .photography-page input[type="checkbox"] {
     /* Ensure the box prints as a hollow square even if browser drops it. */
     appearance: none;

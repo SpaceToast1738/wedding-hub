@@ -4,6 +4,7 @@ import { useMemo, useRef, useState, useTransition } from "react";
 import { FileVisibility } from "@prisma/client";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
+import { Tag } from "@/components/ui/Tag";
 import { deleteFile, updateFile, uploadFile } from "./actions";
 import { formatDate } from "@/lib/format";
 
@@ -60,6 +61,15 @@ function groupByFolder(files: FileRow[]): Array<{ key: string; label: string; fi
   }));
 }
 
+type TypeFilter = "all" | "image" | "pdf" | "doc" | "other";
+
+function typeBucket(mime: string): TypeFilter {
+  if (/^image\//.test(mime)) return "image";
+  if (/^application\/pdf$/.test(mime)) return "pdf";
+  if (/word|spreadsheet|presentation|officedocument|^text\//.test(mime)) return "doc";
+  return "other";
+}
+
 export function FilesClient({
   files,
   canEdit,
@@ -69,20 +79,48 @@ export function FilesClient({
   canEdit: boolean;
   isCouple: boolean;
 }) {
-  const groups = useMemo(() => groupByFolder(files), [files]);
+  const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
   const folderNames = useMemo(
     () => Array.from(new Set(files.map((f) => f.folder).filter((f): f is string => !!f))).sort(),
     [files],
   );
+
+  const filtered = useMemo(() => {
+    if (typeFilter === "all") return files;
+    return files.filter((f) => typeBucket(f.mimeType) === typeFilter);
+  }, [files, typeFilter]);
+
+  const groups = useMemo(() => groupByFolder(filtered), [filtered]);
+
+  // Type counts for filter pills
+  const counts = useMemo(() => {
+    const c = { all: files.length, image: 0, pdf: 0, doc: 0, other: 0 };
+    for (const f of files) c[typeBucket(f.mimeType)]++;
+    return c;
+  }, [files]);
 
   return (
     <div className="flex-1 overflow-auto">
       <div className="max-w-5xl mx-auto p-6 space-y-5">
         {canEdit && <UploadDropzone folderNames={folderNames} isCouple={isCouple} />}
 
+        {files.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 items-center">
+            <Tag label={`All (${counts.all})`} active={typeFilter === "all"} onClick={() => setTypeFilter("all")} />
+            {counts.image > 0 && <Tag label={`🖼 Images (${counts.image})`} active={typeFilter === "image"} onClick={() => setTypeFilter("image")} />}
+            {counts.pdf > 0 && <Tag label={`📄 PDFs (${counts.pdf})`} active={typeFilter === "pdf"} onClick={() => setTypeFilter("pdf")} />}
+            {counts.doc > 0 && <Tag label={`📝 Documents (${counts.doc})`} active={typeFilter === "doc"} onClick={() => setTypeFilter("doc")} />}
+            {counts.other > 0 && <Tag label={`📎 Other (${counts.other})`} active={typeFilter === "other"} onClick={() => setTypeFilter("other")} />}
+          </div>
+        )}
+
         {files.length === 0 ? (
           <p className="text-sm text-ink-tertiary text-center py-12">
             No files yet. {canEdit && "Drop your first one above."}
+          </p>
+        ) : filtered.length === 0 ? (
+          <p className="text-sm text-ink-tertiary text-center py-12">
+            No files match this filter.
           </p>
         ) : (
           groups.map((g) => (
@@ -194,9 +232,21 @@ function FileItem({
     );
   }
 
+  const isImage = /^image\//.test(file.mimeType);
+
   return (
     <li className="flex items-center gap-3 px-4 py-2.5 group hover:bg-muted/30">
-      <span className="text-base flex-shrink-0">{iconFor(file.mimeType)}</span>
+      {isImage ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={`/api/files/${file.id}`}
+          alt=""
+          className="w-9 h-9 rounded-sm object-cover bg-muted border border-border-soft flex-shrink-0"
+          loading="lazy"
+        />
+      ) : (
+        <span className="text-base flex-shrink-0">{iconFor(file.mimeType)}</span>
+      )}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
           <a
