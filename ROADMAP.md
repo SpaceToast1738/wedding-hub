@@ -11,7 +11,7 @@
 - **Repo:** [SpaceToast1738/wedding-hub](https://github.com/SpaceToast1738/wedding-hub) · `claude/main` (releases) + `dev` (work-in-progress)
 - **Stack:** Next.js 15 · TypeScript · Tailwind v4 · Prisma · Postgres 16 · Auth.js v5 · Caddy · Docker Compose
 - **Working tree:** `C:\Users\Admin\Code\wedding-hub` (local SSD). The old `\\TOWER\Jamie Spencer\Claude\wedding-hub` mirror is no longer in use — run `Remove-Item -Recurse -Force "\\TOWER\Jamie Spencer\Claude\wedding-hub"` from a fresh PowerShell to delete it.
-- **Current state:** v0.3.1 on `claude/main` (direct-Caddy / port-forward setup). `dev` ahead with the production deploy-config: Cloudflare Tunnel mode, GHCR-built image (`ghcr.io/spacetoast1738/wedding-hub:dev`), GitHub Actions CI for image builds, br0 macvlan with static IP for Caddy, absolute bind-mount paths for Compose Manager Plus.
+- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com — deployed from `dev` on 27 April 2026, 152 days out from the wedding. Jamie's signed in, Resend delivers magic links, the 4-service stack is stable on Unraid behind a Cloudflare Tunnel. Repo `dev` is at v0.3.2; `claude/main` still at v0.3.1 (pre-deploy-config refactor).
 
 ## Phase status
 
@@ -91,12 +91,18 @@ Ranked roughly by usefulness × ease.
 
 ## Open questions / risks
 
-- **Real-world emails for the 5 users** — `.env.production.example` and seed.ts use placeholder addresses. Jamie's known (`jspencer1706@outlook.com`); Bryony / Josh / Aimee / planner are unknown. Set `USER_*_EMAIL` and `AUTH_ALLOWED_EMAILS` before first deploy.
-- **First container start on Unraid not yet verified** — CI builds the image on push, but the first `docker compose pull && up -d` on the Unraid host hasn't run. Likely catch-points: macvlan IP collision on `192.168.50.25`, bind-mount perms, GHCR pull auth if the package is private.
-- **SMTP provider** — Resend recommended (no card, 100/day free). SPF/DKIM record on `spencer-net.com` needed before mail won't land in spam. Magic-link URLs print to `docker compose logs web` until SMTP is set.
-- **Cloudflared stack** must be configured (separate stack on `br0`) with a tunnel public hostname → `http://192.168.50.25:80` before the app is reachable from the internet.
-- **Bind-mount permissions** — pre-create `/mnt/user/appdata/wedding-hub/backups` with `chown 1000:1000` before first `docker compose up`, otherwise the backup container can't write.
-- **Backup off-host strategy** — backups land on the Unraid box. A full Unraid failure would lose them. rclone / restic / parity sync to a second array is still TBD.
+- **Add the rest of the wedding party to `AUTH_ALLOWED_EMAILS`** — currently only Jamie can sign in. Bryony / Josh / Aimee / planner addresses still need to be collected and added (Compose Manager Plus → Edit Stack → .ENV tab → save → **Up**).
+- **Backup verification** — the `backup` container is configured but no run has been observed yet (first scheduled at next `@daily`). Worth checking `/mnt/user/appdata/wedding-hub/backups/` after 24h to confirm it works.
+- **Off-site backup** — backups land on the Unraid box. A full Unraid failure would lose them. rclone / restic / parity sync to a second array is still TBD.
+- **Sender domain decision** — currently sending from `noreply@spencer-net.com` (apex, DKIM aligns there). If a wedding-themed sender like `noreply@wedding.spencer-net.com` is preferred, add a separate DKIM record on the subdomain in Cloudflare DNS.
+- **Cloudflare Access policy alignment** — if a CF Access policy is in front of the hostname, its email allowlist must match `AUTH_ALLOWED_EMAILS`, otherwise users get bounced at Cloudflare's gate before they see the magic-link page.
+
+### Resolved during the 27 April 2026 deploy
+
+- ~~First container start on Unraid not yet verified~~ — done; production stack is up.
+- ~~SMTP provider~~ — Resend, configured with API key and DKIM via Cloudflare integration.
+- ~~Cloudflared stack must be configured~~ — done; tunnel route → `192.168.50.25:80`.
+- ~~Bind-mount permissions~~ — pre-created at `/mnt/user/appdata/wedding-hub/backups` with UID 1000.
 
 ## Conventions
 
@@ -176,11 +182,31 @@ When wrapping up a meaningful iteration:
 
 ### Current version
 
-`0.3.1` — Phase C + deploy-readiness fixes. Next bumps land as part of whichever phase or fix ships next.
+`0.3.2` on `dev` — post-deploy back-ports + CLAUDE.md context file. `claude/main` still at `0.3.1`; promote when the next chunk is ready.
 
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-27 · v0.3.2 — 🚀 Live on Unraid + post-deploy back-ports
+
+The app is **live in production at https://wedding.spencer-net.com**. Jamie signed in via Resend-delivered magic link; full 4-service stack stable on the Unraid box behind a Cloudflare Tunnel.
+
+Issues caught during the live deploy that have now been back-ported to the repo:
+
+- **`db` service: removed `user: "999:999"`.** `postgres:16-alpine`'s built-in `postgres` user is UID 70. Forcing 999 made `initdb` fail with "Operation not permitted" on the data dir.
+- **`db` healthcheck: `start_period: 10s` → `60s`, `retries: 5` → `10`.** `initdb`'s shutdown checkpoint takes ~22s on a slow Unraid array (sync=21s observed). The old timing made the orchestrator give up before postgres was actually ready.
+- **`public/.gitkeep` committed** so the Dockerfile `COPY /app/public ./public` succeeds even though the project has no static assets yet.
+- **`Dockerfile`: `--chown=nextjs:nodejs` → `--chown=node:node`** to match the `USER node` directive (the `nextjs` user was removed when we adopted alpine's prebuilt `node` user but the chown args were left dangling).
+- **`CLAUDE.md` added at repo root** — context file for future Claude Code sessions, covering the Unraid topology, do-not-do list, branching, and where-to-look-when-things-break table. Generated from the deploy-session debrief.
+
+Live deploy decisions (no repo change required, captured here for the record):
+
+- **Cloudflare Tunnel** + Resend for SMTP (apex sender, DKIM via Cloudflare integration)
+- **GHCR private package**, Unraid host logged in with classic PAT (`read:packages`)
+- **Compose Manager Plus** stack at `/boot/config/plugins/compose.manager/projects/wedding-hub/`
+- **Caddy static IP `192.168.50.25` on `br0`**, tunnel routes `wedding.spencer-net.com` → that IP:80
+- **Allowed users:** just Jamie for now; rest added when their addresses are confirmed
 
 ### 2026-04-27 · Deploy-config rewired for Cloudflare Tunnel + GHCR
 On `dev`, no version bump (deployment-environment changes only — app code unchanged from v0.3.1).

@@ -86,7 +86,9 @@ services:
     image: postgres:16-alpine
     restart: unless-stopped
     logging: *default-logging
-    user: "999:999"
+    # No `user:` directive — postgres:16-alpine's built-in `postgres` user is
+    # UID 70. Forcing 999:999 (or any non-70 UID) makes `initdb` fail with
+    # "could not change permissions of directory ... Operation not permitted".
     networks:
       - internal
     environment:
@@ -97,10 +99,13 @@ services:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U wedding -d wedding_hub"]
+      # initdb's shutdown checkpoint can take ~22s on a slow Unraid array
+      # (sync=21s observed on first boot). 60s start_period + 10 retries gives
+      # the orchestrator ample time before declaring the container unhealthy.
       interval: 10s
       timeout: 5s
-      retries: 5
-      start_period: 10s
+      retries: 10
+      start_period: 60s
     security_opt:
       - no-new-privileges:true
 
