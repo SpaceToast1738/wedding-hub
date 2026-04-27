@@ -11,7 +11,7 @@
 - **Repo:** [SpaceToast1738/wedding-hub](https://github.com/SpaceToast1738/wedding-hub) · `claude/main` (releases) + `dev` (work-in-progress)
 - **Stack:** Next.js 15 · TypeScript · Tailwind v4 · Prisma · Postgres 16 · Auth.js v5 · Caddy · Docker Compose
 - **Working tree:** `C:\Users\Admin\Code\wedding-hub` (local SSD). The old `\\TOWER\Jamie Spencer\Claude\wedding-hub` mirror is no longer in use — run `Remove-Item -Recurse -Force "\\TOWER\Jamie Spencer\Claude\wedding-hub"` from a fresh PowerShell to delete it.
-- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` at **v0.14.0**, promoted 27 Apr 2026). v1.0.0 (this iteration on `dev`) is the **first release-1 design polish** — all 12 prototype pages now match the design brief in structure and interaction. Polished: Today (countdown unit toggle, RSVP snapshot strip, persona filter on events), Tasks (kanban view), Schedule (vertical timeline + print), Suppliers (detail page with contacts/contracts/communications), Questions (type/priority filters + search), Budget (collapsible categories + stacked progress bar), Files (type filter pills + image thumbnails), Songs (in-playlist reorder), Wedding-party section (seeded), Book (on-page anchor nav). Also closed Phase G2 (day-of mode + quick-capture) along the way.
+- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` at **v1.0.0**, promoted 27 Apr 2026). 🎉 **Release 1 cut.** Every page from the prototype has a polished counterpart: Today (countdown toggle + RSVP snapshot + persona filter), Tasks (kanban + list), Schedule (vertical timeline + print), Suppliers (full detail with contacts/contracts/communications), Questions (filters + search), Budget (collapsible + stacked progress bar), Files (type filter + image thumbnails), Songs (in-playlist reorder + Spotify mirror), Seating (drag canvas), Guests (CSV import + detail page + catering brief), Book (anchor nav + photography shot list + wedding-party section), Settings (permission matrix + profile). Day-of mode + global quick-capture (`C`) round it out.
 
 ## Phase status
 
@@ -34,9 +34,9 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| _(unreleased on `dev`)_ | 2026-04-27 | [v1.0.0 — Release-1 design polish across all pages](#2026-04-27--v100--release-1-design-polish-across-all-pages) |
-| _(unreleased on `dev`)_ | 2026-04-27 | [v0.15.0 — Phase G2 day-of mode + quick-capture](#2026-04-27--v0150--phase-g2-day-of-mode--quick-capture) |
-| **v0.14.0** | 2026-04-27 | [Phase G1 Spotify playlist sync](#2026-04-27--v0140--phase-g1-spotify-playlist-sync) |
+| **v1.0.0** | 2026-04-27 | [🎉 Release-1 design polish across all pages](#2026-04-27--v100--release-1-design-polish-across-all-pages) |
+| v0.15.0 | 2026-04-27 | [Phase G2 day-of mode + quick-capture](#2026-04-27--v0150--phase-g2-day-of-mode--quick-capture) |
+| v0.14.0 | 2026-04-27 | [Phase G1 Spotify playlist sync](#2026-04-27--v0140--phase-g1-spotify-playlist-sync) |
 | v0.13.0 | 2026-04-27 | [Phase F2 photography shot list](#2026-04-27--v0130--phase-f2-photography-shot-list) |
 | v0.12.0 | 2026-04-27 | [Import merge + guest detail page + catering letterhead](#2026-04-27--v0120--import-merge--guest-detail-page--catering-letterhead) |
 | v0.11.1 | 2026-04-27 | [coerceBool dash placeholder fix](#2026-04-27--v0111--import-stop-warning-on--boolean-placeholders) |
@@ -229,7 +229,7 @@ When wrapping up a meaningful iteration:
 
 ### Current version
 
-`1.0.0` on `dev`, `claude/main` at `v0.14.0`. **Release-1 cut.** Promote when the polish has been smoke-tested in dev — every domain page got a structural change so it's worth opening each one. No schema or env changes since v0.14.0.
+`1.0.0` on both `dev` and `claude/main` (promoted 27 Apr 2026). 🎉 **Release-1 cut.** Production catches up after the GHCR image rebuilds and Unraid runs `docker compose pull && up -d` — re-run `npm run db:seed` once after the deploy to populate the wedding-party subsections (idempotent; never overwrites real notes).
 
 ## Changelog
 
