@@ -204,6 +204,16 @@ When wrapping up a meaningful iteration:
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
 
+### 2026-04-27 · v0.9.1 — Import copy: clarify Guest vs User email scope
+
+User caught that a v0.9.0 chat message implied the duplicate-email check spanned both Guest and User accounts. The code itself only ever queried `db.guest` (User accounts and Guest rows are separate tables, no FK linking them) — but the warning copy and confirm dialog were ambiguous about which table the check covered. This iteration tightens that copy in three places:
+
+- The preview row-warning now reads "another Guest row already has this email — importing will create a second guest row" (was "email already exists in DB").
+- The confirm dialog explicitly notes "User sign-in accounts are stored separately and aren't checked here."
+- The info banner at the top of the import page calls out the separation up-front, so the question doesn't even come up while staring at a preview.
+
+No code-behaviour change; just docs / UI copy. Patch bump only.
+
 ### 2026-04-27 · v0.9.0 — Phase E feature-complete: real Say I Do CSV ingest
 
 User loaded their actual Say I Do export and it didn't work end-to-end with the v0.8.0 importer. This iteration upgrades the importer to handle the messy, real-world shape of that file.

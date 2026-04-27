@@ -79,7 +79,7 @@ export function ImportClient() {
     }
     let msg = parts.join(" ");
     if (preview.rowErrors > 0) msg += `\n\n${preview.rowErrors} row${preview.rowErrors === 1 ? "" : "s"} with errors will be skipped.`;
-    if (preview.duplicateEmails > 0) msg += `\n\n${preview.duplicateEmails} row${preview.duplicateEmails === 1 ? "" : "s"} have an email that already exists in the database — they'll be created as duplicate rows. You can clean up via the Settings × button or the Guests page after.`;
+    if (preview.duplicateEmails > 0) msg += `\n\n${preview.duplicateEmails} row${preview.duplicateEmails === 1 ? "" : "s"} match an existing Guest's email — they'll be imported as a second guest row. (User sign-in accounts are stored separately and aren't checked here.) Clean up duplicates via the × button on the Guests page after.`;
     msg += `\n\nProceed?`;
     if (!confirm(msg)) return;
     startCommit(async () => {
@@ -134,8 +134,13 @@ export function ImportClient() {
   return (
     <div className="flex-1 overflow-auto">
       <div className="max-w-5xl mx-auto p-6 space-y-5">
-        <div className="bg-marigold-100/40 border border-marigold-700/20 text-marigold-700 rounded-md px-4 py-2.5 text-xs">
-          Paste a CSV from <strong>Say I Do</strong>, Google Sheets, Excel, or any wedding-platform export. Tab-separated paste from a spreadsheet also works. The first row is treated as headers; column types are auto-inferred — adjust them below if any are wrong.
+        <div className="bg-marigold-100/40 border border-marigold-700/20 text-marigold-700 rounded-md px-4 py-2.5 text-xs space-y-1">
+          <div>
+            Paste a CSV from <strong>Say I Do</strong>, Google Sheets, Excel, or any wedding-platform export. Tab-separated paste from a spreadsheet also works. The first row is treated as headers; column types are auto-inferred — adjust them below if any are wrong.
+          </div>
+          <div className="text-[11px] opacity-80">
+            <strong>Note:</strong> guest emails and user sign-in accounts are stored in separate tables. Importing a guest with the same email as your sign-in account does <em>not</em> touch your account — they&apos;re independent records.
+          </div>
         </div>
 
         <section className="bg-surface border border-border-soft rounded-md p-4 shadow-sm">

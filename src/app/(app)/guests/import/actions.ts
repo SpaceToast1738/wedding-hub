@@ -284,7 +284,14 @@ export async function previewImport(input: {
     return {
       ...p,
       warnings: isDup
-        ? [...p.warnings, `email already exists in DB — will create a duplicate row`]
+        ? [
+            ...p.warnings,
+            // Important: this only checks the Guest table, not User accounts.
+            // User sign-in identities and wedding-Guest rows live in separate
+            // tables — having a User row with the same email does NOT trigger
+            // this warning.
+            `another Guest row already has this email — importing will create a second guest row`,
+          ]
         : p.warnings,
       householdAction: p.householdName
         ? existingHouseholdSet.has(p.householdName)
