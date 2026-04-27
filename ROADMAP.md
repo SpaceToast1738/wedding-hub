@@ -11,7 +11,7 @@
 - **Repo:** [SpaceToast1738/wedding-hub](https://github.com/SpaceToast1738/wedding-hub) · `claude/main` (releases) + `dev` (work-in-progress)
 - **Stack:** Next.js 15 · TypeScript · Tailwind v4 · Prisma · Postgres 16 · Auth.js v5 · Caddy · Docker Compose
 - **Working tree:** `C:\Users\Admin\Code\wedding-hub` (local SSD). The old `\\TOWER\Jamie Spencer\Claude\wedding-hub` mirror is no longer in use — run `Remove-Item -Recurse -Force "\\TOWER\Jamie Spencer\Claude\wedding-hub"` from a fresh PowerShell to delete it.
-- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` at **v0.14.0**, promoted 27 Apr 2026). Latest release adds **Phase G1** — Spotify playlist sync. Paste a Spotify playlist URL on a Songs page playlist, hit Sync, tracks land as Song rows with `spotifyUri` + clickable Spotify links. Read-only mirror; needs `SPOTIFY_CLIENT_ID` + `SPOTIFY_CLIENT_SECRET` env vars in prod and the playlist set to public during sync.
+- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` at **v0.14.0**, promoted 27 Apr 2026). v0.15.0 (this iteration on `dev`) closes **Phase G** with **day-of mode** at `/today/day-of` — live timeline (now/next/past auto-computed from current time vs schedule), tappable day-of contacts pulled from booked suppliers, catering aggregates, and quick links. Also ships **quick-capture** — press `C` from anywhere to drop a Task / Question / Event into the right list. No new env vars; no migration.
 
 ## Phase status
 
@@ -26,7 +26,7 @@
 | **F1** | Catering brief — totals, course breakdowns, dietary aggregate, per-table seating, print stylesheet | ✅ Done |
 | **F2** | Photography shot list — checklist within the Wedding Book | ✅ Done |
 | **G1** | Spotify playlist sync (read-only mirror) | ✅ Done |
-| **G2** | Day-of mode, quick-capture (`C`) modal | 🟡 Not started |
+| **G2** | Day-of mode, quick-capture (`C`) modal | ✅ Done |
 
 ## Releases
 
@@ -34,6 +34,7 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
+| _(unreleased on `dev`)_ | 2026-04-27 | [v0.15.0 — Phase G2 day-of mode + quick-capture](#2026-04-27--v0150--phase-g2-day-of-mode--quick-capture) |
 | **v0.14.0** | 2026-04-27 | [Phase G1 Spotify playlist sync](#2026-04-27--v0140--phase-g1-spotify-playlist-sync) |
 | v0.13.0 | 2026-04-27 | [Phase F2 photography shot list](#2026-04-27--v0130--phase-f2-photography-shot-list) |
 | v0.12.0 | 2026-04-27 | [Import merge + guest detail page + catering letterhead](#2026-04-27--v0120--import-merge--guest-detail-page--catering-letterhead) |
@@ -123,8 +124,8 @@ Ranked roughly by usefulness × ease.
 - **CSV import: update / dedupe modes** — v0.8.0 always creates new rows. A future iteration could add "match by email and update existing" + "skip duplicates" modes alongside the current "create".
 
 ### Medium value
-- **Day-of mode** — live timeline with status (now/next/past), on-call contacts, simulated mode for testing. Deferred from Phase A/B (Today).
-- **Quick-capture (`C` shortcut) modal** — global capture for task/question/payment/event. Deferred from Phase A (AppShell).
+- ~~**Day-of mode**~~ — shipped in v0.15.0.
+- ~~**Quick-capture (`C` shortcut) modal**~~ — shipped in v0.15.0 (Task / Question / Event types; Payment intentionally excluded).
 
 ### Lower value
 - ~~**Say I Do sync**~~ — covered by the v0.8.0 CSV import path. Just export to CSV from Say I Do and paste it into `/guests/import`.
@@ -227,11 +228,38 @@ When wrapping up a meaningful iteration:
 
 ### Current version
 
-`0.14.0` on both `dev` and `claude/main` (promoted 27 Apr 2026). Production catches up after `docker compose pull && up -d` on Unraid — additive `Playlist` migration applies on boot. To unlock the sync UI, set `SPOTIFY_CLIENT_ID` + `SPOTIFY_CLIENT_SECRET` from the Spotify Developer dashboard.
+`0.15.0` on `dev`, `claude/main` at `v0.14.0`. No schema or env changes — promote when day-of mode + quick-capture have been smoke-tested in dev. `C` shortcut should pop the modal from any page; the day-of page should render even before the wedding date.
 
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-27 · v0.15.0 — Phase G2: day-of mode + quick-capture
+
+Two of the prototype's signature features finally shipped: a day-of dashboard for the wedding day itself, and a global keyboard shortcut for fast capture from anywhere in the app.
+
+**Day-of mode** lives at [`/today/day-of`](src/app/(app)/today/day-of/page.tsx), reachable from a "◉ Day-of mode" button on the Today header. The page shows:
+
+- **Hero band** with the wedding date, venue, and viewer name. On the wedding day itself the strapline reads *"Today is the day"* — outside the day a yellow "Preview mode" banner makes it explicit you're looking ahead, and the timeline still works because the now/next/past classification runs against the current clock.
+- **Live timeline** of every `ScheduleEvent` between 00:00 and 23:59 of the wedding date. Each event is classified `past` / `now` / `next` / `upcoming` from current time vs `startTime` + `endTime` (or +30 min for events without an end). The single `next` is computed in a second pass — the first upcoming after the last `past`/`now`. Past events are struck through and dimmed; the now event gets a marigold band + `NOW` chip; the next event gets a moss band + `NEXT` chip.
+- **Day-of contacts** pulled from `Supplier`s with status `BOOKED` or `PAID`, joining their primary contact (or first contact) where a phone number exists. Each row is a `<a href="tel:…">` so on a phone the contact can be one-tapped — that's the whole point on the day.
+- **Catering today** — totals, adults / children / kids' meals / highchairs / dietary requirements. Reuses the same query shape as the catering brief, just inline. Links out to `/guests/catering` for the full printable.
+- **Open quickly** — direct links to Shot list, Seating chart, Schedule, Guests, Songs.
+
+**Quick-capture** is the global `C` shortcut promised since Phase A. Implementation:
+
+- [QuickCapture.tsx](src/components/shell/QuickCapture.tsx) — client component mounted once in [AppShell](src/components/shell/AppShell.tsx). Listens to `keydown` on `window` and opens when `C` (no modifiers) fires outside an input / textarea / select / contenteditable — so typing "C" into a real form field never pops the modal.
+- Three target types: `Task`, `Question`, `Event`. Single text input, Enter to submit, Esc to dismiss. Click outside the modal also dismisses (when not pending). Auto-focus the input on open.
+- Captured rows route to the right table via [src/app/(app)/actions.ts](src/app/(app)/actions.ts):
+  - `Task` → `db.task.create({ type: TASK, status: OPEN, priority: MEDIUM, assigneeId: <self> })` + revalidate `/tasks` and `/`.
+  - `Question` → same, but `type: QUESTION`, revalidates `/questions`.
+  - `Event` → `db.scheduleEvent.create` with `startTime` defaulted to the next round hour, revalidates `/schedule`. The user picks a real time on the destination page if they want.
+- Each capture is gated by `requireEdit("tasks" | "questions" | "schedule")` so the permission matrix still applies — viewers see the modal but get a permission error on submit.
+- Audited as `quickcapture` with `{ source: "quickcapture" }` metadata so we can grep the audit log later.
+- Success surfaces a 1.4s green toast at the bottom of the screen — `✓ Task added: <title>`.
+- Payments are deliberately NOT a capture type: they need a supplier + amount that don't fit one text field. Capture as a Task with "pay X" instead.
+
+No schema changes; no env-var changes. Verified with typecheck + lint + build.
 
 ### 2026-04-27 · v0.14.0 — Phase G1: Spotify playlist sync
 

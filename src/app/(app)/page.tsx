@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { auth } from "@/auth";
 import { db } from "@/lib/db";
 import { StatusPill } from "@/components/ui/StatusPill";
@@ -69,6 +70,13 @@ export default async function TodayPage() {
             <h1 className="text-lg font-semibold text-ink-primary">Today</h1>
             <div className="text-xs text-ink-tertiary mt-0.5">{today}</div>
           </div>
+          <Link
+            href="/today/day-of"
+            className="inline-flex items-center text-xs font-medium px-3 py-1.5 rounded-sm border border-border-soft bg-canvas text-ink-secondary hover:border-moss-300 hover:text-moss-700"
+            title="Live timeline, day-of contacts, catering, quick links"
+          >
+            ◉ Day-of mode
+          </Link>
         </div>
 
         <section className="mb-6 bg-surface border border-border-soft rounded-lg p-6 flex items-center justify-between gap-6 flex-wrap shadow-sm">

@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { Sidebar } from "@/components/shell/Sidebar";
 import { MobileTabBar } from "@/components/shell/MobileTabBar";
+import { QuickCapture } from "@/components/shell/QuickCapture";
 import { signOut } from "@/auth";
 import type { Counts } from "@/components/shell/nav-config";
 
@@ -45,6 +46,7 @@ export async function AppShell({
         {children}
       </main>
       <MobileTabBar isCouple={user.isCouple} />
+      <QuickCapture />
     </div>
   );
 }
