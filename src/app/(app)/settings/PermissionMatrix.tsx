@@ -2,7 +2,7 @@
 
 import { useTransition } from "react";
 import { Avatar } from "@/components/ui/Avatar";
-import { setPermission, setUserCouple } from "./actions";
+import { removeUser, setPermission, setUserCouple } from "./actions";
 import { COUPLE_ONLY_SECTIONS, SECTIONS } from "@/lib/permissions";
 
 const SECTION_LABELS: Record<string, string> = {
@@ -58,6 +58,17 @@ export function PermissionMatrix({
     startTransition(async () => { await setUserCouple(userId, isCouple); });
   }
 
+  function remove(user: User) {
+    const label = user.name ?? user.email;
+    const consequence = user.isCouple
+      ? `\n\nThey have couple-tier access. If they were the only signed-in admin, the next person to sign in will be auto-promoted to replace them.`
+      : "";
+    if (!confirm(`Remove ${label} from the members list?\n\nThis deletes their account row, sessions, and per-section permissions. They can still sign in again if their email is in AUTH_ALLOWED_EMAILS.${consequence}`)) {
+      return;
+    }
+    startTransition(async () => { await removeUser(user.id); });
+  }
+
   return (
     <div className="overflow-x-auto bg-surface border border-border-soft rounded-md shadow-sm">
       <table className="text-sm w-full">
@@ -73,13 +84,25 @@ export function PermissionMatrix({
         <tbody>
           {users.map((u) => (
             <tr key={u.id} className="border-b border-border-soft last:border-b-0">
-              <td className="px-4 py-2.5 sticky left-0 bg-surface z-10 min-w-[180px]">
+              <td className="px-4 py-2.5 sticky left-0 bg-surface z-10 min-w-[180px] group">
                 <div className="flex items-center gap-2">
                   <Avatar name={u.name ?? u.email} size={24} />
-                  <div className="min-w-0">
+                  <div className="min-w-0 flex-1">
                     <div className="text-sm font-medium text-ink-primary truncate">{u.name ?? u.email}{u.id === currentUserId && <span className="text-[10px] text-ink-tertiary ml-1">(you)</span>}</div>
                     <div className="text-[11px] text-ink-tertiary truncate">{u.role.replace("_", " ").toLowerCase()}</div>
                   </div>
+                  {canEdit && u.id !== currentUserId && (
+                    <button
+                      type="button"
+                      onClick={() => remove(u)}
+                      disabled={pending}
+                      title={`Remove ${u.name ?? u.email}`}
+                      aria-label={`Remove ${u.name ?? u.email}`}
+                      className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity flex-shrink-0 w-6 h-6 rounded-sm text-ink-tertiary hover:bg-danger-bg hover:text-danger disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center"
+                    >
+                      ×
+                    </button>
+                  )}
                 </div>
               </td>
               <td className="px-3 py-2.5 text-center">

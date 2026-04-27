@@ -11,7 +11,7 @@
 - **Repo:** [SpaceToast1738/wedding-hub](https://github.com/SpaceToast1738/wedding-hub) · `claude/main` (releases) + `dev` (work-in-progress)
 - **Stack:** Next.js 15 · TypeScript · Tailwind v4 · Prisma · Postgres 16 · Auth.js v5 · Caddy · Docker Compose
 - **Working tree:** `C:\Users\Admin\Code\wedding-hub` (local SSD). The old `\\TOWER\Jamie Spencer\Claude\wedding-hub` mirror is no longer in use — run `Remove-Item -Recurse -Force "\\TOWER\Jamie Spencer\Claude\wedding-hub"` from a fresh PowerShell to delete it.
-- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com on v0.3.2 since 27 April 2026, 152 days out from the wedding. v0.4.0 (this iteration) ships file uploads, an env-driven couple-promotion path, and a properly styled magic-link email — pending Pull-and-Up on the host.
+- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com on v0.3.2 since 27 April 2026, 152 days out from the wedding. v0.4.1 (current) adds file uploads, bootstrap-admin auth, styled magic-link email, and remove-from-members — pending Pull-and-Up on the host.
 
 ## Phase status
 
@@ -190,11 +190,17 @@ When wrapping up a meaningful iteration:
 
 ### Current version
 
-`0.4.0` on `dev` — file uploads (Phase D1), bootstrap-admin auth fix, styled magic-link email. `claude/main` at `v0.3.2` (live in production). Promote when verified after Pull-and-Up.
+`0.4.1` on `dev` — adds remove-from-members on top of v0.4.0. `claude/main` at `v0.4.0` (just promoted). Promote v0.4.1 to main once the next chunk is ready, or sooner if you want a tagged release alongside production.
 
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-27 · v0.4.1 — Remove-from-members in Settings
+
+Small follow-up to v0.4.0. The Settings → permission matrix now has a hover-revealed `×` button on every row (except your own). Clicking it confirms, then atomically deletes the user's `Permission` rows + `User` row inside a transaction. `Account` and `Session` rows cascade automatically via the FKs in [schema.prisma](prisma/schema.prisma); `AuditLog` rows keep their history with `userId` set to NULL because the relation is optional. Self-removal is refused server-side as a defence-in-depth check on top of the UI's hidden button.
+
+Replaces the `psql DELETE FROM "User"` workaround for cleaning up the placeholder seed users — admins can now do it from the UI.
 
 ### 2026-04-27 · v0.4.0 — Phase D1 file uploads + bootstrap admin + pretty magic-link email
 

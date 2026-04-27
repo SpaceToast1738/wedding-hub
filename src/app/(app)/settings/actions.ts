@@ -39,3 +39,34 @@ export async function setUserCouple(userId: string, isCouple: boolean) {
   await audit(user, { action: "set-couple", entity: "User", entityId: userId, metadata: { isCouple } });
   revalidatePath("/settings");
 }
+
+export async function removeUser(userId: string) {
+  const user = await requireEdit("settings");
+  if (userId === user.id) {
+    throw new Error("You can't remove yourself.");
+  }
+
+  // Capture identity for the audit log before the row vanishes.
+  const target = await db.user.findUnique({
+    where: { id: userId },
+    select: { id: true, email: true, name: true, isCouple: true, role: true },
+  });
+  if (!target) return;
+
+  // Permission rows have no FK to User in the schema, so we have to clean
+  // them up explicitly. Account + Session cascade via the FKs in
+  // schema.prisma; AuditLog rows keep their history with userId set to NULL
+  // (optional relation, default-on-delete is SetNull).
+  await db.$transaction([
+    db.permission.deleteMany({ where: { userId } }),
+    db.user.delete({ where: { id: userId } }),
+  ]);
+
+  await audit(user, {
+    action: "remove",
+    entity: "User",
+    entityId: target.id,
+    metadata: { email: target.email, name: target.name, isCouple: target.isCouple, role: target.role },
+  });
+  revalidatePath("/settings");
+}
