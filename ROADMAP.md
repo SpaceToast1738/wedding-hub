@@ -11,7 +11,7 @@
 - **Repo:** [SpaceToast1738/wedding-hub](https://github.com/SpaceToast1738/wedding-hub) · `claude/main` (releases) + `dev` (work-in-progress)
 - **Stack:** Next.js 15 · TypeScript · Tailwind v4 · Prisma · Postgres 16 · Auth.js v5 · Caddy · Docker Compose
 - **Working tree:** `C:\Users\Admin\Code\wedding-hub` (local SSD). The old `\\TOWER\Jamie Spencer\Claude\wedding-hub` mirror is no longer in use — run `Remove-Item -Recurse -Force "\\TOWER\Jamie Spencer\Claude\wedding-hub"` from a fresh PowerShell to delete it.
-- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` at **v0.13.0**, promoted 27 Apr 2026). Latest release adds **Phase F2** — a printable shot list at `/book/photography` with per-shot captured-checkboxes, name chips, location, reorder, and a print stylesheet. Once the GHCR image rebuilds + Unraid runs `docker compose pull && up -d`, the additive `PhotographyShot` migration applies on boot.
+- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` at **v0.13.0**, promoted 27 Apr 2026). v0.14.0 (this iteration on `dev`) opens **Phase G1** — Spotify playlist sync. Couple pastes a Spotify playlist URL into a local Playlist, hits Sync, and tracks land as Song rows with `spotifyUri` + clickable links back to Spotify. Read-only mirror; the curated playlist lives in Spotify. Adds an additive `Playlist` migration for sync metadata; new optional `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` env vars (sync UI is hidden when blank).
 
 ## Phase status
 
@@ -25,7 +25,8 @@
 | **E** | CSV / TSV guest import — column inference, dry-run preview, household merge | ✅ Done |
 | **F1** | Catering brief — totals, course breakdowns, dietary aggregate, per-table seating, print stylesheet | ✅ Done |
 | **F2** | Photography shot list — checklist within the Wedding Book | ✅ Done |
-| **G** | Spotify playlist sync, day-of mode, quick-capture (`C`) modal | 🟡 Not started |
+| **G1** | Spotify playlist sync (read-only mirror) | ✅ Done |
+| **G2** | Day-of mode, quick-capture (`C`) modal | 🟡 Not started |
 
 ## Releases
 
@@ -33,6 +34,7 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
+| _(unreleased on `dev`)_ | 2026-04-27 | [v0.14.0 — Phase G1 Spotify playlist sync](#2026-04-27--v0140--phase-g1-spotify-playlist-sync) |
 | **v0.13.0** | 2026-04-27 | [Phase F2 photography shot list](#2026-04-27--v0130--phase-f2-photography-shot-list) |
 | v0.12.0 | 2026-04-27 | [Import merge + guest detail page + catering letterhead](#2026-04-27--v0120--import-merge--guest-detail-page--catering-letterhead) |
 | v0.11.1 | 2026-04-27 | [coerceBool dash placeholder fix](#2026-04-27--v0111--import-stop-warning-on--boolean-placeholders) |
@@ -126,7 +128,7 @@ Ranked roughly by usefulness × ease.
 
 ### Lower value
 - ~~**Say I Do sync**~~ — covered by the v0.8.0 CSV import path. Just export to CSV from Say I Do and paste it into `/guests/import`.
-- **Spotify playlist sync** — Spotify OAuth + playlist mirror. Nice-to-have.
+- ~~**Spotify playlist sync**~~ — shipped in v0.14.0 as Phase G1 (Client Credentials, public-playlist read-only mirror). User-OAuth for private playlists still possible if needed.
 - **Glance / At-a-glance dashboard** — currently a stub.
 - **Custom fields UI in Settings** — the schema has `CustomField` but no UI. Defer until something needs it.
 - **Rate-limit on `/api/auth/*`** — Caddyfile stub waiting on a custom Caddy build with `xcaddy --with github.com/mholt/caddy-ratelimit`. Auth.js token expiry + email allow-list is the current mitigation.
@@ -225,11 +227,44 @@ When wrapping up a meaningful iteration:
 
 ### Current version
 
-`0.13.0` on both `dev` and `claude/main` (promoted 27 Apr 2026). Production catches up after `docker compose pull && up -d` on the Unraid host — additive `PhotographyShot` migration applies on boot.
+`0.14.0` on `dev`, `claude/main` at `v0.13.0`. Promote when the Spotify sync has been smoke-tested with a real public playlist on dev. Additive `Playlist` migration runs on `docker compose pull && up -d`; new env vars are optional and disable the UI gracefully when blank.
 
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-27 · v0.14.0 — Phase G1: Spotify playlist sync
+
+The Spotify field on `Playlist` had been in the schema since Phase B but un-wired. v0.14.0 connects it: paste a Spotify playlist URL on any local Playlist, click **Sync**, and Wedding Hub mirrors the tracks as `Song` rows with `spotifyUri` set. Click a song title to open it in Spotify. The `Songs` page becomes a shareable read-only mirror — the couple keeps curating in Spotify (where the editing UX is good), the planner / DJ / wedding party get a stable URL.
+
+**Auth model: Client Credentials.** App-to-app auth, no per-user OAuth dance. The trade-off is that Spotify's Client Credentials token can ONLY read public playlists — so the couple must flip the playlist to public during a sync (they can flip it back to private after; we cache the tracks locally). Documented in the env-example. Future iteration could add user-OAuth (`playlist-read-private`) if anyone hits this friction.
+
+**Implementation** ([src/lib/spotify.ts](src/lib/spotify.ts)):
+- Token cache with 30s expiry buffer to dodge race conditions during a sync.
+- Pagination with `?limit=100`; hard cap of 10 pages (≤1000 tracks) as a runaway guard.
+- `parsePlaylistId()` accepts the full URL (with `?si=` tracking param), the `spotify:playlist:` URI, or a bare base62 ID.
+- Strips local files and non-track items (podcasts, episodes) — they'd have no `spotifyUri` the DJ could play anyway.
+- Surfaces 404 with a "make sure the playlist is public" message rather than a generic "not found".
+- Surfaces 429 with the `Retry-After` so the user knows when to retry.
+
+**Sync semantics** ([actions.ts](src/app/(app)/songs/actions.ts) `syncPlaylistFromSpotify`):
+- **Wholesale replace** of synced songs (rows where `spotifyUri IS NOT NULL`). Spotify is the source of truth — re-running sync mirrors the current state, including removed songs.
+- **Manually-added songs preserved** (no `spotifyUri`). Guest requests / planner additions still show up alongside the synced list.
+- New songs are appended after any manually-added ones (max-order + 1 onwards) so manual entries keep their slot order.
+- Each sync stamps `Playlist.lastSyncedAt`, `lastSyncError`, `lastSyncedSongs`. Failed syncs persist the error message so the user sees it on reload.
+- Audit-logged with `spotify_sync` (success) / `spotify_sync_fail` (error) actions and `tracks` / `error` metadata.
+
+**UI** ([PlaylistCard.tsx](src/app/(app)/songs/PlaylistCard.tsx)):
+- New panel under the playlist header — visible only when Spotify is configured OR the playlist already has a Spotify ID. Hidden on do-not-play / block lists (Spotify mirroring would defeat the purpose).
+- States: not configured (with env-var hint), no URL linked (Link button), linked and never synced (Sync now button), linked and synced ("Synced 3m ago" + Re-sync button), error (red ⚠ banner with Spotify's message).
+- Each synced song renders the title as a hyperlink that opens the track in Spotify, plus a tiny 🎵 marker.
+- Confirm dialog before sync mentions how many synced songs will be replaced and how many manually-added ones will survive.
+
+**Schema** ([prisma/schema.prisma](prisma/schema.prisma)) adds three nullable columns to `Playlist`: `lastSyncedAt`, `lastSyncError`, `lastSyncedSongs`. Migration `20260427200000_add_playlist_sync_metadata` is purely additive.
+
+**Env** ([.env.example](.env.example)) introduces optional `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET`. Both blank → entire sync UI is hidden, so existing deployments without these vars look exactly the same as before.
+
+Verified: typecheck + lint + build all clean.
 
 ### 2026-04-27 · v0.13.0 — Phase F2: photography shot list
 

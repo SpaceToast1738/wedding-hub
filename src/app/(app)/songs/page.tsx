@@ -2,6 +2,7 @@ import { db } from "@/lib/db";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { canEdit } from "@/lib/permissions";
 import { requireUser } from "@/lib/actions";
+import { isSpotifyConfigured } from "@/lib/spotify";
 import { AddPlaylistToggle } from "./AddPlaylistToggle";
 import { PlaylistCard } from "./PlaylistCard";
 import { GuestRequestsSection } from "./GuestRequestsSection";
@@ -9,6 +10,7 @@ import { GuestRequestsSection } from "./GuestRequestsSection";
 export default async function SongsPage() {
   const user = await requireUser();
   const editable = await canEdit(user, "songs");
+  const spotifyEnabled = isSpotifyConfigured();
 
   const [playlists, guestRequests] = await Promise.all([
     db.playlist.findMany({
@@ -49,7 +51,14 @@ export default async function SongsPage() {
               No playlists yet. {editable && "Create one above."}
             </p>
           ) : (
-            playlists.map((p) => <PlaylistCard key={p.id} playlist={p} canEdit={editable} />)
+            playlists.map((p) => (
+              <PlaylistCard
+                key={p.id}
+                playlist={p}
+                canEdit={editable}
+                spotifyEnabled={spotifyEnabled}
+              />
+            ))
           )}
         </div>
       </div>

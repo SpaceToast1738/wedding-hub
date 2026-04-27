@@ -462,6 +462,12 @@ model Playlist {
   description  String?
   spotifyId    String?
   spotifyUrl   String?
+  // Sync metadata: when the playlist was last pulled from Spotify, plus any
+  // error from that attempt (rate limit, 404 if made private, etc.).
+  // Both null means "never synced".
+  lastSyncedAt   DateTime?
+  lastSyncError  String?
+  lastSyncedSongs Int?
   isBlockList  Boolean       @default(false)
   songs        Song[]
   songRequests SongRequest[]
