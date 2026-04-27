@@ -198,11 +198,25 @@ When wrapping up a meaningful iteration:
 
 ### Current version
 
-`0.11.0` on `dev` — Phase F1 catering brief (printable summary at /guests/catering with totals, course breakdowns, dietary aggregate, per-table seating, A4 print stylesheet). `claude/main` at `v0.10.0` in production.
+`0.11.1` on `dev` — bugfix on top of v0.11.0: import preview no longer emits per-row warnings for Say I Do's "-" placeholders in Q7/Q8 columns. `claude/main` at `v0.10.0` in production.
 
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-27 · v0.11.1 — Import: stop warning on "-" boolean placeholders
+
+User pasted their real Say I Do CSV into Preview and every single row had two warnings:
+- `couldn't parse "highchair" value "-", treating as no`
+- `couldn't parse "children's meal" value "-", treating as no`
+
+**Cause:** Say I Do uses `-` as the "not applicable" placeholder in the Q7 (highchair) and Q8 (children's-meal) columns when the question doesn't apply (i.e., for adults). My `coerceBool` had `"-"` in neither the truthy nor falsy set, so it returned `null` and the import action emitted a per-row warning. Result: 22 rows × 2 warnings = visual noise that drowned out real issues.
+
+**Fix:** extend `FALSY` to include the standard empty-placeholder set (`-`, `—`, `n/a`, `n.a.`, `na`, `none`). The semantic intent on those rows is "no, not applicable" — boolean coercion now succeeds with `false`, no warning.
+
+`coerceChild` already handled `-` correctly via its own `CHILD_MAP` since v0.9.0; this fix just brings `coerceBool` into the same convention so highchair, children's meal, and plus-one columns all behave the same way.
+
+Patch bump only — no schema change, no API change. The same CSV in v0.11.1 will preview clean (only real warnings will surface).
 
 ### 2026-04-27 · v0.11.0 — Phase F1: catering brief (printable summary)
 

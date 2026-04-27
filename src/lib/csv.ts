@@ -174,7 +174,14 @@ export function inferMapping(headers: string[]): GuestField[] {
 // ─── Coercion helpers used by the import action ────────────────────────────
 
 const TRUTHY = new Set(["y", "yes", "true", "t", "1", "x", "✓"]);
-const FALSY = new Set(["n", "no", "false", "f", "0", ""]);
+// Includes the standard empty-placeholder set ("-", "n/a", etc.) so a CSV
+// like Say I Do's — where Q7 highchair and Q8 children's-meal columns are
+// filled with "-" on every adult row — doesn't generate a warning per row.
+// The semantic intent there IS "no, not applicable".
+const FALSY = new Set([
+  "n", "no", "false", "f", "0",
+  "", "-", "—", "n/a", "n.a.", "na", "none",
+]);
 
 export function coerceBool(raw: string): boolean | null {
   const s = raw.trim().toLowerCase();
