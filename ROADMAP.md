@@ -10,7 +10,7 @@
 - **Production URL:** wedding.spencer-net.com (private)
 - **Repo:** [SpaceToast1738/wedding-hub](https://github.com/SpaceToast1738/wedding-hub) · default branch `claude/main`
 - **Stack:** Next.js 15 · TypeScript · Tailwind v4 · Prisma · Postgres 16 · Auth.js v5 · Caddy · Docker Compose
-- **Current state:** Phase C complete — full deploy stack ready. Feature-complete for the prototype's must-haves.
+- **Current state:** v0.3.1 — Phase C complete + initial migration committed + log rotation + version pill in the sidebar. Ready to deploy.
 
 ## Phase status
 
@@ -93,6 +93,8 @@ Ranked roughly by usefulness × ease.
 - **Real-world emails for the 5 users** — `.env.production.example` and seed.ts use placeholder addresses. Jamie's known (`jspencer1706@outlook.com`); Bryony / Josh / Aimee / planner are unknown. Set `USER_*_EMAIL` and `AUTH_ALLOWED_EMAILS` before first deploy.
 - **First-deploy `docker build` not yet validated end-to-end** — local Docker Desktop daemon was off when Phase C landed. Compose config validates and all COPY paths are confirmed; first build on Unraid is the real smoke test.
 - **SMTP provider not chosen** — magic-link delivery falls back to logging the URL to the web container's stdout if `EMAIL_SERVER_HOST` is blank. Fine for testing, not for Bryony.
+- **DNS + port-forwarding (or Cloudflare Tunnel)** — must be set up before Caddy can complete its first ACME challenge.
+- **Bind-mount permissions** — pre-create `./backups` with `chown 1000:1000` before first `docker compose up`, otherwise the backup container can't write.
 - **Backup off-host strategy** — backups land on the Unraid box. A full server failure would lose them. rclone / restic / S3 sync of `./backups` is on the user.
 
 ## Conventions
@@ -172,11 +174,19 @@ When wrapping up a meaningful iteration:
 
 ### Current version
 
-`0.3.0` — Phase C complete. Next bumps land as part of whichever phase or fix ships next.
+`0.3.1` — Phase C + deploy-readiness fixes. Next bumps land as part of whichever phase or fix ships next.
 
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-27 · v0.3.1 — Deploy-readiness fixes
+- **Initial Prisma migration committed** at `prisma/migrations/20260427120000_init/` so first-boot `migrate deploy` actually creates the schema (the prior state would have left a fresh DB empty)
+- **Log rotation** — `x-logging` anchor referenced by all 4 compose services: `json-file` driver, `max-size: 10m`, `max-file: 3`. 30 MB ceiling per service.
+- **Version pill in the sidebar** — `v0.3.1` shown below the avatar menu, sourced from `package.json` via `src/lib/version.ts` (build-time inline, no runtime FS read)
+- **Health endpoint** now returns `{ ok, version, db }` so `curl /api/health` confirms what's deployed
+- ROADMAP risks updated: DNS / Cloudflare Tunnel and bind-mount perms are now called out as pre-deploy gates
+- Verified: `docker compose config` ✓, migration SQL validates clean
 
 ### 2026-04-27 · v0.3.0 — Phase C — Production deploy
 - Multi-stage Dockerfile: deps → builder (next build + prisma generate + seed transpile) → runner (alpine + tini + non-root + healthcheck)

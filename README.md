@@ -143,9 +143,10 @@ cp .env.production.example .env
 # automatically before starting Next.js.
 docker compose up -d --build
 
-# First-time only: seed the 5 known users.
-docker compose exec web node ./node_modules/prisma/build/index.js db seed
-# (or seed manually by upserting User rows from psql)
+# First-time only: seed the 5 known users + sample data.
+# (The seed script is transpiled to plain JS at image-build time, so the
+# production container doesn't need `tsx`.)
+docker compose exec web node prisma/seed.js
 ```
 
 After `docker compose up -d`, Caddy fetches a Let's Encrypt cert for `${DOMAIN}` and starts proxying to `web:3000`. Visit `https://${DOMAIN}` and sign in with one of the allow-listed emails.

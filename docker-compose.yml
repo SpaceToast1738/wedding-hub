@@ -8,11 +8,20 @@
 #   - web runs as UID 1000, read-only FS, no-new-privileges, cap_drop ALL
 #   - db never binds to a host port; only reachable via the internal network
 #   - backups land on a host bind-mount with 7d/4w/12m retention
+#   - JSON log driver capped at 10 MB × 3 files per service (30 MB ceiling)
+
+# ── Shared logging policy (caps disk usage of the JSON file driver) ────────
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
 
 services:
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
+    logging: *default-logging
     ports:
       - "80:80"
       - "443:443"
@@ -39,6 +48,7 @@ services:
       dockerfile: Dockerfile
     image: wedding-hub-web:latest
     restart: unless-stopped
+    logging: *default-logging
     user: "1000:1000"
     read_only: true
     tmpfs:
@@ -74,6 +84,7 @@ services:
   db:
     image: postgres:16-alpine
     restart: unless-stopped
+    logging: *default-logging
     user: "999:999"
     networks:
       - internal
@@ -96,6 +107,7 @@ services:
   backup:
     image: prodrigestivill/postgres-backup-local:16-alpine
     restart: unless-stopped
+    logging: *default-logging
     user: "1000:1000"
     networks:
       - internal

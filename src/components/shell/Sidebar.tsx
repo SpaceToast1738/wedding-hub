@@ -1,6 +1,7 @@
 import { SidebarItem } from "@/components/shell/SidebarItem";
 import { AvatarMenu } from "@/components/shell/AvatarMenu";
 import { NAV_GROUPS, type Counts } from "@/components/shell/nav-config";
+import { APP_VERSION } from "@/lib/version";
 
 type Props = {
   user: { id: string; name?: string | null; email: string; isCouple: boolean; role: string };
@@ -47,6 +48,12 @@ export function Sidebar({ user, counts, signOutAction }: Props) {
 
       <div className="border-t border-border-soft px-3 py-2.5">
         <AvatarMenu user={user} signOutAction={signOutAction} />
+        <div
+          className="mt-2 px-1 text-[10px] text-ink-tertiary tracking-wider font-mono select-none"
+          title="App version"
+        >
+          v{APP_VERSION}
+        </div>
       </div>
     </aside>
   );

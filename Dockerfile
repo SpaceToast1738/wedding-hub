@@ -19,6 +19,19 @@ ENV NEXT_TELEMETRY_DISABLED=1
 RUN npx prisma generate
 RUN npm run build
 
+# Transpile the seed script to plain JS so production containers (which don't
+# have the `tsx` dev-dep) can run `node prisma/seed.js`. We invoke tsc with
+# explicit flags rather than the project's tsconfig because that one has
+# `noEmit: true` for type-checking.
+RUN npx tsc prisma/seed.ts \
+      --outDir prisma-build \
+      --module commonjs \
+      --moduleResolution node \
+      --target es2022 \
+      --esModuleInterop \
+      --resolveJsonModule \
+      --skipLibCheck
+
 # ─── Stage 3: runner ───────────────────────────────────────────────────────
 FROM node:20-alpine AS runner
 WORKDIR /app
@@ -44,6 +57,9 @@ COPY --from=builder --chown=nextjs:nodejs /app/prisma ./prisma
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/prisma ./node_modules/prisma
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/@prisma ./node_modules/@prisma
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/.prisma ./node_modules/.prisma
+
+# Transpiled seed script (plain JS, no tsx required at runtime)
+COPY --from=builder --chown=nextjs:nodejs /app/prisma-build/seed.js ./prisma/seed.js
 
 # Symlink for `npx prisma` / `node ./node_modules/prisma/build/index.js`
 COPY --chown=nextjs:nodejs docker/entrypoint.sh /usr/local/bin/entrypoint.sh
