@@ -32,6 +32,9 @@ next-env.d.ts
 .vscode
 .idea
 
+# Claude Code session storage (per-user, never committed)
+.claude
+
 # tsbuildinfo
 *.tsbuildinfo
 
