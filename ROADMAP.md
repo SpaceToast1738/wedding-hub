@@ -11,7 +11,7 @@
 - **Repo:** [SpaceToast1738/wedding-hub](https://github.com/SpaceToast1738/wedding-hub) · `claude/main` (releases) + `dev` (work-in-progress)
 - **Stack:** Next.js 15 · TypeScript · Tailwind v4 · Prisma · Postgres 16 · Auth.js v5 · Caddy · Docker Compose
 - **Working tree:** `C:\Users\Admin\Code\wedding-hub` (local SSD). The old `\\TOWER\Jamie Spencer\Claude\wedding-hub` mirror is no longer in use — run `Remove-Item -Recurse -Force "\\TOWER\Jamie Spencer\Claude\wedding-hub"` from a fresh PowerShell to delete it.
-- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` at **v0.12.0**, promoted 27 Apr 2026). v0.13.0 (this iteration on `dev`) opens **Phase F2** — a printable shot list at `/book/photography` with per-shot captured-checkboxes, name chips, location, reorder, and a print stylesheet. Adds an additive `PhotographyShot` migration; no env changes.
+- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` at **v0.13.0**, promoted 27 Apr 2026). Latest release adds **Phase F2** — a printable shot list at `/book/photography` with per-shot captured-checkboxes, name chips, location, reorder, and a print stylesheet. Once the GHCR image rebuilds + Unraid runs `docker compose pull && up -d`, the additive `PhotographyShot` migration applies on boot.
 
 ## Phase status
 
@@ -33,8 +33,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| _(unreleased on `dev`)_ | 2026-04-27 | [v0.13.0 — Phase F2 photography shot list](#2026-04-27--v0130--phase-f2-photography-shot-list) |
-| **v0.12.0** | 2026-04-27 | [Import merge + guest detail page + catering letterhead](#2026-04-27--v0120--import-merge--guest-detail-page--catering-letterhead) |
+| **v0.13.0** | 2026-04-27 | [Phase F2 photography shot list](#2026-04-27--v0130--phase-f2-photography-shot-list) |
+| v0.12.0 | 2026-04-27 | [Import merge + guest detail page + catering letterhead](#2026-04-27--v0120--import-merge--guest-detail-page--catering-letterhead) |
 | v0.11.1 | 2026-04-27 | [coerceBool dash placeholder fix](#2026-04-27--v0111--import-stop-warning-on--boolean-placeholders) |
 | v0.11.0 | 2026-04-27 | [Phase F1 catering brief](#2026-04-27--v0110--phase-f1-catering-brief-printable-summary) |
 | v0.10.0 | 2026-04-27 | [Children's-meal + RSVP link import + cross-page surfaces](#2026-04-27--v0100--childrens-meal--rsvp-link-import-cross-page-surfaces-windows-guide) |
@@ -225,7 +225,7 @@ When wrapping up a meaningful iteration:
 
 ### Current version
 
-`0.13.0` on `dev`, `claude/main` at `v0.12.0`. Promote when F2 has been smoke-tested in dev — additive migration runs on Unraid `docker compose pull && up -d`, no manual ops required.
+`0.13.0` on both `dev` and `claude/main` (promoted 27 Apr 2026). Production catches up after `docker compose pull && up -d` on the Unraid host — additive `PhotographyShot` migration applies on boot.
 
 ## Changelog
 
