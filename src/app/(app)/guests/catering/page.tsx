@@ -6,6 +6,8 @@ import { redirect } from "next/navigation";
 import { PrintButton } from "./PrintButton";
 
 const WEDDING_DATE = process.env.WEDDING_DATE ?? "2026-09-26T14:00:00Z";
+const WEDDING_VENUE = process.env.WEDDING_VENUE ?? "Alveston Manor, Stratford-upon-Avon";
+const COUPLE_NAME = process.env.WEDDING_COUPLE ?? "Spencer · Olwyn-Davis Wedding";
 
 type GuestRow = {
   id: string;
@@ -143,13 +145,18 @@ export default async function CateringBriefPage() {
           <PrintButton />
         </div>
 
-        <header className="border-b border-border-soft pb-4">
-          <h1 className="font-display text-3xl text-moss-700">Catering brief</h1>
-          <p className="text-sm text-ink-secondary mt-1">
-            Jamie &amp; Bryony · {weddingDateLabel}
-          </p>
-          <p className="text-xs text-ink-tertiary mt-2 print-only-block">
-            Generated {generatedAt} from Wedding Hub
+        {/* Letterhead — couple + date/venue + generated date, with a heavier
+            ink-primary rule beneath. Mirrors the prototype's VenueCateringExport. */}
+        <header className="border-b-2 border-ink-primary pb-4">
+          <h1 className="font-display text-3xl sm:text-[26px] font-semibold text-ink-primary leading-tight">
+            {COUPLE_NAME}
+          </h1>
+          <div className="mt-1 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 text-xs text-ink-secondary">
+            <span>{weddingDateLabel} · {WEDDING_VENUE}</span>
+            <span className="text-ink-tertiary">Generated {generatedAt}</span>
+          </div>
+          <p className="text-xs text-ink-tertiary mt-2 italic">
+            Catering brief — final numbers, course breakdown, dietary requirements, per-table seating.
           </p>
         </header>
 

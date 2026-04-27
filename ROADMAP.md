@@ -11,7 +11,7 @@
 - **Repo:** [SpaceToast1738/wedding-hub](https://github.com/SpaceToast1738/wedding-hub) · `claude/main` (releases) + `dev` (work-in-progress)
 - **Stack:** Next.js 15 · TypeScript · Tailwind v4 · Prisma · Postgres 16 · Auth.js v5 · Caddy · Docker Compose
 - **Working tree:** `C:\Users\Admin\Code\wedding-hub` (local SSD). The old `\\TOWER\Jamie Spencer\Claude\wedding-hub` mirror is no longer in use — run `Remove-Item -Recurse -Force "\\TOWER\Jamie Spencer\Claude\wedding-hub"` from a fresh PowerShell to delete it.
-- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` at v0.10.0). v0.11.0 (this iteration on `dev`) opens **Phase F** with the catering brief — a printable summary at `/guests/catering` aggregating totals, three-course breakdowns, dietary requirements, and a per-table seating block. Built on top of the v0.10.0 import-pipeline data; A4-print stylesheet hides the app chrome and uses page breaks for clean PDF output.
+- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` at v0.10.0). v0.12.0 (this iteration on `dev`) is a polish pass: the **CSV importer now merges into existing guests** rather than creating duplicate rows when first/last name match within the same household; a new **`/guests/[id]` detail page** opens from any guest name with read-only details + inline edit; and the **catering brief letterhead** has been redesigned to match the prototype's typography hierarchy (couple name, venue, generation date).
 
 ## Phase status
 
@@ -33,6 +33,7 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
+| _(unreleased on `dev`)_ | 2026-04-27 | [v0.12.0 — Import merge + guest detail page + catering letterhead](#2026-04-27--v0120--import-merge--guest-detail-page--catering-letterhead) |
 | _(unreleased on `dev`)_ | 2026-04-27 | [v0.11.1 — coerceBool dash placeholder fix](#2026-04-27--v0111--import-stop-warning-on--boolean-placeholders) |
 | _(unreleased on `dev`)_ | 2026-04-27 | [v0.11.0 — Phase F1 catering brief](#2026-04-27--v0110--phase-f1-catering-brief-printable-summary) |
 | **v0.10.0** | 2026-04-27 | [Children's-meal + RSVP link import + cross-page surfaces](#2026-04-27--v0100--childrens-meal--rsvp-link-import-cross-page-surfaces-windows-guide) |
@@ -229,6 +230,32 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-27 · v0.12.0 — Import merge + guest detail page + catering letterhead
+
+Three pieces of feedback in one minor bump:
+
+**1. Import duplicates were not merging.** The user re-imported their Say I Do CSV after RSVPs came in and got a household with four guests where there should have been two — two complete rows plus two stub rows showing only the new RSVP chip. The previous importer always called `db.guest.create`, so any row whose name+household matched an existing guest produced a second row instead of merging into the first.
+
+Fix: at preview and commit time, the importer now builds a dedupe key of `householdName|firstName|lastName` (case-insensitive) and uses it to detect existing guests in target households. The preview shows a `merge` chip on rows that will land on an existing guest, and the summary distinguishes new vs merging counts (`23 new · 4 merging into existing`).
+
+The merge-update has well-defined field semantics:
+- **Strings** (email, phone, role, plus-one name, meal courses, RSVP link): overwrite only when the new value is non-empty — never blank existing data with a partial second import.
+- **Booleans** (isChild, needsHighchair, childrenMeal, plusOneAllowed): OR semantics — never downgrade `true → false`.
+- **Side**: overwrite only when the new value differs from the default `BOTH`.
+- **RSVP**: overwrite only when the new value isn't `PENDING` — confirmed RSVPs are never reset to pending on re-import.
+- **Arrays** (dietary, tags): case-insensitive union; existing order preserved.
+- **Notes**: append rather than overwrite, deduped on substring match.
+- **Seat**: only assign if the existing row is unseated.
+- **Song requests**: skip titles already on this guest (case-insensitive title match).
+
+If the same import contains multiple rows with the same name+household (rare but possible), later rows merge into the first one created in this run instead of creating yet another duplicate. The success page now shows separate "Created N · Merged into M" counts.
+
+**2. New guest detail page.** Click any guest name on `/guests` and a new `/guests/[id]` page opens with their full details — RSVP, side, role, adult/child + highchair + kids-meal flags, plus-one, dietary, tags, table assignment, RSVP link, three-course meal choices, free-text notes, song requests, and other guests in the same household. The page has an "Edit" button that surfaces the existing GuestForm inline for full editing, an inline RSVP dropdown (same as the list view), and a delete button that returns to `/guests` after confirmation. Guards: `canView("guests")` to load, `canEdit("guests")` to mutate. Read-only mode hides the action buttons and shows a "you don't have edit access" notice.
+
+**3. Catering brief letterhead redesign.** The previous header (`Catering brief` h1 + `Jamie & Bryony · {date}` subtitle) didn't match the design brief from the prototype. Restyled to use the prototype's letterhead pattern: couple name as the primary heading (`Spencer · Olwyn-Davis Wedding`), a row underneath with date + venue on the left and "Generated 27 April 2026" on the right, and a heavier 2px ink-primary rule beneath. Couple name and venue are read from `WEDDING_COUPLE` and `WEDDING_VENUE` env vars (with sensible defaults baked in for the current build) so the same brief works for any couple without code changes.
+
+No schema changes; additive refactor only. Verified with typecheck + lint + build.
 
 ### 2026-04-27 · v0.11.1 — Import: stop warning on "-" boolean placeholders
 

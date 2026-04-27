@@ -49,6 +49,10 @@ export type ImportRowPreview = {
   // Resolved against the existing DB at preview time:
   householdAction: "create" | "merge" | null;
   tableAction: "create" | "merge" | null;
+  // "create" = no matching guest in this household → insert new row.
+  // "update" = matching guest exists (same household, same first+last,
+  // case-insensitive) → merge into the existing row.
+  guestAction: "create" | "update";
   emailDuplicate: boolean;
 };
 
@@ -60,6 +64,8 @@ export type ImportPreview = {
   existingTables: string[];
   totalGuests: number;
   validGuests: number;
+  newGuests: number;
+  updatedGuests: number;
   rowErrors: number;
   duplicateEmails: number;
 };
@@ -113,7 +119,7 @@ function buildRowPreview(
   mapping: GuestField[],
   headers: string[],
   rowIndex: number,
-): Omit<ImportRowPreview, "householdAction" | "tableAction" | "emailDuplicate"> {
+): Omit<ImportRowPreview, "householdAction" | "tableAction" | "emailDuplicate" | "guestAction"> {
   const single = (field: GuestField): string => {
     const idx = findOne(mapping, field);
     if (idx === -1) return "";
@@ -263,6 +269,8 @@ export async function previewImport(input: {
       existingTables: [],
       totalGuests: 0,
       validGuests: 0,
+      newGuests: 0,
+      updatedGuests: 0,
       rowErrors: 0,
       duplicateEmails: 0,
     };
@@ -283,28 +291,52 @@ export async function previewImport(input: {
   );
   const emails = previews.map((p) => p.email).filter((e): e is string => !!e);
 
-  const [existingHouseholds, existingTables, existingEmails] = await Promise.all([
-    db.household.findMany({ where: { name: { in: householdNames } }, select: { name: true } }),
+  const [existingHouseholdRows, existingTables, existingEmails, existingGuestsInTargetHouseholds] = await Promise.all([
+    db.household.findMany({
+      where: { name: { in: householdNames } },
+      select: { id: true, name: true },
+    }),
     db.table.findMany({ where: { name: { in: tableNames } }, select: { name: true } }),
     db.guest.findMany({ where: { email: { in: emails } }, select: { email: true } }),
+    // For (household, firstName, lastName) dedupe at preview time.
+    db.guest.findMany({
+      where: { household: { name: { in: householdNames } }, archived: false },
+      select: {
+        firstName: true,
+        lastName: true,
+        household: { select: { name: true } },
+      },
+    }),
   ]);
-  const existingHouseholdSet = new Set(existingHouseholds.map((h) => h.name));
+  const existingHouseholdSet = new Set(existingHouseholdRows.map((h) => h.name));
   const existingTableSet = new Set(existingTables.map((t) => t.name));
   const existingEmailSet = new Set(
     existingEmails.map((e) => e.email).filter((e): e is string => !!e),
   );
 
+  // Key: "<householdName>|<firstNameLower>|<lastNameLower>"
+  function dedupeKey(householdName: string, first: string, last: string): string {
+    return `${householdName}|${first.trim().toLowerCase()}|${last.trim().toLowerCase()}`;
+  }
+  const existingGuestKeys = new Set(
+    existingGuestsInTargetHouseholds.map((g) =>
+      dedupeKey(g.household.name, g.firstName, g.lastName),
+    ),
+  );
+
   const decorated: ImportRowPreview[] = previews.map((p) => {
     const isDup = !!p.email && existingEmailSet.has(p.email);
+    const matchKey = p.householdName ? dedupeKey(p.householdName, p.firstName, p.lastName) : null;
+    const guestAction: "create" | "update" =
+      matchKey && existingGuestKeys.has(matchKey) ? "update" : "create";
     return {
       ...p,
-      warnings: isDup
+      warnings: isDup && guestAction === "create"
         ? [
             ...p.warnings,
-            // Important: this only checks the Guest table, not User accounts.
-            // User sign-in identities and wedding-Guest rows live in separate
-            // tables — having a User row with the same email does NOT trigger
-            // this warning.
+            // Only show the duplicate-email warning when we're NOT already
+            // merging via the name+household match — otherwise the user has
+            // a clear merge path and the warning is noise.
             `another Guest row already has this email — importing will create a second guest row`,
           ]
         : p.warnings,
@@ -318,11 +350,15 @@ export async function previewImport(input: {
           ? "merge"
           : "create"
         : null,
+      guestAction,
       emailDuplicate: isDup,
     };
   });
 
-  const validGuests = decorated.filter((p) => p.errors.length === 0).length;
+  const validRows = decorated.filter((p) => p.errors.length === 0);
+  const validGuests = validRows.length;
+  const newGuests = validRows.filter((p) => p.guestAction === "create").length;
+  const updatedGuests = validRows.filter((p) => p.guestAction === "update").length;
 
   return {
     rows: decorated,
@@ -332,6 +368,8 @@ export async function previewImport(input: {
     existingTables: tableNames.filter((n) => existingTableSet.has(n)),
     totalGuests: decorated.length,
     validGuests,
+    newGuests,
+    updatedGuests,
     rowErrors: decorated.length - validGuests,
     duplicateEmails: decorated.filter((p) => p.emailDuplicate).length,
   };
@@ -340,12 +378,12 @@ export async function previewImport(input: {
 export async function commitImport(input: {
   text: string;
   mapping: GuestField[];
-}): Promise<{ created: number; skipped: number; songs: number; tables: number }> {
+}): Promise<{ created: number; updated: number; skipped: number; songs: number; tables: number }> {
   const user = await requireEdit("guests");
   const parsed = inputSchema.parse(input);
 
   const rows = parseCsv(parsed.text);
-  if (rows.length === 0) return { created: 0, skipped: 0, songs: 0, tables: 0 };
+  if (rows.length === 0) return { created: 0, updated: 0, skipped: 0, songs: 0, tables: 0 };
 
   const headers = rows[0] ?? [];
   const dataRows = rows.slice(1);
@@ -355,7 +393,7 @@ export async function commitImport(input: {
   const previews = allPreviews.filter((p) => p.errors.length === 0);
 
   if (previews.length === 0) {
-    return { created: 0, skipped: dataRows.length, songs: 0, tables: 0 };
+    return { created: 0, updated: 0, skipped: dataRows.length, songs: 0, tables: 0 };
   }
 
   // ── Resolve / create households ────────────────────────────────────────
@@ -366,6 +404,47 @@ export async function commitImport(input: {
     where: { name: { in: householdNames } },
   });
   const householdByName = new Map(existingHouseholds.map((h) => [h.name, h]));
+
+  // ── Existing-guest dedupe map: (householdName|first|last) → guest snapshot
+  // Used to drive the merge-update path for rows whose name+household match
+  // an existing row.
+  function dedupeKey(householdName: string, first: string, last: string): string {
+    return `${householdName}|${first.trim().toLowerCase()}|${last.trim().toLowerCase()}`;
+  }
+  const existingGuestRows = await db.guest.findMany({
+    where: { household: { name: { in: householdNames } }, archived: false },
+    select: {
+      id: true,
+      firstName: true,
+      lastName: true,
+      email: true,
+      phone: true,
+      side: true,
+      rsvp: true,
+      isChild: true,
+      needsHighchair: true,
+      childrenMeal: true,
+      plusOneAllowed: true,
+      plusOneName: true,
+      role: true,
+      dietary: true,
+      tags: true,
+      mealStarter: true,
+      mealMain: true,
+      mealDessert: true,
+      rsvpUniqueLink: true,
+      notes: true,
+      tableSeatId: true,
+      household: { select: { name: true } },
+      songRequests: { select: { title: true } },
+    },
+  });
+  const guestByKey = new Map(
+    existingGuestRows.map((g) => [
+      dedupeKey(g.household.name, g.firstName, g.lastName),
+      g,
+    ]),
+  );
   const newlyCreatedHouseholds: string[] = [];
 
   for (const name of householdNames.filter((n) => !householdByName.has(n))) {
@@ -433,8 +512,9 @@ export async function commitImport(input: {
     createdTablesCount++;
   }
 
-  // ── Create guests, song requests, and seat assignments ────────────────
+  // ── Create / merge guests, song requests, and seat assignments ────────
   let createdCount = 0;
+  let updatedCount = 0;
   let songsCount = 0;
   for (const p of previews) {
     let householdId: string;
@@ -448,6 +528,102 @@ export async function commitImport(input: {
       householdId = fallback.id;
     }
 
+    // Decide create vs merge: only merge when the household was named in
+    // the import AND a guest with the same first+last already exists in it.
+    const matchKey = p.householdName
+      ? dedupeKey(p.householdName, p.firstName, p.lastName)
+      : null;
+    const existing = matchKey ? guestByKey.get(matchKey) ?? null : null;
+
+    if (existing) {
+      // ── Merge update ──────────────────────────────────────────────
+      // Strings: overwrite only when the new value is non-empty so we
+      //   don't blank out existing data with a partial second import.
+      // Booleans: OR semantics — never downgrade true → false.
+      // Arrays: union with case-insensitive dedupe.
+      // tableSeat: assign only if the existing row has none.
+      const data: Record<string, unknown> = {};
+
+      const overwriteIfNew = <T extends string | null>(field: string, current: T, next: string | null) => {
+        if (next && next !== current) data[field] = next;
+      };
+      overwriteIfNew("email", existing.email, p.email);
+      overwriteIfNew("phone", existing.phone, p.phone);
+      overwriteIfNew("plusOneName", existing.plusOneName, p.plusOneName);
+      overwriteIfNew("role", existing.role, p.role);
+      overwriteIfNew("mealStarter", existing.mealStarter, p.mealStarter);
+      overwriteIfNew("mealMain", existing.mealMain, p.mealMain);
+      overwriteIfNew("mealDessert", existing.mealDessert, p.mealDessert);
+      overwriteIfNew("rsvpUniqueLink", existing.rsvpUniqueLink, p.rsvpLink);
+
+      if (p.notes) {
+        // Append rather than overwrite: notes are free-form and may differ.
+        data.notes = existing.notes && !existing.notes.includes(p.notes)
+          ? `${existing.notes}\n${p.notes}`
+          : existing.notes ?? p.notes;
+      }
+
+      // Side: overwrite only when explicitly different from default BOTH.
+      if (p.side !== "BOTH" && p.side !== existing.side) {
+        data.side = p.side;
+      }
+      // RSVP: overwrite only if the new value is something other than PENDING
+      //   (don't reset confirmed RSVPs back to pending on re-import).
+      if (p.rsvp !== "PENDING" && p.rsvp !== existing.rsvp) {
+        data.rsvp = p.rsvp;
+      }
+
+      if (p.isChild && !existing.isChild) data.isChild = true;
+      if (p.needsHighchair && !existing.needsHighchair) data.needsHighchair = true;
+      if (p.childrenMeal && !existing.childrenMeal) data.childrenMeal = true;
+      if (p.plusOneAllowed && !existing.plusOneAllowed) data.plusOneAllowed = true;
+
+      // Array union (case-insensitive dedupe), preserve existing order.
+      const unionArr = (current: string[], next: string[]): string[] | null => {
+        if (next.length === 0) return null;
+        const seen = new Set(current.map((s) => s.toLowerCase()));
+        const additions = next.filter((s) => !seen.has(s.toLowerCase()));
+        if (additions.length === 0) return null;
+        return [...current, ...additions];
+      };
+      const dietaryUnion = unionArr(existing.dietary, p.dietary);
+      if (dietaryUnion) data.dietary = dietaryUnion;
+      const tagsUnion = unionArr(existing.tags, p.tags);
+      if (tagsUnion) data.tags = tagsUnion;
+
+      // Seat assignment: only fill if the existing guest is unseated.
+      if (!existing.tableSeatId && p.tableName && tableByName.has(p.tableName)) {
+        const state = tableByName.get(p.tableName)!;
+        const freeSeat = state.seats.find((s) => !s.occupiedByGuestId);
+        if (freeSeat) {
+          data.tableSeatId = freeSeat.id;
+          freeSeat.occupiedByGuestId = existing.id;
+        }
+      }
+
+      if (Object.keys(data).length > 0) {
+        await db.guest.update({ where: { id: existing.id }, data });
+      }
+
+      // Skip song requests this guest already has (case-insensitive title).
+      const existingSongTitles = new Set(
+        existing.songRequests.map((s) => s.title.trim().toLowerCase()),
+      );
+      const newSongs = p.songs.filter(
+        (s) => !existingSongTitles.has(s.trim().toLowerCase()),
+      );
+      if (newSongs.length > 0) {
+        await db.songRequest.createMany({
+          data: newSongs.map((s) => ({ guestId: existing.id, title: s })),
+        });
+        songsCount += newSongs.length;
+      }
+
+      updatedCount++;
+      continue;
+    }
+
+    // ── Create path ───────────────────────────────────────────────
     let tableSeatId: string | null = null;
     if (p.tableName && tableByName.has(p.tableName)) {
       const state = tableByName.get(p.tableName)!;
@@ -501,6 +677,37 @@ export async function commitImport(input: {
       songsCount += p.songs.length;
     }
 
+    // Add to map so a later row in the same import targeting the same
+    // (household, name) merges into this brand-new row instead of
+    // creating yet another duplicate.
+    if (matchKey) {
+      guestByKey.set(matchKey, {
+        id: guest.id,
+        firstName: guest.firstName,
+        lastName: guest.lastName,
+        email: guest.email,
+        phone: guest.phone,
+        side: guest.side,
+        rsvp: guest.rsvp,
+        isChild: guest.isChild,
+        needsHighchair: guest.needsHighchair,
+        childrenMeal: guest.childrenMeal,
+        plusOneAllowed: guest.plusOneAllowed,
+        plusOneName: guest.plusOneName,
+        role: guest.role,
+        dietary: guest.dietary,
+        tags: guest.tags,
+        mealStarter: guest.mealStarter,
+        mealMain: guest.mealMain,
+        mealDessert: guest.mealDessert,
+        rsvpUniqueLink: guest.rsvpUniqueLink,
+        notes: guest.notes,
+        tableSeatId: guest.tableSeatId,
+        household: { name: p.householdName ?? "" },
+        songRequests: p.songs.map((title) => ({ title })),
+      });
+    }
+
     createdCount++;
   }
 
@@ -509,7 +716,8 @@ export async function commitImport(input: {
     entity: "Guest",
     metadata: {
       created: createdCount,
-      skipped: dataRows.length - createdCount,
+      updated: updatedCount,
+      skipped: dataRows.length - createdCount - updatedCount,
       songs: songsCount,
       newHouseholds: newlyCreatedHouseholds,
       newTables: createdTablesCount,
@@ -523,7 +731,8 @@ export async function commitImport(input: {
 
   return {
     created: createdCount,
-    skipped: dataRows.length - createdCount,
+    updated: updatedCount,
+    skipped: dataRows.length - createdCount - updatedCount,
     songs: songsCount,
     tables: createdTablesCount,
   };

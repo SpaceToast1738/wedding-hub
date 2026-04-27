@@ -30,7 +30,7 @@ export function ImportClient() {
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [committing, startCommit] = useTransition();
   const [previewing, startPreview] = useTransition();
-  const [committed, setCommitted] = useState<{ created: number; skipped: number; songs: number; tables: number } | null>(null);
+  const [committed, setCommitted] = useState<{ created: number; updated: number; skipped: number; songs: number; tables: number } | null>(null);
 
   // Re-parse headers + suggest mapping whenever the user edits the textarea.
   useEffect(() => {
@@ -68,18 +68,29 @@ export function ImportClient() {
 
   function commit() {
     if (!preview || preview.validGuests === 0) return;
-    const parts = [
-      `Create ${preview.validGuests} guest${preview.validGuests === 1 ? "" : "s"}`,
-    ];
+    const parts: string[] = [];
+    if (preview.newGuests > 0) {
+      parts.push(`Create ${preview.newGuests} new guest${preview.newGuests === 1 ? "" : "s"}`);
+    }
+    if (preview.updatedGuests > 0) {
+      parts.push(`Merge into ${preview.updatedGuests} existing guest${preview.updatedGuests === 1 ? "" : "s"}`);
+    }
     if (preview.newHouseholds.length > 0) {
       parts.push(`+ ${preview.newHouseholds.length} new household${preview.newHouseholds.length === 1 ? "" : "s"}`);
     }
     if (preview.newTables.length > 0) {
       parts.push(`+ ${preview.newTables.length} new table${preview.newTables.length === 1 ? "" : "s"}`);
     }
-    let msg = parts.join(" ");
-    if (preview.rowErrors > 0) msg += `\n\n${preview.rowErrors} row${preview.rowErrors === 1 ? "" : "s"} with errors will be skipped.`;
-    if (preview.duplicateEmails > 0) msg += `\n\n${preview.duplicateEmails} row${preview.duplicateEmails === 1 ? "" : "s"} match an existing Guest's email — they'll be imported as a second guest row. (User sign-in accounts are stored separately and aren't checked here.) Clean up duplicates via the × button on the Guests page after.`;
+    let msg = parts.join("\n");
+    if (preview.updatedGuests > 0) {
+      msg += `\n\nMerge means: existing rows are updated in place. Empty fields get filled from the import; non-empty fields are preserved. Confirmed RSVPs are never reset to pending. Songs and dietary requirements are unioned (no duplicates).`;
+    }
+    if (preview.rowErrors > 0) {
+      msg += `\n\n${preview.rowErrors} row${preview.rowErrors === 1 ? "" : "s"} with errors will be skipped.`;
+    }
+    if (preview.duplicateEmails > 0) {
+      msg += `\n\n${preview.duplicateEmails} row${preview.duplicateEmails === 1 ? "" : "s"} share an email with another Guest row but don't match by name — those will create a second guest row. (User sign-in accounts are stored separately and aren't checked here.)`;
+    }
     msg += `\n\nProceed?`;
     if (!confirm(msg)) return;
     startCommit(async () => {
@@ -102,16 +113,26 @@ export function ImportClient() {
   }
 
   if (committed) {
-    const bits: string[] = [`${committed.created} guest${committed.created === 1 ? "" : "s"}`];
-    if (committed.tables > 0) bits.push(`${committed.tables} new table${committed.tables === 1 ? "" : "s"} (auto-seated)`);
-    if (committed.songs > 0) bits.push(`${committed.songs} song request${committed.songs === 1 ? "" : "s"}`);
+    const lines: string[] = [];
+    if (committed.created > 0) lines.push(`Created ${committed.created} new guest${committed.created === 1 ? "" : "s"}`);
+    if (committed.updated > 0) lines.push(`Merged into ${committed.updated} existing guest${committed.updated === 1 ? "" : "s"}`);
+    if (committed.tables > 0) lines.push(`${committed.tables} new table${committed.tables === 1 ? "" : "s"} (auto-seated)`);
+    if (committed.songs > 0) lines.push(`${committed.songs} song request${committed.songs === 1 ? "" : "s"}`);
     return (
       <div className="flex-1 overflow-auto">
         <div className="max-w-2xl mx-auto p-6">
           <div className="bg-moss-50 border border-moss-100 rounded-md p-6 text-center shadow-sm">
             <div className="text-3xl mb-2">✓</div>
             <h2 className="font-display text-2xl text-moss-700 mb-2">Imported</h2>
-            <p className="text-sm text-ink-secondary mb-1">Created {bits.join(" · ")}.</p>
+            {lines.length > 0 ? (
+              <ul className="text-sm text-ink-secondary mb-1 space-y-0.5">
+                {lines.map((l, i) => (
+                  <li key={i}>{l}</li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-sm text-ink-secondary mb-1">No changes.</p>
+            )}
             {committed.skipped > 0 && (
               <p className="text-xs text-ink-tertiary mb-4">
                 {committed.skipped} row{committed.skipped === 1 ? "" : "s"} skipped (had row errors).
@@ -345,11 +366,11 @@ function PreviewPanel({
         <h2 className="text-sm font-semibold text-ink-primary">Preview</h2>
         <div className="text-[11px] text-ink-tertiary flex gap-3 flex-wrap">
           <span>{preview.totalGuests} rows</span>
-          <span className="text-moss-700">{preview.validGuests} valid</span>
+          {preview.newGuests > 0 && <span className="text-moss-700">{preview.newGuests} new</span>}
+          {preview.updatedGuests > 0 && <span className="text-info">{preview.updatedGuests} merging into existing</span>}
           {preview.rowErrors > 0 && <span className="text-danger">{preview.rowErrors} with errors</span>}
           {preview.duplicateEmails > 0 && <span className="text-marigold-700">{preview.duplicateEmails} duplicate email{preview.duplicateEmails === 1 ? "" : "s"}</span>}
           {preview.newHouseholds.length > 0 && <span>{preview.newHouseholds.length} new household{preview.newHouseholds.length === 1 ? "" : "s"}</span>}
-          {preview.existingHouseholds.length > 0 && <span>{preview.existingHouseholds.length} merging into existing</span>}
           {preview.newTables.length > 0 && <span>{preview.newTables.length} new table{preview.newTables.length === 1 ? "" : "s"}</span>}
         </div>
       </header>
@@ -382,6 +403,14 @@ function PreviewPanel({
                     <div>
                       {r.firstName || <em className="text-danger">(missing)</em>}{" "}
                       {r.lastName || <em className="text-danger">(missing)</em>}
+                      {r.guestAction === "update" && (
+                        <span
+                          className="ml-1.5 text-[10px] text-info bg-[color:#eef4f5] dark:bg-muted border border-[color:#d0e4e8] dark:border-border-soft px-1 rounded"
+                          title="A guest with this name already exists in this household — fields will be merged into the existing row."
+                        >
+                          merge
+                        </span>
+                      )}
                       {r.isChild && <span className="ml-1.5 text-[10px] text-marigold-700 bg-marigold-100 px-1 rounded">Child</span>}
                       {r.needsHighchair && <span className="ml-1 text-[10px] text-marigold-700 bg-marigold-100 px-1 rounded">Highchair</span>}
                       {r.childrenMeal && <span className="ml-1 text-[10px] text-marigold-700 bg-marigold-100 px-1 rounded">Kids meal</span>}
@@ -490,7 +519,11 @@ function PreviewPanel({
         >
           {committing
             ? "Importing…"
-            : `Import ${preview.validGuests} guest${preview.validGuests === 1 ? "" : "s"}`}
+            : preview.updatedGuests > 0 && preview.newGuests > 0
+              ? `Import ${preview.newGuests} + merge ${preview.updatedGuests}`
+              : preview.updatedGuests > 0
+                ? `Merge ${preview.updatedGuests} guest${preview.updatedGuests === 1 ? "" : "s"}`
+                : `Import ${preview.newGuests} guest${preview.newGuests === 1 ? "" : "s"}`}
         </Button>
       </div>
     </section>

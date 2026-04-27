@@ -172,7 +172,13 @@ export function HouseholdBlock({ household, canEdit }: { household: Household; c
       <li className="flex items-center gap-3 px-4 py-2.5 group">
         <div className="flex-1 min-w-0">
           <div className="flex items-baseline gap-2 flex-wrap">
-            <span className="text-sm text-ink-primary">{guest.firstName} {guest.lastName}</span>
+            <Link
+              href={`/guests/${guest.id}`}
+              className="text-sm text-ink-primary hover:text-moss-700 hover:underline"
+              title="Open guest details"
+            >
+              {guest.firstName} {guest.lastName}
+            </Link>
             {guest.isChild && <span className="text-[10px] text-marigold-700 bg-marigold-100 px-1 rounded">Child</span>}
             {guest.needsHighchair && <span className="text-[10px] text-marigold-700 bg-marigold-100 px-1 rounded">Highchair</span>}
             {guest.childrenMeal && <span className="text-[10px] text-marigold-700 bg-marigold-100 px-1 rounded">Kids meal</span>}
