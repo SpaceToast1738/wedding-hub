@@ -11,7 +11,7 @@
 - **Repo:** [SpaceToast1738/wedding-hub](https://github.com/SpaceToast1738/wedding-hub) · `claude/main` (releases) + `dev` (work-in-progress)
 - **Stack:** Next.js 15 · TypeScript · Tailwind v4 · Prisma · Postgres 16 · Auth.js v5 · Caddy · Docker Compose
 - **Working tree:** `C:\Users\Admin\Code\wedding-hub` (local SSD). The old `\\TOWER\Jamie Spencer\Claude\wedding-hub` mirror is no longer in use — run `Remove-Item -Recurse -Force "\\TOWER\Jamie Spencer\Claude\wedding-hub"` from a fresh PowerShell to delete it.
-- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (currently v0.6.0). v0.7.0 (this iteration) ships first/last name fields on the User model, a one-time `/welcome` prompt for newly-signed-in users, and self-edit profile panel in Settings. Includes additive Prisma migration `20260427160000_add_user_name_fields`.
+- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (currently v0.6.0). v0.7.1 (this iteration) ships first/last name fields + `/welcome` prompt + Settings profile panel (v0.7.0), plus a bugfix where dragged seating-table positions now survive a view-switch / navigation (v0.7.1). Additive Prisma migration `20260427160000_add_user_name_fields`.
 
 ## Phase status
 
@@ -198,11 +198,19 @@ When wrapping up a meaningful iteration:
 
 ### Current version
 
-`0.7.0` on `dev` — first/last name + welcome prompt + Settings profile panel. Additive Prisma migration. `claude/main` at `v0.6.0`.
+`0.7.1` on `dev` — bugfix on top of v0.7.0 (seating table positions survive navigation). `claude/main` at `v0.6.0`.
 
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-27 · v0.7.1 — Bugfix: seating table positions survive navigation
+
+User report: tables didn't always hold their dragged position when switching from canvas to list view, or navigating to other pages and back.
+
+**Cause:** `updateTablePosition` deliberately skipped `revalidatePath('/seating')` to avoid a perceived drag-flicker concern. Result: the page's server-side `tables` data stayed at its original snapshot. When `SeatingCanvas` unmounted (Canvas → List toggle, or navigation away) its local position state was destroyed; on remount it re-seeded from the stale prop and tables snapped back to their pre-drag positions.
+
+**Fix:** added `revalidatePath('/seating')` at the end of the action. The flicker concern was overblown — the canvas's local-position-priority `useEffect` already preserves the latest local state when the prop refreshes (see `prev[t.id] ?? { x: t.posX, y: t.posY }`), so revalidation is invisible during a session and *correct* after navigation.
 
 ### 2026-04-27 · v0.7.0 — First / last name fields + welcome prompt + Settings profile panel
 

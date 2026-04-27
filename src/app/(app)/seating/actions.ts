@@ -85,15 +85,17 @@ export async function updateTablePosition(
       ...(parsed.rotation !== undefined && { rotation: parsed.rotation }),
     },
   });
-  // Position changes happen often during drag — audit but don't revalidate
-  // every time. The page already revalidates on assign / create / delete,
-  // and the canvas updates locally in the meantime.
   await audit(user, {
     action: "position",
     entity: "Table",
     entityId: id,
     metadata: { posX: parsed.posX, posY: parsed.posY, rotation: parsed.rotation },
   });
+  // Revalidate so positions survive view-switches and navigation. The
+  // canvas component preserves its local position over a refreshed prop
+  // (see the useEffect in SeatingCanvas), so this does NOT cause a
+  // mid-drag snap-back; only the server snapshot gets refreshed.
+  revalidatePath("/seating");
 }
 
 export async function assignGuestToSeat(seatId: string, guestId: string | null) {
