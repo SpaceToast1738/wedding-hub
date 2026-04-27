@@ -10,7 +10,7 @@
 - **Production URL:** wedding.spencer-net.com (private)
 - **Repo:** [SpaceToast1738/wedding-hub](https://github.com/SpaceToast1738/wedding-hub) · `claude/main` (releases) + `dev` (work-in-progress)
 - **Stack:** Next.js 15 · TypeScript · Tailwind v4 · Prisma · Postgres 16 · Auth.js v5 · Caddy · Docker Compose
-- **Working tree:** `C:\Users\Admin\Code\wedding-hub` (local SSD; the old TOWER mirror has been retired)
+- **Working tree:** `C:\Users\Admin\Code\wedding-hub` (local SSD). The old `\\TOWER\Jamie Spencer\Claude\wedding-hub` mirror is no longer in use — run `Remove-Item -Recurse -Force "\\TOWER\Jamie Spencer\Claude\wedding-hub"` from a fresh PowerShell to delete it.
 - **Current state:** v0.3.1 on `claude/main` — Phase C complete + initial migration committed + log rotation + version pill in the sidebar. Ready to deploy.
 
 ## Phase status
@@ -190,7 +190,7 @@ Not a code release — organisational milestone. No version bump.
   - `c275223` `feat: Phase C — production deploy stack` (tag **v0.3.0**)
   - `6c2999d` `feat: v0.3.1 — deploy-readiness fixes` (tag **v0.3.1**)
 - `claude/main` holds the four tagged releases. New `dev` branch tracks work in progress; one chore commit on it (`e7c4f03`) tracks `package-lock.json` and adds `.claude/` to `.gitignore`.
-- Working tree is now at `C:\Users\Admin\Code\wedding-hub` under git. The old TOWER mirror (`\\TOWER\Jamie Spencer\Claude\wedding-hub`) is retired.
+- Working tree is now at `C:\Users\Admin\Code\wedding-hub` under git. The old TOWER mirror at `\\TOWER\Jamie Spencer\Claude\wedding-hub` is no longer used — flagged for manual removal (this Claude session's harness was holding it open and the safety rail blocked the recursive delete).
 - Memory updated: `ROADMAP.md` is the canonical living plan; the standing rule to update it every iteration carries forward.
 
 ### 2026-04-27 · v0.3.1 — Deploy-readiness fixes
