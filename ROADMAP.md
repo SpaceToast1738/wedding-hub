@@ -11,7 +11,7 @@
 - **Repo:** [SpaceToast1738/wedding-hub](https://github.com/SpaceToast1738/wedding-hub) · `claude/main` (releases) + `dev` (work-in-progress)
 - **Stack:** Next.js 15 · TypeScript · Tailwind v4 · Prisma · Postgres 16 · Auth.js v5 · Caddy · Docker Compose
 - **Working tree:** `C:\Users\Admin\Code\wedding-hub` (local SSD). The old `\\TOWER\Jamie Spencer\Claude\wedding-hub` mirror is no longer in use — run `Remove-Item -Recurse -Force "\\TOWER\Jamie Spencer\Claude\wedding-hub"` from a fresh PowerShell to delete it.
-- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (currently v0.6.0). v0.7.1 (this iteration) ships first/last name fields + `/welcome` prompt + Settings profile panel (v0.7.0), plus a bugfix where dragged seating-table positions now survive a view-switch / navigation (v0.7.1). Additive Prisma migration `20260427160000_add_user_name_fields`.
+- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` at v0.7.1). v0.8.0 (this iteration on `dev`) ships **Phase E**: CSV / TSV guest import with auto-detected column mapping, dry-run preview with per-row validation, household auto-merge, and committal in a single server action. No new migration.
 
 ## Phase status
 
@@ -22,7 +22,7 @@
 | **C** | Docker stack: Caddy + web + db + backup, hardening, Cloudflare Tunnel alt | ✅ Done |
 | **D1** | Real file uploads — multipart action, /api/files/[id] download, MIME allowlist, 25 MB cap | ✅ Done |
 | **D2** | Drag-and-drop seating canvas (SVG, pointer-event drag, grid snap, keyboard nudge, view toggle) | ✅ Done |
-| **E** | CSV / Say I Do guest import wizards + diff sync UI | 🟡 Not started |
+| **E** | CSV / TSV guest import — column inference, dry-run preview, household merge | ✅ Done |
 | **F** | Photography shot list, dietary aggregate, catering export PDF | 🟡 Not started |
 | **G** | Spotify playlist sync, day-of mode, quick-capture (`C`) modal | 🟡 Not started |
 
@@ -88,9 +88,9 @@ Each section has server actions wrapped with `requireEdit(section)` + `audit()`,
 Ranked roughly by usefulness × ease.
 
 ### High value
-- **CSV guest import** — paste CSV, column-map UI, dry-run diff, commit. Deferred from Phase B (Guests).
 - **Catering export** — printable PDF / page aggregating dietary needs by table for the venue. Deferred from Phase B (Guests / Wedding Book).
 - **Seating constraint rules** — must-sit-together / must-not-sit / prefer-group hints, plus violation indicators on the canvas. The prototype had a richer rules panel; we shipped the canvas without it for v0.6.0.
+- **CSV import: update / dedupe modes** — v0.8.0 always creates new rows. A future iteration could add "match by email and update existing" + "skip duplicates" modes alongside the current "create".
 
 ### Medium value
 - **Photography shot list** — checklist within Wedding Book section. New model: `PhotographyShot`.
@@ -98,7 +98,7 @@ Ranked roughly by usefulness × ease.
 - **Quick-capture (`C` shortcut) modal** — global capture for task/question/payment/event. Deferred from Phase A (AppShell).
 
 ### Lower value
-- **Say I Do sync** — diff view + checkbox commit. Probably not worth it unless we know the API or do CSV-export-from-SID-and-import-here.
+- ~~**Say I Do sync**~~ — covered by the v0.8.0 CSV import path. Just export to CSV from Say I Do and paste it into `/guests/import`.
 - **Spotify playlist sync** — Spotify OAuth + playlist mirror. Nice-to-have.
 - **Glance / At-a-glance dashboard** — currently a stub.
 - **Custom fields UI in Settings** — the schema has `CustomField` but no UI. Defer until something needs it.
@@ -198,11 +198,25 @@ When wrapping up a meaningful iteration:
 
 ### Current version
 
-`0.7.1` on `dev` — bugfix on top of v0.7.0 (seating table positions survive navigation). `claude/main` at `v0.6.0`.
+`0.8.0` on `dev` — Phase E guest import. `claude/main` at `v0.7.1` (just promoted, currently in production after Pull-and-Up).
 
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-27 · v0.8.0 — Phase E: CSV / TSV guest import
+
+The Guests page now has an **Import CSV** button in its header (couple-tier and anyone with `guests:edit`). Lands on `/guests/import` — a paste-and-preview flow that handles:
+
+- **CSV or TSV** — auto-detected from the header line. Quoted fields, escaped quotes (`""` → `"`), and embedded commas are all handled. (Multi-line cells inside quotes also work, though Say I Do exports rarely use them.)
+- **Column auto-inference** — header heuristics map "First Name", "Email Address", "+1", "Dietary Requirements", etc. to known fields. The user can override any guess via per-column dropdowns. Required: First name, Last name. Everything else is optional.
+- **Live dry-run preview** — for every parsed row, shows the coerced values + per-row errors (missing required fields, oversize names) and warnings (malformed email, unparseable boolean). The preview shows the first 12 rows by default with a "Show all" toggle for bigger imports.
+- **Household resolution** — rows sharing a household name go to the same household. Existing households (matched by exact name) get merged into; new households are created. Newly-created households inherit the dominant `side` value from their members. Rows without a household name get a per-guest household named `"FirstName LastName"` so they don't get dumped into one giant pile.
+- **Commit in a single server action** — wraps household creation + guest insertion in a transaction-friendly pattern. Skips rows with errors (the preview already showed them); creates everything else. Audited as `import` on the Guest entity with a metadata blob containing counts and new-household names.
+
+New module [src/lib/csv.ts](src/lib/csv.ts) holds the parser, column-inference heuristics, and value coercion (boolean, side, RSVP, dietary). Shared client + server so the page's live preview parses the same way the commit action does.
+
+Subsumes the "Say I Do sync" backlog item — Say I Do exports CSV, paste it here.
 
 ### 2026-04-27 · v0.7.1 — Bugfix: seating table positions survive navigation
 
