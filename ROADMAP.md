@@ -8,9 +8,10 @@
 
 - **Wedding date:** 26 September 2026
 - **Production URL:** wedding.spencer-net.com (private)
-- **Repo:** [SpaceToast1738/wedding-hub](https://github.com/SpaceToast1738/wedding-hub) · default branch `claude/main`
+- **Repo:** [SpaceToast1738/wedding-hub](https://github.com/SpaceToast1738/wedding-hub) · `claude/main` (releases) + `dev` (work-in-progress)
 - **Stack:** Next.js 15 · TypeScript · Tailwind v4 · Prisma · Postgres 16 · Auth.js v5 · Caddy · Docker Compose
-- **Current state:** v0.3.1 — Phase C complete + initial migration committed + log rotation + version pill in the sidebar. Ready to deploy.
+- **Working tree:** `C:\Users\Admin\Code\wedding-hub` (local SSD). The old `\\TOWER\Jamie Spencer\Claude\wedding-hub` mirror is no longer in use — run `Remove-Item -Recurse -Force "\\TOWER\Jamie Spencer\Claude\wedding-hub"` from a fresh PowerShell to delete it.
+- **Current state:** v0.3.1 on `claude/main` — Phase C complete + initial migration committed + log rotation + version pill in the sidebar. Ready to deploy.
 
 ## Phase status
 
@@ -104,6 +105,7 @@ Ranked roughly by usefulness × ease.
 - **Permission section keys** must match the union in [src/lib/permissions.ts](src/lib/permissions.ts) (`SECTIONS` const).
 - **Couple-only routes** are gated in two places — middleware (defence-in-depth) and the page itself (`if (!user.isCouple) redirect("/")`).
 - **Forms** use plain `<form action={serverAction}>` with a small client wrapper for `useTransition`-driven pending state. No client-side form libraries in Phase A–C.
+- **Branching:** day-to-day work commits to `dev`. When a chunk is ready to release, fast-forward `claude/main` to dev's HEAD, bump `package.json`, update the ROADMAP changelog, and tag `vX.Y.Z` on `claude/main`. Tags are immutable — never re-tag.
 
 ## Versioning
 
@@ -179,6 +181,17 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-27 · Repo published to GitHub
+Not a code release — organisational milestone. No version bump.
+- The session's work was reconstructed into four phase-aligned commits and pushed to [SpaceToast1738/wedding-hub](https://github.com/SpaceToast1738/wedding-hub):
+  - `4fdc332` `feat: Phase A — bootable shell` (tag **v0.1.0**)
+  - `0fe9c4f` `feat: Phase B — domain pages` (tag **v0.2.0**)
+  - `c275223` `feat: Phase C — production deploy stack` (tag **v0.3.0**)
+  - `6c2999d` `feat: v0.3.1 — deploy-readiness fixes` (tag **v0.3.1**)
+- `claude/main` holds the four tagged releases. New `dev` branch tracks work in progress; one chore commit on it (`e7c4f03`) tracks `package-lock.json` and adds `.claude/` to `.gitignore`.
+- Working tree is now at `C:\Users\Admin\Code\wedding-hub` under git. The old TOWER mirror at `\\TOWER\Jamie Spencer\Claude\wedding-hub` is no longer used — flagged for manual removal (this Claude session's harness was holding it open and the safety rail blocked the recursive delete).
+- Memory updated: `ROADMAP.md` is the canonical living plan; the standing rule to update it every iteration carries forward.
 
 ### 2026-04-27 · v0.3.1 — Deploy-readiness fixes
 - **Initial Prisma migration committed** at `prisma/migrations/20260427120000_init/` so first-boot `migrate deploy` actually creates the schema (the prior state would have left a fresh DB empty)
