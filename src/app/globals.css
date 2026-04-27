@@ -178,6 +178,24 @@ kbd {
   .catering-page table { border-color: #999 !important; }
   .catering-page table th { background: #f0f0f0 !important; }
 
+  /* Photography shot list: same clean-sheet treatment, plus checkboxes
+     stay visible (the photographer ticks them with a pen on the printout). */
+  .photography-page {
+    max-width: none !important;
+    padding: 0 !important;
+    color: #000;
+  }
+  .photography-page input[type="checkbox"] {
+    /* Ensure the box prints as a hollow square even if browser drops it. */
+    appearance: none;
+    -webkit-appearance: none;
+    width: 14px;
+    height: 14px;
+    border: 1.5px solid #444;
+    border-radius: 2px;
+    background: #fff;
+  }
+
   /* A4 portrait with reasonable margins */
   @page {
     size: A4;

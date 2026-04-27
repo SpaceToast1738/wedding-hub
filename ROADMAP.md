@@ -11,7 +11,7 @@
 - **Repo:** [SpaceToast1738/wedding-hub](https://github.com/SpaceToast1738/wedding-hub) · `claude/main` (releases) + `dev` (work-in-progress)
 - **Stack:** Next.js 15 · TypeScript · Tailwind v4 · Prisma · Postgres 16 · Auth.js v5 · Caddy · Docker Compose
 - **Working tree:** `C:\Users\Admin\Code\wedding-hub` (local SSD). The old `\\TOWER\Jamie Spencer\Claude\wedding-hub` mirror is no longer in use — run `Remove-Item -Recurse -Force "\\TOWER\Jamie Spencer\Claude\wedding-hub"` from a fresh PowerShell to delete it.
-- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` promoted to **v0.12.0**, 27 Apr 2026). Latest changes: F1 catering brief, importer merges duplicates instead of creating second rows, new `/guests/[id]` detail/edit page, redesigned catering letterhead. Once the GHCR image rebuilds + Unraid pulls, the whole stack from v0.11.0 → v0.12.0 lands in prod.
+- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` at **v0.12.0**, promoted 27 Apr 2026). v0.13.0 (this iteration on `dev`) opens **Phase F2** — a printable shot list at `/book/photography` with per-shot captured-checkboxes, name chips, location, reorder, and a print stylesheet. Adds an additive `PhotographyShot` migration; no env changes.
 
 ## Phase status
 
@@ -24,7 +24,7 @@
 | **D2** | Drag-and-drop seating canvas (SVG, pointer-event drag, grid snap, keyboard nudge, view toggle) | ✅ Done |
 | **E** | CSV / TSV guest import — column inference, dry-run preview, household merge | ✅ Done |
 | **F1** | Catering brief — totals, course breakdowns, dietary aggregate, per-table seating, print stylesheet | ✅ Done |
-| **F2** | Photography shot list — checklist within the Wedding Book | 🟡 Not started |
+| **F2** | Photography shot list — checklist within the Wedding Book | ✅ Done |
 | **G** | Spotify playlist sync, day-of mode, quick-capture (`C`) modal | 🟡 Not started |
 
 ## Releases
@@ -33,6 +33,7 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
+| _(unreleased on `dev`)_ | 2026-04-27 | [v0.13.0 — Phase F2 photography shot list](#2026-04-27--v0130--phase-f2-photography-shot-list) |
 | **v0.12.0** | 2026-04-27 | [Import merge + guest detail page + catering letterhead](#2026-04-27--v0120--import-merge--guest-detail-page--catering-letterhead) |
 | v0.11.1 | 2026-04-27 | [coerceBool dash placeholder fix](#2026-04-27--v0111--import-stop-warning-on--boolean-placeholders) |
 | v0.11.0 | 2026-04-27 | [Phase F1 catering brief](#2026-04-27--v0110--phase-f1-catering-brief-printable-summary) |
@@ -116,7 +117,6 @@ Each section has server actions wrapped with `requireEdit(section)` + `audit()`,
 Ranked roughly by usefulness × ease.
 
 ### High value
-- **Photography shot list (Phase F2)** — checklist of shots inside the Wedding Book section. New `PhotographyShot` model with title, with-whom, captured/not-captured, optional notes.
 - **Seating constraint rules** — must-sit-together / must-not-sit / prefer-group hints, plus violation indicators on the canvas. The prototype had a richer rules panel; we shipped the canvas without it for v0.6.0.
 - **CSV import: update / dedupe modes** — v0.8.0 always creates new rows. A future iteration could add "match by email and update existing" + "skip duplicates" modes alongside the current "create".
 
@@ -225,11 +225,40 @@ When wrapping up a meaningful iteration:
 
 ### Current version
 
-`0.12.0` on both `dev` and `claude/main` (promoted 27 Apr 2026). Production currently serves whatever Docker image Unraid last pulled — v0.11.0 → v0.12.0 land in prod once GHCR rebuilds and `docker compose pull && up -d` runs on the host.
+`0.13.0` on `dev`, `claude/main` at `v0.12.0`. Promote when F2 has been smoke-tested in dev — additive migration runs on Unraid `docker compose pull && up -d`, no manual ops required.
 
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-27 · v0.13.0 — Phase F2: photography shot list
+
+A printable, tickable shot list for the photographer, sitting under the Wedding Book.
+
+**New page** at [`/book/photography`](src/app/(app)/book/photography/page.tsx) — opens from the new **Photography & Shot list** card on `/book`. Each shot has:
+- Title (e.g. *Couple portraits*)
+- "With whom" — comma-separated names rendered as moss chips
+- Location — short label (Garden / Library / Front lawn)
+- Notes — free-text
+- A captured/planned checkbox the photographer ticks on the day
+
+The header shows live progress (`3 of 6 captured · 3 planned`), and the same count surfaces on the Photography card on the Book hub so the couple can see at a glance how the day went.
+
+**Reorder** with up/down arrow buttons per row (visible on hover, accessible via focus). Implemented as an order-field swap with the neighbour, not a full renumber, so reorder is one transaction regardless of list length.
+
+**Print mode** (`Print` button → `window.print()`) reuses the global `@media print` stylesheet established by the catering brief. The print stylesheet:
+- Hides the Wedding Book back-link, action buttons, and reorder/edit/delete affordances (`.no-print`)
+- Renders the print-only letterhead (*Shot list — Jamie & Bryony*)
+- Forces a square hollow-checkbox so the photographer can tick rows with a pen on paper
+- Avoids page-breaking inside the shot list block (`.print-break-avoid`)
+
+**Schema** ([prisma/schema.prisma](prisma/schema.prisma)) adds a standalone `PhotographyShot` table — title, `withWhom: String[]`, location, notes, captured boolean, capturedAt timestamp, order int. No FK to Guest deliberately: shot lists describe people by display name, and we don't want a deleted Guest to silently remove a planned shot. Migration `20260427190000_add_photography_shot` is purely additive — `migrate deploy` creates the table on next prod boot.
+
+**Permissions:** lives under the existing `book` permission section. No new section key needed; couple + party + planner all get edit access via the standard `Permission` row matrix.
+
+**Seed** ([prisma/seed.ts](prisma/seed.ts)) idempotently inserts the six prototype shots if and only if the `PhotographyShot` table is empty — a re-seed never overwrites real data added through the UI. The `BookSection` row with slug `photography` is upserted alongside the other sections so the card appears on the hub.
+
+Verified: typecheck + lint + build all clean. No env-var changes.
 
 ### 2026-04-27 · v0.12.0 — Import merge + guest detail page + catering letterhead
 

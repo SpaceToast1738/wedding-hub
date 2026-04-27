@@ -380,6 +380,27 @@ model BookSubsection {
   @@unique([sectionId, slug])
 }
 
+// ─── Photography shot list ────────────────────────────────────────────────
+//
+// Lives under the Wedding Book section in the UI but stored separately
+// because the data model (checkboxes + multi-name target list) doesn't fit
+// the BookSubsection JSON-fields archetype. withWhom is a free-text list
+// rather than a Guest relation: shot lists describe people by display name,
+// and we don't want a deleted Guest to silently remove a planned shot.
+
+model PhotographyShot {
+  id         String    @id @default(cuid())
+  title      String
+  withWhom   String[]  @default([])
+  location   String?
+  notes      String?   @db.Text
+  captured   Boolean   @default(false)
+  capturedAt DateTime?
+  order      Int       @default(0)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+}
+
 // ─── Seating ───────────────────────────────────────────────────────────────
 
 model Table {

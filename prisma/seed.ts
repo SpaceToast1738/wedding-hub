@@ -123,9 +123,13 @@ async function seedSampleHouseholds() {
 
 async function seedBookSections() {
   const sections = [
-    { slug: "ceremony",   title: "Ceremony",        order: 1 },
-    { slug: "reception",  title: "Reception",       order: 2 },
-    { slug: "logistics",  title: "Logistics",       order: 3 },
+    { slug: "ceremony",    title: "Ceremony",                order: 1 },
+    { slug: "reception",   title: "Reception",               order: 2 },
+    { slug: "logistics",   title: "Logistics",               order: 3 },
+    // Photography is a special section — `/book/photography` resolves to a
+    // dedicated route with a checklist UI rather than the generic subsection
+    // editor. The BookSection row exists so it appears as a card on /book.
+    { slug: "photography", title: "Photography & Shot list", order: 4 },
   ];
   for (const s of sections) {
     await db.bookSection.upsert({
@@ -137,6 +141,26 @@ async function seedBookSections() {
   console.log(`  ✓ ${sections.length} book sections`);
 }
 
+// Idempotent: only seeds when there are zero shots in the DB. Real shots
+// added via the UI are never overwritten by a re-run of `npm run db:seed`.
+async function seedPhotographyShots() {
+  const existing = await db.photographyShot.count();
+  if (existing > 0) {
+    console.log(`  ✓ photography shots already present (${existing}); skipping seed`);
+    return;
+  }
+  const shots = [
+    { title: "Couple portraits",         withWhom: ["Jamie", "Bryony"],                                  location: "Garden if dry, library if not", notes: null,             order: 1 },
+    { title: "Whole wedding party",      withWhom: ["Jamie", "Bryony", "Joshua", "Aimee"],               location: "Front lawn",                    notes: null,             order: 2 },
+    { title: "Bride's immediate family", withWhom: ["Bryony", "Torin", "Tia"],                           location: "Drawing room",                  notes: null,             order: 3 },
+    { title: "Groom's immediate family", withWhom: ["Jamie", "Tyler"],                                   location: "Library",                       notes: null,             order: 4 },
+    { title: "Ring keepers with rings",  withWhom: ["Joshua", "Aimee", "Jamie", "Bryony"],               location: null,                            notes: "Before ceremony", order: 5 },
+    { title: "Flower girl & page boy",   withWhom: ["Clara", "Torin"],                                   location: "Garden",                        notes: null,             order: 6 },
+  ];
+  await db.photographyShot.createMany({ data: shots });
+  console.log(`  ✓ ${shots.length} sample photography shots`);
+}
+
 async function main() {
   console.log("Seeding Wedding Hub…");
   await seedUsersAndPermissions();
@@ -144,6 +168,7 @@ async function main() {
   await seedSampleTasks();
   await seedSampleHouseholds();
   await seedBookSections();
+  await seedPhotographyShots();
   console.log("Done.");
 }
 
