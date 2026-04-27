@@ -45,21 +45,21 @@ ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
 
 # Standalone Next.js bundle (includes server.js + traced node_modules)
-COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
-COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
-COPY --from=builder --chown=nextjs:nodejs /app/public ./public
+COPY --from=builder --chown=node:node /app/.next/standalone ./
+COPY --from=builder --chown=node:node /app/.next/static ./.next/static
+COPY --from=builder --chown=node:node /app/public ./public
 
 # Prisma CLI + schema + migrations (so the entrypoint can run `migrate deploy`)
-COPY --from=builder --chown=nextjs:nodejs /app/prisma ./prisma
-COPY --from=builder --chown=nextjs:nodejs /app/node_modules/prisma ./node_modules/prisma
-COPY --from=builder --chown=nextjs:nodejs /app/node_modules/@prisma ./node_modules/@prisma
-COPY --from=builder --chown=nextjs:nodejs /app/node_modules/.prisma ./node_modules/.prisma
+COPY --from=builder --chown=node:node /app/prisma ./prisma
+COPY --from=builder --chown=node:node /app/node_modules/prisma ./node_modules/prisma
+COPY --from=builder --chown=node:node /app/node_modules/@prisma ./node_modules/@prisma
+COPY --from=builder --chown=node:node /app/node_modules/.prisma ./node_modules/.prisma
 
 # Transpiled seed script (plain JS, no tsx required at runtime)
-COPY --from=builder --chown=nextjs:nodejs /app/prisma-build/seed.js ./prisma/seed.js
+COPY --from=builder --chown=node:node /app/prisma-build/seed.js ./prisma/seed.js
 
 # Symlink for `npx prisma` / `node ./node_modules/prisma/build/index.js`
-COPY --chown=nextjs:nodejs docker/entrypoint.sh /usr/local/bin/entrypoint.sh
+COPY --chown=node:node docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
 USER node
