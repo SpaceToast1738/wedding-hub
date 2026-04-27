@@ -106,50 +106,80 @@ Sign-in is restricted to emails in `AUTH_ALLOWED_EMAILS` (csv). Anyone else hits
 
 ## Production deployment
 
-The whole stack runs on a single Docker host (the Unraid server) via `docker compose`. Four services on two networks:
+The stack runs on the Unraid server via `docker compose`, fronted by **Cloudflare Tunnel** — no public ports on the host, no Let's Encrypt to manage. Cloudflare terminates TLS at the edge and forwards plain HTTP through the tunnel to Caddy, which is reachable only on the LAN.
 
 ```
-                ┌── 80/443 (host) ──┐
-                ▼                    │
-      ┌────────────────────┐         │   edge network
-      │       caddy        │ ────────┘   (TLS, headers, rate-limit)
-      └─────────┬──────────┘
-                │ internal network (no host ports)
-        ┌───────┴────────┬──────────────┐
-        ▼                ▼              ▼
-   ┌─────────┐     ┌─────────┐   ┌──────────────┐
-   │   web   │     │   db    │   │   backup     │
-   │ Next.js │ ──► │  pg-16  │ ◄─┤ pg_dump +    │
-   │  :3000  │     │  :5432  │   │ retention    │
-   └─────────┘     └─────────┘   └──────────────┘
+   user → Cloudflare (HTTPS) → Cloudflare Tunnel ─┐
+                                                  ▼
+                                         ┌─────────────────┐
+                                         │   cloudflared   │  br0 macvlan
+                                         │ (separate stack)│  (LAN-resident)
+                                         └────────┬────────┘
+                                                  │ http
+                                                  ▼
+                                  ┌─────────────────────────┐
+                                  │  caddy  192.168.50.25:80│  br0 (static IP)
+                                  │  headers, body cap      │  + internal
+                                  └────────────┬────────────┘
+                                               │ internal network (no host ports)
+                                  ┌────────────┴───────┬──────────────┐
+                                  ▼                    ▼              ▼
+                             ┌─────────┐         ┌─────────┐   ┌──────────────┐
+                             │   web   │         │   db    │   │   backup     │
+                             │ Next.js │ ──────► │  pg-16  │ ◄─┤ pg_dump +    │
+                             │  :3000  │         │  :5432  │   │ retention    │
+                             └─────────┘         └─────────┘   └──────────────┘
 ```
 
-### First-time deploy
+The `web` image is built by GitHub Actions on every push to `main` / `dev` and pushed to GHCR — `ghcr.io/spacetoast1738/wedding-hub:dev` (and `:latest` on the default branch). Compose pulls the image; the Unraid box never builds.
+
+### First-time deploy on Unraid
+
+#### Prerequisites
+
+1. **Cloudflared running** as a separate stack on Unraid, attached to `br0` macvlan, with a tunnel public hostname (`wedding.spencer-net.com`) configured to forward to `http://192.168.50.25:80`. Set this up in the Cloudflare Zero Trust dashboard.
+2. **`br0` macvlan network** exists on the Docker host (Unraid usually creates this automatically when you enable macvlan).
+3. **`192.168.50.25`** is free on your LAN — adjust the static IP in `docker-compose.yml` if your subnet differs.
+4. **SMTP relay credentials** for magic-link delivery (Resend recommended). Without them, sign-in URLs print to `docker compose logs web`.
+
+#### Stack setup
 
 ```bash
-# On the host (Unraid /mnt/user/appdata/wedding-hub or wherever you keep stacks):
-git clone https://github.com/SpaceToast1738/wedding-hub.git
-cd wedding-hub
+# SSH into Unraid, then:
+mkdir -p /mnt/user/appdata/wedding-hub
+cd /mnt/user/appdata/wedding-hub
+git clone -b dev https://github.com/SpaceToast1738/wedding-hub.git .
 
-# Fill in production env
+# Pre-create bind-mount dirs with the right ownership (backup runs as UID 1000):
+mkdir -p backups
+chown -R 1000:1000 backups
+
+# Fill in env
 cp .env.production.example .env
-# Edit .env — DOMAIN, TLS_EMAIL, POSTGRES_PASSWORD, AUTH_SECRET,
-# AUTH_ALLOWED_EMAILS, EMAIL_SERVER_* (or leave blank for log-only delivery).
+nano .env
+# Required: DOMAIN, POSTGRES_PASSWORD, AUTH_SECRET, AUTH_ALLOWED_EMAILS,
+# EMAIL_SERVER_* (Resend / Mailgun / etc).
 # Generate secrets:
 #   openssl rand -base64 32   →  AUTH_SECRET
 #   openssl rand -base64 24   →  POSTGRES_PASSWORD
 
-# Build + boot. The web container's entrypoint runs `prisma migrate deploy`
-# automatically before starting Next.js.
-docker compose up -d --build
+# Pull the latest :dev image and start. The web container's entrypoint
+# runs `prisma migrate deploy` before booting Next.js.
+docker compose pull
+docker compose up -d
 
 # First-time only: seed the 5 known users + sample data.
-# (The seed script is transpiled to plain JS at image-build time, so the
-# production container doesn't need `tsx`.)
 docker compose exec web node prisma/seed.js
 ```
 
-After `docker compose up -d`, Caddy fetches a Let's Encrypt cert for `${DOMAIN}` and starts proxying to `web:3000`. Visit `https://${DOMAIN}` and sign in with one of the allow-listed emails.
+Watch logs until everything is green:
+
+```bash
+docker compose logs -f web    # ▶ prisma migrate deploy → Applied N migrations → Ready on …
+docker compose logs -f caddy  # listening :80, no ACME chatter
+```
+
+Then visit `https://wedding.spencer-net.com` (Cloudflare proxies through the tunnel) and sign in with one of the allow-listed addresses.
 
 ### Routine ops
 
@@ -157,42 +187,33 @@ After `docker compose up -d`, Caddy fetches a Let's Encrypt cert for `${DOMAIN}`
 |---|---|
 | Tail web logs | `docker compose logs -f web` |
 | Tail Caddy logs | `docker compose logs -f caddy` |
-| Update to latest commit | `git pull && docker compose up -d --build web` |
+| Update to latest `:dev` build | `docker compose pull web && docker compose up -d web` |
+| Roll back to a specific image | edit `image:` in compose to `ghcr.io/.../wedding-hub:sha-abc1234`, then `docker compose up -d web` |
 | Run a one-off migration | `docker compose exec web node ./node_modules/prisma/build/index.js migrate deploy` |
 | Open Prisma Studio | `docker compose exec web node ./node_modules/prisma/build/index.js studio` (then port-forward 5555) |
 | Manual backup now | `docker compose exec backup /backup.sh` |
 | Inspect DB | `docker compose exec db psql -U wedding wedding_hub` |
-| Restore a backup | `gunzip -c ./backups/daily/wedding_hub-YYYY-MM-DD.sql.gz \| docker compose exec -T db psql -U wedding wedding_hub` |
+| Restore a backup | `gunzip -c /mnt/user/appdata/wedding-hub/backups/daily/wedding_hub-YYYY-MM-DD.sql.gz \| docker compose exec -T db psql -U wedding wedding_hub` |
+| Health check | `docker compose exec web curl -fsS http://127.0.0.1:3000/api/health` |
 
-Backups land in `./backups/{daily,weekly,monthly}/` with **7d / 4w / 12m** retention. Snapshot the `./backups` directory off-box (rclone, restic, etc.) — the schedule is intentionally on-host so a full server failure is your problem to plan for.
+Backups land in `/mnt/user/appdata/wedding-hub/backups/{daily,weekly,monthly}/` with **7d / 4w / 12m** retention. Snapshot the directory off-box (rclone, restic, parity sync to a second array, etc.) — a full Unraid failure would otherwise lose them.
 
 ### Hardening notes
 
-- **No host ports for db or web** — only Caddy publishes 80/443. Postgres is reachable only via the `internal` Docker network.
+- **No host ports** at all. Caddy listens on `192.168.50.25:80` (LAN-only via br0); the tunnel is the only ingress. db and web have no host bindings.
 - **web container** runs as UID 1000, read-only filesystem (with tmpfs for `/tmp` and `/app/.next/cache`), `cap_drop ALL`, `no-new-privileges`.
-- **Caddy** strips its `Server` banner, sets HSTS / CSP / X-Frame-Options / Permissions-Policy, blocks dotfile probes, and caps request bodies at 4 MB.
+- **Caddy** strips its `Server` banner, sets HSTS / CSP / X-Frame-Options / Permissions-Policy, blocks dotfile probes, and caps request bodies at 4 MB. Real client IP comes from `CF-Connecting-IP` (set by Cloudflare on every tunnelled request).
 - **`/robots.txt`** disallows all crawlers and the page is non-discoverable.
-- **Rate-limiting** for `/api/auth/*`: a stub block in the Caddyfile is commented out because the rate-limit module isn't in the stock `caddy:2-alpine` image. If you want it, swap to a custom Caddy build (`xcaddy build --with github.com/mholt/caddy-ratelimit`) and uncomment the block. In the meantime Auth.js's per-token expiry + the email allow-list bound the blast radius.
+- **Rate-limiting** for `/api/auth/*`: not enabled at the Caddy layer (the `rate_limit` module isn't in stock `caddy:2-alpine`). Cloudflare's WAF + Auth.js per-token expiry + the 5-email allow-list bound the blast radius. If you want a Caddy-level rate-limit, build a custom Caddy with `xcaddy build --with github.com/mholt/caddy-ratelimit`.
 
-### Cloudflare Tunnel alternative (no open ports on the host)
+### Optional: switch back to direct port-forward
 
-If you'd rather not expose 80/443 to the internet at all, run a `cloudflared` tunnel pointing at `caddy:80` (or skip Caddy entirely and point the tunnel at `web:3000`) and let Cloudflare terminate TLS. Add a fifth service to `docker-compose.yml`:
+If you ever want to drop Cloudflare and let Caddy terminate TLS itself:
 
-```yaml
-  cloudflared:
-    image: cloudflare/cloudflared:latest
-    restart: unless-stopped
-    command: tunnel --no-autoupdate run
-    environment:
-      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
-    networks:
-      - edge
-    depends_on:
-      caddy:
-        condition: service_started
-```
-
-Then remove the `ports:` block from the `caddy` service and set `internal: true` on the `edge` network in compose. Configure the tunnel in the Cloudflare dashboard to send `wedding.spencer-net.com` → `http://caddy:80`. Caddy still handles security headers in this mode, but you can disable its TLS issuance with `auto_https off` in the global Caddyfile block.
+1. Replace `caddy/Caddyfile` with the auto-TLS variant in git history (look for `auto_https on` and `email {$TLS_EMAIL}` in older revisions).
+2. Re-add `ports: 80:80, 443:443, 443:443/udp` to the `caddy` service in compose.
+3. Drop the `br0` static IP and `auto_https off` config.
+4. Add an A record for `${DOMAIN}` and forward 80 + 443 from the router to the Unraid LAN IP.
 
 ## Phase status
 

@@ -11,7 +11,7 @@
 - **Repo:** [SpaceToast1738/wedding-hub](https://github.com/SpaceToast1738/wedding-hub) · `claude/main` (releases) + `dev` (work-in-progress)
 - **Stack:** Next.js 15 · TypeScript · Tailwind v4 · Prisma · Postgres 16 · Auth.js v5 · Caddy · Docker Compose
 - **Working tree:** `C:\Users\Admin\Code\wedding-hub` (local SSD). The old `\\TOWER\Jamie Spencer\Claude\wedding-hub` mirror is no longer in use — run `Remove-Item -Recurse -Force "\\TOWER\Jamie Spencer\Claude\wedding-hub"` from a fresh PowerShell to delete it.
-- **Current state:** v0.3.1 on `claude/main` — Phase C complete + initial migration committed + log rotation + version pill in the sidebar. Ready to deploy.
+- **Current state:** v0.3.1 on `claude/main` (direct-Caddy / port-forward setup). `dev` ahead with the production deploy-config: Cloudflare Tunnel mode, GHCR-built image (`ghcr.io/spacetoast1738/wedding-hub:dev`), GitHub Actions CI for image builds, br0 macvlan with static IP for Caddy, absolute bind-mount paths for Compose Manager Plus.
 
 ## Phase status
 
@@ -92,11 +92,11 @@ Ranked roughly by usefulness × ease.
 ## Open questions / risks
 
 - **Real-world emails for the 5 users** — `.env.production.example` and seed.ts use placeholder addresses. Jamie's known (`jspencer1706@outlook.com`); Bryony / Josh / Aimee / planner are unknown. Set `USER_*_EMAIL` and `AUTH_ALLOWED_EMAILS` before first deploy.
-- **First-deploy `docker build` not yet validated end-to-end** — local Docker Desktop daemon was off when Phase C landed. Compose config validates and all COPY paths are confirmed; first build on Unraid is the real smoke test.
-- **SMTP provider not chosen** — magic-link delivery falls back to logging the URL to the web container's stdout if `EMAIL_SERVER_HOST` is blank. Fine for testing, not for Bryony.
-- **DNS + port-forwarding (or Cloudflare Tunnel)** — must be set up before Caddy can complete its first ACME challenge.
-- **Bind-mount permissions** — pre-create `./backups` with `chown 1000:1000` before first `docker compose up`, otherwise the backup container can't write.
-- **Backup off-host strategy** — backups land on the Unraid box. A full server failure would lose them. rclone / restic / S3 sync of `./backups` is on the user.
+- **First container start on Unraid not yet verified** — CI builds the image on push, but the first `docker compose pull && up -d` on the Unraid host hasn't run. Likely catch-points: macvlan IP collision on `192.168.50.25`, bind-mount perms, GHCR pull auth if the package is private.
+- **SMTP provider** — Resend recommended (no card, 100/day free). SPF/DKIM record on `spencer-net.com` needed before mail won't land in spam. Magic-link URLs print to `docker compose logs web` until SMTP is set.
+- **Cloudflared stack** must be configured (separate stack on `br0`) with a tunnel public hostname → `http://192.168.50.25:80` before the app is reachable from the internet.
+- **Bind-mount permissions** — pre-create `/mnt/user/appdata/wedding-hub/backups` with `chown 1000:1000` before first `docker compose up`, otherwise the backup container can't write.
+- **Backup off-host strategy** — backups land on the Unraid box. A full Unraid failure would lose them. rclone / restic / parity sync to a second array is still TBD.
 
 ## Conventions
 
@@ -181,6 +181,15 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-27 · Deploy-config rewired for Cloudflare Tunnel + GHCR
+On `dev`, no version bump (deployment-environment changes only — app code unchanged from v0.3.1).
+- Caddy now runs in Tunnel mode: `auto_https off`, listens on `:80` only, joins `br0` macvlan with static IP `192.168.50.25`. Real client IP read from `CF-Connecting-IP`. `caddy/Caddyfile` rewritten; the prior auto-TLS variant is recoverable from git history.
+- `web` service pulls `ghcr.io/spacetoast1738/wedding-hub:dev` with `pull_policy: always` instead of building locally on Unraid. CI workflow at [.github/workflows/build.yml](.github/workflows/build.yml) builds and pushes on every push to `main`/`dev`, tagging by branch + short SHA + `:latest` (default branch only).
+- All bind-mount paths absolute under `/mnt/user/appdata/wedding-hub/` so Compose Manager Plus (which stores stack YAML on `/boot` USB) doesn't try to resolve relative `./` against the USB.
+- `TLS_EMAIL` removed from `.env.production.example` (no Let's Encrypt). `EMAIL_FROM` default → `noreply@spencer-net.com`.
+- README deploy section rewritten for the Tunnel + GHCR flow: `docker compose pull` instead of `--build`, prerequisite checklist (cloudflared stack, br0, free LAN IP, SMTP), updated routine ops including image-rollback recipe.
+- Risks list updated: dropped DNS+port-forward concern, added cloudflared-stack-must-exist and macvlan-IP-collision concerns.
 
 ### 2026-04-27 · Repo published to GitHub
 Not a code release — organisational milestone. No version bump.

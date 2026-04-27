@@ -1,42 +1,41 @@
-# Wedding Hub — Caddy front door
+# Wedding Hub — Caddy front door (behind Cloudflare Tunnel)
 #
-# Auto-TLS via Let's Encrypt. All security headers + a /api/auth rate-limit
-# live here so the Next.js container can stay focused on app logic.
+# Cloudflare terminates TLS at the edge. Cloudflared (on br0) connects to
+# this Caddy at 192.168.50.25:80 over plain HTTP via the encrypted tunnel.
+# So Caddy serves :80 only — no certs, no Let's Encrypt, no port 443.
+#
+# Security headers stay (browser-enforced, work fine when Cloudflare passes
+# them through). Real-client-IP is pulled from CF-Connecting-IP.
 
 {
-	email {$TLS_EMAIL}
-	# Servers behind a reverse proxy will have this Caddy as the *only* layer
-	# terminating TLS — disable the admin API to shrink attack surface.
+	# No public-facing TLS to manage — Cloudflare handles it.
+	auto_https off
+	# Shrink attack surface: no admin API needed.
 	admin off
 	servers {
-		protocols h1 h2 h3
+		# HTTP/1.1 is all we need to cloudflared.
+		protocols h1
 	}
 }
 
-# Redirect bare HTTP to HTTPS (Caddy does this automatically, but explicit
-# block here lets us add HSTS even on the redirect response).
-http://{$DOMAIN} {
-	redir https://{host}{uri} permanent
-}
-
-{$DOMAIN} {
+# Listen on :80 only. This socket is reachable only via the Cloudflare
+# Tunnel (and inside the Unraid LAN if you ever want to test directly).
+:80 {
 	encode zstd gzip
 
 	# ── Security headers ─────────────────────────────────────────────────
 	header {
-		# 2y HSTS + preload — only enable preload if you actually want to be on
-		# the public preload list. Safe default for a private subdomain.
+		# 2y HSTS — browser sees this on the HTTPS response Cloudflare serves,
+		# so it works fine even though we deliver plain HTTP to cloudflared.
 		Strict-Transport-Security "max-age=63072000; includeSubDomains"
 		X-Content-Type-Options "nosniff"
 		X-Frame-Options "DENY"
 		Referrer-Policy "strict-origin-when-cross-origin"
 		Permissions-Policy "camera=(), microphone=(), geolocation=(), interest-cohort=()"
-		# Conservative CSP: same-origin only, allow inline because Next.js
-		# inlines hydration scripts. Tighten with nonces if you ever add 3p.
 		Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
 		Cross-Origin-Opener-Policy "same-origin"
 		Cross-Origin-Resource-Policy "same-site"
-		# Strip Caddy's own banner
+		# Strip Caddy's banner.
 		-Server
 	}
 
@@ -44,37 +43,23 @@ http://{$DOMAIN} {
 	@dotfiles path /.git/* /.env* /.well-known/security.txt
 	respond @dotfiles "Not found" 404
 
-	# robots.txt is served by Next.js (and disallows everything), but we
-	# also block common scan paths at the edge.
 	@scans path_regexp ^/(wp-admin|wp-login|xmlrpc|phpmyadmin|.well-known/acme-challenge/dummy)
 	respond @scans 404
 
-	# ── Rate-limit sign-in endpoints ─────────────────────────────────────
-	# The Caddy core does not include rate_limit. The official rate_limit
-	# module (from the caddy-ratelimit plugin) is built into the
-	# `caddy:2-alpine` image only when you bake it in via xcaddy. As a
-	# zero-build alternative we lean on `request_body max_size` to cap the
-	# verification POST and rely on Auth.js's per-token expiry. If you build
-	# a custom Caddy with rate_limit, drop the block below back in.
-	#
-	# rate_limit /api/auth/* {
-	#   zone signin {
-	#     key {client_ip}
-	#     events 5
-	#     window 1m
-	#   }
-	# }
-
-	# Cap the size of any single request body. Sign-in posts are tiny;
+	# Cap any single request body. Sign-in posts are tiny;
 	# 4 MB leaves headroom for the future file-upload action.
 	request_body {
 		max_size 4MB
 	}
 
 	# ── Reverse proxy to the Next.js container ───────────────────────────
+	# Tell upstream the original scheme was HTTPS (Cloudflare→user is HTTPS).
+	# Pull the real client IP from Cloudflare's CF-Connecting-IP header so
+	# Next.js logs / rate-limit see the actual user IP, not cloudflared's.
 	reverse_proxy web:3000 {
 		header_up X-Forwarded-Proto https
-		header_up X-Real-IP {remote_host}
+		header_up X-Real-IP {http.request.header.CF-Connecting-IP}
+		header_up X-Forwarded-For {http.request.header.CF-Connecting-IP}
 	}
 
 	log {
