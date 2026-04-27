@@ -11,7 +11,7 @@
 - **Repo:** [SpaceToast1738/wedding-hub](https://github.com/SpaceToast1738/wedding-hub) · `claude/main` (releases) + `dev` (work-in-progress)
 - **Stack:** Next.js 15 · TypeScript · Tailwind v4 · Prisma · Postgres 16 · Auth.js v5 · Caddy · Docker Compose
 - **Working tree:** `C:\Users\Admin\Code\wedding-hub` (local SSD). The old `\\TOWER\Jamie Spencer\Claude\wedding-hub` mirror is no longer in use — run `Remove-Item -Recurse -Force "\\TOWER\Jamie Spencer\Claude\wedding-hub"` from a fresh PowerShell to delete it.
-- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` at v0.9.1). v0.10.0 (this iteration on `dev`) closes the loop on Phase E: imports the last two Say I Do columns (Q8 children's-meal + per-party Unique link), surfaces imported data on the Songs and Guests pages (auto-table chips inline, song-request count chip linking to a new Guest-requests section, kids-meal + highchair badges), and adds a Windows-paste guide. Schema migration drops `rsvpUniqueLink` `@unique` since Say I Do issues per-party links.
+- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` at v0.10.0). v0.11.0 (this iteration on `dev`) opens **Phase F** with the catering brief — a printable summary at `/guests/catering` aggregating totals, three-course breakdowns, dietary requirements, and a per-table seating block. Built on top of the v0.10.0 import-pipeline data; A4-print stylesheet hides the app chrome and uses page breaks for clean PDF output.
 
 ## Phase status
 
@@ -23,7 +23,8 @@
 | **D1** | Real file uploads — multipart action, /api/files/[id] download, MIME allowlist, 25 MB cap | ✅ Done |
 | **D2** | Drag-and-drop seating canvas (SVG, pointer-event drag, grid snap, keyboard nudge, view toggle) | ✅ Done |
 | **E** | CSV / TSV guest import — column inference, dry-run preview, household merge | ✅ Done |
-| **F** | Photography shot list, dietary aggregate, catering export PDF | 🟡 Not started |
+| **F1** | Catering brief — totals, course breakdowns, dietary aggregate, per-table seating, print stylesheet | ✅ Done |
+| **F2** | Photography shot list — checklist within the Wedding Book | 🟡 Not started |
 | **G** | Spotify playlist sync, day-of mode, quick-capture (`C`) modal | 🟡 Not started |
 
 ## What's shipped
@@ -88,12 +89,11 @@ Each section has server actions wrapped with `requireEdit(section)` + `audit()`,
 Ranked roughly by usefulness × ease.
 
 ### High value
-- **Catering export** — printable PDF / page aggregating dietary needs by table for the venue. Deferred from Phase B (Guests / Wedding Book).
+- **Photography shot list (Phase F2)** — checklist of shots inside the Wedding Book section. New `PhotographyShot` model with title, with-whom, captured/not-captured, optional notes.
 - **Seating constraint rules** — must-sit-together / must-not-sit / prefer-group hints, plus violation indicators on the canvas. The prototype had a richer rules panel; we shipped the canvas without it for v0.6.0.
 - **CSV import: update / dedupe modes** — v0.8.0 always creates new rows. A future iteration could add "match by email and update existing" + "skip duplicates" modes alongside the current "create".
 
 ### Medium value
-- **Photography shot list** — checklist within Wedding Book section. New model: `PhotographyShot`.
 - **Day-of mode** — live timeline with status (now/next/past), on-call contacts, simulated mode for testing. Deferred from Phase A/B (Today).
 - **Quick-capture (`C` shortcut) modal** — global capture for task/question/payment/event. Deferred from Phase A (AppShell).
 
@@ -198,11 +198,35 @@ When wrapping up a meaningful iteration:
 
 ### Current version
 
-`0.10.0` on `dev` — Q8 children's-meal + RSVP link import, plus cross-page surfaces (Songs guest-requests section, Guests row table chip + songs count). `claude/main` at `v0.9.1` in production.
+`0.11.0` on `dev` — Phase F1 catering brief (printable summary at /guests/catering with totals, course breakdowns, dietary aggregate, per-table seating, A4 print stylesheet). `claude/main` at `v0.10.0` in production.
 
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-27 · v0.11.0 — Phase F1: catering brief (printable summary)
+
+Opens Phase F. Single new page at [`/guests/catering`](src/app/(app)/guests/catering/page.tsx) — a venue-ready summary that uses the data the Phase E import landed in the DB.
+
+**Page sections:**
+1. **Action bar** (hidden in print) — back-to-Guests link + "Print / save as PDF" button that calls `window.print()`.
+2. **Headline tiles** — Attending, Adults, Children, Children's meals, Highchairs.
+3. **Three-course breakdowns** — separate tables for Starters, Mains, Desserts. Each lists every distinct meal choice with its count, plus a "(no choice recorded)" row at the bottom for any guests who haven't filled in that course yet. Counts sum to the attending total so the venue can sanity-check the numbers.
+4. **Dietary requirements** — flattened across all guests' `dietary[]` arrays, with a count per requirement. Sorted descending.
+5. **Per-table breakdown** — every Table (sorted by name with natural ordering, so "Table 10" comes after "Table 2"), each rendered as its own card with seat number, guest name, three-course choices, and a notes column combining dietary tags + child / kids-meal / highchair flags. "Unassigned" guests appear at the end as a final block.
+
+**Print stylesheet** ([src/app/globals.css](src/app/globals.css)):
+- `.no-print`, `.desktop-sidebar`, `.mobile-tabbar` hidden in `@media print`.
+- `.print-only-block` only visible in print (used for the "Generated DD MMM YYYY" footer line).
+- `.print-break-before` / `.print-break-after` / `.print-break-avoid` helpers for explicit page-break control.
+- `@page` directive sets A4 portrait with 16mm × 14mm margins.
+- Body forced to black-on-white; tables get a flat grey header so they print fairly on a B/W laser.
+
+**Linking**: new "Catering brief" button in the Guests page header — visible to anyone with view permission on `guests`, not just edit-tier users.
+
+**Aggregation logic**: meal-choice counts use exact-string equality (Say I Do exports are byte-identical across rows, so this is fine in practice). Dietary requirements and meals are tallied with sort-by-count-descending so the most common items surface at the top. Guests without a table assignment go into an "Unassigned" group at the end, sorted alphabetically.
+
+Photography shot list (Phase F2) deferred to its own iteration — needs a new Prisma model and probably its own UI under the Wedding Book section.
 
 ### 2026-04-27 · v0.10.0 — Children's-meal + RSVP link import, cross-page surfaces, Windows guide
 

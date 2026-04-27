@@ -35,17 +35,26 @@ export default async function GuestsPage() {
         title="Guests"
         subtitle={`${totalGuests} invited · ${attending} attending · ${pending} pending · ${declined} declined`}
         actions={
-          editable ? (
-            <>
-              <Link
-                href="/guests/import"
-                className="inline-flex items-center text-xs font-medium px-2.5 py-1 rounded-sm border border-border-soft bg-canvas text-ink-secondary hover:border-moss-300 hover:text-moss-700"
-              >
-                Import CSV
-              </Link>
-              <AddHouseholdToggle />
-            </>
-          ) : undefined
+          <>
+            <Link
+              href="/guests/catering"
+              className="inline-flex items-center text-xs font-medium px-2.5 py-1 rounded-sm border border-border-soft bg-canvas text-ink-secondary hover:border-moss-300 hover:text-moss-700"
+              title="Printable catering brief: totals, course breakdowns, dietary, per-table seating"
+            >
+              Catering brief
+            </Link>
+            {editable && (
+              <>
+                <Link
+                  href="/guests/import"
+                  className="inline-flex items-center text-xs font-medium px-2.5 py-1 rounded-sm border border-border-soft bg-canvas text-ink-secondary hover:border-moss-300 hover:text-moss-700"
+                >
+                  Import CSV
+                </Link>
+                <AddHouseholdToggle />
+              </>
+            )}
+          </>
         }
       />
       <div className="flex-1 overflow-auto">

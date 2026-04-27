@@ -133,3 +133,54 @@ kbd {
     display: none !important;
   }
 }
+
+/* ─── Print stylesheet ────────────────────────────────────────────────── */
+/*
+ * Used by the catering brief at /guests/catering, but also applies to any
+ * page hit with Ctrl+P. Hide app chrome, force a clean black-on-white
+ * palette, and let .print-only-block / .print-break-* opt content into
+ * specific behaviours.
+ */
+.print-only-block { display: none; }
+
+@media print {
+  .no-print,
+  .desktop-sidebar,
+  .mobile-tabbar,
+  header[role="banner"] {
+    display: none !important;
+  }
+
+  html,
+  body {
+    background: #fff !important;
+    color: #000 !important;
+  }
+
+  main {
+    padding: 0 !important;
+  }
+
+  /* Visible only when printing */
+  .print-only-block { display: block !important; }
+
+  /* Page-break helpers */
+  .print-break-before { page-break-before: always; break-before: page; }
+  .print-break-after { page-break-after: always; break-after: page; }
+  .print-break-avoid { page-break-inside: avoid; break-inside: avoid; }
+
+  /* Make the catering page sit on a clean white sheet */
+  .catering-page {
+    max-width: none !important;
+    padding: 0 !important;
+    color: #000;
+  }
+  .catering-page table { border-color: #999 !important; }
+  .catering-page table th { background: #f0f0f0 !important; }
+
+  /* A4 portrait with reasonable margins */
+  @page {
+    size: A4;
+    margin: 16mm 14mm;
+  }
+}
