@@ -11,7 +11,7 @@
 - **Repo:** [SpaceToast1738/wedding-hub](https://github.com/SpaceToast1738/wedding-hub) · `claude/main` (releases) + `dev` (work-in-progress)
 - **Stack:** Next.js 15 · TypeScript · Tailwind v4 · Prisma · Postgres 16 · Auth.js v5 · Caddy · Docker Compose
 - **Working tree:** `C:\Users\Admin\Code\wedding-hub` (local SSD). The old `\\TOWER\Jamie Spencer\Claude\wedding-hub` mirror is no longer in use — run `Remove-Item -Recurse -Force "\\TOWER\Jamie Spencer\Claude\wedding-hub"` from a fresh PowerShell to delete it.
-- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com on v0.3.2 since 27 April 2026, 152 days out from the wedding. v0.4.1 (current) adds file uploads, bootstrap-admin auth, styled magic-link email, and remove-from-members — pending Pull-and-Up on the host.
+- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com — production has run v0.3.2 → v0.4.0 → v0.4.1; v0.5.0 (current) adds per-file visibility (couple-only / everyone), folder grouping, inline rename + move, multi-file upload. Pending Pull-and-Up on the host. Migration `20260427150000_add_file_visibility` runs on container start.
 
 ## Phase status
 
@@ -190,11 +190,25 @@ When wrapping up a meaningful iteration:
 
 ### Current version
 
-`0.4.1` on `dev` — adds remove-from-members on top of v0.4.0. `claude/main` at `v0.4.0` (just promoted). Promote v0.4.1 to main once the next chunk is ready, or sooner if you want a tagged release alongside production.
+`0.5.0` on both branches — per-file visibility + file management UX. Includes the first additive Prisma migration since the initial schema (`20260427150000_add_file_visibility`); container entrypoint applies it on next deploy.
 
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-27 · v0.5.0 — Per-file visibility + file management UX
+
+**New `FileVisibility` enum and `File.visibility` column** (additive migration `20260427150000_add_file_visibility`, default `EVERYONE`). Couple-only files are filtered out of the list query for non-couple users and rejected with a 404 by the download route — non-couple users can't even probe whether a private file exists. The page subtitle shows non-couple users a *"N hidden (couple-only)"* hint so they know files exist but they're not allowed to see them.
+
+**Files page rebuilt** with proper management affordances:
+- **Grouped by folder** — named folders sort alpha, "Unfiled" appears at the bottom
+- **Hover-revealed actions per row** — toggle visibility (🔒/🔓), Edit (rename + move folder + visibility), Delete (×)
+- **Inline edit form** — name, folder (datalist autocompleting against existing folders), visibility radio buttons (couple-only is gated to actual couple-tier users)
+- **Multi-file upload** — drop or click to upload several at once; each goes through the same validate → write → DB-insert path with per-file error handling
+- **Visibility selector on the upload zone** (couple-tier users only) so private docs land private from the start
+- **Couple-only chip** — `🔒 Couple` badge on rows so it's obvious at a glance which files are private
+
+Server actions consolidated: `uploadFile` (now multi), `updateFile(id, patch)` covering rename / move / visibility / any combination, `deleteFile`. All gated by `requireEdit("files")` and audited.
 
 ### 2026-04-27 · v0.4.1 — Remove-from-members in Settings
 

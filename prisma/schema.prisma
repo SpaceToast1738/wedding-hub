@@ -409,9 +409,15 @@ model File {
   mimeType     String
   sizeBytes    Int
   folder       String?            // contracts, menus, photos, etc.
+  visibility   FileVisibility     @default(EVERYONE)
   uploadedById String?
   contracts    SupplierContract[]
   createdAt    DateTime           @default(now())
+}
+
+enum FileVisibility {
+  EVERYONE     // visible to everyone with files-section access
+  COUPLE_ONLY  // visible only to couple-tier users (Jamie + Bryony)
 }
 
 // ─── Songs / Playlists ─────────────────────────────────────────────────────

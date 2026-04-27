@@ -36,6 +36,13 @@ export async function GET(
     return new NextResponse("Not found", { status: 404 });
   }
 
+  // Per-file visibility check on top of the section-level permission gate.
+  // 404 (rather than 403) so a non-couple user can't probe for the
+  // existence of couple-only files.
+  if (file.visibility === "COUPLE_ONLY" && !session.user.isCouple) {
+    return new NextResponse("Not found", { status: 404 });
+  }
+
   let bytes: Buffer;
   try {
     bytes = await readFile(resolveStoredPath(file.storedPath));
