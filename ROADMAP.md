@@ -34,6 +34,7 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
+| _(unreleased on `dev`)_ | 2026-04-27 | [v1.1.0 — At a Glance dashboard](#2026-04-27--v110--at-a-glance-dashboard) |
 | **v1.0.0** | 2026-04-27 | [🎉 Release-1 design polish across all pages](#2026-04-27--v100--release-1-design-polish-across-all-pages) |
 | v0.15.0 | 2026-04-27 | [Phase G2 day-of mode + quick-capture](#2026-04-27--v0150--phase-g2-day-of-mode--quick-capture) |
 | v0.14.0 | 2026-04-27 | [Phase G1 Spotify playlist sync](#2026-04-27--v0140--phase-g1-spotify-playlist-sync) |
@@ -131,7 +132,7 @@ Ranked roughly by usefulness × ease.
 ### Lower value
 - ~~**Say I Do sync**~~ — covered by the v0.8.0 CSV import path. Just export to CSV from Say I Do and paste it into `/guests/import`.
 - ~~**Spotify playlist sync**~~ — shipped in v0.14.0 as Phase G1 (Client Credentials, public-playlist read-only mirror). User-OAuth for private playlists still possible if needed.
-- **Glance / At-a-glance dashboard** — currently a stub.
+- ~~**Glance / At-a-glance dashboard**~~ — shipped in v1.1.0 (RSVP donut, budget bar, payments due, audit-log activity feed).
 - **Custom fields UI in Settings** — the schema has `CustomField` but no UI. Defer until something needs it.
 - **Rate-limit on `/api/auth/*`** — Caddyfile stub waiting on a custom Caddy build with `xcaddy --with github.com/mholt/caddy-ratelimit`. Auth.js token expiry + email allow-list is the current mitigation.
 - **Audit log viewer** — there's data, no UI. Could live under Settings.
@@ -229,11 +230,31 @@ When wrapping up a meaningful iteration:
 
 ### Current version
 
-`1.0.0` on both `dev` and `claude/main` (promoted 27 Apr 2026). 🎉 **Release-1 cut.** Production catches up after the GHCR image rebuilds and Unraid runs `docker compose pull && up -d` — re-run `npm run db:seed` once after the deploy to populate the wedding-party subsections (idempotent; never overwrites real notes).
+`1.1.0` on `dev`, `claude/main` at `v1.0.0`. The Glance dashboard now renders live data instead of a "Coming soon" stub. No schema or env changes — promote when you've eyeballed it on dev.
 
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-27 · v1.1.0 — At a Glance dashboard
+
+The `/glance` route was a "Coming soon" stub from Phase A onwards. v1.1.0 turns it into a real big-picture dashboard built entirely from live Prisma queries — no client-side mocks, no data duplication, no new schema.
+
+**Five cards, role-aware** ([glance/page.tsx](src/app/(app)/glance/page.tsx)):
+
+1. **RSVPs** — SVG donut showing confirmed / pending / declined as three-arc segments with rounded line caps and tokenised CSS-variable strokes (so dark mode picks up the right palette automatically). Centre shows attending count + "of N total". A list of the four most recently updated guests with confirmed/declined status pills sits below.
+2. **Budget** (couple-only) — `Decimal` aggregates from `BudgetLine._sum` for planned/actual/paid. Stacked progress bar (paid moss + committed marigold) plus three small stats. Non-couple users see a Wedding-day countdown card with a "🔒 Budget is restricted to Jamie & Bryony" footer instead, so the page stays balanced for everyone.
+3. **Payments due** (couple-only) — next 30 days, sorted by `dueDate`, joined with `Supplier.name`. Non-couple users see "My open tasks" instead.
+4. **Recent activity** — last 8 audit-log entries joined with the originating user. Action codes are mapped to human-readable phrases (`rsvp` → "set an RSVP to attending", `quickcapture` → "quick-captured a task", `spotify_sync` → "synced 47 tracks from Spotify"). Couple-only entities (`Payment` / `BudgetLine` / `BudgetCategory`) are redacted to "updated a private page" with reduced opacity for non-couple viewers.
+
+**Implementation notes:**
+
+- Six parallel queries via `Promise.all` (groupBy on Guest.rsvp, recent guests, payments, budget aggregate, my tasks, audit log). The non-couple branch resolves to `[]` / `null` for the couple-only queries to keep the parallel shape uniform.
+- The `describeActivity` helper is intentionally dumb: any unknown action falls through to `${action} a ${entity}` rather than exposing raw codes. Future actions don't break the page.
+- `RsvpDonut` calculates arc lengths from `total` directly so it stays accurate as RSVPs land. Three-arc stroke offsets stack end-to-end starting from 12 o'clock.
+- `View all →` links route to the underlying domain page so the dashboard is a launchpad, not a dead end.
+
+No schema changes; no env-var changes. typecheck + lint + build all clean.
 
 ### 2026-04-27 · v1.0.0 — Release-1 design polish across all pages
 
