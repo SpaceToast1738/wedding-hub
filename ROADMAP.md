@@ -11,7 +11,7 @@
 - **Repo:** [SpaceToast1738/wedding-hub](https://github.com/SpaceToast1738/wedding-hub) · `claude/main` (releases) + `dev` (work-in-progress)
 - **Stack:** Next.js 15 · TypeScript · Tailwind v4 · Prisma · Postgres 16 · Auth.js v5 · Caddy · Docker Compose
 - **Working tree:** `C:\Users\Admin\Code\wedding-hub` (local SSD). The old `\\TOWER\Jamie Spencer\Claude\wedding-hub` mirror is no longer in use — run `Remove-Item -Recurse -Force "\\TOWER\Jamie Spencer\Claude\wedding-hub"` from a fresh PowerShell to delete it.
-- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` at v0.10.0). v0.12.0 (this iteration on `dev`) is a polish pass: the **CSV importer now merges into existing guests** rather than creating duplicate rows when first/last name match within the same household; a new **`/guests/[id]` detail page** opens from any guest name with read-only details + inline edit; and the **catering brief letterhead** has been redesigned to match the prototype's typography hierarchy (couple name, venue, generation date).
+- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` promoted to **v0.12.0**, 27 Apr 2026). Latest changes: F1 catering brief, importer merges duplicates instead of creating second rows, new `/guests/[id]` detail/edit page, redesigned catering letterhead. Once the GHCR image rebuilds + Unraid pulls, the whole stack from v0.11.0 → v0.12.0 lands in prod.
 
 ## Phase status
 
@@ -33,10 +33,10 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| _(unreleased on `dev`)_ | 2026-04-27 | [v0.12.0 — Import merge + guest detail page + catering letterhead](#2026-04-27--v0120--import-merge--guest-detail-page--catering-letterhead) |
-| _(unreleased on `dev`)_ | 2026-04-27 | [v0.11.1 — coerceBool dash placeholder fix](#2026-04-27--v0111--import-stop-warning-on--boolean-placeholders) |
-| _(unreleased on `dev`)_ | 2026-04-27 | [v0.11.0 — Phase F1 catering brief](#2026-04-27--v0110--phase-f1-catering-brief-printable-summary) |
-| **v0.10.0** | 2026-04-27 | [Children's-meal + RSVP link import + cross-page surfaces](#2026-04-27--v0100--childrens-meal--rsvp-link-import-cross-page-surfaces-windows-guide) |
+| **v0.12.0** | 2026-04-27 | [Import merge + guest detail page + catering letterhead](#2026-04-27--v0120--import-merge--guest-detail-page--catering-letterhead) |
+| v0.11.1 | 2026-04-27 | [coerceBool dash placeholder fix](#2026-04-27--v0111--import-stop-warning-on--boolean-placeholders) |
+| v0.11.0 | 2026-04-27 | [Phase F1 catering brief](#2026-04-27--v0110--phase-f1-catering-brief-printable-summary) |
+| v0.10.0 | 2026-04-27 | [Children's-meal + RSVP link import + cross-page surfaces](#2026-04-27--v0100--childrens-meal--rsvp-link-import-cross-page-surfaces-windows-guide) |
 | v0.9.1 | 2026-04-27 | [Import copy: Guest vs User email scope](#2026-04-27--v091--import-copy-clarify-guest-vs-user-email-scope) |
 | v0.9.0 | 2026-04-27 | [Phase E feature-complete (real Say I Do CSV)](#2026-04-27--v090--phase-e-feature-complete-real-say-i-do-csv-ingest) |
 | v0.8.0 | 2026-04-27 | [Phase E — CSV / TSV guest import (initial)](#2026-04-27--v080--phase-e-csv--tsv-guest-import) |
@@ -225,7 +225,7 @@ When wrapping up a meaningful iteration:
 
 ### Current version
 
-`0.11.1` on `dev` — bugfix on top of v0.11.0: import preview no longer emits per-row warnings for Say I Do's "-" placeholders in Q7/Q8 columns. `claude/main` at `v0.10.0` in production.
+`0.12.0` on both `dev` and `claude/main` (promoted 27 Apr 2026). Production currently serves whatever Docker image Unraid last pulled — v0.11.0 → v0.12.0 land in prod once GHCR rebuilds and `docker compose pull && up -d` runs on the host.
 
 ## Changelog
 
