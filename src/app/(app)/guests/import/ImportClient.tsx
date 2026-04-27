@@ -14,8 +14,8 @@ Sophie,Olwyn-Davis,sophie@example.com,The Olwyn-Davis Family,Bride,Pending,No,GF
 
 const ALL_FIELDS: GuestField[] = [
   "firstName", "lastName", "fullName", "email", "phone",
-  "household", "tableName", "side", "rsvp",
-  "isChild", "needsHighchair", "plusOneAllowed", "plusOneName", "role",
+  "household", "tableName", "rsvpLink", "side", "rsvp",
+  "isChild", "needsHighchair", "childrenMeal", "plusOneAllowed", "plusOneName", "role",
   "dietary", "tags",
   "mealStarter", "mealMain", "mealDessert", "songRequest",
   "notes", "ignore",
@@ -142,6 +142,38 @@ export function ImportClient() {
             <strong>Note:</strong> guest emails and user sign-in accounts are stored in separate tables. Importing a guest with the same email as your sign-in account does <em>not</em> touch your account — they&apos;re independent records.
           </div>
         </div>
+
+        <details className="bg-surface border border-border-soft rounded-md text-xs">
+          <summary className="px-4 py-2.5 cursor-pointer text-ink-secondary hover:text-ink-primary list-none flex items-center gap-1.5">
+            <span className="text-ink-tertiary">▸</span>
+            How do I get the CSV out of a downloaded file? <span className="text-ink-tertiary font-normal">(Windows guide)</span>
+          </summary>
+          <div className="px-4 pb-3 pt-1 border-t border-border-soft text-ink-secondary space-y-2.5">
+            <p>
+              Say I Do (and most wedding platforms) gives you a <code className="text-[11px] bg-canvas border border-border-soft px-1 rounded">.csv</code> file when you export your guest list. To get the contents into the box above:
+            </p>
+            <ol className="list-decimal list-inside space-y-1.5 text-[12px] leading-relaxed">
+              <li>
+                In <strong>File Explorer</strong>, find the downloaded <code className="text-[11px] bg-canvas border border-border-soft px-1 rounded">.csv</code> (it&apos;s probably in <code className="text-[11px] bg-canvas border border-border-soft px-1 rounded">Downloads</code>).
+              </li>
+              <li>
+                <strong>Right-click</strong> the file → <strong>Open with</strong> → <strong>Notepad</strong>. (If Notepad isn&apos;t in the list: <em>Choose another app</em> → <em>More apps</em> → Notepad.)
+              </li>
+              <li>
+                In Notepad, press <kbd className="text-[10px] bg-canvas border border-border-soft px-1 rounded">Ctrl</kbd>+<kbd className="text-[10px] bg-canvas border border-border-soft px-1 rounded">A</kbd> to select everything, then <kbd className="text-[10px] bg-canvas border border-border-soft px-1 rounded">Ctrl</kbd>+<kbd className="text-[10px] bg-canvas border border-border-soft px-1 rounded">C</kbd> to copy.
+              </li>
+              <li>
+                Click into the textarea above and press <kbd className="text-[10px] bg-canvas border border-border-soft px-1 rounded">Ctrl</kbd>+<kbd className="text-[10px] bg-canvas border border-border-soft px-1 rounded">V</kbd>.
+              </li>
+              <li>
+                Hit <strong>Preview</strong> to see how it parses; <strong>Import</strong> when everything looks right.
+              </li>
+            </ol>
+            <p className="text-[11px] text-ink-tertiary">
+              <strong>Alternative</strong> — open the file in Excel or Google Sheets, select all (<kbd className="text-[10px] bg-canvas border border-border-soft px-1 rounded">Ctrl</kbd>+<kbd className="text-[10px] bg-canvas border border-border-soft px-1 rounded">A</kbd>), copy, paste here. The importer auto-detects tab-separated paste from spreadsheets.
+            </p>
+          </div>
+        </details>
 
         <section className="bg-surface border border-border-soft rounded-md p-4 shadow-sm">
           <div className="flex items-center justify-between mb-2">
@@ -352,6 +384,7 @@ function PreviewPanel({
                       {r.lastName || <em className="text-danger">(missing)</em>}
                       {r.isChild && <span className="ml-1.5 text-[10px] text-marigold-700 bg-marigold-100 px-1 rounded">Child</span>}
                       {r.needsHighchair && <span className="ml-1 text-[10px] text-marigold-700 bg-marigold-100 px-1 rounded">Highchair</span>}
+                      {r.childrenMeal && <span className="ml-1 text-[10px] text-marigold-700 bg-marigold-100 px-1 rounded">Kids meal</span>}
                     </div>
                     {r.email && <div className="text-[10px] text-ink-tertiary truncate max-w-[200px]">{r.email}</div>}
                     {r.tags.length > 0 && (

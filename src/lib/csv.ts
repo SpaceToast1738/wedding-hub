@@ -72,6 +72,7 @@ export type GuestField =
   | "rsvp"
   | "isChild"
   | "needsHighchair"
+  | "childrenMeal"    // boolean — does a child guest need the children's-meal option
   | "plusOneAllowed"
   | "plusOneName"
   | "role"
@@ -82,6 +83,7 @@ export type GuestField =
   | "mealDessert"
   | "songRequest"     // multi-column allowed; each yields one SongRequest row
   | "tableName"       // table name → resolve to Table+Seat at commit
+  | "rsvpLink"        // per-party Say I Do RSVP URL (shared within a household)
   | "notes"           // multi-column allowed; concatenated with header labels
   | "ignore";
 
@@ -97,6 +99,7 @@ export const GUEST_FIELD_LABELS: Record<GuestField, string> = {
   rsvp: "RSVP status",
   isChild: "Adult / child",
   needsHighchair: "Needs highchair",
+  childrenMeal: "Children's meal needed",
   plusOneAllowed: "Plus-one allowed",
   plusOneName: "Plus-one name",
   role: "Role (best man, MoH, …)",
@@ -106,6 +109,7 @@ export const GUEST_FIELD_LABELS: Record<GuestField, string> = {
   mealMain: "Meal — main",
   mealDessert: "Meal — dessert",
   songRequest: "Song request (can repeat)",
+  rsvpLink: "RSVP link (Say I Do unique URL)",
   notes: "Notes (can repeat)",
   ignore: "— Ignore —",
 };
@@ -136,7 +140,9 @@ const HEURISTICS: Array<{ field: GuestField; tests: RegExp[] }> = [
   { field: "mealMain", tests: [/^q\d+.*main\s*meal/i, /^main(\s*course|\s*meal)?$/i, /^entr(e|é)e/i] },
   { field: "mealDessert", tests: [/^q\d+.*(des(s)?ert|pudding|sweet)/i, /^des(s)?ert$/i, /^pudding$/i] },
   { field: "needsHighchair", tests: [/^q\d+.*highchair/i, /^highchair$/i] },
+  { field: "childrenMeal", tests: [/^q\d+.*(children|kids?).*meal/i, /^children('?s)?\s*meal$/i, /^kids?\s*meal$/i] },
   { field: "songRequest", tests: [/^q\d+.*song/i, /^song(\s*request|s)?$/i] },
+  { field: "rsvpLink", tests: [/^(unique|rsvp|sayido|say\s*i\s*do)\s*(link|url)$/i, /^unique\s*link$/i] },
   { field: "isChild", tests: [/^adult\s*\/?\s*child$/i, /^child\s*\/?\s*adult$/i, /^child$/i, /^is\s*child$/i, /^kid$/i, /^age\s*group$/i] },
   { field: "plusOneAllowed", tests: [/^plus[\s-]?one(\s*allowed)?$/i, /^\+1$/i, /^guest\s*allowed/i] },
   { field: "plusOneName", tests: [/^plus[\s-]?one\s*name/i, /^\+1\s*name/i, /^guest\s*name/i] },

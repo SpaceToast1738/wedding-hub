@@ -16,6 +16,10 @@ export default async function GuestsPage() {
       guests: {
         where: { archived: false },
         orderBy: [{ isChild: "asc" }, { firstName: "asc" }],
+        include: {
+          tableSeat: { include: { table: { select: { id: true, name: true } } } },
+          _count: { select: { songRequests: true } },
+        },
       },
     },
   });

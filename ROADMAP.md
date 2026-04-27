@@ -11,7 +11,7 @@
 - **Repo:** [SpaceToast1738/wedding-hub](https://github.com/SpaceToast1738/wedding-hub) · `claude/main` (releases) + `dev` (work-in-progress)
 - **Stack:** Next.js 15 · TypeScript · Tailwind v4 · Prisma · Postgres 16 · Auth.js v5 · Caddy · Docker Compose
 - **Working tree:** `C:\Users\Admin\Code\wedding-hub` (local SSD). The old `\\TOWER\Jamie Spencer\Claude\wedding-hub` mirror is no longer in use — run `Remove-Item -Recurse -Force "\\TOWER\Jamie Spencer\Claude\wedding-hub"` from a fresh PowerShell to delete it.
-- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` at v0.7.1). v0.9.0 (this iteration on `dev`) ships **Phase E** end-to-end — the CSV importer now handles a real Say I Do export: full-name split, table auto-creation + seat assignment, three-course meal capture (additive migration), multi-column song requests, group tags, highchair detection, duplicate-email warnings.
+- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` at v0.9.1). v0.10.0 (this iteration on `dev`) closes the loop on Phase E: imports the last two Say I Do columns (Q8 children's-meal + per-party Unique link), surfaces imported data on the Songs and Guests pages (auto-table chips inline, song-request count chip linking to a new Guest-requests section, kids-meal + highchair badges), and adds a Windows-paste guide. Schema migration drops `rsvpUniqueLink` `@unique` since Say I Do issues per-party links.
 
 ## Phase status
 
@@ -198,11 +198,33 @@ When wrapping up a meaningful iteration:
 
 ### Current version
 
-`0.9.0` on `dev` — Phase E feature-complete (real Say I Do CSV ingest works end-to-end with table assignment + meals + songs). `claude/main` at `v0.7.1` in production. v0.8.0 was the initial Phase E ship; v0.9.0 supersedes it before promotion.
+`0.10.0` on `dev` — Q8 children's-meal + RSVP link import, plus cross-page surfaces (Songs guest-requests section, Guests row table chip + songs count). `claude/main` at `v0.9.1` in production.
 
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-27 · v0.10.0 — Children's-meal + RSVP link import, cross-page surfaces, Windows guide
+
+**Schema** ([20260427180000_guest_kids_meal_and_relax_link](prisma/migrations/20260427180000_guest_kids_meal_and_relax_link/migration.sql)):
+- New `Guest.childrenMeal Boolean @default(false)` for the Q8 question — couples can now see at-a-glance which child guests need the children's-meal option for the venue's catering count.
+- Drops the `Guest_rsvpUniqueLink_key` unique index. Say I Do issues per-PARTY RSVP URLs (Tia and Torin share a link), which would have failed `@unique`. The column itself stays — just the constraint is relaxed.
+
+**Importer** ([src/lib/csv.ts](src/lib/csv.ts), [src/app/(app)/guests/import/actions.ts](src/app/(app)/guests/import/actions.ts)):
+- New `childrenMeal` field type, heuristics: `/^q\d+.*(children|kids?).*meal/i`, `/^children('?s)?\s*meal$/i`, `/^kids?\s*meal$/i`. Boolean coercion via existing `coerceBool`.
+- New `rsvpLink` field type, heuristics: `/^(unique|rsvp|sayido|say\s*i\s*do)\s*(link|url)$/i`. Stored as `Guest.rsvpUniqueLink`.
+- Both pre-selected by default for the user's actual Say I Do CSV columns.
+
+**Cross-page surfaces** — answers "do imports interact with the Songs/Seating pages?":
+- **Songs**: new "Guest requests" section above the curated playlists ([src/app/(app)/songs/GuestRequestsSection.tsx](src/app/(app)/songs/GuestRequestsSection.tsx)) listing all `SongRequest` rows where `playlistId IS NULL` (the imported ones). Grouped by guest; same person with three Q3/Q5/Q9 requests shows as one block with three lines. Page subtitle counts them.
+- **Guests page**: per-guest row now shows a **table chip** (linking to `/seating`) when the guest has a `tableSeatId`, a **songs count chip** (linking to `/songs`) when they've made requests, a **kids-meal badge** alongside Child / Highchair, and an **RSVP-link icon** opening the Say I Do URL externally.
+- Required including `tableSeat.table` and `_count: { songRequests }` in the household query — small data-volume bump for a big UX win.
+
+**UI**:
+- Import preview row now shows the **Kids meal** badge alongside Child / Highchair when applicable.
+- New collapsible "How do I get the CSV out of a downloaded file? (Windows guide)" `<details>` block on the import page — step-by-step instructions for the right-click → Notepad → Ctrl+A → copy → paste flow, plus an Excel/Sheets alternative.
+
+**Tested against the user's actual Say I Do CSV**: all 21 columns now have a sensible mapping (some auto-detected, some default to *Ignore* with the user choosing whether to override). After import, Q8-flagged child guests show the kids-meal badge; the per-party Unique link from Say I Do appears as a clickable RSVP icon on each guest row in their household; Q3/Q5/Q9 song requests appear in the new Songs page section; auto-created tables show inline as chips on guest rows.
 
 ### 2026-04-27 · v0.9.1 — Import copy: clarify Guest vs User email scope
 

@@ -120,7 +120,11 @@ model Guest {
   songRequests    SongRequest[]
   tableSeatId     String?        @unique
   tableSeat       Seat?          @relation(fields: [tableSeatId], references: [id])
-  rsvpUniqueLink  String?        @unique
+  // Per-party RSVP URL from Say I Do — typically shared across all guests in
+  // a household, so this is NOT unique. Stored on Guest rather than Household
+  // for forward-compat in case a platform ever issues per-guest links.
+  rsvpUniqueLink  String?
+  childrenMeal    Boolean        @default(false)
   archived        Boolean        @default(false)
   notes           String?        @db.Text
   tags            String[]       @default([])

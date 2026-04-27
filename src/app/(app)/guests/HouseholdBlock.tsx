@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import Link from "next/link";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { StatusPill } from "@/components/ui/StatusPill";
@@ -18,6 +19,7 @@ type Guest = {
   side: Side;
   isChild: boolean;
   needsHighchair: boolean;
+  childrenMeal?: boolean;
   plusOneAllowed: boolean;
   plusOneName: string | null;
   role: string | null;
@@ -25,7 +27,14 @@ type Guest = {
   mealStarter?: string | null;
   mealMain?: string | null;
   mealDessert?: string | null;
+  rsvpUniqueLink?: string | null;
   notes: string | null;
+  tableSeat?: {
+    id: string;
+    index: number;
+    table: { id: string; name: string };
+  } | null;
+  _count?: { songRequests: number };
 };
 
 type Household = {
@@ -165,11 +174,42 @@ export function HouseholdBlock({ household, canEdit }: { household: Household; c
           <div className="flex items-baseline gap-2 flex-wrap">
             <span className="text-sm text-ink-primary">{guest.firstName} {guest.lastName}</span>
             {guest.isChild && <span className="text-[10px] text-marigold-700 bg-marigold-100 px-1 rounded">Child</span>}
+            {guest.needsHighchair && <span className="text-[10px] text-marigold-700 bg-marigold-100 px-1 rounded">Highchair</span>}
+            {guest.childrenMeal && <span className="text-[10px] text-marigold-700 bg-marigold-100 px-1 rounded">Kids meal</span>}
             {guest.role && <span className="text-[10px] text-moss-700 bg-moss-50 border border-moss-100 px-1 rounded">{guest.role}</span>}
             {guest.plusOneAllowed && (
               <span className="text-[10px] text-ink-tertiary bg-canvas border border-border-soft px-1 rounded">
                 +1{guest.plusOneName ? ` (${guest.plusOneName})` : ""}
               </span>
+            )}
+            {guest.tableSeat && (
+              <Link
+                href="/seating"
+                className="text-[10px] text-info bg-[color:#eef4f5] dark:bg-muted border border-[color:#d0e4e8] dark:border-border-soft px-1 rounded hover:underline"
+                title={`Seat ${guest.tableSeat.index + 1} on the seating canvas`}
+              >
+                ⊛ {guest.tableSeat.table.name}
+              </Link>
+            )}
+            {guest._count && guest._count.songRequests > 0 && (
+              <Link
+                href="/songs"
+                className="text-[10px] text-info bg-[color:#eef4f5] dark:bg-muted border border-[color:#d0e4e8] dark:border-border-soft px-1 rounded hover:underline"
+                title={`${guest._count.songRequests} song request${guest._count.songRequests === 1 ? "" : "s"}`}
+              >
+                ♪ {guest._count.songRequests}
+              </Link>
+            )}
+            {guest.rsvpUniqueLink && (
+              <a
+                href={guest.rsvpUniqueLink}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[10px] text-ink-tertiary bg-canvas border border-border-soft px-1 rounded hover:text-moss-700 hover:border-moss-300"
+                title="RSVP link (opens externally)"
+              >
+                🔗 RSVP
+              </a>
             )}
           </div>
           {(guest.email || guest.phone || guest.dietary.length > 0) && (

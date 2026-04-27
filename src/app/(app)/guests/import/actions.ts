@@ -32,6 +32,7 @@ export type ImportRowPreview = {
   rsvp: "PENDING" | "ATTENDING" | "DECLINED" | "MAYBE";
   isChild: boolean;
   needsHighchair: boolean;
+  childrenMeal: boolean;
   plusOneAllowed: boolean;
   plusOneName: string | null;
   role: string | null;
@@ -41,6 +42,7 @@ export type ImportRowPreview = {
   mealMain: string | null;
   mealDessert: string | null;
   songs: string[];
+  rsvpLink: string | null;
   notes: string | null;
   errors: string[];
   warnings: string[];
@@ -74,6 +76,7 @@ const fieldEnum = z.enum([
   "rsvp",
   "isChild",
   "needsHighchair",
+  "childrenMeal",
   "plusOneAllowed",
   "plusOneName",
   "role",
@@ -83,6 +86,7 @@ const fieldEnum = z.enum([
   "mealMain",
   "mealDessert",
   "songRequest",
+  "rsvpLink",
   "notes",
   "ignore",
 ]);
@@ -137,6 +141,7 @@ function buildRowPreview(
   const rsvpRaw = single("rsvp");
   const isChildRaw = single("isChild");
   const needsHighchairRaw = single("needsHighchair");
+  const childrenMealRaw = single("childrenMeal");
   const plusOneAllowedRaw = single("plusOneAllowed");
   const plusOneName = nonEmptyOrNull(single("plusOneName"));
   const role = nonEmptyOrNull(single("role"));
@@ -145,6 +150,7 @@ function buildRowPreview(
   const mealStarter = nonEmptyOrNull(single("mealStarter"));
   const mealMain = nonEmptyOrNull(single("mealMain"));
   const mealDessert = nonEmptyOrNull(single("mealDessert"));
+  const rsvpLink = nonEmptyOrNull(single("rsvpLink"));
 
   // ── Multi-value fields
   const songIdxs = findAll(mapping, "songRequest");
@@ -197,6 +203,13 @@ function buildRowPreview(
     else needsHighchair = v;
   }
 
+  let childrenMeal = false;
+  if (childrenMealRaw) {
+    const v = coerceBool(childrenMealRaw);
+    if (v === null) warnings.push(`couldn't parse "children's meal" value "${childrenMealRaw}", treating as no`);
+    else childrenMeal = v;
+  }
+
   let plusOneAllowed = false;
   if (plusOneAllowedRaw) {
     const v = coerceBool(plusOneAllowedRaw);
@@ -216,6 +229,7 @@ function buildRowPreview(
     rsvp: coerceRsvp(rsvpRaw),
     isChild,
     needsHighchair,
+    childrenMeal,
     plusOneAllowed,
     plusOneName,
     role,
@@ -225,6 +239,7 @@ function buildRowPreview(
     mealMain,
     mealDessert,
     songs,
+    rsvpLink,
     notes,
     errors,
     warnings,
@@ -456,6 +471,7 @@ export async function commitImport(input: {
         rsvp: p.rsvp,
         isChild: p.isChild,
         needsHighchair: p.needsHighchair,
+        childrenMeal: p.childrenMeal,
         plusOneAllowed: p.plusOneAllowed,
         plusOneName: p.plusOneName,
         role: p.role,
@@ -464,6 +480,7 @@ export async function commitImport(input: {
         mealStarter: p.mealStarter,
         mealMain: p.mealMain,
         mealDessert: p.mealDessert,
+        rsvpUniqueLink: p.rsvpLink,
         notes: p.notes,
         tableSeatId,
       },
