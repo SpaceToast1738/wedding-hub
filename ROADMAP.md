@@ -11,7 +11,7 @@
 - **Repo:** [SpaceToast1738/wedding-hub](https://github.com/SpaceToast1738/wedding-hub) · `claude/main` (releases) + `dev` (work-in-progress)
 - **Stack:** Next.js 15 · TypeScript · Tailwind v4 · Prisma · Postgres 16 · Auth.js v5 · Caddy · Docker Compose
 - **Working tree:** `C:\Users\Admin\Code\wedding-hub` (local SSD). The old `\\TOWER\Jamie Spencer\Claude\wedding-hub` mirror is no longer in use — run `Remove-Item -Recurse -Force "\\TOWER\Jamie Spencer\Claude\wedding-hub"` from a fresh PowerShell to delete it.
-- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` at **v1.0.0**, promoted 27 Apr 2026). 🎉 **Release 1 cut.** Every page from the prototype has a polished counterpart: Today (countdown toggle + RSVP snapshot + persona filter), Tasks (kanban + list), Schedule (vertical timeline + print), Suppliers (full detail with contacts/contracts/communications), Questions (filters + search), Budget (collapsible + stacked progress bar), Files (type filter + image thumbnails), Songs (in-playlist reorder + Spotify mirror), Seating (drag canvas), Guests (CSV import + detail page + catering brief), Book (anchor nav + photography shot list + wedding-party section), Settings (permission matrix + profile). Day-of mode + global quick-capture (`C`) round it out.
+- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` at **v1.1.0**, promoted 27 Apr 2026). v1.1.0 ships the `/glance` dashboard: live RSVP donut, budget bar (couple-only), payments-due list, audit-log activity feed. Builds on v1.0.0's release-1 polish across every page (Today, Tasks kanban, Schedule timeline, Suppliers detail, Budget collapsible, Files thumbnails, Songs reorder, wedding-party section, Book anchor nav).
 
 ## Phase status
 
@@ -34,8 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| _(unreleased on `dev`)_ | 2026-04-27 | [v1.1.0 — At a Glance dashboard](#2026-04-27--v110--at-a-glance-dashboard) |
-| **v1.0.0** | 2026-04-27 | [🎉 Release-1 design polish across all pages](#2026-04-27--v100--release-1-design-polish-across-all-pages) |
+| **v1.1.0** | 2026-04-27 | [At a Glance dashboard](#2026-04-27--v110--at-a-glance-dashboard) |
+| v1.0.0 | 2026-04-27 | [🎉 Release-1 design polish across all pages](#2026-04-27--v100--release-1-design-polish-across-all-pages) |
 | v0.15.0 | 2026-04-27 | [Phase G2 day-of mode + quick-capture](#2026-04-27--v0150--phase-g2-day-of-mode--quick-capture) |
 | v0.14.0 | 2026-04-27 | [Phase G1 Spotify playlist sync](#2026-04-27--v0140--phase-g1-spotify-playlist-sync) |
 | v0.13.0 | 2026-04-27 | [Phase F2 photography shot list](#2026-04-27--v0130--phase-f2-photography-shot-list) |
@@ -230,7 +230,7 @@ When wrapping up a meaningful iteration:
 
 ### Current version
 
-`1.1.0` on `dev`, `claude/main` at `v1.0.0`. The Glance dashboard now renders live data instead of a "Coming soon" stub. No schema or env changes — promote when you've eyeballed it on dev.
+`1.1.0` on both `dev` and `claude/main` (promoted 27 Apr 2026). Production catches up after the GHCR image rebuilds and Unraid runs `docker compose pull && up -d`. No migrations, no env changes.
 
 ## Changelog
 
