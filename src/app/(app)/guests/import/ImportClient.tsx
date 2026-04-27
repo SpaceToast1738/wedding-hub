@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/Button";
-import { GUEST_FIELD_LABELS, type GuestField, inferMapping, parseCsv } from "@/lib/csv";
+import { GUEST_FIELD_LABELS, MULTI_VALUE_FIELDS, type GuestField, inferMapping, parseCsv } from "@/lib/csv";
 import { commitImport, previewImport, type ImportPreview } from "./actions";
 
 const SAMPLE = `First Name,Last Name,Email,Household,Side,RSVP,Plus One Allowed,Dietary
@@ -13,8 +13,12 @@ Margaret,Spencer,,The Spencer Family,Groom,Yes,No,Vegetarian
 Sophie,Olwyn-Davis,sophie@example.com,The Olwyn-Davis Family,Bride,Pending,No,GF`;
 
 const ALL_FIELDS: GuestField[] = [
-  "firstName", "lastName", "email", "phone", "household", "side", "rsvp",
-  "isChild", "plusOneAllowed", "plusOneName", "role", "dietary", "notes", "ignore",
+  "firstName", "lastName", "fullName", "email", "phone",
+  "household", "tableName", "side", "rsvp",
+  "isChild", "needsHighchair", "plusOneAllowed", "plusOneName", "role",
+  "dietary", "tags",
+  "mealStarter", "mealMain", "mealDessert", "songRequest",
+  "notes", "ignore",
 ];
 
 export function ImportClient() {
@@ -26,7 +30,7 @@ export function ImportClient() {
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [committing, startCommit] = useTransition();
   const [previewing, startPreview] = useTransition();
-  const [committed, setCommitted] = useState<{ created: number; skipped: number } | null>(null);
+  const [committed, setCommitted] = useState<{ created: number; skipped: number; songs: number; tables: number } | null>(null);
 
   // Re-parse headers + suggest mapping whenever the user edits the textarea.
   useEffect(() => {
@@ -64,17 +68,20 @@ export function ImportClient() {
 
   function commit() {
     if (!preview || preview.validGuests === 0) return;
-    if (
-      !confirm(
-        `Create ${preview.validGuests} guest${preview.validGuests === 1 ? "" : "s"}` +
-          (preview.newHouseholds.length > 0
-            ? ` and ${preview.newHouseholds.length} new household${preview.newHouseholds.length === 1 ? "" : "s"}`
-            : "") +
-          `? ${preview.rowErrors} row${preview.rowErrors === 1 ? "" : "s"} with errors will be skipped.`,
-      )
-    ) {
-      return;
+    const parts = [
+      `Create ${preview.validGuests} guest${preview.validGuests === 1 ? "" : "s"}`,
+    ];
+    if (preview.newHouseholds.length > 0) {
+      parts.push(`+ ${preview.newHouseholds.length} new household${preview.newHouseholds.length === 1 ? "" : "s"}`);
     }
+    if (preview.newTables.length > 0) {
+      parts.push(`+ ${preview.newTables.length} new table${preview.newTables.length === 1 ? "" : "s"}`);
+    }
+    let msg = parts.join(" ");
+    if (preview.rowErrors > 0) msg += `\n\n${preview.rowErrors} row${preview.rowErrors === 1 ? "" : "s"} with errors will be skipped.`;
+    if (preview.duplicateEmails > 0) msg += `\n\n${preview.duplicateEmails} row${preview.duplicateEmails === 1 ? "" : "s"} have an email that already exists in the database — they'll be created as duplicate rows. You can clean up via the Settings × button or the Guests page after.`;
+    msg += `\n\nProceed?`;
+    if (!confirm(msg)) return;
     startCommit(async () => {
       try {
         const result = await commitImport({ text, mapping });
@@ -95,17 +102,22 @@ export function ImportClient() {
   }
 
   if (committed) {
+    const bits: string[] = [`${committed.created} guest${committed.created === 1 ? "" : "s"}`];
+    if (committed.tables > 0) bits.push(`${committed.tables} new table${committed.tables === 1 ? "" : "s"} (auto-seated)`);
+    if (committed.songs > 0) bits.push(`${committed.songs} song request${committed.songs === 1 ? "" : "s"}`);
     return (
       <div className="flex-1 overflow-auto">
         <div className="max-w-2xl mx-auto p-6">
           <div className="bg-moss-50 border border-moss-100 rounded-md p-6 text-center shadow-sm">
             <div className="text-3xl mb-2">✓</div>
             <h2 className="font-display text-2xl text-moss-700 mb-2">Imported</h2>
-            <p className="text-sm text-ink-secondary mb-4">
-              Created {committed.created} guest{committed.created === 1 ? "" : "s"}
-              {committed.skipped > 0 && ` · ${committed.skipped} skipped (had row errors)`}.
-            </p>
-            <div className="flex gap-2 justify-center">
+            <p className="text-sm text-ink-secondary mb-1">Created {bits.join(" · ")}.</p>
+            {committed.skipped > 0 && (
+              <p className="text-xs text-ink-tertiary mb-4">
+                {committed.skipped} row{committed.skipped === 1 ? "" : "s"} skipped (had row errors).
+              </p>
+            )}
+            <div className="flex gap-2 justify-center mt-3">
               <Button variant="primary" size="sm" onClick={() => router.push("/guests")}>
                 Back to Guests
               </Button>
@@ -211,10 +223,13 @@ function MappingTable({
     return counts;
   }, [mapping]);
 
-  const requiredMissing = (["firstName", "lastName"] as GuestField[]).filter(
-    (f) => !usedNonIgnore.has(f),
+  // First/Last OR a single Full name column satisfies the "have a name" rule.
+  const hasName = usedNonIgnore.has("fullName") || (usedNonIgnore.has("firstName") && usedNonIgnore.has("lastName"));
+  const requiredMissing: string[] = hasName ? [] : ["First name + Last name (or Full name)"];
+  // Only flag as a problem if the field doesn't allow multi-value mapping.
+  const duplicates = Array.from(usedNonIgnore.entries()).filter(
+    ([f, c]) => c > 1 && !MULTI_VALUE_FIELDS.has(f),
   );
-  const duplicates = Array.from(usedNonIgnore.entries()).filter(([, c]) => c > 1);
 
   function setOne(idx: number, field: GuestField) {
     const next = [...mapping];
@@ -264,10 +279,10 @@ function MappingTable({
       {(requiredMissing.length > 0 || duplicates.length > 0) && (
         <div className="px-4 py-2.5 border-t border-border-soft bg-marigold-100/30 text-marigold-700 text-xs space-y-1">
           {requiredMissing.length > 0 && (
-            <div>Required mapping missing: <strong>{requiredMissing.map((f) => GUEST_FIELD_LABELS[f]).join(", ")}</strong></div>
+            <div>Required mapping missing: <strong>{requiredMissing.join(", ")}</strong></div>
           )}
           {duplicates.length > 0 && (
-            <div>Duplicate mapping: <strong>{duplicates.map(([f]) => GUEST_FIELD_LABELS[f]).join(", ")}</strong> — only the first column will be used.</div>
+            <div>Duplicate mapping: <strong>{duplicates.map(([f]) => GUEST_FIELD_LABELS[f]).join(", ")}</strong> — only the first column will be used. (Song request and Notes are allowed to repeat.)</div>
           )}
         </div>
       )}
@@ -295,8 +310,10 @@ function PreviewPanel({
           <span>{preview.totalGuests} rows</span>
           <span className="text-moss-700">{preview.validGuests} valid</span>
           {preview.rowErrors > 0 && <span className="text-danger">{preview.rowErrors} with errors</span>}
+          {preview.duplicateEmails > 0 && <span className="text-marigold-700">{preview.duplicateEmails} duplicate email{preview.duplicateEmails === 1 ? "" : "s"}</span>}
           {preview.newHouseholds.length > 0 && <span>{preview.newHouseholds.length} new household{preview.newHouseholds.length === 1 ? "" : "s"}</span>}
           {preview.existingHouseholds.length > 0 && <span>{preview.existingHouseholds.length} merging into existing</span>}
+          {preview.newTables.length > 0 && <span>{preview.newTables.length} new table{preview.newTables.length === 1 ? "" : "s"}</span>}
         </div>
       </header>
 
@@ -307,33 +324,42 @@ function PreviewPanel({
               <th className="px-3 py-2 text-left">#</th>
               <th className="px-3 py-2 text-left">Name</th>
               <th className="px-3 py-2 text-left">Household</th>
+              <th className="px-3 py-2 text-left">Table</th>
               <th className="px-3 py-2 text-left">Side</th>
               <th className="px-3 py-2 text-left">RSVP</th>
-              <th className="px-3 py-2 text-left">Email</th>
+              <th className="px-3 py-2 text-left">Meals · songs</th>
               <th className="px-3 py-2 text-left">Notes / issues</th>
             </tr>
           </thead>
           <tbody>
             {visibleRows.map((r) => {
               const hasError = r.errors.length > 0;
+              const mealBits = [r.mealStarter && "S", r.mealMain && "M", r.mealDessert && "D"].filter(Boolean);
               return (
                 <tr
                   key={r.rowIndex}
                   className={["border-b border-border-soft last:border-b-0", hasError ? "bg-danger-bg/40" : ""].join(" ")}
                 >
-                  <td className="px-3 py-1.5 text-ink-tertiary tabular-nums">{r.rowIndex}</td>
-                  <td className="px-3 py-1.5 text-ink-primary">
-                    {r.firstName || <em className="text-danger">(missing)</em>}{" "}
-                    {r.lastName || <em className="text-danger">(missing)</em>}
-                    {r.isChild && <span className="ml-1.5 text-[10px] text-marigold-700 bg-marigold-100 px-1 rounded">Child</span>}
+                  <td className="px-3 py-1.5 text-ink-tertiary tabular-nums align-top">{r.rowIndex}</td>
+                  <td className="px-3 py-1.5 text-ink-primary align-top">
+                    <div>
+                      {r.firstName || <em className="text-danger">(missing)</em>}{" "}
+                      {r.lastName || <em className="text-danger">(missing)</em>}
+                      {r.isChild && <span className="ml-1.5 text-[10px] text-marigold-700 bg-marigold-100 px-1 rounded">Child</span>}
+                      {r.needsHighchair && <span className="ml-1 text-[10px] text-marigold-700 bg-marigold-100 px-1 rounded">Highchair</span>}
+                    </div>
+                    {r.email && <div className="text-[10px] text-ink-tertiary truncate max-w-[200px]">{r.email}</div>}
+                    {r.tags.length > 0 && (
+                      <div className="text-[10px] text-ink-tertiary mt-0.5">{r.tags.slice(0, 3).join(" · ")}{r.tags.length > 3 ? " …" : ""}</div>
+                    )}
                   </td>
-                  <td className="px-3 py-1.5 text-ink-secondary">
+                  <td className="px-3 py-1.5 text-ink-secondary align-top">
                     {r.householdName ? (
                       <>
-                        {r.householdName}
+                        <div>{r.householdName}</div>
                         <span
                           className={[
-                            "ml-1.5 text-[10px] px-1 rounded",
+                            "text-[10px] px-1 rounded",
                             r.householdAction === "merge"
                               ? "text-info bg-[color:#eef4f5] dark:bg-muted"
                               : "text-moss-700 bg-moss-50 border border-moss-100",
@@ -346,10 +372,50 @@ function PreviewPanel({
                       <em className="text-ink-tertiary">solo</em>
                     )}
                   </td>
-                  <td className="px-3 py-1.5 text-ink-secondary capitalize">{r.side.toLowerCase()}</td>
-                  <td className="px-3 py-1.5 text-ink-secondary capitalize">{r.rsvp.toLowerCase()}</td>
-                  <td className="px-3 py-1.5 text-ink-secondary truncate max-w-[200px]">{r.email ?? "—"}</td>
-                  <td className="px-3 py-1.5 text-[11px] space-y-0.5">
+                  <td className="px-3 py-1.5 text-ink-secondary align-top">
+                    {r.tableName ? (
+                      <>
+                        <div>{r.tableName}</div>
+                        <span
+                          className={[
+                            "text-[10px] px-1 rounded",
+                            r.tableAction === "merge"
+                              ? "text-info bg-[color:#eef4f5] dark:bg-muted"
+                              : "text-moss-700 bg-moss-50 border border-moss-100",
+                          ].join(" ")}
+                        >
+                          {r.tableAction === "merge" ? "seat" : "new"}
+                        </span>
+                      </>
+                    ) : (
+                      <span className="text-ink-tertiary">—</span>
+                    )}
+                  </td>
+                  <td className="px-3 py-1.5 text-ink-secondary capitalize align-top">{r.side.toLowerCase()}</td>
+                  <td className="px-3 py-1.5 text-ink-secondary capitalize align-top">{r.rsvp.toLowerCase()}</td>
+                  <td className="px-3 py-1.5 text-ink-secondary align-top">
+                    <div className="flex gap-1.5 items-center text-[10px]">
+                      {mealBits.length > 0 && (
+                        <span title={[r.mealStarter && `Starter: ${r.mealStarter}`, r.mealMain && `Main: ${r.mealMain}`, r.mealDessert && `Dessert: ${r.mealDessert}`].filter(Boolean).join("\n")} className="text-moss-700 bg-moss-50 border border-moss-100 px-1 rounded font-mono">
+                          {mealBits.join("/")}
+                        </span>
+                      )}
+                      {r.songs.length > 0 && (
+                        <span title={r.songs.join("\n")} className="text-info bg-[color:#eef4f5] dark:bg-muted px-1 rounded">
+                          ♪ {r.songs.length}
+                        </span>
+                      )}
+                      {r.dietary.length > 0 && (
+                        <span title={r.dietary.join(", ")} className="text-marigold-700 bg-marigold-100 px-1 rounded">
+                          🥗 {r.dietary.length}
+                        </span>
+                      )}
+                      {mealBits.length === 0 && r.songs.length === 0 && r.dietary.length === 0 && (
+                        <span className="text-ink-tertiary">—</span>
+                      )}
+                    </div>
+                  </td>
+                  <td className="px-3 py-1.5 text-[11px] space-y-0.5 align-top">
                     {r.errors.map((e, i) => (
                       <div key={`e${i}`} className="text-danger">⚠ {e}</div>
                     ))}

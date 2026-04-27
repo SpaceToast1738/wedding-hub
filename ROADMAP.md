@@ -11,7 +11,7 @@
 - **Repo:** [SpaceToast1738/wedding-hub](https://github.com/SpaceToast1738/wedding-hub) · `claude/main` (releases) + `dev` (work-in-progress)
 - **Stack:** Next.js 15 · TypeScript · Tailwind v4 · Prisma · Postgres 16 · Auth.js v5 · Caddy · Docker Compose
 - **Working tree:** `C:\Users\Admin\Code\wedding-hub` (local SSD). The old `\\TOWER\Jamie Spencer\Claude\wedding-hub` mirror is no longer in use — run `Remove-Item -Recurse -Force "\\TOWER\Jamie Spencer\Claude\wedding-hub"` from a fresh PowerShell to delete it.
-- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` at v0.7.1). v0.8.0 (this iteration on `dev`) ships **Phase E**: CSV / TSV guest import with auto-detected column mapping, dry-run preview with per-row validation, household auto-merge, and committal in a single server action. No new migration.
+- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` at v0.7.1). v0.9.0 (this iteration on `dev`) ships **Phase E** end-to-end — the CSV importer now handles a real Say I Do export: full-name split, table auto-creation + seat assignment, three-course meal capture (additive migration), multi-column song requests, group tags, highchair detection, duplicate-email warnings.
 
 ## Phase status
 
@@ -198,11 +198,45 @@ When wrapping up a meaningful iteration:
 
 ### Current version
 
-`0.8.0` on `dev` — Phase E guest import. `claude/main` at `v0.7.1` (just promoted, currently in production after Pull-and-Up).
+`0.9.0` on `dev` — Phase E feature-complete (real Say I Do CSV ingest works end-to-end with table assignment + meals + songs). `claude/main` at `v0.7.1` in production. v0.8.0 was the initial Phase E ship; v0.9.0 supersedes it before promotion.
 
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-27 · v0.9.0 — Phase E feature-complete: real Say I Do CSV ingest
+
+User loaded their actual Say I Do export and it didn't work end-to-end with the v0.8.0 importer. This iteration upgrades the importer to handle the messy, real-world shape of that file.
+
+**Schema:** additive migration `20260427170000_add_guest_meal_fields` adds `mealStarter`, `mealMain`, `mealDessert` (all nullable text) to `Guest`. The existing `mealCourse` FK relation stays for now — never wired to UI, free-text is a more honest match for Say I Do's long meal descriptions.
+
+**Parser ([src/lib/csv.ts](src/lib/csv.ts))** — new field types and heuristics:
+- `fullName` — single "Guest Name" column, split on first whitespace at commit time. Hyphenated firsts ("Bryony-Olwyn Davis") survive.
+- `tableName` — table assignments. Recognises "Table", "Seat Table", etc.
+- `mealStarter` / `mealMain` / `mealDessert` — match `Q\d+: starter / main meal / desert` (typo and all) plus straight `Starter` / `Main` / `Dessert`.
+- `needsHighchair` — `Q\d+: highchair`.
+- `songRequest` — `Q\d+: song`. Multi-column allowed: Q3, Q5, Q9 all map to song requests; each non-empty value becomes its own `SongRequest` row.
+- `tags` — pipe-delimited "Groups" column (Immediate Family|Bryony's side|Wedding party). Stored on `Guest.tags`.
+- `notes` — multi-column allowed; concatenated with their header labels when more than one column maps here.
+- New `coerceChild` — recognises "Adult"/"Child"/"Kid"/"Minor" alongside the generic boolean strings.
+- `coerceDietary` now strips "None"/"N.a."/"Non"/"-" placeholders so they don't end up as actual dietary requirements.
+- `inferSideFromTags` — when there's no explicit side column but the Groups column has tags like "Bryony's side" or "Jamie's side", infer the guest's side from there.
+
+**Commit action ([src/app/(app)/guests/import/actions.ts](src/app/(app)/guests/import/actions.ts))**:
+- Uses `splitFullName` to derive first/last when only `fullName` is mapped.
+- Resolves `tableName` by find-or-create. New tables get capacity = max(targetCount, 8); names containing "head" get `TableShape.HEAD`; everything else `ROUND`. Seats are created up to capacity. Each guest gets the next free seat in their table — bookkeeping happens locally to avoid clashes within one import batch.
+- Multi-column song requests → `db.songRequest.createMany` linked to the new guest.
+- Multi-column notes → concatenated with header labels.
+- Pre-flight existence checks now cover households, tables, AND emails — duplicate emails surface as preview warnings (still imported, but flagged so the user knows).
+
+**Preview UI ([src/app/(app)/guests/import/ImportClient.tsx](src/app/(app)/guests/import/ImportClient.tsx))**:
+- New columns: Table (with new/seat chip), Meals · Songs (compact `S/M/D` and `♪ N` indicators with full-text tooltips on hover).
+- Confirm dialog summarises new tables + duplicate-email count, not just households.
+- Success page shows tables-auto-seated count and song-requests count alongside guests.
+
+**Display:** [src/app/(app)/guests/HouseholdBlock.tsx](src/app/(app)/guests/HouseholdBlock.tsx) — guest rows now show meal trio (🍲 starter · 🍽 main · 🍰 dessert) inline below the contact line, truncated to 3 words with full-text tooltip on hover.
+
+**Verified against real data:** the Say I Do export the user shared (22 attending guests, 6 unique tables, 35+ song requests across Q3/Q5/Q9, 3-course meal choices, mixed Adult/Child rows) maps cleanly with all heuristics auto-detecting correctly.
 
 ### 2026-04-27 · v0.8.0 — Phase E: CSV / TSV guest import
 

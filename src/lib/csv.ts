@@ -3,8 +3,6 @@
 // inside quotes) supported. Auto-detects comma vs tab based on the header line.
 //
 // Sufficient for Say I Do exports, Google Sheets paste, and Excel CSV exports.
-// Not sufficient for: extreme edge cases like mixed quoting styles inside a
-// single field. Good enough for a 5-user app importing < 200 guests.
 
 export type ParsedRow = string[];
 
@@ -53,7 +51,6 @@ export function parseCsv(text: string, sep?: "," | "\t"): ParsedRow[] {
     }
   }
 
-  // Flush trailing cell / row
   if (cell.length > 0 || current.length > 0) {
     current.push(cell);
     if (current.some((c) => c.length > 0)) rows.push(current);
@@ -67,50 +64,86 @@ export function parseCsv(text: string, sep?: "," | "\t"): ParsedRow[] {
 export type GuestField =
   | "firstName"
   | "lastName"
+  | "fullName"        // single "Jamie Spencer"-style column → split on commit
   | "email"
   | "phone"
   | "household"
   | "side"
   | "rsvp"
   | "isChild"
+  | "needsHighchair"
   | "plusOneAllowed"
   | "plusOneName"
   | "role"
   | "dietary"
-  | "notes"
+  | "tags"            // pipe / comma / semicolon delimited
+  | "mealStarter"
+  | "mealMain"
+  | "mealDessert"
+  | "songRequest"     // multi-column allowed; each yields one SongRequest row
+  | "tableName"       // table name → resolve to Table+Seat at commit
+  | "notes"           // multi-column allowed; concatenated with header labels
   | "ignore";
 
 export const GUEST_FIELD_LABELS: Record<GuestField, string> = {
   firstName: "First name",
   lastName: "Last name",
+  fullName: "Full name (split on first space)",
   email: "Email",
   phone: "Phone",
-  household: "Household name",
+  household: "Household / party name",
+  tableName: "Table assignment",
   side: "Side (bride / groom / both)",
   rsvp: "RSVP status",
-  isChild: "Is child",
+  isChild: "Adult / child",
+  needsHighchair: "Needs highchair",
   plusOneAllowed: "Plus-one allowed",
   plusOneName: "Plus-one name",
   role: "Role (best man, MoH, …)",
   dietary: "Dietary",
-  notes: "Notes",
+  tags: "Tags / groups (pipe-delimited)",
+  mealStarter: "Meal — starter",
+  mealMain: "Meal — main",
+  mealDessert: "Meal — dessert",
+  songRequest: "Song request (can repeat)",
+  notes: "Notes (can repeat)",
   ignore: "— Ignore —",
 };
 
+// Fields that allow more than one column to map to them. Multi-song-request
+// becomes multiple SongRequest rows; multi-notes get concatenated with their
+// header labels at commit time.
+export const MULTI_VALUE_FIELDS: ReadonlySet<GuestField> = new Set([
+  "songRequest",
+  "notes",
+]);
+
+// Order matters: more specific patterns first. The first matching heuristic
+// wins, so e.g. "Q2 main meal" should hit `mealMain` before any general
+// "main" pattern.
 const HEURISTICS: Array<{ field: GuestField; tests: RegExp[] }> = [
+  { field: "fullName", tests: [/^(guest\s*)?(full\s*)?name$/i] },
   { field: "firstName", tests: [/^first\s*name$/i, /^fname$/i, /^given(\s*name)?$/i, /^forename$/i] },
   { field: "lastName", tests: [/^last\s*name$/i, /^lname$/i, /^surname$/i, /^family\s*name$/i] },
   { field: "email", tests: [/^e[\s-]?mail/i] },
   { field: "phone", tests: [/^phone/i, /^mobile/i, /^cell/i, /^tel/i] },
-  { field: "household", tests: [/^household/i, /^family/i, /^group/i, /^party/i] },
+  { field: "household", tests: [/^household/i, /^family/i, /^group$/i, /^party(\s*name)?$/i] },
+  { field: "tableName", tests: [/^table(\s*(name|number|#))?$/i] },
   { field: "side", tests: [/^side$/i, /^bride.*groom/i, /^groom.*bride/i] },
   { field: "rsvp", tests: [/^rsvp/i, /^attending/i, /^status/i, /^response/i] },
-  { field: "isChild", tests: [/^child/i, /^is\s*child/i, /^kid/i] },
+  // Question-numbered columns (Q2:, Q4:, etc.) — must come before generic patterns
+  { field: "mealStarter", tests: [/^q\d+.*(starter|first\s*course|appetiser|appetizer)/i, /^starter$/i, /^appetiser$/i] },
+  { field: "mealMain", tests: [/^q\d+.*main\s*meal/i, /^main(\s*course|\s*meal)?$/i, /^entr(e|é)e/i] },
+  { field: "mealDessert", tests: [/^q\d+.*(des(s)?ert|pudding|sweet)/i, /^des(s)?ert$/i, /^pudding$/i] },
+  { field: "needsHighchair", tests: [/^q\d+.*highchair/i, /^highchair$/i] },
+  { field: "songRequest", tests: [/^q\d+.*song/i, /^song(\s*request|s)?$/i] },
+  { field: "isChild", tests: [/^adult\s*\/?\s*child$/i, /^child\s*\/?\s*adult$/i, /^child$/i, /^is\s*child$/i, /^kid$/i, /^age\s*group$/i] },
   { field: "plusOneAllowed", tests: [/^plus[\s-]?one(\s*allowed)?$/i, /^\+1$/i, /^guest\s*allowed/i] },
   { field: "plusOneName", tests: [/^plus[\s-]?one\s*name/i, /^\+1\s*name/i, /^guest\s*name/i] },
   { field: "role", tests: [/^role/i, /^wedding\s*role/i, /^position/i] },
   { field: "dietary", tests: [/^dietary/i, /^diet/i, /^allergies/i, /^food\s*requirements?/i] },
-  { field: "notes", tests: [/^notes?/i, /^comments?/i, /^remarks/i] },
+  { field: "tags", tests: [/^groups?$/i, /^tags?$/i, /^categor(y|ies)$/i, /^labels?$/i] },
+  { field: "notes", tests: [/^notes?$/i, /^comments?$/i, /^remarks/i] },
 ];
 
 export function inferField(header: string): GuestField {
@@ -125,9 +158,9 @@ export function inferMapping(headers: string[]): GuestField[] {
   const used = new Set<GuestField>();
   return headers.map((h) => {
     const guess = inferField(h);
-    // Don't double-map a field — second occurrence falls back to ignore.
-    if (guess !== "ignore" && used.has(guess)) return "ignore";
-    if (guess !== "ignore") used.add(guess);
+    if (guess === "ignore") return "ignore";
+    if (used.has(guess) && !MULTI_VALUE_FIELDS.has(guess)) return "ignore";
+    used.add(guess);
     return guess;
   });
 }
@@ -144,13 +177,41 @@ export function coerceBool(raw: string): boolean | null {
   return null;
 }
 
+// Adult / Child has its own coercer because "Adult" and "Child" don't fit the
+// generic boolean truthy/falsy convention.
+const CHILD_MAP: Record<string, boolean | null> = {
+  child: true,
+  kid: true,
+  minor: true,
+  infant: true,
+  baby: true,
+  yes: true,
+  y: true,
+  true: true,
+  "1": true,
+  adult: false,
+  grown: false,
+  no: false,
+  n: false,
+  false: false,
+  "0": false,
+  "": false,
+  "-": false,
+};
+
+export function coerceChild(raw: string): boolean | null {
+  return CHILD_MAP[raw.trim().toLowerCase()] ?? null;
+}
+
 const SIDE_MAP: Record<string, "BRIDE" | "GROOM" | "BOTH"> = {
   bride: "BRIDE",
   brides: "BRIDE",
   "bride's": "BRIDE",
+  "bride's side": "BRIDE",
   groom: "GROOM",
   grooms: "GROOM",
   "groom's": "GROOM",
+  "groom's side": "GROOM",
   both: "BOTH",
   shared: "BOTH",
   joint: "BOTH",
@@ -182,9 +243,62 @@ export function coerceRsvp(raw: string): "PENDING" | "ATTENDING" | "DECLINED" | 
   return RSVP_MAP[raw.trim().toLowerCase()] ?? "PENDING";
 }
 
+// Strip non-dietary placeholders. "None" / "N.a." / "Non" / "-" all mean
+// "no requirements" — they shouldn't end up as actual dietary tags.
+const NEGATIVE_DIETARY = /^(none|nope|no|n\.?a\.?|n\/a|nil|nothing|—|-)$/i;
+
 export function coerceDietary(raw: string): string[] {
   return raw
     .split(/[,;|]/)
     .map((s) => s.trim())
+    .filter((s) => s && !NEGATIVE_DIETARY.test(s));
+}
+
+export function coerceTags(raw: string): string[] {
+  return raw
+    .split(/[|,;]/)
+    .map((s) => s.trim())
     .filter(Boolean);
+}
+
+const EMPTY_VALUES = new Set(["", "-", "—", "n/a", "n.a.", "na", "none"]);
+
+export function isEmptyValue(raw: string): boolean {
+  return EMPTY_VALUES.has(raw.trim().toLowerCase());
+}
+
+export function nonEmptyOrNull(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  return isEmptyValue(raw) ? null : raw.trim();
+}
+
+// Split a "Tyler Spencer" or "Bryony-Olwyn Davis" name on the first whitespace.
+// "Bryony Olwyn-Davis" → ("Bryony", "Olwyn-Davis"). Edge cases like single-word
+// names ("Cher") yield (name, "").
+export function splitFullName(full: string): { firstName: string; lastName: string } {
+  const trimmed = full.trim().replace(/\s+/g, " ");
+  if (!trimmed) return { firstName: "", lastName: "" };
+  const idx = trimmed.indexOf(" ");
+  if (idx === -1) return { firstName: trimmed, lastName: "" };
+  return {
+    firstName: trimmed.slice(0, idx),
+    lastName: trimmed.slice(idx + 1).trim(),
+  };
+}
+
+// "Bryony's side", "Jamie's side" → BRIDE / GROOM. Used to extract `side` from
+// the multi-tag "Groups" column when no explicit side column is present.
+export function inferSideFromTags(
+  tags: string[],
+  brideName?: string,
+  groomName?: string,
+): "BRIDE" | "GROOM" | "BOTH" | null {
+  for (const tag of tags) {
+    const t = tag.toLowerCase();
+    if (t.includes("bride")) return "BRIDE";
+    if (t.includes("groom")) return "GROOM";
+    if (brideName && t.includes(brideName.toLowerCase())) return "BRIDE";
+    if (groomName && t.includes(groomName.toLowerCase())) return "GROOM";
+  }
+  return null;
 }

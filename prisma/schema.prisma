@@ -110,6 +110,12 @@ model Guest {
   side            Side           @default(BOTH)
   mealCourseId    String?
   mealCourse      MealOption?    @relation(fields: [mealCourseId], references: [id])
+  // Free-text three-course choices (populated by the CSV import). These
+  // coexist with mealCourse FK above, which was structured but never UI-
+  // wired; real Say I Do data is messy enough that free-text is honest.
+  mealStarter     String?
+  mealMain        String?
+  mealDessert     String?
   dietary         String[]       @default([])
   songRequests    SongRequest[]
   tableSeatId     String?        @unique

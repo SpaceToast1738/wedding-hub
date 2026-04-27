@@ -2,15 +2,22 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import { TableShape } from "@prisma/client";
 import { db } from "@/lib/db";
 import { audit, requireEdit } from "@/lib/actions";
 import {
   type GuestField,
   coerceBool,
+  coerceChild,
   coerceDietary,
   coerceRsvp,
   coerceSide,
+  coerceTags,
+  inferSideFromTags,
+  isEmptyValue,
+  nonEmptyOrNull,
   parseCsv,
+  splitFullName,
 } from "@/lib/csv";
 
 export type ImportRowPreview = {
@@ -20,76 +27,143 @@ export type ImportRowPreview = {
   email: string | null;
   phone: string | null;
   householdName: string | null;
+  tableName: string | null;
   side: "BRIDE" | "GROOM" | "BOTH";
   rsvp: "PENDING" | "ATTENDING" | "DECLINED" | "MAYBE";
   isChild: boolean;
+  needsHighchair: boolean;
   plusOneAllowed: boolean;
   plusOneName: string | null;
   role: string | null;
   dietary: string[];
+  tags: string[];
+  mealStarter: string | null;
+  mealMain: string | null;
+  mealDessert: string | null;
+  songs: string[];
   notes: string | null;
   errors: string[];
   warnings: string[];
   // Resolved against the existing DB at preview time:
-  householdAction: "create" | "merge" | null; // null if no household name
+  householdAction: "create" | "merge" | null;
+  tableAction: "create" | "merge" | null;
+  emailDuplicate: boolean;
 };
 
 export type ImportPreview = {
   rows: ImportRowPreview[];
   newHouseholds: string[];
   existingHouseholds: string[];
+  newTables: string[];
+  existingTables: string[];
   totalGuests: number;
   validGuests: number;
   rowErrors: number;
+  duplicateEmails: number;
 };
 
 const fieldEnum = z.enum([
   "firstName",
   "lastName",
+  "fullName",
   "email",
   "phone",
   "household",
+  "tableName",
   "side",
   "rsvp",
   "isChild",
+  "needsHighchair",
   "plusOneAllowed",
   "plusOneName",
   "role",
   "dietary",
+  "tags",
+  "mealStarter",
+  "mealMain",
+  "mealDessert",
+  "songRequest",
   "notes",
   "ignore",
 ]);
 
 const inputSchema = z.object({
-  text: z.string().min(1).max(500_000),
+  text: z.string().min(1).max(1_000_000),
   mapping: z.array(fieldEnum),
 });
+
+function findOne(mapping: GuestField[], field: GuestField): number {
+  return mapping.indexOf(field);
+}
+
+function findAll(mapping: GuestField[], field: GuestField): number[] {
+  const out: number[] = [];
+  mapping.forEach((m, i) => {
+    if (m === field) out.push(i);
+  });
+  return out;
+}
 
 function buildRowPreview(
   rawRow: string[],
   mapping: GuestField[],
+  headers: string[],
   rowIndex: number,
-): Omit<ImportRowPreview, "householdAction"> {
-  const get = (field: GuestField): string => {
-    const idx = mapping.indexOf(field);
+): Omit<ImportRowPreview, "householdAction" | "tableAction" | "emailDuplicate"> {
+  const single = (field: GuestField): string => {
+    const idx = findOne(mapping, field);
     if (idx === -1) return "";
     return (rawRow[idx] ?? "").trim();
   };
 
-  const firstName = get("firstName");
-  const lastName = get("lastName");
-  const email = get("email") || null;
-  const phone = get("phone") || null;
-  const householdName = get("household") || null;
-  const sideRaw = get("side");
-  const rsvpRaw = get("rsvp");
-  const isChildRaw = get("isChild");
-  const plusOneAllowedRaw = get("plusOneAllowed");
-  const plusOneName = get("plusOneName") || null;
-  const role = get("role") || null;
-  const dietaryRaw = get("dietary");
-  const notes = get("notes") || null;
+  // ── Resolve names: prefer firstName/lastName columns; fall back to splitting
+  // a single fullName column on first whitespace.
+  let firstName = single("firstName");
+  let lastName = single("lastName");
+  if (!firstName && !lastName) {
+    const full = single("fullName");
+    if (full) {
+      const split = splitFullName(full);
+      firstName = split.firstName;
+      lastName = split.lastName;
+    }
+  }
 
+  const email = nonEmptyOrNull(single("email"));
+  const phone = nonEmptyOrNull(single("phone"));
+  const householdName = nonEmptyOrNull(single("household"));
+  const tableName = nonEmptyOrNull(single("tableName"));
+  const sideRaw = single("side");
+  const rsvpRaw = single("rsvp");
+  const isChildRaw = single("isChild");
+  const needsHighchairRaw = single("needsHighchair");
+  const plusOneAllowedRaw = single("plusOneAllowed");
+  const plusOneName = nonEmptyOrNull(single("plusOneName"));
+  const role = nonEmptyOrNull(single("role"));
+  const dietaryRaw = single("dietary");
+  const tagsRaw = single("tags");
+  const mealStarter = nonEmptyOrNull(single("mealStarter"));
+  const mealMain = nonEmptyOrNull(single("mealMain"));
+  const mealDessert = nonEmptyOrNull(single("mealDessert"));
+
+  // ── Multi-value fields
+  const songIdxs = findAll(mapping, "songRequest");
+  const songs = songIdxs
+    .map((i) => (rawRow[i] ?? "").trim())
+    .filter((s) => s && !isEmptyValue(s));
+
+  const notesIdxs = findAll(mapping, "notes");
+  const noteParts = notesIdxs
+    .map((i) => {
+      const value = (rawRow[i] ?? "").trim();
+      if (!value || isEmptyValue(value)) return null;
+      const label = headers[i]?.trim();
+      return notesIdxs.length > 1 && label ? `${label}: ${value}` : value;
+    })
+    .filter((s): s is string => !!s);
+  const notes = noteParts.length > 0 ? noteParts.join("\n") : null;
+
+  // ── Errors and warnings
   const errors: string[] = [];
   const warnings: string[] = [];
 
@@ -97,18 +171,30 @@ function buildRowPreview(
   if (!lastName) errors.push("missing last name");
   if (firstName.length > 100) errors.push("first name too long (max 100)");
   if (lastName.length > 100) errors.push("last name too long (max 100)");
+  if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+    warnings.push(`email "${email}" looks malformed — importing as-is`);
+  }
 
-  if (email) {
-    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
-      warnings.push(`email "${email}" looks malformed — importing as-is`);
-    }
+  // ── Coercions (with side-from-tags fallback)
+  const tags = coerceTags(tagsRaw);
+  let side = coerceSide(sideRaw);
+  if (!sideRaw && tags.length > 0) {
+    const inferred = inferSideFromTags(tags, "Bryony", "Jamie");
+    if (inferred) side = inferred;
   }
 
   let isChild = false;
   if (isChildRaw) {
-    const v = coerceBool(isChildRaw);
-    if (v === null) warnings.push(`couldn't parse "is child" value "${isChildRaw}", treating as no`);
+    const v = coerceChild(isChildRaw);
+    if (v === null) warnings.push(`couldn't parse "adult/child" value "${isChildRaw}", treating as adult`);
     else isChild = v;
+  }
+
+  let needsHighchair = false;
+  if (needsHighchairRaw) {
+    const v = coerceBool(needsHighchairRaw);
+    if (v === null) warnings.push(`couldn't parse "highchair" value "${needsHighchairRaw}", treating as no`);
+    else needsHighchair = v;
   }
 
   let plusOneAllowed = false;
@@ -125,13 +211,20 @@ function buildRowPreview(
     email,
     phone,
     householdName,
-    side: coerceSide(sideRaw),
+    tableName,
+    side,
     rsvp: coerceRsvp(rsvpRaw),
     isChild,
+    needsHighchair,
     plusOneAllowed,
     plusOneName,
     role,
     dietary: coerceDietary(dietaryRaw),
+    tags,
+    mealStarter,
+    mealMain,
+    mealDessert,
+    songs,
     notes,
     errors,
     warnings,
@@ -147,68 +240,103 @@ export async function previewImport(input: {
 
   const rows = parseCsv(parsed.text);
   if (rows.length === 0) {
-    return { rows: [], newHouseholds: [], existingHouseholds: [], totalGuests: 0, validGuests: 0, rowErrors: 0 };
+    return {
+      rows: [],
+      newHouseholds: [],
+      existingHouseholds: [],
+      newTables: [],
+      existingTables: [],
+      totalGuests: 0,
+      validGuests: 0,
+      rowErrors: 0,
+      duplicateEmails: 0,
+    };
   }
 
-  // First row is the header. Skip it for guest rows.
+  const headers = rows[0] ?? [];
   const dataRows = rows.slice(1);
-
-  const previews = dataRows.map((row, i) => buildRowPreview(row, parsed.mapping as GuestField[], i + 1));
-
-  const householdNames = new Set(
-    previews.map((p) => p.householdName).filter((n): n is string => !!n),
+  const previews = dataRows.map((row, i) =>
+    buildRowPreview(row, parsed.mapping as GuestField[], headers, i + 1),
   );
-  const existing = await db.household.findMany({
-    where: { name: { in: Array.from(householdNames) } },
-    select: { id: true, name: true },
-  });
-  const existingSet = new Set(existing.map((h) => h.name));
 
-  const decorated: ImportRowPreview[] = previews.map((p) => ({
-    ...p,
-    householdAction: p.householdName
-      ? existingSet.has(p.householdName)
-        ? "merge"
-        : "create"
-      : null,
-  }));
+  // Existence checks against the DB
+  const householdNames = Array.from(
+    new Set(previews.map((p) => p.householdName).filter((n): n is string => !!n)),
+  );
+  const tableNames = Array.from(
+    new Set(previews.map((p) => p.tableName).filter((n): n is string => !!n)),
+  );
+  const emails = previews.map((p) => p.email).filter((e): e is string => !!e);
+
+  const [existingHouseholds, existingTables, existingEmails] = await Promise.all([
+    db.household.findMany({ where: { name: { in: householdNames } }, select: { name: true } }),
+    db.table.findMany({ where: { name: { in: tableNames } }, select: { name: true } }),
+    db.guest.findMany({ where: { email: { in: emails } }, select: { email: true } }),
+  ]);
+  const existingHouseholdSet = new Set(existingHouseholds.map((h) => h.name));
+  const existingTableSet = new Set(existingTables.map((t) => t.name));
+  const existingEmailSet = new Set(
+    existingEmails.map((e) => e.email).filter((e): e is string => !!e),
+  );
+
+  const decorated: ImportRowPreview[] = previews.map((p) => {
+    const isDup = !!p.email && existingEmailSet.has(p.email);
+    return {
+      ...p,
+      warnings: isDup
+        ? [...p.warnings, `email already exists in DB — will create a duplicate row`]
+        : p.warnings,
+      householdAction: p.householdName
+        ? existingHouseholdSet.has(p.householdName)
+          ? "merge"
+          : "create"
+        : null,
+      tableAction: p.tableName
+        ? existingTableSet.has(p.tableName)
+          ? "merge"
+          : "create"
+        : null,
+      emailDuplicate: isDup,
+    };
+  });
 
   const validGuests = decorated.filter((p) => p.errors.length === 0).length;
-  const rowErrors = decorated.length - validGuests;
-
-  const newHouseholds = Array.from(householdNames).filter((n) => !existingSet.has(n));
-  const existingHouseholds = Array.from(householdNames).filter((n) => existingSet.has(n));
 
   return {
     rows: decorated,
-    newHouseholds,
-    existingHouseholds,
+    newHouseholds: householdNames.filter((n) => !existingHouseholdSet.has(n)),
+    existingHouseholds: householdNames.filter((n) => existingHouseholdSet.has(n)),
+    newTables: tableNames.filter((n) => !existingTableSet.has(n)),
+    existingTables: tableNames.filter((n) => existingTableSet.has(n)),
     totalGuests: decorated.length,
     validGuests,
-    rowErrors,
+    rowErrors: decorated.length - validGuests,
+    duplicateEmails: decorated.filter((p) => p.emailDuplicate).length,
   };
 }
 
 export async function commitImport(input: {
   text: string;
   mapping: GuestField[];
-}): Promise<{ created: number; skipped: number }> {
+}): Promise<{ created: number; skipped: number; songs: number; tables: number }> {
   const user = await requireEdit("guests");
   const parsed = inputSchema.parse(input);
 
   const rows = parseCsv(parsed.text);
-  if (rows.length === 0) return { created: 0, skipped: 0 };
+  if (rows.length === 0) return { created: 0, skipped: 0, songs: 0, tables: 0 };
 
+  const headers = rows[0] ?? [];
   const dataRows = rows.slice(1);
-  const previews = dataRows
-    .map((row, i) => buildRowPreview(row, parsed.mapping as GuestField[], i + 1))
-    .filter((p) => p.errors.length === 0);
+  const allPreviews = dataRows.map((row, i) =>
+    buildRowPreview(row, parsed.mapping as GuestField[], headers, i + 1),
+  );
+  const previews = allPreviews.filter((p) => p.errors.length === 0);
 
   if (previews.length === 0) {
-    return { created: 0, skipped: dataRows.length };
+    return { created: 0, skipped: dataRows.length, songs: 0, tables: 0 };
   }
 
-  // Resolve / create households first. Match by exact name.
+  // ── Resolve / create households ────────────────────────────────────────
   const householdNames = Array.from(
     new Set(previews.map((p) => p.householdName).filter((n): n is string => !!n)),
   );
@@ -216,12 +344,9 @@ export async function commitImport(input: {
     where: { name: { in: householdNames } },
   });
   const householdByName = new Map(existingHouseholds.map((h) => [h.name, h]));
+  const newlyCreatedHouseholds: string[] = [];
 
-  // Group preview rows by household so newly-created households can pick up
-  // the most-popular `side` value from their members. (e.g. if 4 of 5 members
-  // are bride-side, the household defaults to BRIDE.)
-  const newHouseholdsToCreate = householdNames.filter((n) => !householdByName.has(n));
-  for (const name of newHouseholdsToCreate) {
+  for (const name of householdNames.filter((n) => !householdByName.has(n))) {
     const members = previews.filter((p) => p.householdName === name);
     const counts = { BRIDE: 0, GROOM: 0, BOTH: 0 };
     for (const m of members) counts[m.side]++;
@@ -231,15 +356,64 @@ export async function commitImport(input: {
         : counts.GROOM >= counts.BOTH
           ? "GROOM"
           : "BOTH";
-    const created = await db.household.create({
-      data: { name, side: dominantSide },
-    });
+    const created = await db.household.create({ data: { name, side: dominantSide } });
     householdByName.set(name, created);
+    newlyCreatedHouseholds.push(name);
   }
 
-  // Rows without an explicit household → unique household per guest, named
-  // "FirstName LastName". Avoids dumping unfiled rows into one giant pile.
+  // ── Resolve / create tables (with their seats) ────────────────────────
+  const tableNames = Array.from(
+    new Set(previews.map((p) => p.tableName).filter((n): n is string => !!n)),
+  );
+  const existingTables = await db.table.findMany({
+    where: { name: { in: tableNames } },
+    include: {
+      seats: { include: { guest: { select: { id: true } } }, orderBy: { index: "asc" } },
+    },
+  });
+  type TableState = {
+    id: string;
+    seats: { id: string; index: number; occupiedByGuestId: string | null }[];
+  };
+  const tableByName = new Map<string, TableState>();
+  for (const t of existingTables) {
+    tableByName.set(t.name, {
+      id: t.id,
+      seats: t.seats.map((s) => ({
+        id: s.id,
+        index: s.index,
+        occupiedByGuestId: s.guest?.id ?? null,
+      })),
+    });
+  }
+
+  let createdTablesCount = 0;
+  for (const tableName of tableNames.filter((n) => !tableByName.has(n))) {
+    const targetCount = previews.filter((p) => p.tableName === tableName).length;
+    const capacity = Math.max(targetCount, 8);
+    const isHead = /head/i.test(tableName);
+    const created = await db.table.create({
+      data: {
+        name: tableName,
+        shape: isHead ? TableShape.HEAD : TableShape.ROUND,
+        capacity,
+      },
+    });
+    const seats = await db.$transaction(
+      Array.from({ length: capacity }, (_, i) =>
+        db.seat.create({ data: { tableId: created.id, index: i } }),
+      ),
+    );
+    tableByName.set(tableName, {
+      id: created.id,
+      seats: seats.map((s) => ({ id: s.id, index: s.index, occupiedByGuestId: null })),
+    });
+    createdTablesCount++;
+  }
+
+  // ── Create guests, song requests, and seat assignments ────────────────
   let createdCount = 0;
+  let songsCount = 0;
   for (const p of previews) {
     let householdId: string;
     if (p.householdName && householdByName.has(p.householdName)) {
@@ -252,7 +426,19 @@ export async function commitImport(input: {
       householdId = fallback.id;
     }
 
-    await db.guest.create({
+    let tableSeatId: string | null = null;
+    if (p.tableName && tableByName.has(p.tableName)) {
+      const state = tableByName.get(p.tableName)!;
+      const freeSeat = state.seats.find((s) => !s.occupiedByGuestId);
+      if (freeSeat) {
+        tableSeatId = freeSeat.id;
+        // Reserve so the next imported guest at this table doesn't clash.
+        // Real guestId backfilled after the create call below.
+        freeSeat.occupiedByGuestId = "pending";
+      }
+    }
+
+    const guest = await db.guest.create({
       data: {
         householdId,
         firstName: p.firstName,
@@ -262,13 +448,35 @@ export async function commitImport(input: {
         side: p.side,
         rsvp: p.rsvp,
         isChild: p.isChild,
+        needsHighchair: p.needsHighchair,
         plusOneAllowed: p.plusOneAllowed,
         plusOneName: p.plusOneName,
         role: p.role,
         dietary: p.dietary,
+        tags: p.tags,
+        mealStarter: p.mealStarter,
+        mealMain: p.mealMain,
+        mealDessert: p.mealDessert,
         notes: p.notes,
+        tableSeatId,
       },
     });
+
+    if (tableSeatId && p.tableName) {
+      const state = tableByName.get(p.tableName);
+      if (state) {
+        const seat = state.seats.find((s) => s.id === tableSeatId);
+        if (seat) seat.occupiedByGuestId = guest.id;
+      }
+    }
+
+    if (p.songs.length > 0) {
+      await db.songRequest.createMany({
+        data: p.songs.map((s) => ({ guestId: guest.id, title: s })),
+      });
+      songsCount += p.songs.length;
+    }
+
     createdCount++;
   }
 
@@ -278,12 +486,21 @@ export async function commitImport(input: {
     metadata: {
       created: createdCount,
       skipped: dataRows.length - createdCount,
-      newHouseholds: newHouseholdsToCreate,
+      songs: songsCount,
+      newHouseholds: newlyCreatedHouseholds,
+      newTables: createdTablesCount,
     },
   });
 
   revalidatePath("/guests");
+  revalidatePath("/seating");
+  revalidatePath("/songs");
   revalidatePath("/");
 
-  return { created: createdCount, skipped: dataRows.length - createdCount };
+  return {
+    created: createdCount,
+    skipped: dataRows.length - createdCount,
+    songs: songsCount,
+    tables: createdTablesCount,
+  };
 }

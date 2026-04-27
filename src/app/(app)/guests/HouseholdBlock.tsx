@@ -22,6 +22,9 @@ type Guest = {
   plusOneName: string | null;
   role: string | null;
   dietary: string[];
+  mealStarter?: string | null;
+  mealMain?: string | null;
+  mealDessert?: string | null;
   notes: string | null;
 };
 
@@ -175,6 +178,15 @@ export function HouseholdBlock({ household, canEdit }: { household: Household; c
               {guest.email && guest.phone && " · "}
               {guest.phone && <>{guest.phone}</>}
               {guest.dietary.length > 0 && <> · Dietary: {guest.dietary.join(", ")}</>}
+            </div>
+          )}
+          {(guest.mealStarter || guest.mealMain || guest.mealDessert) && (
+            <div className="text-[11px] text-ink-tertiary mt-0.5 truncate">
+              {guest.mealStarter && <span title={guest.mealStarter}>🍲 {guest.mealStarter.split(/\s+/).slice(0, 3).join(" ")}{guest.mealStarter.split(/\s+/).length > 3 ? "…" : ""}</span>}
+              {guest.mealStarter && (guest.mealMain || guest.mealDessert) && " · "}
+              {guest.mealMain && <span title={guest.mealMain}>🍽 {guest.mealMain.split(/\s+/).slice(0, 3).join(" ")}{guest.mealMain.split(/\s+/).length > 3 ? "…" : ""}</span>}
+              {guest.mealMain && guest.mealDessert && " · "}
+              {guest.mealDessert && <span title={guest.mealDessert}>🍰 {guest.mealDessert.split(/\s+/).slice(0, 3).join(" ")}{guest.mealDessert.split(/\s+/).length > 3 ? "…" : ""}</span>}
             </div>
           )}
         </div>
