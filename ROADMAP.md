@@ -11,7 +11,7 @@
 - **Repo:** [SpaceToast1738/wedding-hub](https://github.com/SpaceToast1738/wedding-hub) · `claude/main` (releases) + `dev` (work-in-progress)
 - **Stack:** Next.js 15 · TypeScript · Tailwind v4 · Prisma · Postgres 16 · Auth.js v5 · Caddy · Docker Compose
 - **Working tree:** `C:\Users\Admin\Code\wedding-hub` (local SSD). The old `\\TOWER\Jamie Spencer\Claude\wedding-hub` mirror is no longer in use — run `Remove-Item -Recurse -Force "\\TOWER\Jamie Spencer\Claude\wedding-hub"` from a fresh PowerShell to delete it.
-- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` at **v0.13.0**, promoted 27 Apr 2026). v0.14.0 (this iteration on `dev`) opens **Phase G1** — Spotify playlist sync. Couple pastes a Spotify playlist URL into a local Playlist, hits Sync, and tracks land as Song rows with `spotifyUri` + clickable links back to Spotify. Read-only mirror; the curated playlist lives in Spotify. Adds an additive `Playlist` migration for sync metadata; new optional `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` env vars (sync UI is hidden when blank).
+- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` at **v0.14.0**, promoted 27 Apr 2026). Latest release adds **Phase G1** — Spotify playlist sync. Paste a Spotify playlist URL on a Songs page playlist, hit Sync, tracks land as Song rows with `spotifyUri` + clickable Spotify links. Read-only mirror; needs `SPOTIFY_CLIENT_ID` + `SPOTIFY_CLIENT_SECRET` env vars in prod and the playlist set to public during sync.
 
 ## Phase status
 
@@ -34,8 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| _(unreleased on `dev`)_ | 2026-04-27 | [v0.14.0 — Phase G1 Spotify playlist sync](#2026-04-27--v0140--phase-g1-spotify-playlist-sync) |
-| **v0.13.0** | 2026-04-27 | [Phase F2 photography shot list](#2026-04-27--v0130--phase-f2-photography-shot-list) |
+| **v0.14.0** | 2026-04-27 | [Phase G1 Spotify playlist sync](#2026-04-27--v0140--phase-g1-spotify-playlist-sync) |
+| v0.13.0 | 2026-04-27 | [Phase F2 photography shot list](#2026-04-27--v0130--phase-f2-photography-shot-list) |
 | v0.12.0 | 2026-04-27 | [Import merge + guest detail page + catering letterhead](#2026-04-27--v0120--import-merge--guest-detail-page--catering-letterhead) |
 | v0.11.1 | 2026-04-27 | [coerceBool dash placeholder fix](#2026-04-27--v0111--import-stop-warning-on--boolean-placeholders) |
 | v0.11.0 | 2026-04-27 | [Phase F1 catering brief](#2026-04-27--v0110--phase-f1-catering-brief-printable-summary) |
@@ -227,7 +227,7 @@ When wrapping up a meaningful iteration:
 
 ### Current version
 
-`0.14.0` on `dev`, `claude/main` at `v0.13.0`. Promote when the Spotify sync has been smoke-tested with a real public playlist on dev. Additive `Playlist` migration runs on `docker compose pull && up -d`; new env vars are optional and disable the UI gracefully when blank.
+`0.14.0` on both `dev` and `claude/main` (promoted 27 Apr 2026). Production catches up after `docker compose pull && up -d` on Unraid — additive `Playlist` migration applies on boot. To unlock the sync UI, set `SPOTIFY_CLIENT_ID` + `SPOTIFY_CLIENT_SECRET` from the Spotify Developer dashboard.
 
 ## Changelog
 
