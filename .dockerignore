@@ -5,6 +5,7 @@ node_modules
 .env
 .env.local
 .env.*.local
+.env.production.example
 README.md
 prototype
 appdata
@@ -17,3 +18,9 @@ pgdata
 .vscode
 .idea
 .DS_Store
+docker-compose.yml
+caddy
+.claude
+.eslintrc.json
+.next-env.d.ts
+.claude/plans

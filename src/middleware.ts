@@ -4,7 +4,7 @@ import { authConfig } from "@/auth.config";
 
 const { auth } = NextAuth(authConfig);
 
-const PUBLIC_PATHS = ["/signin", "/api/auth", "/_next", "/favicon.ico"];
+const PUBLIC_PATHS = ["/signin", "/api/auth", "/_next", "/favicon.ico", "/robots.txt"];
 const COUPLE_ONLY_PREFIXES = ["/budget", "/payments"];
 
 export default auth((req) => {

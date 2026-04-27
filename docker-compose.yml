@@ -1,0 +1,131 @@
+# Wedding Hub — production stack
+#
+# Network model:
+#   - `edge`     ← only Caddy attaches here AND publishes ports to the host.
+#   - `internal` ← caddy + web + db + backup. No host port mappings.
+#
+# Hardening:
+#   - web runs as UID 1000, read-only FS, no-new-privileges, cap_drop ALL
+#   - db never binds to a host port; only reachable via the internal network
+#   - backups land on a host bind-mount with 7d/4w/12m retention
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"  # HTTP/3
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - edge
+      - internal
+    environment:
+      DOMAIN: ${DOMAIN:?DOMAIN required (e.g. wedding.spencer-net.com)}
+      TLS_EMAIL: ${TLS_EMAIL:?TLS_EMAIL required for Let's Encrypt}
+    depends_on:
+      web:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: wedding-hub-web:latest
+    restart: unless-stopped
+    user: "1000:1000"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,size=64m
+      - /app/.next/cache:rw,size=128m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - internal
+    expose:
+      - "3000"
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://wedding:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}@db:5432/wedding_hub?schema=public
+      AUTH_SECRET: ${AUTH_SECRET:?AUTH_SECRET required (openssl rand -base64 32)}
+      AUTH_URL: https://${DOMAIN:?DOMAIN required}
+      AUTH_TRUST_HOST: "true"
+      AUTH_ALLOWED_EMAILS: ${AUTH_ALLOWED_EMAILS:?AUTH_ALLOWED_EMAILS required}
+      EMAIL_SERVER_HOST: ${EMAIL_SERVER_HOST:-}
+      EMAIL_SERVER_PORT: ${EMAIL_SERVER_PORT:-587}
+      EMAIL_SERVER_USER: ${EMAIL_SERVER_USER:-}
+      EMAIL_SERVER_PASSWORD: ${EMAIL_SERVER_PASSWORD:-}
+      EMAIL_FROM: ${EMAIL_FROM:-Wedding Hub <noreply@example.com>}
+      WEDDING_DATE: ${WEDDING_DATE:-2026-09-26T14:00:00Z}
+    volumes:
+      - uploads:/app/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    user: "999:999"
+    networks:
+      - internal
+    environment:
+      POSTGRES_USER: wedding
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
+      POSTGRES_DB: wedding_hub
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wedding -d wedding_hub"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    security_opt:
+      - no-new-privileges:true
+    # No `ports:` — db is not reachable from the host.
+
+  backup:
+    image: prodrigestivill/postgres-backup-local:16-alpine
+    restart: unless-stopped
+    user: "1000:1000"
+    networks:
+      - internal
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_DB: wedding_hub
+      POSTGRES_USER: wedding
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
+      SCHEDULE: "@daily"
+      BACKUP_KEEP_DAYS: "7"
+      BACKUP_KEEP_WEEKS: "4"
+      BACKUP_KEEP_MONTHS: "12"
+      HEALTHCHECK_PORT: "8080"
+    volumes:
+      - ./backups:/backups
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  pgdata:
+  uploads:
+  caddy_data:
+  caddy_config:
+
+networks:
+  edge:
+    driver: bridge
+  internal:
+    driver: bridge
+    internal: false  # caddy needs egress for ACME; switch to true if using Cloudflare Tunnel

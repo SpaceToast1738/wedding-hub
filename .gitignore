@@ -35,6 +35,9 @@ next-env.d.ts
 # tsbuildinfo
 *.tsbuildinfo
 
+# transpiled seed (produced inside the Docker builder stage)
+/prisma-build
+
 # Caddy data
 caddy_data
 caddy_config
