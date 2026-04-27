@@ -65,7 +65,7 @@ COPY --from=builder --chown=nextjs:nodejs /app/prisma-build/seed.js ./prisma/see
 COPY --chown=nextjs:nodejs docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
-USER nextjs
+USER node
 EXPOSE 3000
 
 # Healthcheck hits the in-app /api/health endpoint
