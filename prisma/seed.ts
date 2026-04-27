@@ -1,0 +1,153 @@
+import { PrismaClient, UserRole, PermissionLevel, RsvpStatus, Side, Priority, TaskStatus, TaskType } from "@prisma/client";
+
+const db = new PrismaClient();
+
+const EDIT_ALL_SECTIONS = [
+  "tasks", "questions", "schedule", "suppliers",
+  "guests", "seating", "songs", "files", "book", "settings",
+  "budget", "payments",
+];
+
+const NON_COUPLE_SECTIONS = [
+  "tasks", "questions", "schedule", "suppliers",
+  "guests", "seating", "songs", "files", "book",
+];
+
+type SeedUser = {
+  envKey: string;
+  fallback: string;
+  name: string;
+  role: UserRole;
+  isCouple: boolean;
+};
+
+const USERS: SeedUser[] = [
+  { envKey: "USER_JAMIE_EMAIL",   fallback: "jamie@example.com",   name: "Jamie Spencer",       role: UserRole.COUPLE,        isCouple: true  },
+  { envKey: "USER_BRYONY_EMAIL",  fallback: "bryony@example.com",  name: "Bryony Olwyn-Davis",  role: UserRole.COUPLE,        isCouple: true  },
+  { envKey: "USER_JOSH_EMAIL",    fallback: "josh@example.com",    name: "Joshua Dickson",      role: UserRole.WEDDING_PARTY, isCouple: false },
+  { envKey: "USER_AIMEE_EMAIL",   fallback: "aimee@example.com",   name: "Aimee Hollingsworth", role: UserRole.WEDDING_PARTY, isCouple: false },
+  { envKey: "USER_PLANNER_EMAIL", fallback: "planner@example.com", name: "Bespoke Weddings",    role: UserRole.PLANNER,       isCouple: false },
+];
+
+async function seedUsersAndPermissions() {
+  for (const u of USERS) {
+    const email = (process.env[u.envKey] ?? u.fallback).toLowerCase();
+    const user = await db.user.upsert({
+      where: { email },
+      create: { email, name: u.name, role: u.role, isCouple: u.isCouple },
+      update: { name: u.name, role: u.role, isCouple: u.isCouple },
+    });
+
+    const sections = u.isCouple ? EDIT_ALL_SECTIONS : NON_COUPLE_SECTIONS;
+    for (const section of sections) {
+      await db.permission.upsert({
+        where: { userId_section: { userId: user.id, section } },
+        create: { userId: user.id, section, level: PermissionLevel.EDIT },
+        update: { level: PermissionLevel.EDIT },
+      });
+    }
+    if (!u.isCouple) {
+      for (const section of ["budget", "payments"]) {
+        await db.permission.upsert({
+          where: { userId_section: { userId: user.id, section } },
+          create: { userId: user.id, section, level: PermissionLevel.NONE },
+          update: { level: PermissionLevel.NONE },
+        });
+      }
+    }
+    console.log(`  ✓ user ${email} (${u.role}${u.isCouple ? ", couple" : ""})`);
+  }
+}
+
+async function seedScheduleEvents() {
+  const day = "2026-09-26";
+  const events = [
+    { title: "Bridal suite check-in",  startTime: `${day}T12:00:00Z`, audience: ["couple", "party"], order: 1 },
+    { title: "Arrival",                 startTime: `${day}T13:00:00Z`, audience: ["everyone"],         order: 2 },
+    { title: "Ceremony",                startTime: `${day}T14:00:00Z`, audience: ["everyone"],         order: 3 },
+    { title: "Drinks Reception",        startTime: `${day}T14:30:00Z`, audience: ["everyone"],         order: 4 },
+    { title: "Wedding Breakfast",       startTime: `${day}T16:00:00Z`, audience: ["everyone"],         order: 5 },
+    { title: "Speeches",                startTime: `${day}T18:00:00Z`, audience: ["everyone"],         order: 6 },
+    { title: "First Dance",             startTime: `${day}T19:30:00Z`, audience: ["everyone"],         order: 7 },
+    { title: "Evening Buffet",          startTime: `${day}T20:00:00Z`, audience: ["everyone"],         order: 8 },
+  ];
+  for (const e of events) {
+    const existing = await db.scheduleEvent.findFirst({ where: { title: e.title, startTime: new Date(e.startTime) } });
+    if (existing) continue;
+    await db.scheduleEvent.create({
+      data: {
+        title: e.title,
+        startTime: new Date(e.startTime),
+        location: "Alveston Manor",
+        audience: e.audience,
+        order: e.order,
+      },
+    });
+  }
+  console.log(`  ✓ ${events.length} schedule events`);
+}
+
+async function seedSampleTasks() {
+  const jamie = await db.user.findUnique({ where: { email: (process.env.USER_JAMIE_EMAIL ?? "jamie@example.com").toLowerCase() } });
+  if (!jamie) return;
+  const samples = [
+    { title: "Confirm final guest count",                priority: Priority.HIGH, dueDate: new Date("2026-09-19T12:00:00Z") },
+    { title: "Pay venue balance",                        priority: Priority.HIGH, dueDate: new Date("2026-08-26T12:00:00Z") },
+    { title: "Collect flowers from Paintbox Blooms",     priority: Priority.MEDIUM, dueDate: new Date("2026-09-23T09:00:00Z") },
+    { title: "Confirm suit fittings with Slaters",       priority: Priority.MEDIUM, dueDate: new Date("2026-04-30T12:00:00Z") },
+  ];
+  for (const t of samples) {
+    const exists = await db.task.findFirst({ where: { title: t.title } });
+    if (exists) continue;
+    await db.task.create({
+      data: { ...t, type: TaskType.TASK, status: TaskStatus.OPEN, assigneeId: jamie.id },
+    });
+  }
+  console.log(`  ✓ ${samples.length} sample tasks`);
+}
+
+async function seedSampleHouseholds() {
+  const existing = await db.household.count();
+  if (existing > 0) return;
+  const h = await db.household.create({ data: { name: "The Spencer Family", side: Side.GROOM } });
+  await db.guest.createMany({
+    data: [
+      { householdId: h.id, firstName: "Robert", lastName: "Spencer", rsvp: RsvpStatus.PENDING, side: Side.GROOM },
+      { householdId: h.id, firstName: "Margaret", lastName: "Spencer", rsvp: RsvpStatus.PENDING, side: Side.GROOM },
+    ],
+  });
+  console.log(`  ✓ 1 sample household (2 pending guests)`);
+}
+
+async function seedBookSections() {
+  const sections = [
+    { slug: "ceremony",   title: "Ceremony",        order: 1 },
+    { slug: "reception",  title: "Reception",       order: 2 },
+    { slug: "logistics",  title: "Logistics",       order: 3 },
+  ];
+  for (const s of sections) {
+    await db.bookSection.upsert({
+      where: { slug: s.slug },
+      create: s,
+      update: { title: s.title, order: s.order },
+    });
+  }
+  console.log(`  ✓ ${sections.length} book sections`);
+}
+
+async function main() {
+  console.log("Seeding Wedding Hub…");
+  await seedUsersAndPermissions();
+  await seedScheduleEvents();
+  await seedSampleTasks();
+  await seedSampleHouseholds();
+  await seedBookSections();
+  console.log("Done.");
+}
+
+main()
+  .catch((err) => {
+    console.error(err);
+    process.exit(1);
+  })
+  .finally(() => db.$disconnect());
