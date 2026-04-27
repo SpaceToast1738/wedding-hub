@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Wedding Hub — Jamie & Bryony</title>
+  <link rel="preconnect" href="https://fonts.bunny.net"/>
+  <link href="https://fonts.bunny.net/css?family=inter:400,500,600,700|fraunces:400,600,700&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="tokens.css"/>
+  <style>
+    /* Responsive layout helpers */
+    .desktop-sidebar { display: flex !important; }
+    .mobile-tabbar   { display: none !important; }
+
+    @media (max-width: 680px) {
+      .desktop-sidebar { display: none !important; }
+      .mobile-tabbar   { display: flex !important; }
+      main { padding-bottom: 64px; }
+      .budget-desktop  { display: none !important; }
+      .budget-mobile   { display: block !important; }
+    }
+
+    /* Smooth transitions */
+    * { transition: background-color 0.2s, border-color 0.2s, color 0.05s; }
+    button, a { transition: all 0.12s !important; }
+  </style>
+
+  <!-- React + Babel -->
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+</head>
+<body>
+<div id="root"></div>
+
+<!-- Component files (order matters: primitives before consumers) -->
+<script type="text/babel" src="illustrations.jsx"></script>
+<script type="text/babel" src="ui-components.jsx"></script>
+<script type="text/babel" src="AppShell.jsx"></script>
+<script type="text/babel" src="TodayPage.jsx"></script>
+<script type="text/babel" src="TasksPage.jsx"></script>
+<script type="text/babel" src="GuestsPage.jsx"></script>
+<script type="text/babel" src="SuppliersPage.jsx"></script>
+<script type="text/babel" src="BudgetPage.jsx"></script>
+<script type="text/babel" src="SchedulePage.jsx"></script>
+<script type="text/babel" src="WeddingBookPage.jsx"></script>
+<script type="text/babel" src="WeddingPartySection.jsx"></script>
+<script type="text/babel" src="SeatingPage.jsx"></script>
+<script type="text/babel" src="SettingsPage.jsx"></script>
+<script type="text/babel" src="QuestionsPage.jsx"></script>
+<script type="text/babel" src="FilesPage.jsx"></script>
+<script type="text/babel" src="SongsPage.jsx"></script>
+
+<script type="text/babel">
+// ── Main App ────────────────────────────────────────────────────────────────
+
+const DARK_KEY = 'wh_dark_mode';
+const PAGE_KEY = 'wh_current_page';
+const VIEWER_KEY = 'wh_viewer_id';
+
+const App = () => {
+  const [dark, setDark] = React.useState(() => {
+    try { return localStorage.getItem(DARK_KEY) === 'true'; } catch { return false; }
+  });
+  const [page, setPage] = React.useState(() => {
+    try { return localStorage.getItem(PAGE_KEY) || 'today'; } catch { return 'today'; }
+  });
+  const [viewer, setViewer] = React.useState(() => {
+    try { const id = localStorage.getItem(VIEWER_KEY); return VIEWERS.find(v => v.id === id) || VIEWERS[0]; } catch { return VIEWERS[0]; }
+  });
+  const [toast, setToast] = React.useState(null);
+
+  // Apply dark mode class to <html>
+  React.useEffect(() => {
+    document.documentElement.classList.toggle('dark', dark);
+    try { localStorage.setItem(DARK_KEY, dark); } catch {}
+  }, [dark]);
+
+  // Persist page
+  React.useEffect(() => {
+    try { localStorage.setItem(PAGE_KEY, page); } catch {}
+  }, [page]);
+
+  // Persist viewer
+  React.useEffect(() => {
+    try { localStorage.setItem(VIEWER_KEY, viewer.id); } catch {}
+  }, [viewer]);
+
+  // If viewer loses access to current page, bounce to Today
+  React.useEffect(() => {
+    if (!viewer.couple && (page === 'budget' || page === 'payments')) setPage('today');
+  }, [viewer]);
+
+  const navigate = (p) => setPage(p);
+
+  const showToast = (msg) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 3000);
+  };
+
+  const renderPage = () => {
+    switch (page) {
+      case 'today':     return <TodayPage onNavigate={navigate} viewer={viewer}/>;
+      case 'glance':    return <AtAGlancePage onNavigate={navigate} viewer={viewer}/>;
+      case 'tasks':     return <TasksPage viewer={viewer}/>;
+      case 'questions': return <QuestionsPage viewer={viewer}/>;
+      case 'schedule':  return <SchedulePage viewer={viewer}/>;
+      case 'suppliers': return <SuppliersPage viewer={viewer}/>;
+      case 'guests':    return <GuestsPage viewer={viewer}/>;
+      case 'seating':   return <SeatingPage viewer={viewer}/>;
+      case 'book':      return <WeddingBookPage onNavigate={navigate} viewer={viewer}/>;
+      case 'budget':    return viewer.couple ? <BudgetPage/> : <TodayPage onNavigate={navigate} viewer={viewer}/>;
+      case 'payments':  return viewer.couple ? <PaymentsPage/> : <TodayPage onNavigate={navigate} viewer={viewer}/>;
+      case 'files':     return <FilesPage viewer={viewer}/>;
+      case 'songs':     return <SongsPage viewer={viewer}/>;
+      case 'settings':  return <SettingsPage viewer={viewer}/>;
+      default:          return <TodayPage onNavigate={navigate} viewer={viewer}/>;
+    }
+  };
+
+  return (
+    <>
+      <UIPrimitivesStyles/>
+      <AppShell
+        currentPage={page}
+        onNavigate={navigate}
+        dark={dark}
+        onToggleDark={() => setDark(d => !d)}
+        viewer={viewer}
+        onViewerChange={setViewer}
+      >
+        {renderPage()}
+      </AppShell>
+      {toast && <Toast message={toast} onClose={() => setToast(null)}/>}
+    </>
+  );
+};
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>

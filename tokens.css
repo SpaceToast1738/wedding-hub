@@ -1,0 +1,123 @@
+/* Wedding Hub — Design Tokens */
+/* Light mode (default) */
+:root {
+  /* Neutrals */
+  --bg-canvas:      #FBF9F4;
+  --bg-surface:     #FFFFFF;
+  --bg-muted:       #F1ECE2;
+  --border-soft:    #E5DFD2;
+  --border-strong:  #C9C0AC;
+  --ink-primary:    #2A2620;
+  --ink-secondary:  #5C544A;
+  --ink-tertiary:   #8A8175;
+
+  /* Greens */
+  --moss-50:   #F2F5EE;
+  --moss-100:  #DDE6D0;
+  --moss-300:  #9DB07F;
+  --moss-500:  #5C7148;
+  --moss-700:  #3F4F30;
+  --moss-900:  #25301B;
+
+  /* Marigold */
+  --marigold-100: #FBE9C5;
+  --marigold-500: #D89B3C;
+  --marigold-700: #A4711F;
+
+  /* Semantic */
+  --status-success: #5C7148;
+  --status-warning: #C28A2F;
+  --status-danger:  #A8443A;
+  --status-info:    #5C7C8A;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px rgba(42,38,32,0.06);
+  --shadow-md: 0 4px 12px rgba(42,38,32,0.08);
+  --shadow-lg: 0 16px 40px rgba(42,38,32,0.12);
+
+  /* Radius */
+  --r-sm: 6px;
+  --r-md: 10px;
+  --r-lg: 14px;
+
+  /* Typography */
+  --font-ui: 'Inter', system-ui, sans-serif;
+  --font-display: 'Fraunces', Georgia, serif;
+
+  /* Sidebar width */
+  --sidebar-w: 220px;
+}
+
+/* Dark mode */
+html.dark {
+  --bg-canvas:     #1A1814;
+  --bg-surface:    #221F1A;
+  --bg-muted:      #2C2822;
+  --border-soft:   #38332B;
+  --border-strong: #4D463B;
+  --ink-primary:   #F0EBE0;
+  --ink-secondary: #BDB5A6;
+  --ink-tertiary:  #8A8175;
+
+  --moss-50:  #1F2A18;
+  --moss-100: #25301B;
+  --moss-300: #5C7148;
+  --moss-500: #9DB07F;
+  --moss-700: #C0CFA8;
+  --moss-900: #DDE6D0;
+
+  --marigold-100: #4A331A;
+  --marigold-500: #E8B05A;
+  --marigold-700: #F5C97D;
+
+  --status-success: #9DB07F;
+  --status-warning: #E8B05A;
+  --status-danger:  #C66B5F;
+  --status-info:    #8AA8B8;
+
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.4);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.5);
+  --shadow-lg: 0 16px 40px rgba(0,0,0,0.6);
+}
+
+/* Global reset + base */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  height: 100%;
+  background: var(--bg-canvas);
+  color: var(--ink-primary);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Scrollbars */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 3px; }
+
+/* Focus ring */
+:focus-visible { outline: 2px solid var(--moss-500); outline-offset: 2px; }
+
+/* Type scale helpers */
+.text-xs   { font-size: 0.75rem; }
+.text-sm   { font-size: 0.875rem; }
+.text-base { font-size: 1rem; }
+.text-lg   { font-size: 1.125rem; }
+.text-xl   { font-size: 1.25rem; }
+.text-2xl  { font-size: 1.5rem; }
+.text-3xl  { font-size: 2rem; }
+.text-4xl  { font-size: 3rem; }
+
+.font-display { font-family: var(--font-display); line-height: 1.2; }
+.font-medium  { font-weight: 500; }
+.font-semibold{ font-weight: 600; }
+.font-bold    { font-weight: 700; }
+
+.ink-primary   { color: var(--ink-primary); }
+.ink-secondary { color: var(--ink-secondary); }
+.ink-tertiary  { color: var(--ink-tertiary); }
+.moss          { color: var(--moss-500); }
+.marigold      { color: var(--marigold-500); }
