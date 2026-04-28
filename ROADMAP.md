@@ -11,7 +11,7 @@
 - **Repo:** [SpaceToast1738/wedding-hub](https://github.com/SpaceToast1738/wedding-hub) · `claude/main` (releases) + `dev` (work-in-progress)
 - **Stack:** Next.js 15 · TypeScript · Tailwind v4 · Prisma · Postgres 16 · Auth.js v5 · Caddy · Docker Compose
 - **Working tree:** `C:\Users\Admin\Code\wedding-hub` (local SSD). The old `\\TOWER\Jamie Spencer\Claude\wedding-hub` mirror is no longer in use — run `Remove-Item -Recurse -Force "\\TOWER\Jamie Spencer\Claude\wedding-hub"` from a fresh PowerShell to delete it.
-- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` at **v1.6.0**). v1.7.0 (this iteration on `dev`) ships **Tier 3 / item A** — +1s now materialise as their own Guest rows, linked to the host via a new `parentGuestId` self-relation. The +1 shows in totals everywhere (Today, Glance, catering brief), can have its own dietary / meal / song-request data, and inherits household / side / RSVP / archive state from the host. Tier 3 / item I (Spotify settings UI) was scrapped — env-var-only stays.
+- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` at **v1.7.0**, promoted 28 Apr 2026 after GHA green). All four user-feedback Tiers complete: mobile signout, Settings UI defence, scroll fix, 4-col Glance, countdown breakdown, Schedule table view, Book hub redesign, +1s as own Guest rows. Item I (Spotify settings UI) was explicitly scrapped — env-var-only stays. Production catches up on next `docker compose pull && up -d` — additive `parentGuestId` migration applies on boot.
 
 ## Phase status
 
@@ -34,8 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| _(unreleased on `dev`)_ | 2026-04-28 | [v1.7.0 — Tier 3 / A: +1s materialise as own Guest rows](#2026-04-28--v170--tier-3-1s-as-own-guest-rows) |
-| **v1.6.0** | 2026-04-28 | [Tier 2 user-feedback polish: Schedule table view + Wedding Book hub redesign](#2026-04-28--v160--tier-2-user-feedback-polish) |
+| **v1.7.0** | 2026-04-28 | [Tier 3 / A: +1s materialise as own Guest rows](#2026-04-28--v170--tier-3-1s-as-own-guest-rows) |
+| v1.6.0 | 2026-04-28 | [Tier 2 user-feedback polish: Schedule table view + Wedding Book hub redesign](#2026-04-28--v160--tier-2-user-feedback-polish) |
 | v1.5.0 | 2026-04-28 | [Tier 1 user-feedback polish: mobile signout, Settings UI defence, scroll, 4-col Glance, countdown breakdown](#2026-04-28--v150--tier-1-user-feedback-polish) |
 | v1.4.0 | 2026-04-28 | [Phase R3 (partial): tests in CI + TESTING.md + integration scaffold](#2026-04-28--v140--phase-r3-partial-tests-in-ci--testingmd--integration-scaffold) |
 | v1.3.0 | 2026-04-28 | [Phase R2: magic-link rate limit + archived-guest restore](#2026-04-28--v130--phase-r2-magic-link-rate-limit--archived-guest-restore) |
@@ -238,7 +238,7 @@ When wrapping up a meaningful iteration:
 
 ### Current version
 
-`1.7.0` on `dev`, `claude/main` at `v1.6.0`. +1s as own Guest rows shipped to dev. Holding promote until GHA confirms green at the v1.7.0 SHA. Production catches up after `docker compose pull && up -d` — additive `parentGuestId` migration applies on boot.
+`1.7.0` on both `dev` and `claude/main` (promoted 28 Apr 2026 after GHA green). Production catches up on next `docker compose pull && up -d` — additive `parentGuestId` migration applies on boot via the entrypoint's `prisma migrate deploy`.
 
 ## Changelog
 
