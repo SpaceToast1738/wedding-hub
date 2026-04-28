@@ -60,14 +60,26 @@ Multipart server action at `src/app/(app)/files/actions.ts` writes physical byte
 ### Postgres user is NOT 999
 `postgres:16-alpine`'s built-in `postgres` user is UID **70**. **Don't add `user: "999:999"`** (or any UID other than 70) to the `db` service — it makes `initdb` fail with "Operation not permitted" on the data dir.
 
-### Vitest is pinned to v2.x — don't upgrade casually
-`vitest@4.x` (Oct 2025) broke `npm ci` on `node:20-alpine` in the Docker
-deps stage during R1 (v1.2.0 → patched in v1.2.1). The exact transitive
-broke quietly without a clear error. v2.1.x is widely battle-tested on
-alpine. If you upgrade, **test by running `docker build --target deps`
-locally on linux/amd64 first**, not just `npm test` on Windows. Same
-caution for any new `tinypool` / `@vitest/snapshot` / Vite version
-bumps — they ride along with vitest majors.
+### Local `npm ci` ≠ CI `npm ci` — verify on Linux before tagging
+v1.2.0 → v1.2.1 → v1.2.2 was a debugging cascade caused by the same root
+issue: `npm ci` on Windows was silently more permissive than `npm ci`
+on `node:20-alpine`. The actual breakage was a peer-dep resolution:
+`@auth/prisma-adapter` cascaded `@auth/core@0.41.2` which requires
+`nodemailer ^7.0.7`, conflicting with our pinned `nodemailer ^6.x`.
+Local npm 10 resolved this loosely; CI npm 10.8.2 strictly rejected it.
+
+Mitigations baked in:
+- `nodemailer` pinned to `^7.0.13` (no longer conflicts with `@auth/core`).
+- `next-auth` JWT type augmentation moved from `@auth/core/jwt` →
+  `next-auth/jwt` (since `@auth/core` is now nested inside `next-auth/node_modules`).
+  Requires a side-effect `import "next-auth/jwt"` first so TypeScript
+  can resolve the module before the augmentation pass.
+- `vitest` pinned to `^2.1.9` (battle-tested on alpine).
+
+**Standing rule:** before tagging a release that changes deps, run a
+clean `npm ci` against a fresh `node_modules` AND, if at all possible,
+`docker build --target deps` against linux/amd64. Local `npm install`
+on Windows can succeed while CI fails — this has happened twice now.
 
 ### Postgres healthcheck `start_period` is 60s
 Slow array fsync makes `initdb`'s shutdown checkpoint take ~22s. The compose's `start_period: 60s` + `retries: 10` accounts for that. Don't tighten without testing on the actual array.

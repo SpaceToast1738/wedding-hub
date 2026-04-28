@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| _(unreleased on `dev`)_ | 2026-04-28 | [v1.2.1 — Pin Vitest to v2.x to fix Docker build](#2026-04-28--v121--pin-vitest-to-v2x-to-fix-docker-build) |
+| _(unreleased on `dev`)_ | 2026-04-28 | [v1.2.2 — Bump nodemailer to v7 + fix JWT augmentation (real CI fix)](#2026-04-28--v122--bump-nodemailer-to-v7--fix-jwt-augmentation-real-ci-fix) |
+| v1.2.1 | 2026-04-28 | [Pin Vitest to v2.x (didn't actually fix CI)](#2026-04-28--v121--pin-vitest-to-v2x-to-fix-docker-build) |
 | **v1.2.0** | 2026-04-28 | [Phase R1: trust restoration (audit fixes + Vitest)](#2026-04-28--v120--phase-r1-trust-restoration-audit-fixes--vitest) |
 | v1.1.0 | 2026-04-27 | [At a Glance dashboard](#2026-04-27--v110--at-a-glance-dashboard) |
 | v1.0.0 | 2026-04-27 | [🎉 Release-1 design polish across all pages](#2026-04-27--v100--release-1-design-polish-across-all-pages) |
@@ -232,11 +233,39 @@ When wrapping up a meaningful iteration:
 
 ### Current version
 
-`1.2.1` on `dev`, `claude/main` at `v1.2.0`. v1.2.0's GHCR build failed because Vitest 4.x didn't survive `npm ci` on `node:20-alpine`; v1.2.1 pins to Vitest 2.x. Promote to unblock production.
+`1.2.2` on `dev`, `claude/main` at `v1.2.1`. v1.2.1's vitest pin didn't fix CI; v1.2.2 patches the real cause (nodemailer / @auth/core peer-dep conflict + JWT augmentation path). Promote to unblock production.
 
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-28 · v1.2.2 — Bump nodemailer to v7 + fix JWT augmentation (real CI fix)
+
+Honest entry: v1.2.1's vitest pin didn't fix CI. The actual cause was hidden one layer deeper.
+
+The full v1.2.1 GHCR build log surfaced the real error:
+
+```
+npm error code EUSAGE
+npm error Missing: nodemailer@7.0.13 from lock file
+```
+
+Root cause: `@auth/prisma-adapter@2.11.2` cascaded `@auth/core@0.41.2`, which requires `nodemailer ^7.0.7` as an optional peer. Our `package.json` pinned `nodemailer ^6.9.16`. Local `npm ci` on Windows (npm 10.x) silently tolerated the conflict; CI `npm ci` on `node:20-alpine` (npm 10.8.2) strictly rejected it.
+
+**Three coordinated changes:**
+
+1. **Bump `nodemailer` to `^7.0.13`** ([package.json](package.json)). Our usage (`nodemailer.createTransport(...)` + `transport.sendMail(...)`) is API-stable across v6 → v7; no runtime code change needed.
+2. **Move JWT type augmentation from `@auth/core/jwt` to `next-auth/jwt`** ([src/auth.config.ts](src/auth.config.ts)). With `@auth/core@0.41+` nested inside `next-auth/node_modules/`, the old `@auth/core/jwt` path no longer resolves at the project root. Added a side-effect `import "next-auth/jwt"` so TypeScript's module-resolution sees the module before the `declare module` augmentation pass.
+3. **Standing rule in [CLAUDE.md](CLAUDE.md)** — before tagging a release that changes deps, run `npm ci` against a fresh `node_modules` AND prefer `docker build --target deps` against linux/amd64. The Windows `npm install` resolver is more permissive than `node:20-alpine`'s.
+
+Verified clean from a wiped `node_modules`:
+- `npm ci --no-audit --no-fund` succeeds (~37s)
+- `npm run typecheck` clean
+- `npm run lint` clean
+- `npm test` 60/60 passing
+- `npm run build` clean Next bundle
+
+The vitest 2.x pin from v1.2.1 stays — it's still the right call (vitest 4.x is too new for routine CI use, and 2.x is widely battle-tested), but it wasn't the cause of the failure.
 
 ### 2026-04-28 · v1.2.1 — Pin Vitest to v2.x to fix Docker build
 
