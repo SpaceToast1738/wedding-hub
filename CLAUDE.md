@@ -86,10 +86,19 @@ strict mode still rejects it in `npm ci`. Fix in the repo:
 - `vitest` pinned to `^2.1.9` (battle-tested on alpine — separate
   precaution from the above, kept for consistency).
 
-**Standing rule:** before tagging a release that changes deps, run a
-clean `npm ci` against a fresh `node_modules` AND, if at all possible,
-`docker build --target deps` against linux/amd64. Don't promote to
-`claude/main` until you've seen GHA go green on the same SHA.
+**Standing rule:** **never tag a build until GHA goes green on the same
+SHA.** Tags are public artifacts that imply shippable releases — broken
+builds shouldn't carry version tags, even patches. The flow is:
+
+1. Push to `dev`
+2. Wait for GHA green
+3. Fast-forward `claude/main` to the green SHA
+4. *Then* tag `vX.Y.Z` and push the tag
+
+If a tagged commit turns out to be broken in production, fix forward
+with a new patch — don't delete the existing tag (immutability rule
+still holds for tagged-and-shipped versions). But don't *create* tags
+for SHAs that never went green to begin with.
 
 ### Postgres healthcheck `start_period` is 60s
 Slow array fsync makes `initdb`'s shutdown checkpoint take ~22s. The compose's `start_period: 60s` + `retries: 10` accounts for that. Don't tighten without testing on the actual array.

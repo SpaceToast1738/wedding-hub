@@ -34,10 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.2.4** | 2026-04-28 | [Dockerfile copies `.npmrc` (genuinely-final CI fix)](#2026-04-28--v124--dockerfile-copies-npmrc-so-the-legacy-peer-deps-actually-applies-in-ci) |
-| v1.2.3 | 2026-04-28 | [`.npmrc` legacy-peer-deps + revert nodemailer to v6](#2026-04-28--v123--npmrc-legacy-peer-deps--revert-nodemailer-to-v6) |
-| v1.2.2 | 2026-04-28 | [Bumped nodemailer to v7 (still broken)](#2026-04-28--v122--bump-nodemailer-to-v7--fix-jwt-augmentation-real-ci-fix) |
-| v1.2.1 | 2026-04-28 | [Pin Vitest to v2.x (still broken)](#2026-04-28--v121--pin-vitest-to-v2x-to-fix-docker-build) |
+| **v1.2.4** | 2026-04-28 | [Dockerfile copies `.npmrc` — first version of the v1.2.x line that built green in CI](#2026-04-28--v124--dockerfile-copies-npmrc-so-the-legacy-peer-deps-actually-applies-in-ci) |
+| _(no tag)_ | 2026-04-28 | v1.2.1 / v1.2.2 / v1.2.3 — three failed CI fix attempts; not tagged on principle (only green-CI SHAs get tags). Documented in the changelog for traceability. |
 | **v1.2.0** | 2026-04-28 | [Phase R1: trust restoration (audit fixes + Vitest)](#2026-04-28--v120--phase-r1-trust-restoration-audit-fixes--vitest) |
 | v1.1.0 | 2026-04-27 | [At a Glance dashboard](#2026-04-27--v110--at-a-glance-dashboard) |
 | v1.0.0 | 2026-04-27 | [🎉 Release-1 design polish across all pages](#2026-04-27--v100--release-1-design-polish-across-all-pages) |
@@ -235,7 +233,7 @@ When wrapping up a meaningful iteration:
 
 ### Current version
 
-`1.2.4` on both `dev` and `claude/main` (promoted 28 Apr 2026 after GHA went green on the same SHA). All four CI-fix tags (v1.2.1–v1.2.4) backfilled on `claude/main` so the tag history is contiguous. Production catches up after `docker compose pull && up -d`.
+`1.2.4` on both `dev` and `claude/main` (promoted 28 Apr 2026 after GHA went green on the same SHA). v1.2.1–v1.2.3 were left untagged because they never built in CI — broken builds don't earn tags. Production catches up after `docker compose pull && up -d`.
 
 ## Changelog
 
