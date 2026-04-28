@@ -19,8 +19,10 @@ describe("diffEditedFields — C4", () => {
   });
 
   it("treats null vs empty-string vs undefined as equivalent", () => {
-    const prev = { phone: null, role: undefined };
-    const next = { phone: "", role: null };
+    // Widen to `unknown` so TypeScript doesn't narrow to literal types
+    // and reject the equally-valid alternative form in `next`.
+    const prev: Record<string, unknown> = { phone: null, role: undefined };
+    const next: Record<string, unknown> = { phone: "", role: null };
     expect(diffEditedFields(prev, next)).toEqual([]);
   });
 
