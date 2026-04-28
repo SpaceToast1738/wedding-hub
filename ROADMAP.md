@@ -11,7 +11,7 @@
 - **Repo:** [SpaceToast1738/wedding-hub](https://github.com/SpaceToast1738/wedding-hub) · `claude/main` (releases) + `dev` (work-in-progress)
 - **Stack:** Next.js 15 · TypeScript · Tailwind v4 · Prisma · Postgres 16 · Auth.js v5 · Caddy · Docker Compose
 - **Working tree:** `C:\Users\Admin\Code\wedding-hub` (local SSD). The old `\\TOWER\Jamie Spencer\Claude\wedding-hub` mirror is no longer in use — run `Remove-Item -Recurse -Force "\\TOWER\Jamie Spencer\Claude\wedding-hub"` from a fresh PowerShell to delete it.
-- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` at **v1.8.0**). v1.9.0 (this iteration on `dev`) brings the Wedding Book section set in line with the prototype: adds the 5 missing canonical sections (Venue, Food & Drink, Guest Experience, Legal & Admin, Accommodation), renames the existing Photography and Wedding Party titles to match, and pushes the v1.4.0 legacy sections (Ceremony, Reception, Logistics) to the bottom of the order. Idempotent seed — re-running picks up new sections without touching existing subsection content.
+- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` at **v1.9.0**, promoted 28 Apr 2026 after GHA green). Wedding Book aligned with prototype's 7 canonical sections (10 cards total — 7 prototype + 3 legacy). Plus a latent Spotify-env-var compose-forwarding bug from v0.14.0 fixed. Production confirmed working post-deploy.
 
 ## Phase status
 
@@ -34,8 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| _(unreleased on `dev`)_ | 2026-04-28 | [v1.9.0 — Wedding Book sections aligned with prototype (10 cards: 7 canonical + 3 legacy)](#2026-04-28--v190--wedding-book-sections-aligned-with-prototype) |
-| **v1.8.0** | 2026-04-28 | [Spotify integration setup guide + status chip on Songs](#2026-04-28--v180--spotify-integration-setup-guide--status-chip) |
+| **v1.9.0** | 2026-04-28 | [Book sections aligned with prototype + Spotify env-var compose fix](#2026-04-28--v190--book-sections-aligned-with-prototype--spotify-env-var-compose-fix) |
+| v1.8.0 | 2026-04-28 | [Spotify integration setup guide + status chip on Songs](#2026-04-28--v180--spotify-integration-setup-guide--status-chip) |
 | v1.7.0 | 2026-04-28 | [Tier 3 / A: +1s materialise as own Guest rows](#2026-04-28--v170--tier-3-1s-as-own-guest-rows) |
 | v1.6.0 | 2026-04-28 | [Tier 2 user-feedback polish: Schedule table view + Wedding Book hub redesign](#2026-04-28--v160--tier-2-user-feedback-polish) |
 | v1.5.0 | 2026-04-28 | [Tier 1 user-feedback polish: mobile signout, Settings UI defence, scroll, 4-col Glance, countdown breakdown](#2026-04-28--v150--tier-1-user-feedback-polish) |
@@ -240,7 +240,7 @@ When wrapping up a meaningful iteration:
 
 ### Current version
 
-`1.9.0` on `dev`, `claude/main` at `v1.8.0`. Wedding Book sections aligned with prototype (10 cards: 7 canonical + 3 legacy). Holding promote until GHA confirms green at the v1.9.0 SHA. Production catches up after `docker compose pull && up -d` followed by a one-time seed re-run to populate the 5 new sections.
+`1.9.0` on both `dev` and `claude/main` (promoted 28 Apr 2026 after GHA green; production-confirmed working). The Spotify keys are now flowing into the running container via `compose.environment:` and the new Book sections are seeded.
 
 ## Changelog
 
