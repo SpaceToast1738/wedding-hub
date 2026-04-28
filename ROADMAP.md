@@ -11,7 +11,7 @@
 - **Repo:** [SpaceToast1738/wedding-hub](https://github.com/SpaceToast1738/wedding-hub) · `claude/main` (releases) + `dev` (work-in-progress)
 - **Stack:** Next.js 15 · TypeScript · Tailwind v4 · Prisma · Postgres 16 · Auth.js v5 · Caddy · Docker Compose
 - **Working tree:** `C:\Users\Admin\Code\wedding-hub` (local SSD). The old `\\TOWER\Jamie Spencer\Claude\wedding-hub` mirror is no longer in use — run `Remove-Item -Recurse -Force "\\TOWER\Jamie Spencer\Claude\wedding-hub"` from a fresh PowerShell to delete it.
-- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` at **v1.1.0**). v1.2.0 (this iteration on `dev`) is **Phase R1 — Trust Restoration**, the first remediation phase from the [post-audit plan](REMEDIATION-PLAN.md). Closes 2 newly-discovered BLOCKER-class privilege escalations (settings self-elevation, file visibility leak), 4 MAJOR/MINOR audit findings, and adds the project's first automated test suite (Vitest, 60 tests).
+- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` at **v1.2.0**, promoted 28 Apr 2026). Phase R1 — Trust Restoration — shipped: closes 2 BLOCKER-class privilege escalations (settings self-elevation, file visibility leak), 4 smaller audit findings, and adds Vitest with 60 unit tests. R2 (magic-link rate-limit + archived-guest restore UI) is the next remediation phase.
 
 ## Phase status
 
@@ -34,8 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| _(unreleased on `dev`)_ | 2026-04-28 | [v1.2.0 — Phase R1: trust restoration (audit fixes + Vitest)](#2026-04-28--v120--phase-r1-trust-restoration-audit-fixes--vitest) |
-| **v1.1.0** | 2026-04-27 | [At a Glance dashboard](#2026-04-27--v110--at-a-glance-dashboard) |
+| **v1.2.0** | 2026-04-28 | [Phase R1: trust restoration (audit fixes + Vitest)](#2026-04-28--v120--phase-r1-trust-restoration-audit-fixes--vitest) |
+| v1.1.0 | 2026-04-27 | [At a Glance dashboard](#2026-04-27--v110--at-a-glance-dashboard) |
 | v1.0.0 | 2026-04-27 | [🎉 Release-1 design polish across all pages](#2026-04-27--v100--release-1-design-polish-across-all-pages) |
 | v0.15.0 | 2026-04-27 | [Phase G2 day-of mode + quick-capture](#2026-04-27--v0150--phase-g2-day-of-mode--quick-capture) |
 | v0.14.0 | 2026-04-27 | [Phase G1 Spotify playlist sync](#2026-04-27--v0140--phase-g1-spotify-playlist-sync) |
@@ -231,7 +231,7 @@ When wrapping up a meaningful iteration:
 
 ### Current version
 
-`1.2.0` on `dev`, `claude/main` at `v1.1.0`. Phase R1 of the [post-audit remediation plan](REMEDIATION-PLAN.md) is complete. No schema or env changes. Promote when smoke-tested.
+`1.2.0` on both `dev` and `claude/main` (promoted 28 Apr 2026). Phase R1 of the [post-audit remediation plan](REMEDIATION-PLAN.md) shipped. No schema or env changes — production catches up after the GHCR image rebuilds and Unraid runs `docker compose pull && up -d`.
 
 ## Changelog
 
