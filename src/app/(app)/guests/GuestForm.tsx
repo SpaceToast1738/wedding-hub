@@ -27,12 +27,19 @@ export function GuestForm({
   householdId,
   initial,
   submitLabel = "Add",
+  isPlusOne = false,
   onSubmit,
   onCancel,
 }: {
   householdId: string;
   initial?: GuestInitial;
   submitLabel?: string;
+  // True when editing a +1 row (parentGuestId set on the underlying Guest).
+  // Disables the host-managed fields: first/last name (synced from the
+  // host's plusOneName), and the plus-one toggle/name (a +1 can't have a
+  // +1 of its own). Other fields stay editable so the +1 can have its own
+  // dietary, meal, notes, etc.
+  isPlusOne?: boolean;
   onSubmit: (formData: FormData) => Promise<void>;
   onCancel?: () => void;
 }) {
@@ -53,14 +60,24 @@ export function GuestForm({
 
   return (
     <form action={handle} className="space-y-3">
+      {isPlusOne && (
+        <div className="bg-canvas border border-border-soft text-ink-secondary rounded-md px-3 py-2 text-[11px] flex items-start gap-2">
+          <span className="text-info flex-shrink-0">🔗</span>
+          <span>
+            <strong>+1 row.</strong> First/last name come from the host&apos;s &ldquo;Plus-one
+            name&rdquo; field — edit it there to rename. RSVP, household, and side
+            cascade from the host. Dietary, meal choices, and notes are this guest&apos;s own.
+          </span>
+        </div>
+      )}
       <div className="grid grid-cols-2 gap-3">
         <div>
           <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">First name</label>
-          <Input name="firstName" required defaultValue={initial?.firstName ?? ""} />
+          <Input name="firstName" required defaultValue={initial?.firstName ?? ""} disabled={isPlusOne} />
         </div>
         <div>
           <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">Last name</label>
-          <Input name="lastName" required defaultValue={initial?.lastName ?? ""} />
+          <Input name="lastName" required defaultValue={initial?.lastName ?? ""} disabled={isPlusOne} />
         </div>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -98,11 +115,19 @@ export function GuestForm({
       <div className="flex flex-wrap gap-3 text-xs text-ink-secondary">
         <label className="inline-flex items-center gap-1.5"><input type="checkbox" name="isChild" defaultChecked={initial?.isChild} /> Child</label>
         <label className="inline-flex items-center gap-1.5"><input type="checkbox" name="needsHighchair" defaultChecked={initial?.needsHighchair} /> Needs highchair</label>
-        <label className="inline-flex items-center gap-1.5"><input type="checkbox" name="plusOneAllowed" defaultChecked={initial?.plusOneAllowed} /> Plus-one allowed</label>
+        <label className={`inline-flex items-center gap-1.5 ${isPlusOne ? "opacity-50" : ""}`}>
+          <input type="checkbox" name="plusOneAllowed" defaultChecked={initial?.plusOneAllowed} disabled={isPlusOne} />
+          Plus-one allowed
+        </label>
       </div>
-      <div>
+      <div className={isPlusOne ? "opacity-50" : ""}>
         <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">Plus-one name</label>
-        <Input name="plusOneName" defaultValue={initial?.plusOneName ?? ""} placeholder="if known" />
+        <Input
+          name="plusOneName"
+          defaultValue={initial?.plusOneName ?? ""}
+          placeholder={isPlusOne ? "(a +1 can't have a +1)" : "if known"}
+          disabled={isPlusOne}
+        />
       </div>
       <div>
         <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">Notes</label>

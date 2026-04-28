@@ -129,11 +129,25 @@ model Guest {
   notes           String?        @db.Text
   tags            String[]       @default([])
   lastNudgedAt    DateTime?
+  // Self-relation for plus-ones. When a host has plusOneAllowed=true and
+  // plusOneName set and rsvp=ATTENDING, we materialise a child Guest row
+  // with parentGuestId pointing at the host. The child shows up in totals
+  // (as it's a real Guest row), inherits the host's RSVP / archive state
+  // via cascading server actions, and can have its own dietary / meal /
+  // song-request rows independently.
+  //
+  // Cascade on parent hard-delete so a real DB cleanup doesn't leave an
+  // orphan +1 row (the soft-archive path is handled in actions.ts and
+  // mirrors the host's archived state explicitly).
+  parentGuestId   String?
+  parentGuest     Guest?         @relation("PlusOneOf", fields: [parentGuestId], references: [id], onDelete: Cascade)
+  plusOnes        Guest[]        @relation("PlusOneOf")
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
 
   @@index([householdId])
   @@index([rsvp])
+  @@index([parentGuestId])
 }
 
 enum RsvpStatus {

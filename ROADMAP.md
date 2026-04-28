@@ -11,7 +11,7 @@
 - **Repo:** [SpaceToast1738/wedding-hub](https://github.com/SpaceToast1738/wedding-hub) · `claude/main` (releases) + `dev` (work-in-progress)
 - **Stack:** Next.js 15 · TypeScript · Tailwind v4 · Prisma · Postgres 16 · Auth.js v5 · Caddy · Docker Compose
 - **Working tree:** `C:\Users\Admin\Code\wedding-hub` (local SSD). The old `\\TOWER\Jamie Spencer\Claude\wedding-hub` mirror is no longer in use — run `Remove-Item -Recurse -Force "\\TOWER\Jamie Spencer\Claude\wedding-hub"` from a fresh PowerShell to delete it.
-- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` at **v1.6.0**, promoted 28 Apr 2026 after GHA green). Tier 1 + Tier 2 user-feedback polish shipped (mobile signout, Settings UI defence, scroll fix, 4-col Glance, countdown breakdown, Schedule table view, Book hub redesign). Tier 3 (+1s as own rows, Spotify settings UI) follows.
+- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` at **v1.6.0**). v1.7.0 (this iteration on `dev`) ships **Tier 3 / item A** — +1s now materialise as their own Guest rows, linked to the host via a new `parentGuestId` self-relation. The +1 shows in totals everywhere (Today, Glance, catering brief), can have its own dietary / meal / song-request data, and inherits household / side / RSVP / archive state from the host. Tier 3 / item I (Spotify settings UI) was scrapped — env-var-only stays.
 
 ## Phase status
 
@@ -34,6 +34,7 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
+| _(unreleased on `dev`)_ | 2026-04-28 | [v1.7.0 — Tier 3 / A: +1s materialise as own Guest rows](#2026-04-28--v170--tier-3-1s-as-own-guest-rows) |
 | **v1.6.0** | 2026-04-28 | [Tier 2 user-feedback polish: Schedule table view + Wedding Book hub redesign](#2026-04-28--v160--tier-2-user-feedback-polish) |
 | v1.5.0 | 2026-04-28 | [Tier 1 user-feedback polish: mobile signout, Settings UI defence, scroll, 4-col Glance, countdown breakdown](#2026-04-28--v150--tier-1-user-feedback-polish) |
 | v1.4.0 | 2026-04-28 | [Phase R3 (partial): tests in CI + TESTING.md + integration scaffold](#2026-04-28--v140--phase-r3-partial-tests-in-ci--testingmd--integration-scaffold) |
@@ -237,11 +238,61 @@ When wrapping up a meaningful iteration:
 
 ### Current version
 
-`1.6.0` on both `dev` and `claude/main` (promoted 28 Apr 2026 after GHA green). Code-only release — no migrations, no env changes. Production catches up on next `docker compose pull && up -d`.
+`1.7.0` on `dev`, `claude/main` at `v1.6.0`. +1s as own Guest rows shipped to dev. Holding promote until GHA confirms green at the v1.7.0 SHA. Production catches up after `docker compose pull && up -d` — additive `parentGuestId` migration applies on boot.
 
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-28 · v1.7.0 — Tier 3 / A: +1s as own Guest rows
+
+The biggest of the user-feedback items: a +1 used to be a string field on the host (`Guest.plusOneName`) that didn't show up in any totals. From v1.7.0 a +1 is materialised as a real `Guest` row linked to the host via a new self-relation, and shows up everywhere a real guest does — Today, Glance, catering brief, seating canvas. Schema is additive; no env changes.
+
+**Schema** ([prisma/schema.prisma](prisma/schema.prisma) + [migration](prisma/migrations/20260428200000_add_guest_parent_for_plus_one/migration.sql)):
+
+```
+parentGuestId   String?
+parentGuest     Guest?         @relation("PlusOneOf", fields: [parentGuestId], references: [id], onDelete: Cascade)
+plusOnes        Guest[]        @relation("PlusOneOf")
+@@index([parentGuestId])
+```
+
+`ON DELETE CASCADE` so a hard-delete of the host (couple-only path) takes the +1 with it. The soft-archive path is handled in `actions.ts` so the +1 inherits archived state explicitly via a `$transaction`.
+
+**Materialisation logic** ([src/lib/plus-one.ts](src/lib/plus-one.ts) — pure function, 14 unit tests at [tests/unit/plus-one.test.ts](tests/unit/plus-one.test.ts)):
+
+- Pure `decidePlusOneAction(host, child)` returns one of `noop` / `create` / `update` / `archive`.
+- Decision rules:
+  - `host.plusOneAllowed=true` AND `host.plusOneName.trim() !== ""` → child should exist
+  - First materialisation → `create` with `splitFullName(plusOneName)` for first/last, inherit host's householdId / side / rsvp
+  - Existing child + sync → `update` (also re-derives first/last from the host's plusOneName, so the host's field stays the source of truth for the +1's display name)
+  - `plusOneAllowed` flips to `false` OR name cleared → `archive` the +1 (don't hard-delete; preserves dietary / meal / song-request data if the user later flips it back on)
+  - Host is itself a +1 (`parentGuestId` set) → `noop` with `host_is_plus_one` reason
+- DB-aware `syncPlusOne` wrapper in [actions.ts](src/app/(app)/guests/actions.ts) does the I/O.
+
+**Lifecycle cascade** (also in actions.ts):
+
+- `createGuest` → `syncPlusOne(created.id)` after the create. Materialises the +1 immediately if conditions are met.
+- `updateGuest` → forces `plusOneAllowed=false / plusOneName=null` if the row being edited is itself a +1, then `syncPlusOne`.
+- `setGuestRsvp` → `syncPlusOne(id)` so host RSVP changes cascade to the +1.
+- `deleteGuest` (soft archive) → `$transaction` that archives both the host and any +1 rows in one go, freeing both seats.
+- `restoreGuest` → symmetric `$transaction` to bring the +1 back alongside the host.
+- `hardDeleteGuest` → no change (FK cascade handles the +1).
+
+**UI** ([HouseholdBlock.tsx](src/app/(app)/guests/HouseholdBlock.tsx) + [GuestForm.tsx](src/app/(app)/guests/GuestForm.tsx)):
+
+- New `reorderHostsAndPlusOnes` helper groups +1 rows immediately after their host in the household block (orphan +1s go to the bottom).
+- +1 rows render with a `+1 of {host.firstName}` info chip (info colour, hover tooltip explaining the cascade behaviour) and visual indent (`pl-10 bg-canvas/40`).
+- `GuestForm` takes a new `isPlusOne` prop. When true: first-name, last-name, plus-one-allowed checkbox, plus-one-name input are all `disabled`, with an explanatory banner at the top of the form ("First/last name come from the host's Plus-one name field — edit it there to rename"). Other fields (RSVP, dietary, meal, notes) stay editable so the +1 can have its own preferences.
+- Delete confirm copy adapted: archiving a +1 directly suggests toggling the host's plusOneAllowed instead.
+
+**Totals — no special-casing needed.** Today / Glance / Catering brief / Seating canvas all query `Guest` rows directly — the +1 row is a real row, so it shows up in every count without a code change. RSVP donut, "X attending of Y invited", dietary aggregates, per-table seating: all just work.
+
+**Tests** (`npm test` now reports 83 passing across 6 files):
+
+- 14 new cases in `tests/unit/plus-one.test.ts` cover create / update / archive / no-op paths plus the recursion guard.
+
+Verified: typecheck, lint, build, 83/83 tests, clean `npm ci`. Holding promote until GHA confirms green at the v1.7.0 SHA.
 
 ### 2026-04-28 · v1.6.0 — Tier 2 user-feedback polish
 

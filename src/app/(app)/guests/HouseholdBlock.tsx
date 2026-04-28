@@ -29,6 +29,7 @@ type Guest = {
   mealDessert?: string | null;
   rsvpUniqueLink?: string | null;
   notes: string | null;
+  parentGuestId: string | null;
   tableSeat?: {
     id: string;
     index: number;
@@ -36,6 +37,32 @@ type Guest = {
   } | null;
   _count?: { songRequests: number };
 };
+
+// Reorder guests so each host is immediately followed by its +1 rows.
+// The DB returns flat Guest rows ordered by isChild + firstName; we
+// regroup so the visual hierarchy matches the data: parent → child.
+function reorderHostsAndPlusOnes(guests: Guest[]): Guest[] {
+  const byParent = new Map<string, Guest[]>();
+  const hosts: Guest[] = [];
+  for (const g of guests) {
+    if (g.parentGuestId) {
+      const list = byParent.get(g.parentGuestId) ?? [];
+      list.push(g);
+      byParent.set(g.parentGuestId, list);
+    } else {
+      hosts.push(g);
+    }
+  }
+  // Orphan +1s (parent archived/deleted but child somehow remained):
+  // append to the end so they're visible and can be cleaned up.
+  const orphanPlusOnes = guests.filter(
+    (g) => g.parentGuestId && !hosts.some((h) => h.id === g.parentGuestId),
+  );
+  return [
+    ...hosts.flatMap((h) => [h, ...(byParent.get(h.id) ?? [])]),
+    ...orphanPlusOnes,
+  ];
+}
 
 type Household = {
   id: string;
@@ -107,9 +134,20 @@ export function HouseholdBlock({ household, canEdit }: { household: Household; c
       )}
 
       <ul className="divide-y divide-border-soft">
-        {household.guests.map((g) => (
-          <GuestRow key={g.id} guest={g} householdId={household.id} canEdit={canEdit} />
-        ))}
+        {reorderHostsAndPlusOnes(household.guests).map((g) => {
+          const host = g.parentGuestId
+            ? household.guests.find((h) => h.id === g.parentGuestId)
+            : null;
+          return (
+            <GuestRow
+              key={g.id}
+              guest={g}
+              host={host ? { firstName: host.firstName, lastName: host.lastName } : null}
+              householdId={household.id}
+              canEdit={canEdit}
+            />
+          );
+        })}
         {household.guests.length === 0 && !adding && (
           <li className="px-4 py-3 text-xs text-ink-tertiary italic text-center">No guests yet.</li>
         )}
@@ -127,25 +165,44 @@ export function HouseholdBlock({ household, canEdit }: { household: Household; c
     </section>
   );
 
-  function GuestRow({ guest, householdId, canEdit }: { guest: Guest; householdId: string; canEdit: boolean }) {
+  function GuestRow({
+    guest,
+    host,
+    householdId,
+    canEdit,
+  }: {
+    guest: Guest;
+    host: { firstName: string; lastName: string } | null;
+    householdId: string;
+    canEdit: boolean;
+  }) {
     const [editing, setEditing] = useState(false);
     const [pending, startTransition] = useTransition();
+    const isPlusOne = !!guest.parentGuestId;
 
     function changeRsvp(next: RsvpStatus) {
       startTransition(async () => { await setGuestRsvp(guest.id, next); });
     }
 
     function onDelete() {
-      if (!confirm(`Delete ${guest.firstName} ${guest.lastName}?`)) return;
+      if (isPlusOne) {
+        // Deleting a +1 directly is unusual — the host should normally
+        // own the +1's lifecycle (toggle plusOneAllowed off on the host
+        // to archive). But we allow it as an escape hatch.
+        if (!confirm(`Archive +1 "${guest.firstName} ${guest.lastName}"? Their host's plusOneAllowed will stay on — toggling it off there is the cleaner path.`)) return;
+      } else {
+        if (!confirm(`Archive ${guest.firstName} ${guest.lastName}? Any +1 will be archived too.`)) return;
+      }
       startTransition(async () => { await deleteGuest(guest.id); });
     }
 
     if (editing) {
       return (
-        <li className="px-4 py-3 bg-moss-50/30">
+        <li className={`px-4 py-3 bg-moss-50/30 ${isPlusOne ? "pl-10" : ""}`}>
           <GuestForm
             householdId={householdId}
             submitLabel="Save"
+            isPlusOne={isPlusOne}
             initial={{
               firstName: guest.firstName,
               lastName: guest.lastName,
@@ -169,7 +226,7 @@ export function HouseholdBlock({ household, canEdit }: { household: Household; c
     }
 
     return (
-      <li className="flex items-center gap-3 px-4 py-2.5 group">
+      <li className={`flex items-center gap-3 px-4 py-2.5 group ${isPlusOne ? "pl-10 bg-canvas/40" : ""}`}>
         <div className="flex-1 min-w-0">
           <div className="flex items-baseline gap-2 flex-wrap">
             <Link
@@ -179,11 +236,19 @@ export function HouseholdBlock({ household, canEdit }: { household: Household; c
             >
               {guest.firstName} {guest.lastName}
             </Link>
+            {isPlusOne && host && (
+              <span
+                className="text-[10px] text-info bg-[color:#eef4f5] dark:bg-muted border border-[color:#d0e4e8] dark:border-border-soft px-1 rounded"
+                title={`+1 of ${host.firstName} ${host.lastName} — RSVP, household, and side cascade from the host`}
+              >
+                +1 of {host.firstName}
+              </span>
+            )}
             {guest.isChild && <span className="text-[10px] text-marigold-700 bg-marigold-100 px-1 rounded">Child</span>}
             {guest.needsHighchair && <span className="text-[10px] text-marigold-700 bg-marigold-100 px-1 rounded">Highchair</span>}
             {guest.childrenMeal && <span className="text-[10px] text-marigold-700 bg-marigold-100 px-1 rounded">Kids meal</span>}
             {guest.role && <span className="text-[10px] text-moss-700 bg-moss-50 border border-moss-100 px-1 rounded">{guest.role}</span>}
-            {guest.plusOneAllowed && (
+            {guest.plusOneAllowed && !isPlusOne && (
               <span className="text-[10px] text-ink-tertiary bg-canvas border border-border-soft px-1 rounded">
                 +1{guest.plusOneName ? ` (${guest.plusOneName})` : ""}
               </span>

@@ -5,6 +5,7 @@ import { z } from "zod";
 import { RsvpStatus, Side } from "@prisma/client";
 import { db } from "@/lib/db";
 import { audit, requireEdit } from "@/lib/actions";
+import { decidePlusOneAction } from "@/lib/plus-one";
 
 const householdSchema = z.object({
   name: z.string().min(1).max(200),
@@ -32,6 +33,70 @@ const guestSchema = z.object({
 function readDietary(s: string | null | undefined): string[] {
   if (!s) return [];
   return s.split(",").map((x) => x.trim()).filter(Boolean);
+}
+
+// ── +1 materialisation ────────────────────────────────────────────────────
+//
+// When a host has plusOneAllowed=true AND plusOneName is non-empty, we
+// materialise a child Guest row linked via parentGuestId. The +1 row:
+//   - is a real Guest, so it shows up in totals (Today, Glance, catering
+//     brief, etc.) without any special-casing
+//   - inherits householdId, side, rsvp, archived from the host (synced on
+//     every host update via this helper)
+//   - has its first/last name derived from the host's plusOneName field
+//     — the host is the source of truth for the name; the +1 row's name
+//     fields are display-only
+//   - keeps independent dietary, meal, song-request, table-seat data
+//
+// Edge cases:
+//   - plusOneAllowed flips to false OR plusOneName cleared → archive the
+//     existing +1 row (don't hard-delete; preserves dietary/meal data
+//     in case it comes back)
+//   - host archived → +1 archived (cascaded from caller)
+//   - host hard-deleted → +1 cascade-deleted by the FK
+//   - +1 itself can't have a +1 (we don't recurse)
+//
+// Pure decision logic lives at @/lib/plus-one (testable without
+// pulling in next-auth/Prisma). This wrapper does the DB I/O around it.
+
+async function syncPlusOne(hostId: string): Promise<void> {
+  const host = await db.guest.findUnique({
+    where: { id: hostId },
+    select: {
+      id: true,
+      householdId: true,
+      side: true,
+      rsvp: true,
+      plusOneAllowed: true,
+      plusOneName: true,
+      parentGuestId: true,
+    },
+  });
+  if (!host) return;
+
+  const childRow = await db.guest.findFirst({
+    where: { parentGuestId: host.id },
+    orderBy: { createdAt: "asc" },
+    select: { id: true, archived: true },
+  });
+
+  const action = decidePlusOneAction(host, childRow);
+  switch (action.kind) {
+    case "noop":
+      return;
+    case "create":
+      await db.guest.create({ data: action.data });
+      return;
+    case "update":
+      await db.guest.update({ where: { id: action.childId }, data: action.data });
+      return;
+    case "archive":
+      await db.guest.update({
+        where: { id: action.childId },
+        data: { archived: true, tableSeatId: null },
+      });
+      return;
+  }
 }
 
 export async function createHousehold(formData: FormData) {
@@ -106,6 +171,7 @@ export async function createGuest(formData: FormData) {
       notes: parsed.notes ?? null,
     },
   });
+  await syncPlusOne(created.id);
   await audit(user, { action: "create", entity: "Guest", entityId: created.id });
   revalidatePath("/guests");
   revalidatePath("/");
@@ -129,6 +195,18 @@ export async function updateGuest(id: string, formData: FormData) {
     dietary: formData.get("dietary") || null,
     notes: formData.get("notes") || null,
   });
+
+  // If this guest is itself a +1 (parentGuestId set), force the +1
+  // fields off — a +1 can't have a +1 of its own. The host is the only
+  // place plusOneAllowed / plusOneName can be set.
+  const existing = await db.guest.findUnique({
+    where: { id },
+    select: { parentGuestId: true },
+  });
+  const isPlusOne = !!existing?.parentGuestId;
+  const plusOneAllowed = isPlusOne ? false : !!parsed.plusOneAllowed;
+  const plusOneName = isPlusOne ? null : (parsed.plusOneName ?? null);
+
   await db.guest.update({
     where: { id },
     data: {
@@ -140,13 +218,18 @@ export async function updateGuest(id: string, formData: FormData) {
       side: parsed.side,
       isChild: !!parsed.isChild,
       needsHighchair: !!parsed.needsHighchair,
-      plusOneAllowed: !!parsed.plusOneAllowed,
-      plusOneName: parsed.plusOneName ?? null,
+      plusOneAllowed,
+      plusOneName,
       role: parsed.role ?? null,
       dietary: readDietary(parsed.dietary ?? null),
       notes: parsed.notes ?? null,
     },
   });
+
+  // Cascade to the +1 if this is a host. syncPlusOne short-circuits if
+  // the row is itself a +1 (parentGuestId set), so it's safe to call
+  // unconditionally.
+  await syncPlusOne(id);
   await audit(user, { action: "update", entity: "Guest", entityId: id });
   revalidatePath("/guests");
   revalidatePath("/");
@@ -161,6 +244,10 @@ export async function setGuestRsvp(id: string, rsvp: RsvpStatus) {
       attending: rsvp === RsvpStatus.ATTENDING ? true : rsvp === RsvpStatus.DECLINED ? false : null,
     },
   });
+  // Cascade to any +1 — host RSVP is the source of truth for the +1's
+  // RSVP. (A +1's own RSVP can be set independently via this same
+  // action, but the next host RSVP change will overwrite it.)
+  await syncPlusOne(id);
   await audit(user, { action: "rsvp", entity: "Guest", entityId: id, metadata: { rsvp } });
   revalidatePath("/guests");
   revalidatePath("/");
@@ -178,10 +265,18 @@ export async function deleteGuest(id: string) {
     select: { firstName: true, lastName: true, tableSeatId: true },
   });
   if (!guest) return;
-  await db.guest.update({
-    where: { id },
-    data: { archived: true, tableSeatId: null },
-  });
+  // Archive the host AND any of its +1 rows in a single transaction so
+  // the totals never see a half-archived household. Free both seats.
+  await db.$transaction([
+    db.guest.update({
+      where: { id },
+      data: { archived: true, tableSeatId: null },
+    }),
+    db.guest.updateMany({
+      where: { parentGuestId: id },
+      data: { archived: true, tableSeatId: null },
+    }),
+  ]);
   await audit(user, {
     action: "archive",
     entity: "Guest",
@@ -199,10 +294,18 @@ export async function deleteGuest(id: string) {
 
 // Bring an archived guest back. Their seat does NOT auto-reassign —
 // that would be surprising — they come back unseated and the user
-// reseats them via the Seating page.
+// reseats them via the Seating page. If the guest was a host with
+// archived +1 rows, those come back too (archiving was atomic; restore
+// is symmetric).
 export async function restoreGuest(id: string) {
   const user = await requireEdit("guests");
-  await db.guest.update({ where: { id }, data: { archived: false } });
+  await db.$transaction([
+    db.guest.update({ where: { id }, data: { archived: false } }),
+    db.guest.updateMany({
+      where: { parentGuestId: id },
+      data: { archived: false },
+    }),
+  ]);
   await audit(user, { action: "restore", entity: "Guest", entityId: id });
   revalidatePath("/guests");
   revalidatePath("/");
