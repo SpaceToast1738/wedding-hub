@@ -11,7 +11,7 @@
 - **Repo:** [SpaceToast1738/wedding-hub](https://github.com/SpaceToast1738/wedding-hub) · `claude/main` (releases) + `dev` (work-in-progress)
 - **Stack:** Next.js 15 · TypeScript · Tailwind v4 · Prisma · Postgres 16 · Auth.js v5 · Caddy · Docker Compose
 - **Working tree:** `C:\Users\Admin\Code\wedding-hub` (local SSD). The old `\\TOWER\Jamie Spencer\Claude\wedding-hub` mirror is no longer in use — run `Remove-Item -Recurse -Force "\\TOWER\Jamie Spencer\Claude\wedding-hub"` from a fresh PowerShell to delete it.
-- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` at **v1.3.0**). v1.4.0 (this iteration on `dev`) ships **Phase R3 (partial) — test depth**: Vitest now runs in CI before the Docker image build (a green image of broken code is no longer possible), [TESTING.md](TESTING.md) codifies the persona-walkthrough smoke checklist, and an integration-test scaffold under `tests/integration/` lets us exercise the permission resolver against a real Postgres in CI. Playwright e2e (T3) deferred to a follow-on session.
+- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` at **v1.4.0**, promoted 28 Apr 2026 after GHA green). Phase R3 (partial) shipped: Vitest gates the Docker image build, [TESTING.md](TESTING.md) codifies the smoke checklist, and an integration-test scaffold lives at `tests/integration/`. Playwright e2e (T3) and the integration-test CI job (T2-CI) deferred. R4 (workflow polish — Bucket B from the audit) is next.
 
 ## Phase status
 
@@ -34,8 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| _(unreleased on `dev`)_ | 2026-04-28 | [v1.4.0 — Phase R3 (partial): tests in CI + TESTING.md + integration scaffold](#2026-04-28--v140--phase-r3-partial-tests-in-ci--testingmd--integration-scaffold) |
-| **v1.3.0** | 2026-04-28 | [Phase R2: magic-link rate limit + archived-guest restore](#2026-04-28--v130--phase-r2-magic-link-rate-limit--archived-guest-restore) |
+| **v1.4.0** | 2026-04-28 | [Phase R3 (partial): tests in CI + TESTING.md + integration scaffold](#2026-04-28--v140--phase-r3-partial-tests-in-ci--testingmd--integration-scaffold) |
+| v1.3.0 | 2026-04-28 | [Phase R2: magic-link rate limit + archived-guest restore](#2026-04-28--v130--phase-r2-magic-link-rate-limit--archived-guest-restore) |
 | v1.2.4 | 2026-04-28 | [Dockerfile copies `.npmrc` — first version of the v1.2.x line that built green in CI](#2026-04-28--v124--dockerfile-copies-npmrc-so-the-legacy-peer-deps-actually-applies-in-ci) |
 | _(no tag)_ | 2026-04-28 | v1.2.1 / v1.2.2 / v1.2.3 — three failed CI fix attempts; not tagged on principle (only green-CI SHAs get tags). Documented in the changelog for traceability. |
 | **v1.2.0** | 2026-04-28 | [Phase R1: trust restoration (audit fixes + Vitest)](#2026-04-28--v120--phase-r1-trust-restoration-audit-fixes--vitest) |
@@ -235,7 +235,7 @@ When wrapping up a meaningful iteration:
 
 ### Current version
 
-`1.4.0` on `dev`, `claude/main` at `v1.3.0`. R3 partial (CI test gates + TESTING.md + integration scaffold) on dev. Holding promote until GHA confirms green at the v1.4.0 SHA.
+`1.4.0` on both `dev` and `claude/main` (promoted 28 Apr 2026 after GHA green). Production catches up on next `docker compose pull && up -d` — code-only release, no migrations.
 
 ## Changelog
 
