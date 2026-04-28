@@ -34,6 +34,7 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
+| _(unreleased on `dev`)_ | 2026-04-28 | [v1.2.1 — Pin Vitest to v2.x to fix Docker build](#2026-04-28--v121--pin-vitest-to-v2x-to-fix-docker-build) |
 | **v1.2.0** | 2026-04-28 | [Phase R1: trust restoration (audit fixes + Vitest)](#2026-04-28--v120--phase-r1-trust-restoration-audit-fixes--vitest) |
 | v1.1.0 | 2026-04-27 | [At a Glance dashboard](#2026-04-27--v110--at-a-glance-dashboard) |
 | v1.0.0 | 2026-04-27 | [🎉 Release-1 design polish across all pages](#2026-04-27--v100--release-1-design-polish-across-all-pages) |
@@ -231,11 +232,28 @@ When wrapping up a meaningful iteration:
 
 ### Current version
 
-`1.2.0` on both `dev` and `claude/main` (promoted 28 Apr 2026). Phase R1 of the [post-audit remediation plan](REMEDIATION-PLAN.md) shipped. No schema or env changes — production catches up after the GHCR image rebuilds and Unraid runs `docker compose pull && up -d`.
+`1.2.1` on `dev`, `claude/main` at `v1.2.0`. v1.2.0's GHCR build failed because Vitest 4.x didn't survive `npm ci` on `node:20-alpine`; v1.2.1 pins to Vitest 2.x. Promote to unblock production.
 
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-28 · v1.2.1 — Pin Vitest to v2.x to fix Docker build
+
+v1.2.0's `npm ci --no-audit --no-fund` failed inside the Docker `deps` stage on `node:20-alpine`:
+
+```
+ERROR: failed to build: failed to solve: process "/bin/sh -c npm ci --no-audit --no-fund"
+       did not complete successfully: exit code: 1
+```
+
+Vitest 4.x (released Oct 2025) installed cleanly on the Windows dev box but a transitive dep failed quietly under Alpine's musl libc. Local builds were green; the GHCR image build was broken.
+
+**Fix:** downgrade `vitest` and `@vitest/ui` to `^2.1.9` and regenerate `package-lock.json` against the v2 dep tree. Vitest 2.x is widely battle-tested on Alpine and used by countless CI pipelines on `node:20-alpine`. Our test files use only stable APIs (`describe`, `it`, `expect`, `vi.mock`, `vi.fn`) that are identical across v2 → v4, so no test code changed. Verified `npm ci` from a clean `node_modules` tree succeeds locally; verified `npm test` (60/60), `npm run typecheck`, `npm run lint`, `npm run build` all clean.
+
+**Standing rule added to [CLAUDE.md](CLAUDE.md):** don't upgrade Vitest casually. Test `docker build --target deps` on linux/amd64 before merging any future major bump. Same caution for `tinypool`, `@vitest/snapshot`, and the Vite version that rides along.
+
+Patch bump only — no functional change to the running app, only to the build tooling. The R1 fixes from v1.2.0 carry through unchanged.
 
 ### 2026-04-28 · v1.2.0 — Phase R1: trust restoration (audit fixes + Vitest)
 

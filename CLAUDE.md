@@ -60,6 +60,15 @@ Multipart server action at `src/app/(app)/files/actions.ts` writes physical byte
 ### Postgres user is NOT 999
 `postgres:16-alpine`'s built-in `postgres` user is UID **70**. **Don't add `user: "999:999"`** (or any UID other than 70) to the `db` service — it makes `initdb` fail with "Operation not permitted" on the data dir.
 
+### Vitest is pinned to v2.x — don't upgrade casually
+`vitest@4.x` (Oct 2025) broke `npm ci` on `node:20-alpine` in the Docker
+deps stage during R1 (v1.2.0 → patched in v1.2.1). The exact transitive
+broke quietly without a clear error. v2.1.x is widely battle-tested on
+alpine. If you upgrade, **test by running `docker build --target deps`
+locally on linux/amd64 first**, not just `npm test` on Windows. Same
+caution for any new `tinypool` / `@vitest/snapshot` / Vite version
+bumps — they ride along with vitest majors.
+
 ### Postgres healthcheck `start_period` is 60s
 Slow array fsync makes `initdb`'s shutdown checkpoint take ~22s. The compose's `start_period: 60s` + `retries: 10` accounts for that. Don't tighten without testing on the actual array.
 
