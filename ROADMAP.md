@@ -11,7 +11,7 @@
 - **Repo:** [SpaceToast1738/wedding-hub](https://github.com/SpaceToast1738/wedding-hub) · `claude/main` (releases) + `dev` (work-in-progress)
 - **Stack:** Next.js 15 · TypeScript · Tailwind v4 · Prisma · Postgres 16 · Auth.js v5 · Caddy · Docker Compose
 - **Working tree:** `C:\Users\Admin\Code\wedding-hub` (local SSD). The old `\\TOWER\Jamie Spencer\Claude\wedding-hub` mirror is no longer in use — run `Remove-Item -Recurse -Force "\\TOWER\Jamie Spencer\Claude\wedding-hub"` from a fresh PowerShell to delete it.
-- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` at **v1.2.0**, promoted 28 Apr 2026). Phase R1 — Trust Restoration — shipped: closes 2 BLOCKER-class privilege escalations (settings self-elevation, file visibility leak), 4 smaller audit findings, and adds Vitest with 60 unit tests. R2 (magic-link rate-limit + archived-guest restore UI) is the next remediation phase.
+- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` at **v1.2.4**, promoted 28 Apr 2026 after the GHA build went green at the same SHA). Phase R1 — Trust Restoration — shipped at v1.2.0 (2 BLOCKER privilege escalations + 4 smaller findings + Vitest). v1.2.1 → v1.2.4 are a four-version cascade fixing the Docker build under the v1.2.0 dep tree — full post-mortem in the Changelog. R2 (magic-link rate-limit + archived-guest restore UI) is the next remediation phase.
 
 ## Phase status
 
@@ -34,10 +34,10 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| _(unreleased on `dev`)_ | 2026-04-28 | [v1.2.4 — Dockerfile copies `.npmrc` (so the legacy-peer-deps actually applies in CI)](#2026-04-28--v124--dockerfile-copies-npmrc-so-the-legacy-peer-deps-actually-applies-in-ci) |
-| v1.2.3 | 2026-04-28 | [`.npmrc` legacy-peer-deps + revert nodemailer to v6 (didn't reach CI npm)](#2026-04-28--v123--npmrc-legacy-peer-deps--revert-nodemailer-to-v6) |
-| v1.2.2 | 2026-04-28 | [Bumped nodemailer to v7 (broke next-auth peer; didn't fix CI)](#2026-04-28--v122--bump-nodemailer-to-v7--fix-jwt-augmentation-real-ci-fix) |
-| v1.2.1 | 2026-04-28 | [Pin Vitest to v2.x (didn't actually fix CI)](#2026-04-28--v121--pin-vitest-to-v2x-to-fix-docker-build) |
+| **v1.2.4** | 2026-04-28 | [Dockerfile copies `.npmrc` (genuinely-final CI fix)](#2026-04-28--v124--dockerfile-copies-npmrc-so-the-legacy-peer-deps-actually-applies-in-ci) |
+| v1.2.3 | 2026-04-28 | [`.npmrc` legacy-peer-deps + revert nodemailer to v6](#2026-04-28--v123--npmrc-legacy-peer-deps--revert-nodemailer-to-v6) |
+| v1.2.2 | 2026-04-28 | [Bumped nodemailer to v7 (still broken)](#2026-04-28--v122--bump-nodemailer-to-v7--fix-jwt-augmentation-real-ci-fix) |
+| v1.2.1 | 2026-04-28 | [Pin Vitest to v2.x (still broken)](#2026-04-28--v121--pin-vitest-to-v2x-to-fix-docker-build) |
 | **v1.2.0** | 2026-04-28 | [Phase R1: trust restoration (audit fixes + Vitest)](#2026-04-28--v120--phase-r1-trust-restoration-audit-fixes--vitest) |
 | v1.1.0 | 2026-04-27 | [At a Glance dashboard](#2026-04-27--v110--at-a-glance-dashboard) |
 | v1.0.0 | 2026-04-27 | [🎉 Release-1 design polish across all pages](#2026-04-27--v100--release-1-design-polish-across-all-pages) |
@@ -235,7 +235,7 @@ When wrapping up a meaningful iteration:
 
 ### Current version
 
-`1.2.4` on `dev`, `claude/main` at `v1.2.1`. v1.2.3 was correct except the Dockerfile didn't copy `.npmrc` into the image, so the alpine npm ran without `legacy-peer-deps`. v1.2.4 fixes the COPY. Holding the promote until GHA on `dev` confirms green at `v1.2.4`'s SHA.
+`1.2.4` on both `dev` and `claude/main` (promoted 28 Apr 2026 after GHA went green on the same SHA). All four CI-fix tags (v1.2.1–v1.2.4) backfilled on `claude/main` so the tag history is contiguous. Production catches up after `docker compose pull && up -d`.
 
 ## Changelog
 
