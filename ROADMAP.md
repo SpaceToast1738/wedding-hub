@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.19.5** | 2026-04-28 | [Email deliverability: Reply-To + List-Unsubscribe + DNS docs](#2026-04-28--v1195--email-deliverability-reply-to--list-unsubscribe--dns-docs) |
+| **v1.19.6** | 2026-04-28 | [README rewrite: standing rules, current test pyramid, fix stale phase-status](#2026-04-28--v1196--readme-rewrite) |
+| v1.19.5 | 2026-04-28 | [Email deliverability: Reply-To + List-Unsubscribe + DNS docs](#2026-04-28--v1195--email-deliverability-reply-to--list-unsubscribe--dns-docs) |
 | v1.19.0 | 2026-04-28 | [Today page redesign + mobile nav fix + IllusCountdown port](#2026-04-28--v1190--today-page-redesign--mobile-nav-fix--illuscountdown-port) |
 | v1.18.5 | 2026-04-28 | [Bugfix: edit questions and decisions](#2026-04-28--v1185--bugfix-edit-questions-and-decisions) |
 | v1.18.0 | 2026-04-28 | [Decisions surfaced in nav + planner-only backlog catalogued](#2026-04-28--v1180--decisions-surfaced-in-nav--planner-only-backlog-catalogued) |
@@ -300,6 +301,25 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-28 · v1.19.6 — README rewrite
+
+Doc-only release. The README had drifted significantly from the actual state of the codebase; the user requested a full review. Findings (12+) were addressed in a single rewrite pass.
+
+**Major drift fixed:**
+- Stale "Phase A" / "Phase B" / "Phase C" status section claimed Phase C was current — actually shipped before v1.0.0. Replaced with a brief "Status" section pointing at ROADMAP.md (the living changelog) and REMEDIATION-PLAN.md (post-audit programme).
+- "Deferred for future work" listed 8 items every single one of which had shipped (file uploads → D1, seating canvas → D2, CSV import → E, shot list → F2, Spotify → G1, catering export → F1, day-of → G2, quick-capture → G2). Section deleted.
+- Components / lib file inventory was missing ~15 files added since Phase A (Toaster, Illustrations, EventMotifIcon, csv-merge, budget, custom-fields, dark-mode, last-edited-fields, notify, plus-one, rate-limit, spotify, supplier-follow-up, …). Rewritten from scratch.
+- "Allow-list of 5" hardcoded number replaced with "env-list".
+- Workflow trigger said `main`/`dev`; actually `claude/main`/`dev`.
+
+**Sections added:**
+- **Standing rules** at the top: admin-only, never tag broken builds, ROADMAP-update-before-done, fast-forward promote.
+- **Test pyramid** in the Status section (190 unit + 1 integration + 5 e2e) and useful-scripts table.
+- **Permission model** rewritten to cover the bootstrap-admin flow (first sign-in → couple), couple-gated writes (A2/A6 lockdowns), audit logging.
+- **Image rollback** examples now show `:vX.Y.Z` and `:sha-<short>` tag patterns; one-off migration / Studio commands simplified to `npx prisma`.
+
+No code, no tests, no schema changes — pure documentation pass.
 
 ### 2026-04-28 · v1.19.5 — Email deliverability: Reply-To + List-Unsubscribe + DNS docs
 

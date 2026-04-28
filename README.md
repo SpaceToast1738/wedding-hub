@@ -2,8 +2,17 @@
 
 Private wedding-planning app for Jamie & Bryony — replaces a Notion + Say I Do setup. Used through to the wedding day on **26 September 2026**.
 
-- **Live:** wedding.spencer-net.com (private — magic-link sign-in, allow-list of 5)
+- **Live:** wedding.spencer-net.com (private — magic-link sign-in, env-list of allowed emails)
 - **Stack:** Next.js 15 (App Router) · TypeScript · Tailwind v4 · Prisma · Postgres 16 · Auth.js v5
+- **Tests:** Vitest unit + Postgres integration + Playwright e2e (all gated in CI before image build)
+- **Docs:** [ROADMAP.md](ROADMAP.md) (changelog + phase plans) · [REMEDIATION-PLAN.md](REMEDIATION-PLAN.md) (post-audit programme) · [TESTING.md](TESTING.md) (pre-promote checklist)
+
+## Standing rules
+
+- **Admin-only app.** Planners + couple + wedding party only. Guest data is managed via Say I Do — no public RSVP forms or guest portals. Email reminders go to the planner/couple, never to invitees.
+- **Never tag a build until GHA goes green on the same SHA.** Pre-promote checklist: `typecheck && lint && test && test:e2e && build`. Migrations run in the integration job too.
+- **Update ROADMAP.md before declaring an iteration done.** Every release ends with a changelog entry; the most recent is at the top.
+- **Promote `dev → claude/main` via fast-forward, then tag `vX.Y.Z`.** No squash, no rebase. Tags are immutable.
 
 ## Local development
 
@@ -29,7 +38,7 @@ cp .env.example .env.local
 
 # 3. Install + migrate + seed
 npm install
-npx prisma migrate dev --name init
+npx prisma migrate deploy   # applies all existing migrations
 npm run db:seed
 ```
 
@@ -52,6 +61,11 @@ To configure real email delivery, fill in the `EMAIL_SERVER_*` vars in `.env.loc
 | `npm run build` | Production build |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm run lint` | ESLint |
+| `npm test` | Vitest unit suite (~190 tests, <1s) |
+| `npm run test:watch` | Vitest in watch mode |
+| `npm run test:integration` | Postgres-backed integration tests (needs `DATABASE_URL` containing `test` or `local`) |
+| `npm run test:e2e` | Playwright e2e specs (Chromium-only). Auto-starts the dev server. |
+| `npm run test:e2e:ui` | Playwright in inspector mode |
 | `npm run db:migrate:dev` | Create + apply a new migration |
 | `npm run db:seed` | Seed users, permissions, sample data |
 | `npm run db:reset` | Drop + recreate + reseed the database (destructive) |
@@ -68,41 +82,84 @@ curl http://localhost:3000/api/health
 
 ```
 prisma/
-  schema.prisma     ← single source of truth for the data model
-  seed.ts           ← seeds 5 users + permissions + sample data
+  schema.prisma            ← single source of truth for the data model
+  seed.ts                  ← idempotent seed (users + permissions + book sections + sample data)
+  migrations/              ← additive migrations only — no schema drops or breaking changes
 
 src/
   app/
-    (app)/          ← authenticated routes wrapped by AppShell
-      page.tsx          → Today
-      tasks/, guests/…  → 12 sections (most are stubs in Phase A)
-    signin/         ← magic-link sign-in flow
+    (app)/                 ← authenticated routes wrapped by AppShell
+      page.tsx                 → Today (countdown + tasks + upcoming + snapshot strip)
+      glance/, tasks/, questions/, schedule/, suppliers/, guests/, seating/, songs/,
+        book/, files/, budget/, payments/, settings/, today/day-of/  ← live sections
+      *.ts (actions.ts)        ← per-section server actions; gated via requireEdit()
+    signin/                ← magic-link sign-in flow + bootstrap-admin promotion
     api/
       auth/[...nextauth]/route.ts
-      health/route.ts
-  auth.ts           ← Auth.js v5 config (server-only)
-  auth.config.ts    ← shared edge-safe config (used by middleware)
-  middleware.ts     ← redirects unauthenticated users + gates couple-only routes
+      health/route.ts          ← public; used by health checks
+      files/[id]/route.ts      ← signed file downloads
+  auth.ts                  ← Auth.js v5 config (server-only) — magic-link + rate-limit + audit
+  auth.config.ts            ← shared edge-safe config (used by middleware)
+  middleware.ts            ← redirects unauthenticated users + gates couple-only routes
   components/
-    ui/             ← Button, StatusPill, Avatar, Tag, Input, PageHeader, Toast
-    shell/          ← AppShell, Sidebar, MobileTabBar, AvatarMenu
-  lib/
-    db.ts           ← Prisma client singleton
-    permissions.ts  ← canView / canEdit per section
-    audit.ts        ← logAudit helper
+    ui/                    ← Button, Input, Avatar, StatusPill, Tag, PageHeader,
+                             Toaster (window-event toast bus), Illustrations
+                             (~14 SVG components ported from prototype),
+                             EventMotifIcon (heuristic title → 16px SVG)
+    shell/                 ← AppShell, Sidebar, MobileTabBar, AvatarMenu, QuickCapture
+  lib/                     ← Pure decision modules + shared helpers:
+    db.ts                      ← Prisma client singleton
+    permissions.ts             ← canView / canEdit per section
+    actions.ts                 ← requireUser / requireEdit / audit() helpers
+    audit.ts                   ← AuditLog write helper
+    csv.ts + csv-merge.ts      ← CSV import: parse, infer mapping, merge decision
+    budget.ts                  ← computeActual (B2) — manual override or sum of payments
+    custom-fields.ts           ← parse/format/merge typed values (text/number/date/select)
+    dark-mode.ts               ← resolveDarkMode (DB > localStorage > default)
+    last-edited-fields.ts      ← per-field manual-edit timestamps (C4)
+    nudge-digest.ts            ← (planned v1.24.0) — RSVP / overdue-task digest decisions
+    notify.ts                  ← window-event toast bus
+    plus-one.ts                ← decidePlusOneAction — host edits ↔ +1 row
+    rate-limit.ts              ← decideRateLimit — magic-link 5/hour/email
+    spotify.ts                 ← parsePlaylistId + Client Credentials sync
+    supplier-follow-up.ts      ← decideFollowUpTask (B3)
+    wedding-settings.ts        ← (planned v1.20.0) — DB-backed wedding date/venue/couple
+    format.ts, version.ts      ← misc helpers
 
-prototype/          ← original visual reference (vanilla React + inline styles)
+tests/
+  unit/                    ← Vitest pure-decision tests (~190; mocks Prisma)
+  integration/             ← Postgres-backed (skips when DATABASE_URL doesn't contain "test"/"local")
+
+e2e/                       ← Playwright specs (anonymous-redirect for now)
+
+prototype/                 ← original visual reference (vanilla React + inline styles).
+                             Components ported into src/components/ui/Illustrations.tsx
+                             (C6, v1.15.0 + v1.19.0 IllusCountdown).
 ```
 
 ## Permission model
 
-| Role          | Sections (EDIT)                                                                        | Couple-only sections (Budget, Payments) |
-|---------------|----------------------------------------------------------------------------------------|-----------------------------------------|
-| Couple        | All                                                                                    | EDIT                                    |
-| Wedding party | tasks, questions, schedule, suppliers, guests, seating, songs, files, book             | NONE                                    |
-| Planner       | same as wedding party                                                                  | NONE                                    |
+Two layers gate access:
 
-Sign-in is restricted to emails in `AUTH_ALLOWED_EMAILS` (csv). Anyone else hits `/signin/error`.
+1. **Sign-in allow-list:** the magic-link provider checks the email against `AUTH_ALLOWED_EMAILS` (csv). Anyone else hits `/signin/error`. The list is also rate-limited at 5 attempts/hour/email (post-audit fix A3, v1.3.0; tracked in the `MagicLinkAttempt` table).
+
+2. **Per-section permissions:** every section has its own `Permission(userId, section, level)` row. Levels: `NONE | VIEW | EDIT`. The couple short-circuits — `User.isCouple = true` is treated as EDIT-on-everything, including the couple-only sections (Budget, Payments). Page-level routes redirect non-`canView` users to `/`; server actions throw `Forbidden:` when `canEdit` fails (caught by `(app)/error.tsx` for a friendly UX).
+
+| Role          | Default `EDIT` sections                                                       | Budget / Payments       |
+|---------------|--------------------------------------------------------------------------------|-------------------------|
+| Couple        | All sections + Settings; `isCouple=true` overrides every gate                  | EDIT                    |
+| Wedding party | tasks, questions, schedule, suppliers, guests, seating, songs, files, book     | NONE (route redirects)  |
+| Planner       | same as wedding party                                                          | NONE                    |
+| Viewer        | nothing by default; couple grants per-section access via Settings matrix       | NONE                    |
+
+**Bootstrap admin:** the first user to verify a magic-link sign-in (where `verifiedCoupleCount === 0`) is promoted to `isCouple = true` automatically — they then grant access to the rest of the wedding party via the Settings → Permissions matrix. After that, every new sign-in defaults to `VIEWER` until granted otherwise.
+
+**Couple-gated writes:** a few actions require `user.isCouple === true` even when the caller has `EDIT` on the section (post-audit fixes A2 / A6, v1.2.0):
+- `setUserCouple`, `setPermission`, `removeUser` (settings) — only the couple toggles other users' couple-tier or grants permissions.
+- `updateFile` visibility transitions involving `COUPLE_ONLY` — non-couple editors can edit content but can't flip a public file to couple-only or vice versa.
+- `setBookSubsectionVisibility` (C1, v1.14.0) — same shape for book pages.
+
+All writes are audit-logged via `audit()` (`src/lib/actions.ts`); the AuditLog viewer in Settings (planned v1.21.0) surfaces it.
 
 ## Production deployment
 
@@ -131,7 +188,15 @@ The stack runs on the Unraid server via `docker compose`, fronted by **Cloudflar
                              └─────────┘         └─────────┘   └──────────────┘
 ```
 
-The `web` image is built by GitHub Actions on every push to `main` / `dev` and pushed to GHCR — `ghcr.io/spacetoast1738/wedding-hub:dev` (and `:latest` on the default branch). Compose pulls the image; the Unraid box never builds.
+The `web` image is built by GitHub Actions on every push to `claude/main` / `dev` and pushed to GHCR. The build job is gated on three test tiers passing first: typecheck/lint/unit (Vitest), Postgres integration (`prisma migrate deploy` + integration tests against a service-container DB), and Playwright e2e (5 specs, against a built app). A green tag means all three tiers passed against that exact SHA.
+
+Tags published per push:
+- `:claude-main` and `:latest` — set on `claude/main` only (latest release branch).
+- `:dev` — moved on every `dev` push (current work-in-progress).
+- `:vX.Y.Z` — immutable, set when a release tag is pushed.
+- `:sha-<short>` — immutable, set on every push to either branch.
+
+Compose pulls the image; the Unraid box never builds.
 
 ### First-time deploy on Unraid
 
@@ -188,9 +253,10 @@ Then visit `https://wedding.spencer-net.com` (Cloudflare proxies through the tun
 | Tail web logs | `docker compose logs -f web` |
 | Tail Caddy logs | `docker compose logs -f caddy` |
 | Update to latest `:dev` build | `docker compose pull web && docker compose up -d web` |
-| Roll back to a specific image | edit `image:` in compose to `ghcr.io/.../wedding-hub:sha-abc1234`, then `docker compose up -d web` |
-| Run a one-off migration | `docker compose exec web node ./node_modules/prisma/build/index.js migrate deploy` |
-| Open Prisma Studio | `docker compose exec web node ./node_modules/prisma/build/index.js studio` (then port-forward 5555) |
+| Roll forward to a tagged release | edit `image:` to `ghcr.io/spacetoast1738/wedding-hub:v1.19.0` (or `:claude-main`, `:latest`), then `docker compose up -d web` |
+| Roll back to a known-good SHA | edit `image:` to `ghcr.io/spacetoast1738/wedding-hub:sha-<short>`, then `docker compose up -d web` |
+| Run a one-off migration | `docker compose exec web npx prisma migrate deploy` |
+| Open Prisma Studio | `docker compose exec web npx prisma studio` (then port-forward 5555) |
 | Manual backup now | `docker compose exec backup /backup.sh` |
 | Inspect DB | `docker compose exec db psql -U wedding wedding_hub` |
 | Restore a backup | `gunzip -c /mnt/user/appdata/wedding-hub/backups/daily/wedding_hub-YYYY-MM-DD.sql.gz \| docker compose exec -T db psql -U wedding wedding_hub` |
@@ -279,22 +345,15 @@ Gmail flags first-time senders even with auth. Tell new recipients to
 mark "Not spam" once on their first magic link; subsequent emails land
 in Inbox.
 
-## Phase status
+## Status
 
-- **Phase A (done):** bootable shell — auth, AppShell, Today page with real data, stubs for the other 12 sections, `/api/health`
-- **Phase B (done):** all 12 prototype pages ported with server actions, audit logging, and per-section permission gates
-- **Phase C (current):** Docker stack — Caddy + web + db + backup — with hardening, retention policy, and Cloudflare Tunnel alternative
+The build phases (A–G) and the post-audit programme (R1–R5) all shipped between v0.1.0 and v1.15.0. Current work is feature polish per the F1 plan in [REMEDIATION-PLAN.md](REMEDIATION-PLAN.md) and the per-release changelog in [ROADMAP.md](ROADMAP.md). The most recent release is at the top of the changelog there.
 
-### Deferred for future work
+**Test pyramid (current):**
+- ~190 unit tests (Vitest) — pure-decision modules in `src/lib/*` plus action-shape contracts.
+- 1 Postgres integration test — `assignGuestToSeat` parallel-call invariant (B12 race fix).
+- 5 Playwright e2e specs — anonymous-flow redirects (auth gate, callbackUrl preservation, public `/api/health`).
 
-The following prototype features were intentionally not ported yet because each one is a substantive sub-project:
-- Real file uploads (the `uploads:` Docker volume is wired up; the multipart server action and UI are not)
-- Drag-and-drop seating canvas with constraint rules
-- CSV / Say I Do guest import wizards + diff sync UI
-- Photography shot list + dietary aggregate inside the Wedding Book
-- Spotify playlist sync
-- Catering export PDF
-- Day-of mode for the Today page (live timeline + on-call contacts)
-- Quick-capture (`C` shortcut) modal
+**One scheduled outstanding task:** R6 (backup verification + restore drill) — agent-task fires 26 Aug 2026 (4 weeks before the wedding) so the drill happens against realistic production data rather than seed data. See REMEDIATION-PLAN §R6.
 
-See `prototype/` for the visual reference each was built against.
+For a one-glance state-of-the-app, open [ROADMAP.md](ROADMAP.md) — the "Current state" line at the top of the document is updated every release.
