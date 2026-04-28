@@ -246,9 +246,22 @@ When wrapping up a meaningful iteration:
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
 
-### 2026-04-28 · v1.9.0 — Wedding Book sections aligned with prototype
+### 2026-04-28 · v1.9.0 — Book sections aligned with prototype + Spotify env-var compose fix
 
-The v1.4.0 seed shipped 5 Wedding Book sections (Ceremony, Reception, Logistics, Photography, Wedding party) but the design brief in `prototype/WeddingBookPage.jsx` defines 7 canonical sections (Wedding Party, Venue, Food & Drink, Photography, Guest Experience, Legal & Admin, Accommodation). The v1.0.0 audit flagged the gap as a **MINOR** under design fidelity (`Wedding Book hub has 5 not 7 cards`). v1.9.0 closes it.
+Two unrelated changes bundled because both shipped on `dev` before the v1.9.0 tag was cut.
+
+**Bug fix: `docker-compose.yml` didn't forward `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` to the web container.** Latent since v0.14.0 (when Spotify launched). `next dev` on the dev box reads `.env` directly, so local builds always saw the keys — but production only forwards env vars that are explicitly listed in the `web` service's `environment:` block. The Spotify keys were never on that list, so the production container ran with `SPOTIFY_CLIENT_ID=undefined` no matter what was in `.env`. Surfaced when the user added the keys, restarted the stack, and `docker exec wedding-hub-web-1 printenv | grep SPOTIFY` came back empty.
+
+Fix in [docker-compose.yml](docker-compose.yml) — two new lines on the `web` service:
+
+```yaml
+SPOTIFY_CLIENT_ID: ${SPOTIFY_CLIENT_ID:-}
+SPOTIFY_CLIENT_SECRET: ${SPOTIFY_CLIENT_SECRET:-}
+```
+
+**Production deploy needs a manual compose-file edit** (Compose Manager Plus on Unraid keeps its own copy; the repo's compose file isn't auto-pulled). In CMP → Edit Stack → YAML tab, add the two lines to the `web` service's `environment:` block. Save → Up. After that the `printenv` check will show the values and the Settings → Spotify integration chip will flip to ✓ Configured.
+
+**Book sections aligned with prototype.** The v1.4.0 seed shipped 5 Wedding Book sections (Ceremony, Reception, Logistics, Photography, Wedding party) but the design brief in `prototype/WeddingBookPage.jsx` defines 7 canonical sections (Wedding Party, Venue, Food & Drink, Photography, Guest Experience, Legal & Admin, Accommodation). The v1.0.0 audit flagged the gap as a **MINOR** under design fidelity (`Wedding Book hub has 5 not 7 cards`). v1.9.0 closes it.
 
 **Seed change** ([prisma/seed.ts](prisma/seed.ts) `seedBookSections`):
 
