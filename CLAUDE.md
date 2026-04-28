@@ -61,25 +61,35 @@ Multipart server action at `src/app/(app)/files/actions.ts` writes physical byte
 `postgres:16-alpine`'s built-in `postgres` user is UID **70**. **Don't add `user: "999:999"`** (or any UID other than 70) to the `db` service — it makes `initdb` fail with "Operation not permitted" on the data dir.
 
 ### Local `npm ci` ≠ CI `npm ci` — verify on Linux before tagging
-v1.2.0 → v1.2.1 → v1.2.2 was a debugging cascade caused by the same root
-issue: `npm ci` on Windows was silently more permissive than `npm ci`
-on `node:20-alpine`. The actual breakage was a peer-dep resolution:
-`@auth/prisma-adapter` cascaded `@auth/core@0.41.2` which requires
-`nodemailer ^7.0.7`, conflicting with our pinned `nodemailer ^6.x`.
-Local npm 10 resolved this loosely; CI npm 10.8.2 strictly rejected it.
+v1.2.0 → v1.2.1 → v1.2.2 → v1.2.3 was a debugging cascade with one
+underlying root: `npm ci` on Windows was silently more permissive than
+`npm ci` on `node:20-alpine`. The actual conflict turned out to be
+two **peer-OPTIONAL** nodemailer ranges that cannot both be satisfied:
 
-Mitigations baked in:
-- `nodemailer` pinned to `^7.0.13` (no longer conflicts with `@auth/core`).
-- `next-auth` JWT type augmentation moved from `@auth/core/jwt` →
-  `next-auth/jwt` (since `@auth/core` is now nested inside `next-auth/node_modules`).
-  Requires a side-effect `import "next-auth/jwt"` first so TypeScript
-  can resolve the module before the augmentation pass.
-- `vitest` pinned to `^2.1.9` (battle-tested on alpine).
+- `next-auth@5.0.0-beta.25` peer-wants `nodemailer ^6.6.5`
+- `@auth/core@0.41.2` (cascaded via `@auth/prisma-adapter@2.11.2`)
+  peer-wants `nodemailer ^7.0.7`
+
+Both are **optional** at runtime — neither package `require`s
+nodemailer eagerly — so the conflict is purely declarative. npm 10.x
+strict mode still rejects it in `npm ci`. Fix in the repo:
+
+- [.npmrc](.npmrc) sets `legacy-peer-deps=true`. This matches the
+  Windows resolver behaviour and tells the alpine-CI npm to skip
+  the optional-peer conflict check. **Don't delete this file.**
+- `nodemailer` stays at `^6.10.1` (next-auth's actual runtime peer).
+- `next-auth` JWT type augmentation is at `next-auth/jwt` not
+  `@auth/core/jwt` (since `@auth/core@0.41+` is now nested inside
+  `next-auth/node_modules/`). [src/auth.config.ts](src/auth.config.ts)
+  has a side-effect `import "next-auth/jwt"` first so TS can resolve
+  the module before `declare module` runs.
+- `vitest` pinned to `^2.1.9` (battle-tested on alpine — separate
+  precaution from the above, kept for consistency).
 
 **Standing rule:** before tagging a release that changes deps, run a
 clean `npm ci` against a fresh `node_modules` AND, if at all possible,
-`docker build --target deps` against linux/amd64. Local `npm install`
-on Windows can succeed while CI fails — this has happened twice now.
+`docker build --target deps` against linux/amd64. Don't promote to
+`claude/main` until you've seen GHA go green on the same SHA.
 
 ### Postgres healthcheck `start_period` is 60s
 Slow array fsync makes `initdb`'s shutdown checkpoint take ~22s. The compose's `start_period: 60s` + `retries: 10` accounts for that. Don't tighten without testing on the actual array.

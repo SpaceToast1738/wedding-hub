@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| _(unreleased on `dev`)_ | 2026-04-28 | [v1.2.2 — Bump nodemailer to v7 + fix JWT augmentation (real CI fix)](#2026-04-28--v122--bump-nodemailer-to-v7--fix-jwt-augmentation-real-ci-fix) |
+| _(unreleased on `dev`)_ | 2026-04-28 | [v1.2.3 — `.npmrc` legacy-peer-deps + revert nodemailer to v6 (CI fix, third attempt)](#2026-04-28--v123--npmrc-legacy-peer-deps--revert-nodemailer-to-v6) |
+| v1.2.2 | 2026-04-28 | [Bumped nodemailer to v7 (broke next-auth peer; didn't fix CI)](#2026-04-28--v122--bump-nodemailer-to-v7--fix-jwt-augmentation-real-ci-fix) |
 | v1.2.1 | 2026-04-28 | [Pin Vitest to v2.x (didn't actually fix CI)](#2026-04-28--v121--pin-vitest-to-v2x-to-fix-docker-build) |
 | **v1.2.0** | 2026-04-28 | [Phase R1: trust restoration (audit fixes + Vitest)](#2026-04-28--v120--phase-r1-trust-restoration-audit-fixes--vitest) |
 | v1.1.0 | 2026-04-27 | [At a Glance dashboard](#2026-04-27--v110--at-a-glance-dashboard) |
@@ -233,11 +234,38 @@ When wrapping up a meaningful iteration:
 
 ### Current version
 
-`1.2.2` on `dev`, `claude/main` at `v1.2.1`. v1.2.1's vitest pin didn't fix CI; v1.2.2 patches the real cause (nodemailer / @auth/core peer-dep conflict + JWT augmentation path). Promote to unblock production.
+`1.2.3` on `dev`, `claude/main` at `v1.2.1`. Holding the promote until GHA confirms green on the same SHA — first time we've followed that rule in this session, after burning v1.2.1 and v1.2.2 by promoting prematurely.
 
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-28 · v1.2.3 — .npmrc legacy-peer-deps + revert nodemailer to v6
+
+Honest entry: v1.2.2's nodemailer-7 bump didn't fix CI either — it just swapped which peer-dep was unhappy. The third CI log gave us the full picture:
+
+```
+While resolving: next-auth@5.0.0-beta.25
+  peerOptional nodemailer@"^6.6.5" from next-auth@5.0.0-beta.25  ← wants v6
+Found: nodemailer@7.0.13
+  peerOptional nodemailer@"^7.0.7" from @auth/core@0.41.2        ← wants v7
+Conflicting peer dependency: nodemailer@6.10.1 / 7.0.13
+```
+
+**The fundamental problem:** `next-auth@5.0.0-beta.25` and `@auth/core@0.41.2` (cascaded via `@auth/prisma-adapter@2.11.2`) declare **mutually-incompatible** nodemailer peer ranges. There is **no** nodemailer version that satisfies both. v1.2.1 had `^6.x` (broke @auth/core); v1.2.2 had `^7.x` (broke next-auth).
+
+But: **both ranges are `peerOptional`.** Neither package eagerly requires nodemailer at runtime — the declaration is purely advisory. npm 10's strict mode rejects the conflict anyway during `npm ci`; npm 10 on Windows happens to be lax about it; npm 10.8.2 on `node:20-alpine` enforces it. That asymmetry is the entire reason CI failed while local builds passed three times running.
+
+**Fix (v1.2.3):**
+
+1. **New [`.npmrc`](.npmrc) at the repo root** with `legacy-peer-deps=true`. This tells npm to skip the optional-peer conflict check, matching the Windows resolver behaviour. Documented in the file with the full rationale so future Claude doesn't delete it.
+2. **Revert `nodemailer` to `^6.9.16`** (which `npm install` resolved to `^6.10.1`). next-auth is what actually `require`s nodemailer at runtime, via `next-auth/providers/nodemailer`. Sticking with the version next-auth tested against is safer than v7.
+3. **Keep the JWT augmentation fix from v1.2.2** ([src/auth.config.ts](src/auth.config.ts) — `next-auth/jwt` path with side-effect import). That was the right structural fix regardless of the nodemailer version.
+4. **Keep the vitest 2.x pin from v1.2.1.** Independent precaution, no harm in keeping it.
+
+**Standing rule reinforced in [CLAUDE.md](CLAUDE.md):** before tagging a release with dep changes, watch GHA go green on the same SHA before fast-forwarding `claude/main`. The Windows-vs-Alpine npm asymmetry has burned us three times now.
+
+Verified on a fully wiped `node_modules` from `npm ci`: typecheck clean, lint clean, 60/60 tests, build clean. Holding promotion until GHA confirms green.
 
 ### 2026-04-28 · v1.2.2 — Bump nodemailer to v7 + fix JWT augmentation (real CI fix)
 
