@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { requireUser } from "@/lib/actions";
 import { formatMoneyDecimal } from "@/lib/format";
+import { EmptyPayments, EmptyState } from "@/components/ui/Illustrations";
 import { AddPaymentToggle } from "./AddPaymentToggle";
 import { PaymentRow } from "./PaymentRow";
 
@@ -31,9 +32,11 @@ export default async function PaymentsPage() {
       <div className="flex-1 overflow-auto">
         <div className="max-w-6xl mx-auto p-6">
           {payments.length === 0 ? (
-            <p className="text-sm text-ink-tertiary text-center py-12">
-              No payments yet. Add your first one above.
-            </p>
+            <EmptyState
+              illustration={EmptyPayments}
+              title="No payments yet"
+              body="Add your first one above. Linked payments roll up into the budget actuals."
+            />
           ) : (
             <div className="bg-surface border border-border-soft rounded-md shadow-sm overflow-x-auto">
               <table className="w-full text-sm">

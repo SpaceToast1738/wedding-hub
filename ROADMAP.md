@@ -11,7 +11,7 @@
 - **Repo:** [SpaceToast1738/wedding-hub](https://github.com/SpaceToast1738/wedding-hub) · `claude/main` (releases) + `dev` (work-in-progress)
 - **Stack:** Next.js 15 · TypeScript · Tailwind v4 · Prisma · Postgres 16 · Auth.js v5 · Caddy · Docker Compose
 - **Working tree:** `C:\Users\Admin\Code\wedding-hub` (local SSD). The old `\\TOWER\Jamie Spencer\Claude\wedding-hub` mirror is no longer in use — run `Remove-Item -Recurse -Force "\\TOWER\Jamie Spencer\Claude\wedding-hub"` from a fresh PowerShell to delete it.
-- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` at **v1.13.0**, promoted 28 Apr 2026). `dev` is at **v1.14.0** — Phase R5a closes 4 of the 6 Bucket C drift items the user picked: book-page audience overrides (C1), per-field manual-edit tracking (C4), round-table per-seat dots (C7), schedule motif icons (C11). C8 + C9 marked resolved (already shipped earlier); C2 + C3 + C12 deferred; C5 accepted as drift. R5b (C6 illustrations + C10 custom fields UI) deferred to a focused follow-up session. 149 unit tests.
+- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` at **v1.13.0**, promoted 28 Apr 2026). `dev` is at **v1.15.0** with two pending releases: v1.14.0 (Phase R5a — C1 + C4 + C7 + C11 visual + data drift items) and v1.15.0 (Phase R5b — C6 illustrations ported from prototype + wired into 5 empty-states and the Wedding Book hub; C10 Custom Fields UI for Guest with full CRUD in Settings + per-guest editing on detail page, type-safe parsing for text/number/date/select). **Bucket C scoreboard: 8/12 shipped, 4 accepted as drift.** 167 unit tests.
 
 ## Phase status
 
@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.14.0** | 2026-04-28 | [Phase R5a: Bucket C drift decisions (C1 + C4 + C7 + C11)](#2026-04-28--v1140--phase-r5a-bucket-c-drift-decisions-c1--c4--c7--c11) |
+| **v1.15.0** | 2026-04-28 | [Phase R5b: illustrations ported + Custom Fields UI (C6 + C10)](#2026-04-28--v1150--phase-r5b-illustrations-ported--custom-fields-ui-c6--c10) |
+| v1.14.0 | 2026-04-28 | [Phase R5a: Bucket C drift decisions (C1 + C4 + C7 + C11)](#2026-04-28--v1140--phase-r5a-bucket-c-drift-decisions-c1--c4--c7--c11) |
 | v1.13.0 | 2026-04-28 | [Phase R4c: polish MINORs (B6 + B7 + B9) — Bucket B complete](#2026-04-28--v1130--phase-r4c-polish-minors-b6--b7--b9--bucket-b-complete) |
 | v1.12.0 | 2026-04-28 | [Phase R4b: data + UX MINORs (B5 + B8 + B11 + B12)](#2026-04-28--v1120--phase-r4b-data--ux-minors-b5--b8--b11--b12) |
 | v1.11.0 | 2026-04-28 | [Phase R4a: workflow polish (B1 + B2 + B3 + B4)](#2026-04-28--v1110--phase-r4a-workflow-polish-b1--b2--b3--b4) |
@@ -250,6 +251,28 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-28 · v1.15.0 — Phase R5b: illustrations ported + Custom Fields UI (C6 + C10)
+
+The two larger-surface items from the user's Bucket C build list. Both shipped together because they're orthogonal — illustrations touch presentation, custom fields touch data — and bundling kept the deploy cycle short.
+
+**C6 — Illustration set with light/dark variants per scene.** The prototype (`prototype/illustrations.jsx`) had 19 SVG components using CSS-variable theming, none of which had ever made it into production — empty states shipped as plain `<p>No items yet.</p>` text. This release ports 14 of them into [src/components/ui/Illustrations.tsx](src/components/ui/Illustrations.tsx) (the 6 motif icons in v1.14.0's `EventMotifIcon` already covered the 16px set). Variable substitution: prototype's `var(--moss-500)` → production's `var(--color-moss-500)`; same for marigold, surface, etc. Theming carries through to dark mode automatically.
+
+Wired into:
+- **Wedding Book hub** — `bookSceneFor(slug)` resolves a 44px scene illustration per known section slug (wedding-party, venue, food-drink, photography, guest-experience, legal-admin, accommodation). Falls through to the existing emoji glyph for legacy/user-created sections.
+- **Empty states** — new shared `<EmptyState illustration={…} title body action />` component renders the SVG + a friendlier title/body. Used at `/schedule` (no events), `/seating` (no tables), `/payments` (no payments), `/tasks` (no tasks match filter), `/guests` search-with-no-results.
+
+**C10 — Custom Fields UI.** The `CustomField` registry table existed in the schema with zero references in code. This release wires it end-to-end for **Guest** (other entities can be added later by extending the entity dropdown).
+
+- **Schema:** additive Prisma migration adds `Guest.customFieldValues Json?` for the per-guest value bag. Keyed by `CustomField.id`.
+- **Pure helpers** at [src/lib/custom-fields.ts](src/lib/custom-fields.ts) — `parseCustomFieldValue` validates against the field's type (`text` / `number` / `date` / `select`), throws structured errors that the toast UX surfaces. `formatCustomFieldValue` for display ("—" for null, en-GB locale for numbers, "1 Sep 2026" for dates). `mergeCustomFieldValue` merges into the existing JSON without mutation; `null` value drops the key entirely. 18 unit tests.
+- **Settings panel** at [CustomFieldsPanel.tsx](src/app/(app)/settings/CustomFieldsPanel.tsx) — couple-only CRUD for definitions. Add field with name + type + (for `select`) comma-separated options. Non-couple users see a read-only list so they understand what's available.
+- **Guest detail block** at [guests/[id]/CustomFieldsBlock.tsx](src/app/(app)/guests/[id]/CustomFieldsBlock.tsx) — renders one row per definition with click-to-edit inline forms. Type-correct inputs (`<input type="number">`, `<input type="date">`, `<select>` with options). Errors surface as toasts via the v1.12.0 `notify` bus.
+- **Server action** at [guests/actions.ts](src/app/(app)/guests/actions.ts) — `setGuestCustomField(guestId, fieldId, rawValue)` re-validates server-side (never trust the client), writes the typed value into the JSON column, audits the change.
+
+**Files changed:** 11 modified, 5 new, 1 migration. 18 new unit tests (167 total). Build, lint, typecheck, e2e all green.
+
+**Bucket C final tally — 8/12 shipped:** C1, C4, C6, C7, C8, C9, C10, C11. Accepted as drift / deferred: C2, C3, C5, C12. Every item from REMEDIATION-PLAN's Bucket C now has a closed status. Only **R6** (backup hardening + restore drill) remains in the post-audit programme.
 
 ### 2026-04-28 · v1.14.0 — Phase R5a: Bucket C drift decisions (C1 + C4 + C7 + C11)
 

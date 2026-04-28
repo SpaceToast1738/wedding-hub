@@ -7,6 +7,13 @@ import { db } from "@/lib/db";
 import { audit, requireEdit } from "@/lib/actions";
 import { decidePlusOneAction } from "@/lib/plus-one";
 import { diffEditedFields, mergeEditedFields, type EditedFieldsMap } from "@/lib/last-edited-fields";
+import {
+  parseCustomFieldValue,
+  mergeCustomFieldValue,
+  type CustomFieldDef,
+  type CustomFieldType,
+  type CustomFieldValues,
+} from "@/lib/custom-fields";
 
 const householdSchema = z.object({
   name: z.string().min(1).max(200),
@@ -432,4 +439,55 @@ export async function addSongRequestForGuest(formData: FormData) {
   });
   revalidatePath(`/guests/${parsed.guestId}`);
   revalidatePath("/songs");
+}
+
+// ── C10 (v1.15.0): per-guest custom field value writes ────────────────────
+//
+// One field at a time. Settings UI defines the shape; this writes a
+// single value into the Guest's `customFieldValues` JSON column. Type
+// validation lives in `parseCustomFieldValue` so the parsed/typed value
+// is what lands on disk.
+
+export async function setGuestCustomField(
+  guestId: string,
+  fieldId: string,
+  rawValue: string | null,
+) {
+  const user = await requireEdit("guests");
+  const def = await db.customField.findUnique({ where: { id: fieldId } });
+  if (!def || def.entity !== "guest") {
+    throw new Error("Custom field not found for this entity");
+  }
+  const guest = await db.guest.findUnique({
+    where: { id: guestId },
+    select: { customFieldValues: true, archived: true },
+  });
+  if (!guest) throw new Error("Guest not found");
+  if (guest.archived) throw new Error("Guest is archived");
+
+  const typedDef: CustomFieldDef = {
+    id: def.id,
+    entity: def.entity,
+    name: def.name,
+    type: def.type as CustomFieldType,
+    options: def.options,
+    order: def.order,
+  };
+  const value = parseCustomFieldValue(typedDef, rawValue);
+  const next = mergeCustomFieldValue(
+    (guest.customFieldValues as CustomFieldValues | null) ?? null,
+    fieldId,
+    value,
+  );
+  await db.guest.update({
+    where: { id: guestId },
+    data: { customFieldValues: next },
+  });
+  await audit(user, {
+    action: "update",
+    entity: "Guest",
+    entityId: guestId,
+    metadata: { customField: def.name, fieldId },
+  });
+  revalidatePath(`/guests/${guestId}`);
 }

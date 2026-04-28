@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { EmptyTasks, EmptyState } from "@/components/ui/Illustrations";
 import { TaskRow } from "./TaskRow";
 import { TaskBoard } from "./TaskBoard";
 import { FilterTabs, type Filter, type View } from "./FilterTabs";
@@ -76,9 +77,11 @@ export function TaskList({
         <div className="flex-1 overflow-auto">
           <div className="max-w-4xl mx-auto p-6">
             {filtered.length === 0 ? (
-              <p className="text-sm text-ink-tertiary text-center py-12">
-                No tasks match this filter.
-              </p>
+              <EmptyState
+                illustration={EmptyTasks}
+                title="Nothing on this list"
+                body="Try a different filter, or add a task with the C shortcut anywhere in the app."
+              />
             ) : (
               <ol className="bg-surface border border-border-soft rounded-md shadow-sm">
                 {filtered.map((t) => {

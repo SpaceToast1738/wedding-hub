@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { EmptySearch, EmptyState } from "@/components/ui/Illustrations";
 import { HouseholdBlock } from "./HouseholdBlock";
 
 // Loose `Household` type — matches what /guests/page.tsx hands us.
@@ -81,9 +82,15 @@ export function GuestList<T extends Household>({
       </div>
 
       {filtered.length === 0 ? (
-        <p className="text-sm text-ink-tertiary text-center py-12">
-          {trimmed ? `No households or guests match "${query}".` : "No households yet."}
-        </p>
+        trimmed ? (
+          <EmptyState
+            illustration={EmptySearch}
+            title={`No matches for "${query}"`}
+            body="Try a different name or part of a household. Search is case-insensitive."
+          />
+        ) : (
+          <p className="text-sm text-ink-tertiary text-center py-12">No households yet.</p>
+        )
       ) : (
         <div className="space-y-4">
           {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}

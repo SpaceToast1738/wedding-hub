@@ -154,6 +154,12 @@ model Guest {
   // ago — overwrite?" before re-importing. Null on rows that haven't
   // been manually edited since C4 shipped (most existing rows).
   lastEditedFields Json?
+  // C10 (v1.15.0): per-guest custom field values. Keyed by
+  // CustomField.id; value type matches the field's `type` column
+  // (text → string, number → number, date → ISO string, select →
+  // string from `options`). Validation happens at write time in the
+  // server action. Null when no custom fields are populated.
+  customFieldValues Json?
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
 

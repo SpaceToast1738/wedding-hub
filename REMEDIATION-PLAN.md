@@ -94,12 +94,13 @@ These are brief expectations that don't match the shipped artifact.
 The user walked through each on 28 Apr 2026 and assigned a decision —
 recorded in the Status column.
 
-> **Decisions (28 Apr 2026):**
-> - **R5a (v1.14.0 — planned):** Build C1, C4, C7, C11.
-> - **R5b (separate session, planned):** Build C6, C10.
-> - **Accept drift:** C5 (backup off-site is documented in R6, not built into the app).
+> **Decisions (28 Apr 2026) — Bucket C complete:**
+> - **R5a (v1.14.0):** ✅ C1, C4, C7, C11 shipped.
+> - **R5b (v1.15.0):** ✅ C6, C10 shipped.
+> - **Already resolved:** C8 (v1.9.0), C9 (v1.3.0).
+> - **Accept drift:** C5 (R6 doc-only).
 > - **Defer:** C2, C3, C12.
-> - **Already resolved:** C8 (v1.9.0 added the missing sections), C9 (v1.3.0 ships opportunistic prune on every check — sufficient at our scale).
+> - **8/12 shipped, 4/12 acknowledged drift.**
 
 | ID | Drift item | Status | Notes |
 |---|---|---|---|
@@ -108,11 +109,11 @@ recorded in the Status column.
 | **C3** | `BudgetLineItem` quantity × unit cost | 🟠 deferred | Brief over-spec'd; single-amount model works for a wedding. |
 | **C4** | Per-field edit-tracking on import | ✅ shipped v1.14.0 | `Guest.lastEditedFields Json?` populated by `updateGuest`. Pure helpers in `src/lib/last-edited-fields.ts`. Import preview surfaces "you edited X N days ago — re-importing will overwrite" warnings for fields manually edited in the last 14 days. |
 | **C5** | B2 / Google Drive backup targets | 🟠 accept drift | Local pg_dump + manual off-site is fine; document the procedure in R6. The practical risk (Unraid array failure) is mitigated by a monthly manual download. |
-| **C6** | Illustration set with light/dark variants per scene | 🟡 R5b | Prototype already has 19 illustration components (`prototype/illustrations.jsx`) using CSS-variable theming. Port + integrate into empty-states + hero slots. |
+| **C6** | Illustration set with light/dark variants per scene | ✅ shipped v1.15.0 | 14 SVG components ported from prototype with `--color-*` token substitution. Wedding Book hub uses 44px scene illustrations per known slug; empty states on schedule/seating/payments/tasks/guest-search use a shared `<EmptyState>` component with the 120×100 illustrations. CSS-variable theming carries dark mode through automatically. |
 | **C7** | Round-table per-seat position dots | ✅ shipped v1.14.0 | SVG dots evenly spaced around each round table just outside the circumference. Filled (moss) = occupied; outlined = empty. Seat 0 at "twelve o'clock". HEAD tables unchanged. |
 | **C8** | Wedding Book hub: 5 cards, brief expected 7 | ✅ resolved v1.9.0 | Hub now has prototype's 7 + 3 legacy = 10 cards. |
 | **C9** | Magic-link prune table cron | ✅ resolved v1.3.0 | Opportunistic prune runs on every rate-limit check (A3). Cron isn't needed at our scale. |
-| **C10** | Custom Fields UI | 🟡 R5b | Schema has a `CustomField` registry table (definitions only) but no instance-data column on entities. Build = add `customFieldValues Json?` to relevant entities + Settings UI to define fields + render per-entity. |
+| **C10** | Custom Fields UI | ✅ shipped v1.15.0 | Wired end-to-end for Guest. Migration adds `Guest.customFieldValues Json?`. Pure helpers at `src/lib/custom-fields.ts` parse/format per type (text/number/date/select). Couple-only Settings panel for CRUD; per-guest inline editing on the detail page with type-correct inputs. Server-side re-validation; toast-surfaced errors. Other entities (Supplier/Task) deferred — extend the entity dropdown when needed. |
 | **C11** | Schedule motif icons (ring/candle/plate per event) | ✅ shipped v1.14.0 | Six 16px SVG icons ported from prototype with CSS-variable theming. Pure `classifyEventMotif` heuristic does word-boundary regex matching, falls through to no-icon when nothing fits. Wired into both Schedule timeline and table views. |
 | **C12** | A3-landscape Seating print + "DRAFT" watermark | 🟠 deferred | Seating canvas isn't print-friendly; the catering brief already gives the venue a per-table breakdown. Low value before the wedding. |
 

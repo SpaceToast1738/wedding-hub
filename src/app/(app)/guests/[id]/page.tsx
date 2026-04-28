@@ -7,6 +7,8 @@ import { canEdit, canView } from "@/lib/permissions";
 import { requireUser } from "@/lib/actions";
 import { GuestDetailClient } from "./GuestDetailClient";
 import { AddSongRequestInline } from "./AddSongRequestInline";
+import { CustomFieldsBlock } from "./CustomFieldsBlock";
+import type { CustomFieldDef } from "@/lib/custom-fields";
 
 const RSVP_PILL: Record<string, "YES" | "NO" | "PENDING"> = {
   ATTENDING: "YES",
@@ -44,6 +46,23 @@ export default async function GuestDetailPage({
   if (!guest || guest.archived) notFound();
 
   const siblings = guest.household.guests.filter((g) => g.id !== guest.id);
+
+  // C10: pull definitions for the Guest entity. Order matches the
+  // Settings panel (by `order` column).
+  const customFieldDefs = await db.customField.findMany({
+    where: { entity: "guest" },
+    orderBy: { order: "asc" },
+  });
+  const customFieldDefsTyped: CustomFieldDef[] = customFieldDefs.map((f) => ({
+    id: f.id,
+    entity: f.entity,
+    name: f.name,
+    type: f.type as "text" | "number" | "date" | "select",
+    options: f.options,
+    order: f.order,
+  }));
+  const customFieldValues =
+    (guest.customFieldValues as Record<string, string | number | null> | null) ?? {};
 
   const detailFields: Array<{ label: string; value: React.ReactNode }> = [
     { label: "Email", value: guest.email || <Empty /> },
@@ -203,6 +222,13 @@ export default async function GuestDetailPage({
               </pre>
             </section>
           )}
+
+          <CustomFieldsBlock
+            guestId={guest.id}
+            fields={customFieldDefsTyped}
+            values={customFieldValues}
+            canEdit={editable}
+          />
 
           {/* Song requests */}
           <section className="bg-surface border border-border-soft rounded-md shadow-sm">

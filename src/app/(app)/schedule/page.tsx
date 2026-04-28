@@ -2,6 +2,7 @@ import { db } from "@/lib/db";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { canEdit } from "@/lib/permissions";
 import { requireUser } from "@/lib/actions";
+import { EmptySchedule, EmptyState } from "@/components/ui/Illustrations";
 import { ScheduleClient } from "./ScheduleClient";
 import { AddEventToggle } from "./AddEventToggle";
 import { PrintScheduleButton } from "./PrintScheduleButton";
@@ -43,9 +44,11 @@ export default async function SchedulePage() {
           </div>
 
           {events.length === 0 ? (
-            <p className="text-sm text-ink-tertiary text-center py-12">
-              No events yet. {editable && "Add the first one above."}
-            </p>
+            <EmptyState
+              illustration={EmptySchedule}
+              title="No events yet"
+              body={editable ? "Add the first one above to start your day-of timeline." : "The couple hasn't scheduled anything yet."}
+            />
           ) : (
             <ScheduleClient
               events={events.map((e) => ({

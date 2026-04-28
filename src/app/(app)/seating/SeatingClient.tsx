@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { TableShape } from "@prisma/client";
+import { EmptySeating, EmptyState } from "@/components/ui/Illustrations";
 import { SeatingCanvas } from "./SeatingCanvas";
 import { TableCard } from "./TableCard";
 
@@ -112,9 +113,11 @@ function ListView({
     <div className="flex-1 overflow-auto">
       <div className="max-w-6xl mx-auto p-6 space-y-4">
         {tables.length === 0 ? (
-          <p className="text-sm text-ink-tertiary text-center py-12">
-            No tables yet. {canEdit && "Add the first one above."}
-          </p>
+          <EmptyState
+            illustration={EmptySeating}
+            title="No tables yet"
+            body={canEdit ? "Add the first table above and drag guests in." : "The couple hasn't set up the seating plan yet."}
+          />
         ) : (
           <div className="grid gap-3 lg:grid-cols-2">
             {tables.map((t) => (

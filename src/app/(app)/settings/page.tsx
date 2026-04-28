@@ -6,18 +6,20 @@ import { isSpotifyConfigured } from "@/lib/spotify";
 import { PermissionMatrix } from "./PermissionMatrix";
 import { MyProfilePanel } from "./MyProfilePanel";
 import { SpotifySettingsPanel } from "./SpotifySettingsPanel";
+import { CustomFieldsPanel } from "./CustomFieldsPanel";
 
 export default async function SettingsPage() {
   const user = await requireUser();
   const editable = await canEdit(user, "settings");
 
-  const [users, permissions, me] = await Promise.all([
+  const [users, permissions, me, customFields] = await Promise.all([
     db.user.findMany({ orderBy: [{ isCouple: "desc" }, { name: "asc" }] }),
     db.permission.findMany(),
     db.user.findUnique({
       where: { id: user.id },
       select: { firstName: true, lastName: true, email: true },
     }),
+    db.customField.findMany({ orderBy: [{ entity: "asc" }, { order: "asc" }] }),
   ]);
 
   const spotifyConfigured = isSpotifyConfigured();
@@ -38,6 +40,17 @@ export default async function SettingsPage() {
           />
 
           <SpotifySettingsPanel configured={spotifyConfigured} isCouple={user.isCouple} />
+
+          <CustomFieldsPanel
+            fields={customFields.map((f) => ({
+              id: f.id,
+              entity: f.entity,
+              name: f.name,
+              type: f.type as "text" | "number" | "date" | "select",
+              options: f.options,
+            }))}
+            isCouple={user.isCouple}
+          />
 
           {editable && (
             <div className="bg-marigold-100/40 border border-marigold-700/20 text-marigold-700 rounded-md px-4 py-2.5 text-xs">

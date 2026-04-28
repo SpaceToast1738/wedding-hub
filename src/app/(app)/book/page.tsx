@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { canEdit, canView } from "@/lib/permissions";
 import { requireUser } from "@/lib/actions";
+import { bookSceneFor } from "@/components/ui/Illustrations";
 import { AddSectionToggle } from "./AddSectionToggle";
 
 // Per-section visual treatment to match the prototype's BookCard.
@@ -142,9 +143,19 @@ export default async function BookHubPage() {
                     ].join(" ")}
                   >
                     <div className="flex items-start justify-between w-full">
-                      <span className="text-3xl leading-none" aria-hidden>
-                        {meta.glyph}
-                      </span>
+                      {(() => {
+                        // C6: prefer the SVG scene illustration when one
+                        // exists for this slug. Falls through to the
+                        // emoji glyph for legacy/user-created sections.
+                        const Scene = bookSceneFor(s.slug);
+                        return Scene ? (
+                          <Scene size={44} />
+                        ) : (
+                          <span className="text-3xl leading-none" aria-hidden>
+                            {meta.glyph}
+                          </span>
+                        );
+                      })()}
                       <span className="text-sm text-ink-tertiary opacity-50">→</span>
                     </div>
                     <div className="mt-auto">
