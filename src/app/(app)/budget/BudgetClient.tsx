@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { formatMoneyDecimal } from "@/lib/format";
+import { computeActual, isManualOverride, sumOfPayments } from "@/lib/budget";
 import { createCategory, createLine, deleteCategory, deleteLine, updateLine } from "./actions";
 
 type Supplier = { id: string; name: string };
@@ -16,6 +17,8 @@ type Line = {
   paid: { toString: () => string } | null;
   supplierId: string | null;
   notes: string | null;
+  // B2: linked payments so `actual` can be recomputed when null.
+  payments: { amount: string }[];
 };
 
 type Category = { id: string; name: string; lines: Line[] };
@@ -31,7 +34,7 @@ export function BudgetClient({ categories, suppliers }: { categories: Category[]
     (acc, c) => {
       for (const l of c.lines) {
         acc.estimated += num(l.estimated);
-        acc.actual += num(l.actual);
+        acc.actual += computeActual(l);
         acc.paid += num(l.paid);
       }
       return acc;
@@ -139,7 +142,7 @@ function CategoryBlock({ category, suppliers }: { category: Category; suppliers:
   const subtotals = category.lines.reduce(
     (acc, l) => ({
       estimated: acc.estimated + num(l.estimated),
-      actual: acc.actual + num(l.actual),
+      actual: acc.actual + computeActual(l),
       paid: acc.paid + num(l.paid),
     }),
     { estimated: 0, actual: 0, paid: 0 },
@@ -238,6 +241,8 @@ function LineRow({ line, categoryId, suppliers }: { line: Line; categoryId: stri
               supplierId: line.supplierId,
               notes: line.notes ?? "",
             }}
+            paymentsSum={sumOfPayments(line)}
+            paymentsCount={line.payments.length}
             onDone={() => setEditing(false)}
             existingId={line.id}
             submitLabel="Save"
@@ -247,6 +252,13 @@ function LineRow({ line, categoryId, suppliers }: { line: Line; categoryId: stri
     );
   }
 
+  // B2: actual is the manual override if set, otherwise sum of payments.
+  // The "Σ" pill marks computed totals so the user can tell at a glance
+  // which lines are pinned vs. derived.
+  const actualResolved = computeActual(line);
+  const isManual = isManualOverride(line);
+  const paymentsSum = sumOfPayments(line);
+
   return (
     <tr className="border-b border-border-soft last:border-b-0 hover:bg-muted/30">
       <td className="px-4 py-2">
@@ -254,7 +266,16 @@ function LineRow({ line, categoryId, suppliers }: { line: Line; categoryId: stri
         {line.notes && <div className="text-xs text-ink-tertiary line-clamp-1">{line.notes}</div>}
       </td>
       <td className="px-4 py-2 text-right text-sm text-ink-secondary tabular-nums">{formatMoneyDecimal(line.estimated)}</td>
-      <td className="px-4 py-2 text-right text-sm text-ink-secondary tabular-nums">{formatMoneyDecimal(line.actual)}</td>
+      <td className="px-4 py-2 text-right text-sm text-ink-secondary tabular-nums">
+        <span title={isManual
+          ? `Manual override. Sum of ${line.payments.length} payment${line.payments.length === 1 ? "" : "s"}: ${formatMoneyDecimal(paymentsSum as unknown as { toString(): string })}`
+          : `Computed from ${line.payments.length} payment${line.payments.length === 1 ? "" : "s"}. Edit and set "Actual" to pin a manual override.`}>
+          {formatMoneyDecimal(actualResolved as unknown as { toString(): string })}
+          {!isManual && line.payments.length > 0 && (
+            <span className="ml-1 text-[9px] text-ink-tertiary font-bold">Σ</span>
+          )}
+        </span>
+      </td>
       <td className="px-4 py-2 text-right text-sm text-moss-700 tabular-nums font-medium">{formatMoneyDecimal(line.paid)}</td>
       <td className="px-4 py-2 text-xs text-ink-tertiary truncate">{supplierName ?? "—"}</td>
       <td className="px-4 py-2">
@@ -274,6 +295,8 @@ function NewLineForm({
   initial,
   existingId,
   submitLabel = "Add line",
+  paymentsSum,
+  paymentsCount,
 }: {
   categoryId: string;
   suppliers: Supplier[];
@@ -288,9 +311,15 @@ function NewLineForm({
   };
   existingId?: string;
   submitLabel?: string;
+  // B2: when editing an existing line, pass through the payments sum so
+  // the form can show "Computed from £X" beneath the Actual field.
+  paymentsSum?: number;
+  paymentsCount?: number;
 }) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const hasManualActual = !!initial?.actual;
+  const hasPayments = (paymentsCount ?? 0) > 0;
 
   async function handle(formData: FormData) {
     setError(null);
@@ -314,13 +343,21 @@ function NewLineForm({
       <div className="grid grid-cols-1 md:grid-cols-6 gap-2">
         <Input name="description" defaultValue={initial?.description ?? ""} required placeholder="Item description" className="md:col-span-2" />
         <Input name="estimated" type="number" step="0.01" defaultValue={initial?.estimated ?? ""} placeholder="Planned £" />
-        <Input name="actual" type="number" step="0.01" defaultValue={initial?.actual ?? ""} placeholder="Actual £" />
+        <Input name="actual" type="number" step="0.01" defaultValue={initial?.actual ?? ""}
+          placeholder={hasPayments && !hasManualActual ? `Σ £${(paymentsSum ?? 0).toFixed(2)}` : "Actual £"} />
         <Input name="paid" type="number" step="0.01" defaultValue={initial?.paid ?? ""} placeholder="Paid £" />
         <select name="supplierId" defaultValue={initial?.supplierId ?? ""} className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2 py-1.5 text-ink-primary outline-none">
           <option value="">— supplier —</option>
           {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
         </select>
       </div>
+      {existingId && hasPayments && (
+        <p className="text-[11px] text-ink-tertiary">
+          {hasManualActual
+            ? `Manual override active. Clear "Actual" to recompute from payments (£${(paymentsSum ?? 0).toFixed(2)} across ${paymentsCount} payment${paymentsCount === 1 ? "" : "s"}).`
+            : `Actual is computed from ${paymentsCount} payment${paymentsCount === 1 ? "" : "s"} (£${(paymentsSum ?? 0).toFixed(2)}). Set a value to pin a manual override.`}
+        </p>
+      )}
       <textarea name="notes" defaultValue={initial?.notes ?? ""} rows={2} placeholder="Notes (optional)"
         className="w-full text-xs bg-surface text-ink-primary border border-border-soft rounded-sm px-2.5 py-1.5 outline-none focus:border-moss-500" />
       {error && <p className="text-xs text-danger">{error}</p>}

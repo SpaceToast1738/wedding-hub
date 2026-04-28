@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import Link from "next/link";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import {
@@ -471,6 +472,15 @@ function CommunicationsSection({
                     <span className="text-[10px] text-marigold-700 bg-marigold-100 px-1 rounded">
                       Follow-up {formatDate(c.followUpAt)}
                     </span>
+                  )}
+                  {c.followUpAt && (
+                    <Link
+                      href={`/tasks`}
+                      className="text-[10px] text-info bg-[color:#eef4f5] dark:bg-muted border border-[color:#d0e4e8] dark:border-border-soft px-1 rounded hover:bg-[color:#e0eef0]"
+                      title="A task was auto-created for this follow-up — click to open Tasks"
+                    >
+                      Task ↗
+                    </Link>
                   )}
                 </div>
                 <p className="text-sm text-ink-primary mt-1 whitespace-pre-wrap">{c.summary}</p>

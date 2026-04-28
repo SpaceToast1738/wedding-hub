@@ -61,12 +61,16 @@ These hurt ergonomics in real use but don't block the app. Schedule
 across multiple sessions; prioritise by which workflow the couple uses
 most.
 
-| ID | Finding | Severity | Size | Notes |
-|---|---|---|---|---|
-| **B1** | CSV import preview: no per-field diff on merge rows | MAJOR | M (~3 hrs) | Add a per-field "old → new" view inside the merge-row expansion. Optionally let user uncheck individual field overwrites. Closes the "anxiety on re-import" friction Bryony raised. |
-| **B2** | `BudgetLine.actual` doesn't recompute from `Payment` rows | MAJOR | M–L (~3–4 hrs) | Decision needed: compute on read, or persist + update via Payment hooks. Recommendation: compute on read using a Prisma include + reduce. Stored `actual` becomes "manual override if non-null". |
-| **B3** | `SupplierCommunication.followUpAt` doesn't auto-create a Task | MAJOR | S (~1.5 hrs) | When `followUpAt` set, also create a Task with title `Follow up: <summary>`, due=followUpAt, with metadata pointing back to the supplier. Display a chip on the comm entry showing "Task created". |
-| **B4** | Supplier card lacks last-message summary | MINOR | XS (~30 min) | Pull most recent `SupplierCommunication.summary` (truncated) into `SupplierCard`. |
+> **Status:** B1, B2, B3, B4 shipped in v1.11.0 (Phase R4a, 28 Apr 2026).
+> B10 and B13 were already done before R4a started. The remaining
+> items (B5–B9, B11, B12) are scheduled for R4b / R4c.
+
+| ID | Finding | Severity | Size | Status | Notes |
+|---|---|---|---|---|---|
+| **B1** | CSV import preview: no per-field diff on merge rows | MAJOR | M (~3 hrs) | ✅ shipped v1.11.0 | Pure `decideGuestMerge` in `src/lib/csv-merge.ts`; preview rows carry `fieldDiffs[]`; expandable disclosure with per-field opt-out checkboxes; opt-outs surface in the audit metadata too. |
+| **B2** | `BudgetLine.actual` doesn't recompute from `Payment` rows | MAJOR | M–L (~3–4 hrs) | ✅ shipped v1.11.0 | Compute on read via `computeActual` in `src/lib/budget.ts`. Stored `actual` is the manual override; null = sum-of-payments. Additive migration adds `@@index([budgetLineId])`. UI relabels the edit form ("Manual override / clear to recompute"). |
+| **B3** | `SupplierCommunication.followUpAt` doesn't auto-create a Task | MAJOR | S (~1.5 hrs) | ✅ shipped v1.11.0 | Comm + auto-task in a single `db.$transaction`. Tag-based linkage (`["supplier-follow-up", "supplier:<id>", "comm:<id>"]`) avoids a schema change. Comm log shows a "Task ↗" pill next to the follow-up date. |
+| **B4** | Supplier card lacks last-message summary | MINOR | XS (~30 min) | ✅ shipped v1.11.0 | Supplier list query now `include`s the most-recent comm; card renders muted "Last (channel, relative date): <summary truncated>". |
 | **B5** | F5 — Server-action errors throw raw `Error` | MINOR | S (~1 hr) | Replace `throw new Error("Forbidden")` with a structured "you don't have edit access" UX. Surface a friendly toast rather than a Next error overlay. |
 | **B6** | Quick-capture Event lands at next round hour with no time picker | MINOR | S (~1 hr) | Add an inline date+time field to the modal when type=Event, default to next hour but visible/editable. |
 | **B7** | Mobile schedule doesn't auto-scroll to NOW | MINOR | XS (~20 min) | `scrollIntoView` on the NOW event on mount (day-of page only). |

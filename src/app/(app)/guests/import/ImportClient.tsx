@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/Button";
 import { GUEST_FIELD_LABELS, MULTI_VALUE_FIELDS, type GuestField, inferMapping, parseCsv } from "@/lib/csv";
+import type { MergeableField } from "@/lib/csv-merge";
 import { commitImport, previewImport, type ImportPreview } from "./actions";
 
 const SAMPLE = `First Name,Last Name,Email,Household,Side,RSVP,Plus One Allowed,Dietary
@@ -30,7 +31,11 @@ export function ImportClient() {
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [committing, startCommit] = useTransition();
   const [previewing, startPreview] = useTransition();
-  const [committed, setCommitted] = useState<{ created: number; updated: number; skipped: number; songs: number; tables: number } | null>(null);
+  const [committed, setCommitted] = useState<{ created: number; updated: number; skipped: number; songs: number; tables: number; optOuts: number } | null>(null);
+  // B1: per-row, per-field opt-out from the merge UI. Keyed on
+  // ImportRowPreview.rowIndex (1-based). Empty set = apply all diffs;
+  // entries with field names = skip those overwrites for that row.
+  const [optOut, setOptOut] = useState<Record<number, Set<MergeableField>>>({});
 
   // Re-parse headers + suggest mapping whenever the user edits the textarea.
   useEffect(() => {
@@ -93,9 +98,16 @@ export function ImportClient() {
     }
     msg += `\n\nProceed?`;
     if (!confirm(msg)) return;
+    // Serialise opt-out: only include rows that have at least one
+    // un-ticked field.
+    const optOutPayload: Record<string, string[]> = {};
+    for (const [rowIndex, fields] of Object.entries(optOut)) {
+      if (fields.size === 0) continue;
+      optOutPayload[rowIndex] = [...fields];
+    }
     startCommit(async () => {
       try {
-        const result = await commitImport({ text, mapping });
+        const result = await commitImport({ text, mapping, optOut: optOutPayload });
         setCommitted(result);
       } catch (err) {
         setPreviewError(err instanceof Error ? err.message : "Import failed");
@@ -118,6 +130,7 @@ export function ImportClient() {
     if (committed.updated > 0) lines.push(`Merged into ${committed.updated} existing guest${committed.updated === 1 ? "" : "s"}`);
     if (committed.tables > 0) lines.push(`${committed.tables} new table${committed.tables === 1 ? "" : "s"} (auto-seated)`);
     if (committed.songs > 0) lines.push(`${committed.songs} song request${committed.songs === 1 ? "" : "s"}`);
+    if (committed.optOuts > 0) lines.push(`${committed.optOuts} field${committed.optOuts === 1 ? "" : "s"} preserved (you opted out)`);
     return (
       <div className="flex-1 overflow-auto">
         <div className="max-w-2xl mx-auto p-6">
@@ -254,7 +267,24 @@ export function ImportClient() {
         )}
 
         {preview && (
-          <PreviewPanel preview={preview} onCommit={commit} committing={committing} />
+          <PreviewPanel
+            preview={preview}
+            onCommit={commit}
+            committing={committing}
+            optOut={optOut}
+            onToggleOptOut={(rowIndex, field) => {
+              setOptOut((prev) => {
+                const next = { ...prev };
+                const current = next[rowIndex] ?? new Set<MergeableField>();
+                const updated = new Set(current);
+                if (updated.has(field)) updated.delete(field);
+                else updated.add(field);
+                if (updated.size === 0) delete next[rowIndex];
+                else next[rowIndex] = updated;
+                return next;
+              });
+            }}
+          />
         )}
       </div>
     </div>
@@ -352,12 +382,19 @@ function PreviewPanel({
   preview,
   onCommit,
   committing,
+  optOut,
+  onToggleOptOut,
 }: {
   preview: ImportPreview;
   onCommit: () => void;
   committing: boolean;
+  optOut: Record<number, Set<MergeableField>>;
+  onToggleOptOut: (rowIndex: number, field: MergeableField) => void;
 }) {
   const [showAll, setShowAll] = useState(false);
+  // Per-row "show changes" disclosure state. Persists across re-renders;
+  // collapsed by default to keep the table dense.
+  const [expanded, setExpanded] = useState<Set<number>>(new Set());
   const visibleRows = showAll ? preview.rows : preview.rows.slice(0, 12);
 
   return (
@@ -390,26 +427,50 @@ function PreviewPanel({
             </tr>
           </thead>
           <tbody>
-            {visibleRows.map((r) => {
+            {visibleRows.flatMap((r) => {
               const hasError = r.errors.length > 0;
               const mealBits = [r.mealStarter && "S", r.mealMain && "M", r.mealDessert && "D"].filter(Boolean);
-              return (
+              const isExpanded = expanded.has(r.rowIndex);
+              const hasDiffs = r.guestAction === "update" && r.fieldDiffs.length > 0;
+              const optOutForRow = optOut[r.rowIndex] ?? new Set<MergeableField>();
+              const rows: ReactNode[] = [];
+              rows.push(
                 <tr
                   key={r.rowIndex}
-                  className={["border-b border-border-soft last:border-b-0", hasError ? "bg-danger-bg/40" : ""].join(" ")}
+                  className={["border-b border-border-soft", hasError ? "bg-danger-bg/40" : "", isExpanded ? "" : "last:border-b-0"].join(" ")}
                 >
                   <td className="px-3 py-1.5 text-ink-tertiary tabular-nums align-top">{r.rowIndex}</td>
                   <td className="px-3 py-1.5 text-ink-primary align-top">
                     <div>
                       {r.firstName || <em className="text-danger">(missing)</em>}{" "}
                       {r.lastName || <em className="text-danger">(missing)</em>}
-                      {r.guestAction === "update" && (
+                      {r.guestAction === "update" && !hasDiffs && (
                         <span
-                          className="ml-1.5 text-[10px] text-info bg-[color:#eef4f5] dark:bg-muted border border-[color:#d0e4e8] dark:border-border-soft px-1 rounded"
-                          title="A guest with this name already exists in this household — fields will be merged into the existing row."
+                          className="ml-1.5 text-[10px] text-ink-tertiary bg-canvas border border-border-soft px-1 rounded"
+                          title="A guest with this name already exists — but every field already matches. No-op merge."
                         >
-                          merge
+                          merge · no changes
                         </span>
+                      )}
+                      {hasDiffs && (
+                        <button
+                          type="button"
+                          onClick={() => setExpanded((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(r.rowIndex)) next.delete(r.rowIndex);
+                            else next.add(r.rowIndex);
+                            return next;
+                          })}
+                          className="ml-1.5 text-[10px] text-info bg-[color:#eef4f5] dark:bg-muted border border-[color:#d0e4e8] dark:border-border-soft px-1 rounded hover:bg-[color:#e0eef0] cursor-pointer"
+                          title={isExpanded ? "Hide field-level changes" : "Show what would be overwritten"}
+                        >
+                          merge · {isExpanded ? "▾" : "▸"} {r.fieldDiffs.length} change{r.fieldDiffs.length === 1 ? "" : "s"}
+                          {optOutForRow.size > 0 && (
+                            <span className="ml-1 text-marigold-700">
+                              ({optOutForRow.size} opted out)
+                            </span>
+                          )}
+                        </button>
                       )}
                       {r.isChild && <span className="ml-1.5 text-[10px] text-marigold-700 bg-marigold-100 px-1 rounded">Child</span>}
                       {r.needsHighchair && <span className="ml-1 text-[10px] text-marigold-700 bg-marigold-100 px-1 rounded">Highchair</span>}
@@ -495,6 +556,49 @@ function PreviewPanel({
                   </td>
                 </tr>
               );
+              if (hasDiffs && isExpanded) {
+                rows.push(
+                  <tr key={`${r.rowIndex}-diff`} className="border-b border-border-soft last:border-b-0 bg-canvas/60">
+                    <td colSpan={8} className="px-3 py-2.5">
+                      <div className="text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1.5">
+                        Field-level changes — untick to skip an overwrite
+                      </div>
+                      <table className="w-full text-[11px]">
+                        <thead>
+                          <tr className="text-[10px] text-ink-tertiary">
+                            <th className="text-left pb-1 w-6"></th>
+                            <th className="text-left pb-1 w-32">Field</th>
+                            <th className="text-left pb-1">Existing</th>
+                            <th className="text-left pb-1">After import</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {r.fieldDiffs.map((d) => {
+                            const isOptedOut = optOutForRow.has(d.field);
+                            return (
+                              <tr key={d.field} className={isOptedOut ? "opacity-50" : ""}>
+                                <td className="py-0.5 pr-1.5 align-top">
+                                  <input
+                                    type="checkbox"
+                                    checked={!isOptedOut}
+                                    onChange={() => onToggleOptOut(r.rowIndex, d.field)}
+                                    title={isOptedOut ? "Apply this overwrite" : "Skip this overwrite (keep the existing value)"}
+                                    className="cursor-pointer"
+                                  />
+                                </td>
+                                <td className="py-0.5 pr-2 text-ink-secondary align-top whitespace-nowrap">{d.label}</td>
+                                <td className="py-0.5 pr-2 text-ink-tertiary align-top whitespace-pre-wrap break-words">{d.oldValue}</td>
+                                <td className={["py-0.5 align-top whitespace-pre-wrap break-words", isOptedOut ? "text-ink-tertiary line-through" : "text-info"].join(" ")}>{d.newValue}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </td>
+                  </tr>,
+                );
+              }
+              return rows;
             })}
           </tbody>
         </table>

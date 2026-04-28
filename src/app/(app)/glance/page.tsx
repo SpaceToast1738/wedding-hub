@@ -125,8 +125,17 @@ export default async function AtAGlancePage() {
         })
       : Promise.resolve([]),
     isCouple
-      ? db.budgetLine.aggregate({
-          _sum: { estimated: true, actual: true, paid: true },
+      ? db.budgetLine.findMany({
+          // B2 (v1.11.0): glance can't use `_sum: { actual }` anymore
+          // because lines with `actual = null` are recomputed from
+          // payments. Pull the rows + payment amounts and reduce in
+          // app code so the totals match what the budget page shows.
+          select: {
+            estimated: true,
+            actual: true,
+            paid: true,
+            payments: { select: { amount: true } },
+          },
         })
       : Promise.resolve(null),
     db.task.findMany({
@@ -152,10 +161,15 @@ export default async function AtAGlancePage() {
 
   const days = daysUntil(WEDDING_ISO);
 
-  // Budget aggregates (couple only). Decimal → number for arithmetic.
-  const budgetPlanned = budgetTotals?._sum.estimated ? Number(budgetTotals._sum.estimated) : 0;
-  const budgetActual = budgetTotals?._sum.actual ? Number(budgetTotals._sum.actual) : 0;
-  const budgetPaid = budgetTotals?._sum.paid ? Number(budgetTotals._sum.paid) : 0;
+  // Budget aggregates (couple only). `actual` follows B2 manual-override
+  // semantics: stored value wins; otherwise sum of payments.
+  const budgetLines = budgetTotals ?? [];
+  const budgetPlanned = budgetLines.reduce((s, l) => s + (l.estimated ? Number(l.estimated) : 0), 0);
+  const budgetPaid = budgetLines.reduce((s, l) => s + (l.paid ? Number(l.paid) : 0), 0);
+  const budgetActual = budgetLines.reduce((s, l) => {
+    if (l.actual !== null) return s + Number(l.actual);
+    return s + l.payments.reduce((ps, p) => ps + Number(p.amount), 0);
+  }, 0);
   const budgetCommitted = Math.max(0, budgetActual - budgetPaid);
   const budgetRemaining = Math.max(0, budgetPlanned - budgetActual);
 

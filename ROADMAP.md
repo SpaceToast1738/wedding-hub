@@ -11,7 +11,7 @@
 - **Repo:** [SpaceToast1738/wedding-hub](https://github.com/SpaceToast1738/wedding-hub) · `claude/main` (releases) + `dev` (work-in-progress)
 - **Stack:** Next.js 15 · TypeScript · Tailwind v4 · Prisma · Postgres 16 · Auth.js v5 · Caddy · Docker Compose
 - **Working tree:** `C:\Users\Admin\Code\wedding-hub` (local SSD). The old `\\TOWER\Jamie Spencer\Claude\wedding-hub` mirror is no longer in use — run `Remove-Item -Recurse -Force "\\TOWER\Jamie Spencer\Claude\wedding-hub"` from a fresh PowerShell to delete it.
-- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` at **v1.10.0**, promoted 28 Apr 2026 after GHA green on both `dev` and the release branch). Phase R3 follow-on shipped: a Postgres-backed integration job and a Playwright e2e job now run on every push, with anonymous-redirect specs as the first regression net for the middleware permissions matrix. Build job is gated on all three test tiers — release tags now imply unit + integration + e2e all passed against the SHA that produced the image. `gh` CLI installed on the dev box (Apr 28) so CI runs are watched directly rather than via copy-pasted logs.
+- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` at **v1.10.0**, promoted 28 Apr 2026). `dev` is at **v1.11.0** — Phase R4a (workflow polish): CSV import now shows per-field "old → new" diffs on merge rows with per-field opt-out checkboxes (B1), `BudgetLine.actual` recomputes on read from `Payment` rows when null with manual-override semantics (B2), supplier follow-ups auto-create a Task in the same transaction with a back-link from the comm log (B3), and supplier cards surface the most-recent communication summary (B4). 119 unit tests, 5 e2e specs.
 
 ## Phase status
 
@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.10.0** | 2026-04-28 | [Phase R3 follow-on: Postgres-backed integration job + Playwright e2e in CI](#2026-04-28--v1100--phase-r3-follow-on-postgres-integration-job--playwright-e2e-in-ci) |
+| **v1.11.0** | 2026-04-28 | [Phase R4a: workflow polish (B1 + B2 + B3 + B4)](#2026-04-28--v1110--phase-r4a-workflow-polish-b1--b2--b3--b4) |
+| v1.10.0 | 2026-04-28 | [Phase R3 follow-on: Postgres-backed integration job + Playwright e2e in CI](#2026-04-28--v1100--phase-r3-follow-on-postgres-integration-job--playwright-e2e-in-ci) |
 | v1.9.0 | 2026-04-28 | [Book sections aligned with prototype + Spotify env-var compose fix](#2026-04-28--v190--book-sections-aligned-with-prototype--spotify-env-var-compose-fix) |
 | v1.8.0 | 2026-04-28 | [Spotify integration setup guide + status chip on Songs](#2026-04-28--v180--spotify-integration-setup-guide--status-chip) |
 | v1.7.0 | 2026-04-28 | [Tier 3 / A: +1s materialise as own Guest rows](#2026-04-28--v170--tier-3-1s-as-own-guest-rows) |
@@ -246,6 +247,22 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-28 · v1.11.0 — Phase R4a: workflow polish (B1 + B2 + B3 + B4)
+
+Closes the first batch of Bucket B from REMEDIATION-PLAN — the three MAJORs plus one ergonomic dependency. Each ships with a regression test per the standing rule.
+
+**B1 — CSV import per-field diff.** Re-importing a CSV that matches an existing guest used to be all-or-nothing: the preview said "merge" and you took it on faith. The new flow extracts a pure decision module ([src/lib/csv-merge.ts](src/lib/csv-merge.ts) — `decideGuestMerge`) that both `previewImport` and `commitImport` consume; preview rows now carry `fieldDiffs` showing every "old → new" pair the merge would apply, and the UI in [ImportClient.tsx](src/app/(app)/guests/import/ImportClient.tsx) renders an expandable disclosure beneath each merge row with a checkbox per field. Un-tick a field and that overwrite is skipped on commit — surfaced as `optOut: { rowIndex: ["dietary"] }` plumbed through the action. The post-import success card reports how many fields were preserved by opt-outs. The audit metadata records the count too, so a future operator can grep for "user un-ticked dietary on 3 merge rows in the Apr 28 import". Closes the "anxiety on re-import" friction Bryony surfaced. Backed by 21 new unit tests covering the diff/opt-out matrix.
+
+**B2 — `BudgetLine.actual` recomputes from `Payment` rows.** The budget page used to show a stored `actual` that drifted from the `Payment` records linked via FK — log a £500 payment and the line still said £450 because nobody updated `actual`. New rule: `actual` is a manual override. When non-null, it wins; when null, the page sums `Payment.amount` for that line. Pure decision logic in [src/lib/budget.ts](src/lib/budget.ts) (`computeActual`, `isManualOverride`, `sumOfPayments`); both [BudgetClient.tsx](src/app/(app)/budget/BudgetClient.tsx) and [glance/page.tsx](src/app/(app)/glance/page.tsx) now use it. The line edit form labels the state ("Manual override active. Clear 'Actual' to recompute from payments…" vs "Actual is computed from N payments. Set a value to pin a manual override."), and computed totals get a subtle "Σ" badge in the table so the user can tell at a glance which lines are pinned vs derived. One additive Prisma migration adds `@@index([budgetLineId])` to `Payment` so the per-line aggregate doesn't sequential-scan on every render. 11 new unit tests on the computeActual matrix.
+
+**B3 — Supplier follow-up auto-creates a Task.** Logging a supplier comm with a `followUpAt` date used to silently store the date and nothing else — Jamie had to remember to manually create a Task or the follow-up vanished. Now the comm + auto-task land in a single `db.$transaction`: pure decision in [src/lib/supplier-follow-up.ts](src/lib/supplier-follow-up.ts) (`decideFollowUpTask`) returns the Task payload (title `Follow up: <supplier>`, due = `followUpAt`, assignee = comm creator, tags `["supplier-follow-up", "supplier:<id>", "comm:<id>"]`), the action in [suppliers/actions.ts](src/app/(app)/suppliers/actions.ts) creates both atomically. Tag-based linkage avoids a schema change for now; if the soft FK proves clunky we can promote to `Task.sourceCommId` in R5. The comm log entry in [SupplierDetailClient.tsx](src/app/(app)/suppliers/[id]/SupplierDetailClient.tsx) gets a "Task ↗" pill linking to `/tasks` next to the existing "Follow-up <date>" pill. Audit log records both the comm-create and the task-create with cross-references in metadata. 4 new unit tests for the decision contract.
+
+**B4 — Supplier card last-message summary.** Suppliers list now shows a muted "Last (channel, relative date): <summary truncated to 80 chars>" line on each card, so you can scan the list and see who you last spoke to without clicking in. [suppliers/page.tsx](src/app/(app)/suppliers/page.tsx) extends the query with `include: { communications: { take: 1, orderBy: { createdAt: "desc" } } }`; [SupplierCard.tsx](src/app/(app)/suppliers/SupplierCard.tsx) renders. No render at all when the supplier has no comms — negative-space cruft would just clutter the cards.
+
+**Files changed:** 12 modified, 4 new, 1 migration. 36 new unit tests (119 total). Build size unchanged.
+
+**Out of scope, deferred to R4b/R4c:** B5 global error UX, B6 quick-capture event time picker, B7 mobile schedule scroll-to-NOW, B8 guest search, B9 inline song-request on guest detail, B11 dark-mode persistence, B12 seating race-condition transaction. B10 + B13 already done in prior releases.
 
 ### 2026-04-28 · v1.10.0 — Phase R3 follow-on: Postgres integration job + Playwright e2e in CI
 

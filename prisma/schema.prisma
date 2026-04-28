@@ -356,6 +356,10 @@ model Payment {
 
   @@index([status])
   @@index([dueDate])
+  // B2 (v1.11.0): Budget reads now sum Payment.amount per BudgetLine
+  // when BudgetLine.actual is null. Without this index every budget
+  // page render would do a sequential scan of Payment.
+  @@index([budgetLineId])
 }
 
 enum PaymentStatus {

@@ -11,7 +11,14 @@ export default async function BudgetPage() {
   const [categories, suppliers] = await Promise.all([
     db.budgetCategory.findMany({
       orderBy: { order: "asc" },
-      include: { lines: { orderBy: [{ order: "asc" }, { createdAt: "asc" }] } },
+      include: {
+        lines: {
+          orderBy: [{ order: "asc" }, { createdAt: "asc" }],
+          // B2: payments included so the client can recompute `actual`
+          // when it's null (manual override semantics).
+          include: { payments: { select: { amount: true } } },
+        },
+      },
     }),
     db.supplier.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
   ]);
@@ -34,6 +41,9 @@ export default async function BudgetPage() {
             paid: l.paid,
             supplierId: l.supplierId,
             notes: l.notes,
+            // Pass amounts as strings so the client never imports the
+            // Prisma Decimal type (keeps the bundle slim).
+            payments: l.payments.map((p) => ({ amount: p.amount.toString() })),
           })),
         }))}
         suppliers={suppliers}

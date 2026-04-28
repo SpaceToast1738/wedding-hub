@@ -2,9 +2,10 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { SupplierStatus } from "@prisma/client";
+import { SupplierStatus, Priority, TaskStatus, TaskType } from "@prisma/client";
 import { db } from "@/lib/db";
 import { audit, requireEdit } from "@/lib/actions";
+import { decideFollowUpTask } from "@/lib/supplier-follow-up";
 
 const supplierSchema = z.object({
   name: z.string().min(1).max(200),
@@ -154,22 +155,77 @@ export async function createSupplierCommunication(formData: FormData) {
     followUpAt: formData.get("followUpAt") || null,
   });
   const followUpAt = parsed.followUpAt ? new Date(parsed.followUpAt) : null;
-  const created = await db.supplierCommunication.create({
-    data: {
+
+  // Need the supplier name for the auto-task title. One round-trip
+  // before the transaction; cheap and avoids Prisma's interactive-tx
+  // cost when there's no follow-up.
+  const supplier = await db.supplier.findUnique({
+    where: { id: parsed.supplierId },
+    select: { name: true },
+  });
+  if (!supplier) throw new Error("Supplier not found");
+
+  // B3 (v1.11.0): if a follow-up date is set, the comm + auto-task
+  // must land atomically. If task creation fails for any reason, the
+  // comm rolls back too — better than a silent ghost-task in /tasks.
+  const result = await db.$transaction(async (tx) => {
+    const comm = await tx.supplierCommunication.create({
+      data: {
+        supplierId: parsed.supplierId,
+        channel: parsed.channel,
+        summary: parsed.summary,
+        followUpAt,
+        createdById: user.id,
+      },
+    });
+    const taskData = decideFollowUpTask({
       supplierId: parsed.supplierId,
-      channel: parsed.channel,
-      summary: parsed.summary,
+      supplierName: supplier.name,
+      commId: comm.id,
       followUpAt,
       createdById: user.id,
-    },
+    });
+    let taskId: string | null = null;
+    if (taskData) {
+      const task = await tx.task.create({
+        data: {
+          title: taskData.title,
+          type: TaskType[taskData.type],
+          status: TaskStatus[taskData.status],
+          priority: Priority[taskData.priority],
+          dueDate: taskData.dueDate,
+          assigneeId: taskData.assigneeId,
+          tags: taskData.tags,
+        },
+      });
+      taskId = task.id;
+    }
+    return { comm, taskId };
   });
+
   await audit(user, {
     action: "create",
     entity: "SupplierCommunication",
-    entityId: created.id,
-    metadata: { supplierId: parsed.supplierId, channel: parsed.channel },
+    entityId: result.comm.id,
+    metadata: {
+      supplierId: parsed.supplierId,
+      channel: parsed.channel,
+      autoTaskId: result.taskId,
+    },
   });
+  if (result.taskId) {
+    await audit(user, {
+      action: "create",
+      entity: "Task",
+      entityId: result.taskId,
+      metadata: {
+        autoFromCommId: result.comm.id,
+        supplierId: parsed.supplierId,
+      },
+    });
+  }
   revalidatePath(`/suppliers/${parsed.supplierId}`);
+  if (result.taskId) revalidatePath("/tasks");
 }
 
 export async function deleteSupplierCommunication(id: string, supplierId: string) {

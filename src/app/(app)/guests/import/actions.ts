@@ -19,6 +19,14 @@ import {
   parseCsv,
   splitFullName,
 } from "@/lib/csv";
+import {
+  decideGuestMerge,
+  type FieldDiff,
+  type GuestSnapshot,
+  type IncomingRow,
+  type MergeableField,
+  MERGEABLE_FIELDS,
+} from "@/lib/csv-merge";
 
 export type ImportRowPreview = {
   rowIndex: number; // 1-based, excluding header
@@ -54,6 +62,11 @@ export type ImportRowPreview = {
   // case-insensitive) → merge into the existing row.
   guestAction: "create" | "update";
   emailDuplicate: boolean;
+  // Populated only on update rows. Each diff shows what would change
+  // if the merge applied. The UI renders these expandably with a
+  // checkbox per row to opt out individual fields. Empty array means
+  // the merge would be a no-op (the existing row already matches).
+  fieldDiffs: FieldDiff[];
 };
 
 export type ImportPreview = {
@@ -119,7 +132,7 @@ function buildRowPreview(
   mapping: GuestField[],
   headers: string[],
   rowIndex: number,
-): Omit<ImportRowPreview, "householdAction" | "tableAction" | "emailDuplicate" | "guestAction"> {
+): Omit<ImportRowPreview, "householdAction" | "tableAction" | "emailDuplicate" | "guestAction" | "fieldDiffs"> {
   const single = (field: GuestField): string => {
     const idx = findOne(mapping, field);
     if (idx === -1) return "";
@@ -298,13 +311,32 @@ export async function previewImport(input: {
     }),
     db.table.findMany({ where: { name: { in: tableNames } }, select: { name: true } }),
     db.guest.findMany({ where: { email: { in: emails } }, select: { email: true } }),
-    // For (household, firstName, lastName) dedupe at preview time.
+    // Full snapshot for (household, firstName, lastName) dedupe at preview
+    // time AND for the per-field diff computed against `decideGuestMerge`.
     db.guest.findMany({
       where: { household: { name: { in: householdNames } }, archived: false },
       select: {
         firstName: true,
         lastName: true,
+        email: true,
+        phone: true,
+        plusOneName: true,
+        role: true,
+        side: true,
+        rsvp: true,
+        isChild: true,
+        needsHighchair: true,
+        childrenMeal: true,
+        plusOneAllowed: true,
+        dietary: true,
+        tags: true,
+        mealStarter: true,
+        mealMain: true,
+        mealDessert: true,
+        rsvpUniqueLink: true,
+        notes: true,
         household: { select: { name: true } },
+        songRequests: { select: { title: true } },
       },
     }),
   ]);
@@ -318,17 +350,64 @@ export async function previewImport(input: {
   function dedupeKey(householdName: string, first: string, last: string): string {
     return `${householdName}|${first.trim().toLowerCase()}|${last.trim().toLowerCase()}`;
   }
-  const existingGuestKeys = new Set(
-    existingGuestsInTargetHouseholds.map((g) =>
+  const existingGuestByKey = new Map(
+    existingGuestsInTargetHouseholds.map((g) => [
       dedupeKey(g.household.name, g.firstName, g.lastName),
-    ),
+      g,
+    ]),
   );
 
   const decorated: ImportRowPreview[] = previews.map((p) => {
     const isDup = !!p.email && existingEmailSet.has(p.email);
     const matchKey = p.householdName ? dedupeKey(p.householdName, p.firstName, p.lastName) : null;
-    const guestAction: "create" | "update" =
-      matchKey && existingGuestKeys.has(matchKey) ? "update" : "create";
+    const matchedGuest = matchKey ? existingGuestByKey.get(matchKey) ?? null : null;
+    const guestAction: "create" | "update" = matchedGuest ? "update" : "create";
+
+    let fieldDiffs: FieldDiff[] = [];
+    if (matchedGuest) {
+      const snapshot: GuestSnapshot = {
+        email: matchedGuest.email,
+        phone: matchedGuest.phone,
+        plusOneName: matchedGuest.plusOneName,
+        role: matchedGuest.role,
+        side: matchedGuest.side,
+        rsvp: matchedGuest.rsvp,
+        isChild: matchedGuest.isChild,
+        needsHighchair: matchedGuest.needsHighchair,
+        childrenMeal: matchedGuest.childrenMeal,
+        plusOneAllowed: matchedGuest.plusOneAllowed,
+        dietary: matchedGuest.dietary,
+        tags: matchedGuest.tags,
+        mealStarter: matchedGuest.mealStarter,
+        mealMain: matchedGuest.mealMain,
+        mealDessert: matchedGuest.mealDessert,
+        rsvpUniqueLink: matchedGuest.rsvpUniqueLink,
+        notes: matchedGuest.notes,
+        songTitles: matchedGuest.songRequests.map((s) => s.title),
+      };
+      const incoming: IncomingRow = {
+        email: p.email,
+        phone: p.phone,
+        plusOneName: p.plusOneName,
+        role: p.role,
+        side: p.side,
+        rsvp: p.rsvp,
+        isChild: p.isChild,
+        needsHighchair: p.needsHighchair,
+        childrenMeal: p.childrenMeal,
+        plusOneAllowed: p.plusOneAllowed,
+        dietary: p.dietary,
+        tags: p.tags,
+        mealStarter: p.mealStarter,
+        mealMain: p.mealMain,
+        mealDessert: p.mealDessert,
+        rsvpLink: p.rsvpLink,
+        notes: p.notes,
+        songs: p.songs,
+      };
+      fieldDiffs = decideGuestMerge(snapshot, incoming).diffs;
+    }
+
     return {
       ...p,
       warnings: isDup && guestAction === "create"
@@ -352,6 +431,7 @@ export async function previewImport(input: {
         : null,
       guestAction,
       emailDuplicate: isDup,
+      fieldDiffs,
     };
   });
 
@@ -375,15 +455,34 @@ export async function previewImport(input: {
   };
 }
 
+// Per-row opt-out map: row index (1-based, matches ImportRowPreview.rowIndex)
+// to a list of fields the user un-ticked in the preview UI. Fields not in
+// `MERGEABLE_FIELDS` are silently ignored — we don't trust the client.
+const optOutSchema = z.record(z.string(), z.array(z.string()));
+
 export async function commitImport(input: {
   text: string;
   mapping: GuestField[];
-}): Promise<{ created: number; updated: number; skipped: number; songs: number; tables: number }> {
+  optOut?: Record<string, string[]>;
+}): Promise<{ created: number; updated: number; skipped: number; songs: number; tables: number; optOuts: number }> {
   const user = await requireEdit("guests");
   const parsed = inputSchema.parse(input);
+  const optOutRaw = input.optOut ? optOutSchema.parse(input.optOut) : {};
+  const optOutByRow = new Map<number, ReadonlySet<MergeableField>>();
+  let totalOptOuts = 0;
+  for (const [key, fields] of Object.entries(optOutRaw)) {
+    const rowIndex = Number.parseInt(key, 10);
+    if (!Number.isFinite(rowIndex)) continue;
+    const filtered = fields.filter((f): f is MergeableField =>
+      (MERGEABLE_FIELDS as readonly string[]).includes(f),
+    );
+    if (filtered.length === 0) continue;
+    optOutByRow.set(rowIndex, new Set(filtered));
+    totalOptOuts += filtered.length;
+  }
 
   const rows = parseCsv(parsed.text);
-  if (rows.length === 0) return { created: 0, updated: 0, skipped: 0, songs: 0, tables: 0 };
+  if (rows.length === 0) return { created: 0, updated: 0, skipped: 0, songs: 0, tables: 0, optOuts: 0 };
 
   const headers = rows[0] ?? [];
   const dataRows = rows.slice(1);
@@ -393,7 +492,7 @@ export async function commitImport(input: {
   const previews = allPreviews.filter((p) => p.errors.length === 0);
 
   if (previews.length === 0) {
-    return { created: 0, updated: 0, skipped: dataRows.length, songs: 0, tables: 0 };
+    return { created: 0, updated: 0, skipped: dataRows.length, songs: 0, tables: 0, optOuts: 0 };
   }
 
   // ── Resolve / create households ────────────────────────────────────────
@@ -537,61 +636,59 @@ export async function commitImport(input: {
 
     if (existing) {
       // ── Merge update ──────────────────────────────────────────────
-      // Strings: overwrite only when the new value is non-empty so we
-      //   don't blank out existing data with a partial second import.
-      // Booleans: OR semantics — never downgrade true → false.
-      // Arrays: union with case-insensitive dedupe.
-      // tableSeat: assign only if the existing row has none.
-      const data: Record<string, unknown> = {};
-
-      const overwriteIfNew = <T extends string | null>(field: string, current: T, next: string | null) => {
-        if (next && next !== current) data[field] = next;
-      };
-      overwriteIfNew("email", existing.email, p.email);
-      overwriteIfNew("phone", existing.phone, p.phone);
-      overwriteIfNew("plusOneName", existing.plusOneName, p.plusOneName);
-      overwriteIfNew("role", existing.role, p.role);
-      overwriteIfNew("mealStarter", existing.mealStarter, p.mealStarter);
-      overwriteIfNew("mealMain", existing.mealMain, p.mealMain);
-      overwriteIfNew("mealDessert", existing.mealDessert, p.mealDessert);
-      overwriteIfNew("rsvpUniqueLink", existing.rsvpUniqueLink, p.rsvpLink);
-
-      if (p.notes) {
-        // Append rather than overwrite: notes are free-form and may differ.
-        data.notes = existing.notes && !existing.notes.includes(p.notes)
-          ? `${existing.notes}\n${p.notes}`
-          : existing.notes ?? p.notes;
-      }
-
-      // Side: overwrite only when explicitly different from default BOTH.
-      if (p.side !== "BOTH" && p.side !== existing.side) {
-        data.side = p.side;
-      }
-      // RSVP: overwrite only if the new value is something other than PENDING
-      //   (don't reset confirmed RSVPs back to pending on re-import).
-      if (p.rsvp !== "PENDING" && p.rsvp !== existing.rsvp) {
-        data.rsvp = p.rsvp;
-      }
-
-      if (p.isChild && !existing.isChild) data.isChild = true;
-      if (p.needsHighchair && !existing.needsHighchair) data.needsHighchair = true;
-      if (p.childrenMeal && !existing.childrenMeal) data.childrenMeal = true;
-      if (p.plusOneAllowed && !existing.plusOneAllowed) data.plusOneAllowed = true;
-
-      // Array union (case-insensitive dedupe), preserve existing order.
-      const unionArr = (current: string[], next: string[]): string[] | null => {
-        if (next.length === 0) return null;
-        const seen = new Set(current.map((s) => s.toLowerCase()));
-        const additions = next.filter((s) => !seen.has(s.toLowerCase()));
-        if (additions.length === 0) return null;
-        return [...current, ...additions];
-      };
-      const dietaryUnion = unionArr(existing.dietary, p.dietary);
-      if (dietaryUnion) data.dietary = dietaryUnion;
-      const tagsUnion = unionArr(existing.tags, p.tags);
-      if (tagsUnion) data.tags = tagsUnion;
+      // Field-merge logic lives in `decideGuestMerge` (src/lib/csv-merge.ts).
+      // The opt-out set comes from the preview UI (B1: per-field
+      // checkboxes) — fields the user un-ticked are skipped.
+      // Seat assignment is handled separately below since it depends
+      // on transient table-state we track in this loop.
+      const optOutForRow = optOutByRow.get(p.rowIndex) ?? new Set<MergeableField>();
+      const merge = decideGuestMerge(
+        {
+          email: existing.email,
+          phone: existing.phone,
+          plusOneName: existing.plusOneName,
+          role: existing.role,
+          side: existing.side,
+          rsvp: existing.rsvp,
+          isChild: existing.isChild,
+          needsHighchair: existing.needsHighchair,
+          childrenMeal: existing.childrenMeal,
+          plusOneAllowed: existing.plusOneAllowed,
+          dietary: existing.dietary,
+          tags: existing.tags,
+          mealStarter: existing.mealStarter,
+          mealMain: existing.mealMain,
+          mealDessert: existing.mealDessert,
+          rsvpUniqueLink: existing.rsvpUniqueLink,
+          notes: existing.notes,
+          songTitles: existing.songRequests.map((s) => s.title),
+        },
+        {
+          email: p.email,
+          phone: p.phone,
+          plusOneName: p.plusOneName,
+          role: p.role,
+          side: p.side,
+          rsvp: p.rsvp,
+          isChild: p.isChild,
+          needsHighchair: p.needsHighchair,
+          childrenMeal: p.childrenMeal,
+          plusOneAllowed: p.plusOneAllowed,
+          dietary: p.dietary,
+          tags: p.tags,
+          mealStarter: p.mealStarter,
+          mealMain: p.mealMain,
+          mealDessert: p.mealDessert,
+          rsvpLink: p.rsvpLink,
+          notes: p.notes,
+          songs: p.songs,
+        },
+        optOutForRow,
+      );
+      const data: Record<string, unknown> = { ...merge.data };
 
       // Seat assignment: only fill if the existing guest is unseated.
+      // (Not part of `decideGuestMerge` — depends on table-state map.)
       if (!existing.tableSeatId && p.tableName && tableByName.has(p.tableName)) {
         const state = tableByName.get(p.tableName)!;
         const freeSeat = state.seats.find((s) => !s.occupiedByGuestId);
@@ -605,18 +702,11 @@ export async function commitImport(input: {
         await db.guest.update({ where: { id: existing.id }, data });
       }
 
-      // Skip song requests this guest already has (case-insensitive title).
-      const existingSongTitles = new Set(
-        existing.songRequests.map((s) => s.title.trim().toLowerCase()),
-      );
-      const newSongs = p.songs.filter(
-        (s) => !existingSongTitles.has(s.trim().toLowerCase()),
-      );
-      if (newSongs.length > 0) {
+      if (merge.songsToAdd.length > 0) {
         await db.songRequest.createMany({
-          data: newSongs.map((s) => ({ guestId: existing.id, title: s })),
+          data: merge.songsToAdd.map((s) => ({ guestId: existing.id, title: s })),
         });
-        songsCount += newSongs.length;
+        songsCount += merge.songsToAdd.length;
       }
 
       updatedCount++;
@@ -721,6 +811,10 @@ export async function commitImport(input: {
       songs: songsCount,
       newHouseholds: newlyCreatedHouseholds,
       newTables: createdTablesCount,
+      // Per-field opt-outs from the preview UI. Lets a future operator
+      // grep for "user un-ticked dietary on 3 merge rows in the Apr 28
+      // import".
+      optOuts: totalOptOuts,
     },
   });
 
@@ -735,5 +829,6 @@ export async function commitImport(input: {
     skipped: dataRows.length - createdCount - updatedCount,
     songs: songsCount,
     tables: createdTablesCount,
+    optOuts: totalOptOuts,
   };
 }

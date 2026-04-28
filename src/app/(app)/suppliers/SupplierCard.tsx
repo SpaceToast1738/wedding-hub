@@ -7,6 +7,20 @@ import { StatusPill } from "@/components/ui/StatusPill";
 import { SupplierForm } from "./SupplierForm";
 import { deleteSupplier, setSupplierStatus, updateSupplier } from "./actions";
 import { formatMoneyDecimal } from "@/lib/format";
+
+// Local mirror of `formatRelativeDate` from SupplierDetailClient — keep
+// in sync if the contract changes (would centralise in @/lib/format if
+// a third caller turned up).
+function formatRelativeDate(d: Date): string {
+  const now = Date.now();
+  const diffMs = now - new Date(d).getTime();
+  const days = Math.round(diffMs / 86_400_000);
+  if (days === 0) return "today";
+  if (days === 1) return "yesterday";
+  if (days < 7) return `${days}d ago`;
+  if (days < 30) return `${Math.round(days / 7)}w ago`;
+  return new Date(d).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+}
 import type { SupplierStatus } from "@prisma/client";
 
 type Supplier = {
@@ -17,6 +31,9 @@ type Supplier = {
   website: string | null;
   notes: string | null;
   amountAgreed: { toString: () => string } | null;
+  // B4: most-recent SupplierCommunication, if any. Empty array when
+  // none — Prisma's `take: 1` returns an array.
+  communications: { summary: string; createdAt: Date; channel: string }[];
 };
 
 const STATUS_TO_PILL: Record<string, "LEAD" | "BOOKED" | "PAID" | "DECLINED" | "PENDING"> = {
@@ -98,6 +115,18 @@ export function SupplierCard({ supplier, canEdit }: { supplier: Supplier; canEdi
         </a>
       )}
       {supplier.notes && <p className="text-xs text-ink-secondary line-clamp-3 whitespace-pre-wrap">{supplier.notes}</p>}
+      {supplier.communications[0] && (() => {
+        const last = supplier.communications[0];
+        const summary = last.summary.length > 80
+          ? `${last.summary.slice(0, 80).trimEnd()}…`
+          : last.summary;
+        return (
+          <div className="text-[11px] text-ink-tertiary line-clamp-2" title={last.summary}>
+            <span className="text-ink-tertiary/80">Last ({last.channel}, {formatRelativeDate(last.createdAt)}):</span>{" "}
+            <span className="text-ink-secondary">{summary}</span>
+          </div>
+        );
+      })()}
       {canEdit && (
         <div className="flex flex-wrap items-center gap-1.5 mt-1 pt-2 border-t border-border-soft">
           <select

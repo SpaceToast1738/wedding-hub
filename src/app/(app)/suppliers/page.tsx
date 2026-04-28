@@ -10,6 +10,15 @@ export default async function SuppliersPage() {
   const editable = await canEdit(user, "suppliers");
   const suppliers = await db.supplier.findMany({
     orderBy: [{ status: "asc" }, { category: "asc" }, { name: "asc" }],
+    // B4 (v1.11.0): pull the most-recent communication so the card
+    // can render a "Last: <summary> · <relative date>" line.
+    include: {
+      communications: {
+        orderBy: { createdAt: "desc" },
+        take: 1,
+        select: { summary: true, createdAt: true, channel: true },
+      },
+    },
   });
 
   const booked = suppliers.filter((s) => s.status === "BOOKED" || s.status === "PAID").length;
