@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.20.6** | 2026-04-28 | [Seating: drag-all-guests + RSVP tag in panel](#2026-04-28--v1206--seating-drag-all-guests--rsvp-tag-in-panel) |
+| **v1.21.0** | 2026-04-28 | [Audit log viewer + sticky search on /suppliers + /tasks](#2026-04-28--v1210--audit-log-viewer--sticky-search-on-suppliers--tasks) |
+| v1.20.6 | 2026-04-28 | [Seating: drag-all-guests + RSVP tag in panel](#2026-04-28--v1206--seating-drag-all-guests--rsvp-tag-in-panel) |
 | v1.20.5 | 2026-04-28 | [Seating canvas: bigger labels + S/M/L size selector](#2026-04-28--v1205--seating-canvas-bigger-labels--sml-size-selector) |
 | v1.20.0 | 2026-04-28 | [Wedding details DB-backed (Settings UI + 10 ref replacements)](#2026-04-28--v1200--wedding-details-db-backed) |
 | v1.19.6 | 2026-04-28 | [README rewrite: standing rules, current test pyramid, fix stale phase-status](#2026-04-28--v1196--readme-rewrite) |
@@ -304,6 +305,18 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-28 · v1.21.0 — Audit log viewer + sticky search on /suppliers + /tasks
+
+Three surface-only additions bundled because they all extend existing patterns. No schema, no new server actions, no new tests — purely UI-side reads.
+
+**Audit log viewer in Settings.** Couple-only — non-couple users see the section header so they know it exists, but no rows. Server component fetches the most-recent 50 `AuditLog` rows (or 50 before a cursor passed via `?audit_before=…`); each row shows timestamp + who (user name, falls back to email, or "system") + what (e.g. "create supplier", "update guest"), plus a one-line summary of the metadata Json (truncated). Pagination is cursor-based via "Older →" link — simpler than infinite scroll for a settings panel that's collapsed by default in usage. Reuses the v1.21.0+ surface-only constraints — no new audit data, no filters in v1, just surfacing what every server action already writes via `audit()`.
+
+**Suppliers sticky search** at [SuppliersClient.tsx](src/app/(app)/suppliers/SuppliersClient.tsx). New thin client wrapper mirrors the v1.12.0 `GuestList` pattern: sticky `top-0` search input above the existing categorised card grid. Filters by name + category + status + notes (case-insensitive substring). Counter shows `N/M` while filtering; "×" clears. The page becomes a server data-fetcher that hands suppliers + edit gate to the client.
+
+**Tasks sticky search** added to [TaskList.tsx](src/app/(app)/tasks/TaskList.tsx). New search input above the existing FilterTabs row, transient (not persisted to localStorage — search queries are usually ad-hoc and a stale query on next visit would surprise). Filters by title + tags + notes. Plays nicely with the existing filter (mine/open/done) and view (list/board) toggles.
+
+**Files changed:** 4 modified (settings/page.tsx, suppliers/page.tsx, tasks/TaskList.tsx, ROADMAP), 2 new (AuditLogPanel.tsx, SuppliersClient.tsx). 188 unit tests + 5 e2e + build all green.
 
 ### 2026-04-28 · v1.20.6 — Seating: drag-all-guests + RSVP tag in panel
 

@@ -35,6 +35,10 @@ export function TaskList({
 }) {
   const [filter, setFilter] = useState<Filter>("all");
   const [view, setView] = useState<View>("list");
+  // v1.21.0: sticky search across title + tags + notes. Transient
+  // (not persisted to localStorage) — search queries are usually
+  // ad-hoc and a stale query on next visit would surprise.
+  const [search, setSearch] = useState("");
 
   // Restore view preference. SSR renders 'list' so the markup stays stable.
   // v1.17.0: also force list view on narrow viewports — the kanban board
@@ -67,16 +71,55 @@ export function TaskList({
   }, [users]);
 
   const filtered = useMemo(() => {
+    const term = search.trim().toLowerCase();
     return tasks.filter((t) => {
-      if (filter === "mine") return t.assigneeId === currentUserId && t.status !== "DONE";
-      if (filter === "open") return t.status !== "DONE" && t.status !== "ARCHIVED";
-      if (filter === "done") return t.status === "DONE";
+      if (filter === "mine") {
+        if (t.assigneeId !== currentUserId || t.status === "DONE") return false;
+      } else if (filter === "open") {
+        if (t.status === "DONE" || t.status === "ARCHIVED") return false;
+      } else if (filter === "done") {
+        if (t.status !== "DONE") return false;
+      }
+      if (term) {
+        const hay = `${t.title} ${t.tags.join(" ")} ${t.notes ?? ""}`.toLowerCase();
+        if (!hay.includes(term)) return false;
+      }
       return true;
     });
-  }, [tasks, filter, currentUserId]);
+  }, [tasks, filter, currentUserId, search]);
 
   return (
     <>
+      {/* v1.21.0: sticky search bar above the FilterTabs. Search is
+          transient (not persisted), so the bar resets to empty on each
+          visit. Plays nicely with the existing filter + view toggles. */}
+      <div className="sticky top-0 z-10 bg-canvas/95 backdrop-blur-sm border-b border-border-soft px-6 py-3">
+        <div className="max-w-4xl mx-auto flex items-center gap-2">
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search tasks (title, tags, notes)…"
+            aria-label="Search tasks"
+            className="flex-1 text-sm bg-surface text-ink-primary border border-border-soft rounded-sm px-3 py-1.5 outline-none focus:border-moss-500"
+          />
+          {search.trim() && (
+            <span className="text-[11px] text-ink-tertiary tabular-nums whitespace-nowrap">
+              {filtered.length}/{tasks.length}
+            </span>
+          )}
+          {search.trim() && (
+            <button
+              type="button"
+              onClick={() => setSearch("")}
+              className="text-xs text-ink-tertiary hover:text-ink-primary px-1.5"
+              aria-label="Clear search"
+            >
+              ×
+            </button>
+          )}
+        </div>
+      </div>
       <FilterTabs value={filter} onChange={setFilter} view={view} onViewChange={setView} />
       {view === "board" ? (
         <TaskBoard tasks={filtered} users={users} canEdit={canEdit} />

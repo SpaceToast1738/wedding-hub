@@ -9,10 +9,16 @@ import { MyProfilePanel } from "./MyProfilePanel";
 import { SpotifySettingsPanel } from "./SpotifySettingsPanel";
 import { CustomFieldsPanel } from "./CustomFieldsPanel";
 import { WeddingSettingsPanel } from "./WeddingSettingsPanel";
+import { AuditLogPanel } from "./AuditLogPanel";
 
-export default async function SettingsPage() {
+export default async function SettingsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ audit_before?: string }>;
+}) {
   const user = await requireUser();
   const editable = await canEdit(user, "settings");
+  const { audit_before } = await searchParams;
 
   const [users, permissions, me, customFields, wedding] = await Promise.all([
     db.user.findMany({ orderBy: [{ isCouple: "desc" }, { name: "asc" }] }),
@@ -97,6 +103,8 @@ export default async function SettingsPage() {
             currentUserIsCouple={user.isCouple}
             canEdit={editable}
           />
+
+          <AuditLogPanel isCouple={user.isCouple} before={audit_before} />
         </div>
       </div>
     </>
