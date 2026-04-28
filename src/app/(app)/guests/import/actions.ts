@@ -27,6 +27,29 @@ import {
   type MergeableField,
   MERGEABLE_FIELDS,
 } from "@/lib/csv-merge";
+import { daysSinceEdited, type EditedFieldsMap } from "@/lib/last-edited-fields";
+
+// C4: fields that map between MergeableField (CSV-side) and the
+// Guest column whose edit-timestamp we'd check. Only fields the
+// updateGuest action actually stamps appear here.
+const MERGEABLE_TO_GUEST_FIELD: Partial<Record<MergeableField, string>> = {
+  email: "email",
+  phone: "phone",
+  plusOneName: "plusOneName",
+  role: "role",
+  notes: "notes",
+  side: "side",
+  rsvp: "rsvp",
+  isChild: "isChild",
+  needsHighchair: "needsHighchair",
+  plusOneAllowed: "plusOneAllowed",
+  dietary: "dietary",
+};
+
+// Threshold for "recent" — a manual edit younger than this triggers
+// a warning on the preview row. 14 days = a fortnight; tuned for the
+// "I edited this last weekend, would hate to clobber it" use case.
+const RECENT_EDIT_DAYS = 14;
 
 export type ImportRowPreview = {
   rowIndex: number; // 1-based, excluding header
@@ -330,6 +353,9 @@ export async function previewImport(input: {
         plusOneAllowed: true,
         dietary: true,
         tags: true,
+        // C4: per-field edit-tracking — surfaced as warnings on the
+        // preview row when the merge would overwrite a recent edit.
+        lastEditedFields: true,
         mealStarter: true,
         mealMain: true,
         mealDessert: true,
@@ -408,9 +434,29 @@ export async function previewImport(input: {
       fieldDiffs = decideGuestMerge(snapshot, incoming).diffs;
     }
 
-    return {
-      ...p,
-      warnings: isDup && guestAction === "create"
+    // C4: warn when a diff would overwrite a manually-edited field
+    // within the last RECENT_EDIT_DAYS days. Append to the row's
+    // warnings so the existing preview UI surfaces it without a
+    // separate render path.
+    const editWarnings: string[] = [];
+    if (matchedGuest && fieldDiffs.length > 0) {
+      const editedMap = (matchedGuest.lastEditedFields as EditedFieldsMap | null) ?? null;
+      if (editedMap) {
+        for (const diff of fieldDiffs) {
+          const guestField = MERGEABLE_TO_GUEST_FIELD[diff.field];
+          if (!guestField) continue;
+          const days = daysSinceEdited(editedMap, guestField);
+          if (days !== null && days <= RECENT_EDIT_DAYS) {
+            editWarnings.push(
+              `you edited ${diff.label.toLowerCase()} ${days === 0 ? "today" : `${days} day${days === 1 ? "" : "s"} ago`} — re-importing will overwrite (untick to keep)`,
+            );
+          }
+        }
+      }
+    }
+
+    const baseWarnings =
+      isDup && guestAction === "create"
         ? [
             ...p.warnings,
             // Only show the duplicate-email warning when we're NOT already
@@ -418,7 +464,10 @@ export async function previewImport(input: {
             // a clear merge path and the warning is noise.
             `another Guest row already has this email — importing will create a second guest row`,
           ]
-        : p.warnings,
+        : p.warnings;
+    return {
+      ...p,
+      warnings: [...baseWarnings, ...editWarnings],
       householdAction: p.householdName
         ? existingHouseholdSet.has(p.householdName)
           ? "merge"

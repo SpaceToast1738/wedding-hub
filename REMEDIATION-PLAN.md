@@ -91,23 +91,30 @@ applicable.
 ### Bucket C — accept the drift / decide later
 
 These are brief expectations that don't match the shipped artifact.
-For each, the user (Jamie) should explicitly decide: build, defer, or
-declare out-of-scope.
+The user walked through each on 28 Apr 2026 and assigned a decision —
+recorded in the Status column.
 
-| ID | Drift item | Recommendation | Rationale |
+> **Decisions (28 Apr 2026):**
+> - **R5a (v1.14.0 — planned):** Build C1, C4, C7, C11.
+> - **R5b (separate session, planned):** Build C6, C10.
+> - **Accept drift:** C5 (backup off-site is documented in R6, not built into the app).
+> - **Defer:** C2, C3, C12.
+> - **Already resolved:** C8 (v1.9.0 added the missing sections), C9 (v1.3.0 ships opportunistic prune on every check — sufficient at our scale).
+
+| ID | Drift item | Status | Notes |
 |---|---|---|---|
-| **C1** | Wedding Book per-page audience overrides (`COUPLE_ONLY`/`BRIDE_SIDE`/etc.) | **Build minimal** — add `BookSubsection.visibility EVERYONE\|COUPLE_ONLY` only | Aimee's Hen Do friction is the only real use case; full audience system is over-engineered for 4 members. Mirror the `File.visibility` pattern. ~2 hrs. |
-| **C2** | Seating MUST_NOT_TOGETHER constraint rules | **Defer** — leave in ROADMAP backlog | Real demand is unclear at 50 guests; user can manually arrange. Build only if the user actually wants it. |
-| **C3** | `BudgetLineItem` quantity × unit cost | **Defer** — not needed | Brief was over-spec'd; current single-amount model is fine for a wedding. |
-| **C4** | `dietaryEditedAt` conflict detection on import | **Build minimal** — add `Guest.lastEditedFields Json?` tracking which fields were last manually edited | If we go this route, B1 (per-field diff) gets stronger. ~2 hrs to schema + UI. |
-| **C5** | B2 + Google Drive backup targets | **Defer / accept drift** — local pg_dump + manual off-site copy is fine | Brief was prescriptive; the practical risk is Unraid array failure, mitigated by a monthly manual download to laptop. Document the procedure. |
-| **C6** | Illustration set with light/dark variants per scene | **Defer / accept drift** — emoji + Fraunces is the de-facto style | Adding illustrations is a significant design lift with low functional payoff. Accept the visual gap. |
-| **C7** | Round-table per-seat position dots | **Build** — small visual upgrade | ~1 hr. Real value: at-a-glance read of which seats are open. |
-| **C8** | Wedding Book hub: 5 cards, brief expected 7 | **Defer** — let user add via UI as needed | Don't seed Food/Drink + Guest Experience until the user asks. The Book editor lets them add subsections themselves. |
-| **C9** | Magic-link prune table cron | **Build with A3** — add to the same migration | Avoid unbounded growth; trivial cron job. |
-| **C10** | Custom Fields UI | **Defer / out-of-scope** — schema exists, no UI | Already in ROADMAP backlog as deferred. Real demand unclear. |
-| **C11** | Schedule motif icons (ring/candle/plate per event) | **Defer** — current text+colour is fine | Visual polish only. |
-| **C12** | A3-landscape Seating print + "DRAFT — unconfirmed" watermark | **Defer** — current Seating canvas is screen-only | The seating canvas isn't print-friendly anyway (drag affordances, hover panels). Print would need a separate render path. Low value before the wedding; the catering brief already has the per-table breakdown for the venue. |
+| **C1** | Wedding Book per-page audience overrides | ✅ shipped v1.14.0 | `BookSubsection.visibility EVERYONE\|COUPLE_ONLY` enum + non-couple read filter + couple-gated write action. UI shows a 🔒 pill on couple-only pages and a toggle button for the couple. |
+| **C2** | Seating MUST_NOT_TOGETHER constraint rules | 🟠 deferred | Real demand unclear at 50 guests; user arranges manually. |
+| **C3** | `BudgetLineItem` quantity × unit cost | 🟠 deferred | Brief over-spec'd; single-amount model works for a wedding. |
+| **C4** | Per-field edit-tracking on import | ✅ shipped v1.14.0 | `Guest.lastEditedFields Json?` populated by `updateGuest`. Pure helpers in `src/lib/last-edited-fields.ts`. Import preview surfaces "you edited X N days ago — re-importing will overwrite" warnings for fields manually edited in the last 14 days. |
+| **C5** | B2 / Google Drive backup targets | 🟠 accept drift | Local pg_dump + manual off-site is fine; document the procedure in R6. The practical risk (Unraid array failure) is mitigated by a monthly manual download. |
+| **C6** | Illustration set with light/dark variants per scene | 🟡 R5b | Prototype already has 19 illustration components (`prototype/illustrations.jsx`) using CSS-variable theming. Port + integrate into empty-states + hero slots. |
+| **C7** | Round-table per-seat position dots | ✅ shipped v1.14.0 | SVG dots evenly spaced around each round table just outside the circumference. Filled (moss) = occupied; outlined = empty. Seat 0 at "twelve o'clock". HEAD tables unchanged. |
+| **C8** | Wedding Book hub: 5 cards, brief expected 7 | ✅ resolved v1.9.0 | Hub now has prototype's 7 + 3 legacy = 10 cards. |
+| **C9** | Magic-link prune table cron | ✅ resolved v1.3.0 | Opportunistic prune runs on every rate-limit check (A3). Cron isn't needed at our scale. |
+| **C10** | Custom Fields UI | 🟡 R5b | Schema has a `CustomField` registry table (definitions only) but no instance-data column on entities. Build = add `customFieldValues Json?` to relevant entities + Settings UI to define fields + render per-entity. |
+| **C11** | Schedule motif icons (ring/candle/plate per event) | ✅ shipped v1.14.0 | Six 16px SVG icons ported from prototype with CSS-variable theming. Pure `classifyEventMotif` heuristic does word-boundary regex matching, falls through to no-icon when nothing fits. Wired into both Schedule timeline and table views. |
+| **C12** | A3-landscape Seating print + "DRAFT" watermark | 🟠 deferred | Seating canvas isn't print-friendly; the catering brief already gives the venue a per-table breakdown. Low value before the wedding. |
 
 ## 3. Test infrastructure plan
 

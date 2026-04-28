@@ -247,6 +247,33 @@ export function SeatingCanvas({
                     strokeWidth={isFocused ? 3 : 1.5}
                   />
                 )}
+                {/* C7 (v1.14.0): per-seat position dots on round tables.
+                    Filled (moss) = occupied; outlined (canvas) = empty.
+                    Lets the eye scan tables for free seats without
+                    having to focus each one. Dots sit just outside the
+                    table circumference, at evenly-spaced angles. */}
+                {t.shape === "ROUND" && t.seats.map((seat, i) => {
+                  // -90° offset puts seat 0 at the top of the circle,
+                  // matching how a host typically reads round-table
+                  // seating ("twelve o'clock first").
+                  const angle = (i / t.capacity) * 2 * Math.PI - Math.PI / 2;
+                  const dotR = size.r + 8;
+                  const cx = dotR * Math.cos(angle);
+                  const cy = dotR * Math.sin(angle);
+                  const occupied = !!seat.guest;
+                  return (
+                    <circle
+                      key={seat.id}
+                      cx={cx}
+                      cy={cy}
+                      r={3.5}
+                      fill={occupied ? "var(--color-moss-500)" : "var(--color-canvas)"}
+                      stroke={occupied ? "var(--color-moss-700)" : "var(--color-border-strong)"}
+                      strokeWidth={1}
+                      pointerEvents="none"
+                    />
+                  );
+                })}
                 <text
                   x={0}
                   y={-4}

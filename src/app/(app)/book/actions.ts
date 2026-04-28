@@ -2,8 +2,9 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import { BookSubsectionVisibility } from "@prisma/client";
 import { db } from "@/lib/db";
-import { audit, requireEdit } from "@/lib/actions";
+import { audit, requireEdit, requireUser } from "@/lib/actions";
 
 const sectionSchema = z.object({
   slug: z.string().min(1).max(80).regex(/^[a-z0-9-]+$/, "slug: lowercase letters, numbers, dashes only"),
@@ -84,4 +85,31 @@ export async function deleteBookSubsection(id: string) {
   await audit(user, { action: "delete", entity: "BookSubsection", entityId: id });
   revalidatePath("/book");
   if (sub) revalidatePath(`/book/${sub.section.slug}`);
+}
+
+// C1 (v1.14.0): only the couple can flip a subsection's visibility.
+// Same shape as the A6 file-visibility gate (post-audit lockdown):
+// non-couple users with edit-on-book can edit content, but only the
+// couple decides what's couple-only.
+export async function setBookSubsectionVisibility(
+  id: string,
+  visibility: BookSubsectionVisibility,
+) {
+  const user = await requireUser();
+  if (!user.isCouple) {
+    throw new Error("Forbidden: only the couple can change page visibility");
+  }
+  const sub = await db.bookSubsection.update({
+    where: { id },
+    data: { visibility },
+    include: { section: true },
+  });
+  await audit(user, {
+    action: "visibility",
+    entity: "BookSubsection",
+    entityId: id,
+    metadata: { visibility },
+  });
+  revalidatePath("/book");
+  revalidatePath(`/book/${sub.section.slug}`);
 }

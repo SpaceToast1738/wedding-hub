@@ -11,7 +11,7 @@
 - **Repo:** [SpaceToast1738/wedding-hub](https://github.com/SpaceToast1738/wedding-hub) · `claude/main` (releases) + `dev` (work-in-progress)
 - **Stack:** Next.js 15 · TypeScript · Tailwind v4 · Prisma · Postgres 16 · Auth.js v5 · Caddy · Docker Compose
 - **Working tree:** `C:\Users\Admin\Code\wedding-hub` (local SSD). The old `\\TOWER\Jamie Spencer\Claude\wedding-hub` mirror is no longer in use — run `Remove-Item -Recurse -Force "\\TOWER\Jamie Spencer\Claude\wedding-hub"` from a fresh PowerShell to delete it.
-- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` at **v1.12.0**, promoted 28 Apr 2026 with v1.11.0 + v1.12.0 tagged together after green CI on both SHAs). `dev` is at **v1.13.0** — Phase R4c closes the last three Bucket B polish MINORs: quick-capture event time picker (B6), mobile day-of scroll-to-NOW (B7), inline song-request add on guest detail (B9). **Phase R4 complete — 11/13 Bucket B items shipped; 2 were already done pre-R4.** 126 unit tests, 5 e2e specs, 2 integration tests.
+- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` at **v1.13.0**, promoted 28 Apr 2026). `dev` is at **v1.14.0** — Phase R5a closes 4 of the 6 Bucket C drift items the user picked: book-page audience overrides (C1), per-field manual-edit tracking (C4), round-table per-seat dots (C7), schedule motif icons (C11). C8 + C9 marked resolved (already shipped earlier); C2 + C3 + C12 deferred; C5 accepted as drift. R5b (C6 illustrations + C10 custom fields UI) deferred to a focused follow-up session. 149 unit tests.
 
 ## Phase status
 
@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.13.0** | 2026-04-28 | [Phase R4c: polish MINORs (B6 + B7 + B9) — Bucket B complete](#2026-04-28--v1130--phase-r4c-polish-minors-b6--b7--b9--bucket-b-complete) |
+| **v1.14.0** | 2026-04-28 | [Phase R5a: Bucket C drift decisions (C1 + C4 + C7 + C11)](#2026-04-28--v1140--phase-r5a-bucket-c-drift-decisions-c1--c4--c7--c11) |
+| v1.13.0 | 2026-04-28 | [Phase R4c: polish MINORs (B6 + B7 + B9) — Bucket B complete](#2026-04-28--v1130--phase-r4c-polish-minors-b6--b7--b9--bucket-b-complete) |
 | v1.12.0 | 2026-04-28 | [Phase R4b: data + UX MINORs (B5 + B8 + B11 + B12)](#2026-04-28--v1120--phase-r4b-data--ux-minors-b5--b8--b11--b12) |
 | v1.11.0 | 2026-04-28 | [Phase R4a: workflow polish (B1 + B2 + B3 + B4)](#2026-04-28--v1110--phase-r4a-workflow-polish-b1--b2--b3--b4) |
 | v1.10.0 | 2026-04-28 | [Phase R3 follow-on: Postgres-backed integration job + Playwright e2e in CI](#2026-04-28--v1100--phase-r3-follow-on-postgres-integration-job--playwright-e2e-in-ci) |
@@ -249,6 +250,26 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-28 · v1.14.0 — Phase R5a: Bucket C drift decisions (C1 + C4 + C7 + C11)
+
+The user walked through the 12 Bucket C drift items and assigned a decision per row. C8 and C9 marked resolved (already shipped earlier — v1.9.0 expanded the Wedding Book hub to 7+3 cards; v1.3.0's A3 implementation includes opportunistic prune so a separate cron isn't needed at our scale). C2, C3, C12 deferred. C5 accepted as drift (covered by R6's restore-drill plan). C6 + C10 deferred to R5b — both have unexpectedly clean footholds (prototype already has 19 illustration components ready to port; schema already has a `CustomField` registry table) but each touches a meaningful chunk of UI and benefits from a focused session.
+
+**C1 — Wedding Book per-page audience overrides.** Adds `BookSubsection.visibility EVERYONE|COUPLE_ONLY` (additive Prisma migration, mirrors `FileVisibility`). Read path: non-couple users get filtered to `EVERYONE` rows on `/book/[slug]` so the couple can stash Hen Do plans without Josh seeing them. Write path: a new `setBookSubsectionVisibility` action gates on `user.isCouple === true` (same pattern as the v1.2.0 A6 file-visibility lockdown — non-couple editors can edit content, but only the couple decides what's couple-only). UI: the [SubsectionEditor](src/app/(app)/book/[slug]/SubsectionEditor.tsx) shows a 🔒 "Couple only" pill in the header for any couple-only page, plus a "Make couple-only" / "Make public" button for the couple. Errors roll back via the toast bus.
+
+**C4 — Per-field manual-edit tracking.** Adds `Guest.lastEditedFields Json?` (in the same migration as C1 to save a round-trip) — shape is `{ "fieldName": "<ISO timestamp>" }`. Pure helpers at [src/lib/last-edited-fields.ts](src/lib/last-edited-fields.ts) (`diffEditedFields`, `mergeEditedFields`, `daysSinceEdited`); the [updateGuest](src/app/(app)/guests/actions.ts) action now diffs the next payload against the existing row and stamps only fields that actually changed (arrays compared order-insensitively, null/undefined/empty-string treated equivalent so spurious form re-saves don't pollute the map). The B1 import preview reads the map and appends a warning per row when a diff would overwrite a field manually edited in the last 14 days — surfaces inline via the existing warnings render path with a "you edited dietary 3 days ago — re-importing will overwrite (untick to keep)" message that points at the per-field opt-out. 17 new unit tests cover the diff/merge/days-since matrix.
+
+**C7 — Round-table per-seat position dots.** [SeatingCanvas](src/app/(app)/seating/SeatingCanvas.tsx) now renders one small dot per seat just outside each round table's circumference, evenly spaced (with seat 0 at "twelve o'clock" matching how a host reads round tables). Filled (moss) = occupied, outlined (canvas) = empty. Lets the eye scan the canvas for free seats without focusing each table. Pure SVG, theme-aware via existing CSS variables. No-op for HEAD-shaped tables.
+
+**C11 — Schedule event motif icons.** Six 16px SVG icons ported from [prototype/illustrations.jsx](prototype/illustrations.jsx) into [EventMotifIcon.tsx](src/components/ui/EventMotifIcon.tsx) (ring / candle / plate / camera / bouquet / suitcase). The pure `classifyEventMotif(title)` heuristic does word-boundary regex matching — case-insensitive, falls through to `null` (no icon) for unrecognised titles rather than guessing. Plurals handled (`portraits` → camera, `photos` → camera). "Wedding Breakfast" intentionally classifies as plate, not ring (ring is reserved for the explicit ceremony/vow keywords). Wired into [EventNode](src/app/(app)/schedule/EventNode.tsx) (timeline view) and [ScheduleTable](src/app/(app)/schedule/ScheduleTable.tsx) (table view); the existing prototype's CSS-variable theming carries through to dark mode automatically. 8 new unit tests lock the title-to-motif contract.
+
+**Files changed:** 9 modified, 3 new, 1 migration. 25 new unit tests (149 total). e2e + build green.
+
+**Bucket C status after v1.14.0:**
+- ✅ Resolved: C8 (v1.9.0), C9 (v1.3.0), C1, C4, C7, C11 (v1.14.0)
+- 🟡 R5b deferred: C6 (illustrations), C10 (custom fields UI)
+- 🟠 Deferred / accepted drift: C2, C3, C5, C12
+- 6/12 shipped; 2 in queue; 4 acknowledged drift.
 
 ### 2026-04-28 · v1.13.0 — Phase R4c: polish MINORs (B6 + B7 + B9) — Bucket B complete
 

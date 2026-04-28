@@ -15,7 +15,12 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
   const section = await db.bookSection.findUnique({
     where: { slug },
     include: {
-      subsections: { orderBy: [{ order: "asc" }, { title: "asc" }] },
+      subsections: {
+        // C1 (v1.14.0): non-couple users don't see COUPLE_ONLY pages.
+        // The couple sees everything. Mirrors File.visibility.
+        where: user.isCouple ? undefined : { visibility: "EVERYONE" },
+        orderBy: [{ order: "asc" }, { title: "asc" }],
+      },
     },
   });
   if (!section) notFound();
@@ -55,7 +60,7 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
             </p>
           ) : (
             section.subsections.map((s) => (
-              <SubsectionEditor key={s.id} sub={s} canEdit={editable} />
+              <SubsectionEditor key={s.id} sub={s} canEdit={editable} isCouple={user.isCouple} />
             ))
           )}
         </div>

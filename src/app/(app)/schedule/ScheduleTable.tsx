@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/Button";
 import { EventForm } from "./EventForm";
 import { deleteScheduleEvent, updateScheduleEvent } from "./actions";
 import { isoDateTimeForInput } from "@/lib/format";
+import { EventMotifIcon, classifyEventMotif } from "@/components/ui/EventMotifIcon";
 
 type Event = {
   id: string;
@@ -118,7 +119,10 @@ function Row({ event, canEdit }: { event: Event; canEdit: boolean }) {
         </div>
       </td>
       <td className="px-3 py-2.5">
-        <div className="text-sm text-ink-primary font-medium">{event.title}</div>
+        <div className="text-sm text-ink-primary font-medium flex items-center gap-1.5">
+          <EventMotifIcon motif={classifyEventMotif(event.title)} />
+          <span>{event.title}</span>
+        </div>
         {event.notes && (
           <p className="text-[11px] text-ink-secondary mt-1 whitespace-pre-wrap">
             {event.notes}

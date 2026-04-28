@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/Button";
 import { EventForm } from "./EventForm";
 import { updateScheduleEvent, deleteScheduleEvent } from "./actions";
 import { isoDateTimeForInput } from "@/lib/format";
+import { EventMotifIcon, classifyEventMotif } from "@/components/ui/EventMotifIcon";
 
 type Event = {
   id: string;
@@ -94,7 +95,12 @@ export function EventNode({
           </div>
         )}
       </div>
-      <div className="text-sm font-medium text-ink-primary mt-0.5">{event.title}</div>
+      <div className="text-sm font-medium text-ink-primary mt-0.5 flex items-center gap-1.5">
+        {/* C11 (v1.14.0): per-event motif icon. Heuristic match on
+            title — pure no-icon when nothing fits. */}
+        <EventMotifIcon motif={classifyEventMotif(event.title)} />
+        <span>{event.title}</span>
+      </div>
       {event.location && (
         <div className="text-xs text-ink-tertiary mt-0.5">📍 {event.location}</div>
       )}

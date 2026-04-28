@@ -147,6 +147,13 @@ model Guest {
   parentGuestId   String?
   parentGuest     Guest?         @relation("PlusOneOf", fields: [parentGuestId], references: [id], onDelete: Cascade)
   plusOnes        Guest[]        @relation("PlusOneOf")
+  // C4 (v1.14.0): per-field manual-edit timestamps. JSON shape is
+  // { "fieldName": "<ISO 8601 timestamp>", … }. Populated by the
+  // updateGuest action when a manual edit changes a field. The CSV
+  // import preview reads this to warn "you edited dietary 3 weeks
+  // ago — overwrite?" before re-importing. Null on rows that haven't
+  // been manually edited since C4 shipped (most existing rows).
+  lastEditedFields Json?
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
 
@@ -398,9 +405,18 @@ model BookSubsection {
   fields     Json?
   body       String?     @db.Text  // freeform notes
   order      Int         @default(0)
+  // C1 (v1.14.0): per-page audience override. Mirrors FileVisibility.
+  // Couple-only pages are filtered out for non-couple users at read
+  // time. Default EVERYONE so existing rows remain visible.
+  visibility BookSubsectionVisibility @default(EVERYONE)
   updatedAt  DateTime    @updatedAt
 
   @@unique([sectionId, slug])
+}
+
+enum BookSubsectionVisibility {
+  EVERYONE
+  COUPLE_ONLY
 }
 
 // ─── Photography shot list ────────────────────────────────────────────────

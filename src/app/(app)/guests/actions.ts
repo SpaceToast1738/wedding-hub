@@ -6,6 +6,7 @@ import { RsvpStatus, Side } from "@prisma/client";
 import { db } from "@/lib/db";
 import { audit, requireEdit } from "@/lib/actions";
 import { decidePlusOneAction } from "@/lib/plus-one";
+import { diffEditedFields, mergeEditedFields, type EditedFieldsMap } from "@/lib/last-edited-fields";
 
 const householdSchema = z.object({
   name: z.string().min(1).max(200),
@@ -201,28 +202,67 @@ export async function updateGuest(id: string, formData: FormData) {
   // place plusOneAllowed / plusOneName can be set.
   const existing = await db.guest.findUnique({
     where: { id },
-    select: { parentGuestId: true },
+    // C4: also pull the fields we're about to overwrite + the existing
+    // edit-tracking map so we can stamp only fields that actually
+    // changed.
+    select: {
+      parentGuestId: true,
+      firstName: true,
+      lastName: true,
+      email: true,
+      phone: true,
+      rsvp: true,
+      side: true,
+      isChild: true,
+      needsHighchair: true,
+      plusOneAllowed: true,
+      plusOneName: true,
+      role: true,
+      dietary: true,
+      notes: true,
+      lastEditedFields: true,
+    },
   });
   const isPlusOne = !!existing?.parentGuestId;
   const plusOneAllowed = isPlusOne ? false : !!parsed.plusOneAllowed;
   const plusOneName = isPlusOne ? null : (parsed.plusOneName ?? null);
 
+  const nextValues = {
+    firstName: parsed.firstName,
+    lastName: parsed.lastName,
+    email: parsed.email || null,
+    phone: parsed.phone ?? null,
+    rsvp: parsed.rsvp,
+    side: parsed.side,
+    isChild: !!parsed.isChild,
+    needsHighchair: !!parsed.needsHighchair,
+    plusOneAllowed,
+    plusOneName,
+    role: parsed.role ?? null,
+    dietary: readDietary(parsed.dietary ?? null),
+    notes: parsed.notes ?? null,
+  };
+  // C4 (v1.14.0): record per-field manual-edit timestamps so the CSV
+  // import preview can warn before overwriting a recent edit.
+  const changed = existing
+    ? diffEditedFields(
+        existing as Record<string, unknown>,
+        nextValues as Record<string, unknown>,
+      )
+    : Object.keys(nextValues);
+  const lastEditedFields =
+    changed.length > 0
+      ? mergeEditedFields(
+          (existing?.lastEditedFields as EditedFieldsMap | null) ?? null,
+          changed,
+        )
+      : undefined;
+
   await db.guest.update({
     where: { id },
     data: {
-      firstName: parsed.firstName,
-      lastName: parsed.lastName,
-      email: parsed.email || null,
-      phone: parsed.phone ?? null,
-      rsvp: parsed.rsvp,
-      side: parsed.side,
-      isChild: !!parsed.isChild,
-      needsHighchair: !!parsed.needsHighchair,
-      plusOneAllowed,
-      plusOneName,
-      role: parsed.role ?? null,
-      dietary: readDietary(parsed.dietary ?? null),
-      notes: parsed.notes ?? null,
+      ...nextValues,
+      ...(lastEditedFields !== undefined && { lastEditedFields }),
     },
   });
 
