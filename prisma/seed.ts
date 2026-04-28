@@ -122,17 +122,35 @@ async function seedSampleHouseholds() {
 }
 
 async function seedBookSections() {
+  // Prototype's 7 canonical sections (orders 1–7). Re-running the seed
+  // is upsert-safe: existing rows have their title + order refreshed
+  // without touching subsections, and the 5 sections that didn't ship
+  // in v1.4.0's seed are added.
+  //
+  // The 3 v1.4.0 legacy slugs (ceremony / reception / logistics) are
+  // kept at orders 8–10 so they don't conflict with the prototype set
+  // and still appear at the bottom of the hub. The user can delete
+  // them via the UI later if they want a clean 7-card hub. Their
+  // content (if any subsections were added) is preserved.
   const sections = [
-    { slug: "ceremony",     title: "Ceremony",                order: 1 },
-    { slug: "reception",    title: "Reception",               order: 2 },
-    { slug: "logistics",    title: "Logistics",               order: 3 },
-    // Photography is a special section — `/book/photography` resolves to a
-    // dedicated route with a checklist UI rather than the generic subsection
-    // editor. The BookSection row exists so it appears as a card on /book.
-    { slug: "photography",  title: "Photography & Shot list", order: 4 },
-    // Wedding party section: outfits, roles, stag/hen, day-of logistics,
-    // ring-keeper hand-off. Uses the standard BookSubsection editor.
-    { slug: "wedding-party", title: "Wedding party",          order: 5 },
+    // Prototype-aligned set
+    { slug: "wedding-party",     title: "Wedding Party",             order: 1 },
+    { slug: "venue",             title: "Venue, Décor & Setup",      order: 2 },
+    { slug: "food-drink",        title: "Food & Drink",              order: 3 },
+    // Photography is a special section — `/book/photography` resolves
+    // to a dedicated route with a checklist UI rather than the generic
+    // subsection editor. The BookSection row exists so it appears as a
+    // card on /book.
+    { slug: "photography",       title: "Photography & Videography", order: 4 },
+    { slug: "guest-experience",  title: "Guest Experience",          order: 5 },
+    { slug: "legal-admin",       title: "Legal & Admin",             order: 6 },
+    { slug: "accommodation",     title: "Accommodation",             order: 7 },
+    // Legacy v1.4.0 sections — pushed to the bottom of the order so
+    // the prototype's 7 lead. Kept (rather than deleted) because they
+    // may carry user-added subsection content from prior versions.
+    { slug: "ceremony",          title: "Ceremony",                  order: 8 },
+    { slug: "reception",         title: "Reception",                 order: 9 },
+    { slug: "logistics",         title: "Logistics",                 order: 10 },
   ];
   for (const s of sections) {
     await db.bookSection.upsert({

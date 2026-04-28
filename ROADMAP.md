@@ -11,7 +11,7 @@
 - **Repo:** [SpaceToast1738/wedding-hub](https://github.com/SpaceToast1738/wedding-hub) · `claude/main` (releases) + `dev` (work-in-progress)
 - **Stack:** Next.js 15 · TypeScript · Tailwind v4 · Prisma · Postgres 16 · Auth.js v5 · Caddy · Docker Compose
 - **Working tree:** `C:\Users\Admin\Code\wedding-hub` (local SSD). The old `\\TOWER\Jamie Spencer\Claude\wedding-hub` mirror is no longer in use — run `Remove-Item -Recurse -Force "\\TOWER\Jamie Spencer\Claude\wedding-hub"` from a fresh PowerShell to delete it.
-- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` at **v1.8.0**, promoted 28 Apr 2026 after GHA green). Spotify setup guide + status chip on Settings/Songs. All four user-feedback Tiers complete; remaining backlog is in [REMEDIATION-PLAN.md](REMEDIATION-PLAN.md) — R3 follow-on (Playwright + integration CI), R4 Bucket B polish, R5 Bucket C decisions, R6 backup hardening.
+- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` at **v1.8.0**). v1.9.0 (this iteration on `dev`) brings the Wedding Book section set in line with the prototype: adds the 5 missing canonical sections (Venue, Food & Drink, Guest Experience, Legal & Admin, Accommodation), renames the existing Photography and Wedding Party titles to match, and pushes the v1.4.0 legacy sections (Ceremony, Reception, Logistics) to the bottom of the order. Idempotent seed — re-running picks up new sections without touching existing subsection content.
 
 ## Phase status
 
@@ -34,6 +34,7 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
+| _(unreleased on `dev`)_ | 2026-04-28 | [v1.9.0 — Wedding Book sections aligned with prototype (10 cards: 7 canonical + 3 legacy)](#2026-04-28--v190--wedding-book-sections-aligned-with-prototype) |
 | **v1.8.0** | 2026-04-28 | [Spotify integration setup guide + status chip on Songs](#2026-04-28--v180--spotify-integration-setup-guide--status-chip) |
 | v1.7.0 | 2026-04-28 | [Tier 3 / A: +1s materialise as own Guest rows](#2026-04-28--v170--tier-3-1s-as-own-guest-rows) |
 | v1.6.0 | 2026-04-28 | [Tier 2 user-feedback polish: Schedule table view + Wedding Book hub redesign](#2026-04-28--v160--tier-2-user-feedback-polish) |
@@ -239,11 +240,45 @@ When wrapping up a meaningful iteration:
 
 ### Current version
 
-`1.8.0` on both `dev` and `claude/main` (promoted 28 Apr 2026 after GHA green). Code-only release — no migrations, no env changes. Production catches up on next `docker compose pull && up -d`.
+`1.9.0` on `dev`, `claude/main` at `v1.8.0`. Wedding Book sections aligned with prototype (10 cards: 7 canonical + 3 legacy). Holding promote until GHA confirms green at the v1.9.0 SHA. Production catches up after `docker compose pull && up -d` followed by a one-time seed re-run to populate the 5 new sections.
 
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-28 · v1.9.0 — Wedding Book sections aligned with prototype
+
+The v1.4.0 seed shipped 5 Wedding Book sections (Ceremony, Reception, Logistics, Photography, Wedding party) but the design brief in `prototype/WeddingBookPage.jsx` defines 7 canonical sections (Wedding Party, Venue, Food & Drink, Photography, Guest Experience, Legal & Admin, Accommodation). The v1.0.0 audit flagged the gap as a **MINOR** under design fidelity (`Wedding Book hub has 5 not 7 cards`). v1.9.0 closes it.
+
+**Seed change** ([prisma/seed.ts](prisma/seed.ts) `seedBookSections`):
+
+- Adds 5 new sections matching the prototype: `venue`, `food-drink`, `guest-experience`, `legal-admin`, `accommodation`. Orders 2, 3, 5, 6, 7 respectively.
+- Renames `photography` from "Photography & Shot list" → "Photography & Videography" (slug stays the same, so the `/book/photography` custom route still resolves to the shot-list checklist).
+- Renames `wedding-party` from "Wedding party" → "Wedding Party" (capitalisation only).
+- Sets the prototype set to orders 1–7.
+- Keeps the 3 v1.4.0 legacy sections (Ceremony, Reception, Logistics) but pushes their orders to 8–10 so they sort to the bottom of the hub. They aren't deleted — any subsection content the user added survives, and the user can delete them via the UI later if they want a clean 7-card hub.
+
+Re-running the seed (`docker compose exec web node prisma/seed.js`) is idempotent: existing rows have title + order refreshed, new rows are added, no subsection content is touched. Production picks the changes up after the next deploy + seed run.
+
+**[SECTION_META](src/app/(app)/book/page.tsx)** updated with accent / glyph / description for all 10 slugs (5 new + 5 existing). Accent palette and descriptions ported directly from `prototype/WeddingBookPage.jsx` BOOK_SECTIONS:
+
+| Slug | Accent | Glyph | Description |
+|---|---|---|---|
+| wedding-party | moss-100 | 👰 | Outfits, roles, stag & hen, ring keepers |
+| venue | moss-50 | 🏛 | Ceremony, reception, signage, centrepieces |
+| food-drink | marigold-100 | 🍽 | Breakfast, evening food, cake, drinks |
+| photography | moss-100 | 📷 | Package, shot list, locations, day-of contact |
+| guest-experience | marigold-100 | 🎉 | Pixel Party, table games, photo booth, favours |
+| legal-admin | moss-50 | 📜 | Notice of marriage, documents, witnesses |
+| accommodation | marigold-100 | 🛏 | Bridal suite, bridesmaids, groomsmen |
+
+**Production deploy:** code-only release plus a one-time seed re-run. After `docker compose pull && up -d`:
+
+```bash
+docker compose exec web node prisma/seed.js
+```
+
+Verified: typecheck, lint, build, 83/83 tests, clean `npm ci`. Holding promote until GHA confirms green at the v1.9.0 SHA.
 
 ### 2026-04-28 · v1.8.0 — Spotify integration setup guide + status chip
 

@@ -18,6 +18,46 @@ const SECTION_META: Record<
   string,
   { accent: string; glyph: string; description: string }
 > = {
+  // Prototype's 7 canonical sections — accent colours and descriptions
+  // ported directly from prototype/WeddingBookPage.jsx BOOK_SECTIONS.
+  "wedding-party": {
+    accent: "bg-moss-100",
+    glyph: "👰",
+    description: "Outfits, roles, stag & hen, ring keepers",
+  },
+  venue: {
+    accent: "bg-moss-50",
+    glyph: "🏛",
+    description: "Ceremony, reception, signage, centrepieces",
+  },
+  "food-drink": {
+    accent: "bg-marigold-100",
+    glyph: "🍽",
+    description: "Breakfast, evening food, cake, drinks",
+  },
+  photography: {
+    accent: "bg-moss-100",
+    glyph: "📷",
+    description: "Package, shot list, locations, day-of contact",
+  },
+  "guest-experience": {
+    accent: "bg-marigold-100",
+    glyph: "🎉",
+    description: "Pixel Party, table games, photo booth, favours",
+  },
+  "legal-admin": {
+    accent: "bg-moss-50",
+    glyph: "📜",
+    description: "Notice of marriage, documents, witnesses",
+  },
+  accommodation: {
+    accent: "bg-marigold-100",
+    glyph: "🛏",
+    description: "Bridal suite, bridesmaids, groomsmen",
+  },
+  // Legacy v1.4.0 slugs — kept so the cards still render meaningfully
+  // for installs that haven't been re-seeded or that want to keep the
+  // legacy structure alongside the prototype set.
   ceremony: {
     accent: "bg-moss-50",
     glyph: "💍",
@@ -32,16 +72,6 @@ const SECTION_META: Record<
     accent: "bg-moss-50",
     glyph: "🗓",
     description: "Setup, pack-down, supplier arrival times",
-  },
-  photography: {
-    accent: "bg-moss-100",
-    glyph: "📷",
-    description: "Package, shot list, locations, day-of contact",
-  },
-  "wedding-party": {
-    accent: "bg-moss-100",
-    glyph: "👰",
-    description: "Outfits, roles, stag & hen, ring keepers",
   },
 };
 
