@@ -164,6 +164,12 @@ jobs:
         if: steps.playwright-cache.outputs.cache-hit == 'true'
         run: npx playwright install-deps chromium
 
+      # Playwright's webServer runs `next start` in CI, which requires
+      # a prebuilt .next directory. The verify job builds via `npm run
+      # build` already but its workspace doesn't carry over to this job.
+      - name: Build app
+        run: npm run build
+
       - name: Run e2e tests
         run: npm run test:e2e
 
