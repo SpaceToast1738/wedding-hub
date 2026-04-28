@@ -315,3 +315,142 @@ export function inferSideFromTags(
   }
   return null;
 }
+
+// ─── Column inference for the task-import flow (v1.16.0) ───────────────────
+
+export type TaskField =
+  | "title"
+  | "type"           // task / question / decision
+  | "priority"       // LOW / MEDIUM / HIGH / URGENT
+  | "status"         // OPEN / IN_PROGRESS / WAITING / DONE / ARCHIVED
+  | "dueDate"        // YYYY-MM-DD or DD/MM/YYYY or ISO timestamp
+  | "assigneeEmail"  // resolved to assigneeId at commit time; null if unmatched
+  | "tags"           // pipe / comma / semicolon delimited
+  | "notes"
+  | "ignore";
+
+export const TASK_FIELD_LABELS: Record<TaskField, string> = {
+  title: "Title",
+  type: "Type (task / question / decision)",
+  priority: "Priority (low / medium / high / urgent)",
+  status: "Status (open / in progress / waiting / done)",
+  dueDate: "Due date",
+  assigneeEmail: "Assignee email",
+  tags: "Tags (pipe-delimited)",
+  notes: "Notes",
+  ignore: "— Ignore —",
+};
+
+const TASK_HEURISTICS: Array<{ field: TaskField; tests: RegExp[] }> = [
+  { field: "title",         tests: [/^(task\s*)?title$/i, /^name$/i, /^description$/i, /^summary$/i, /^todo$/i] },
+  { field: "type",          tests: [/^type$/i, /^kind$/i, /^category$/i] },
+  { field: "priority",      tests: [/^priority$/i, /^pri$/i, /^urgency$/i] },
+  { field: "status",        tests: [/^status$/i, /^state$/i, /^progress$/i] },
+  { field: "dueDate",       tests: [/^due/i, /^deadline$/i, /^when$/i, /\bdate\b/i] },
+  { field: "assigneeEmail", tests: [/^assignee$/i, /^assigned/i, /^owner$/i, /^who$/i, /^email$/i] },
+  { field: "tags",          tests: [/^tags?$/i, /^labels?$/i, /^groups?$/i] },
+  { field: "notes",         tests: [/^notes?$/i, /^comments?$/i, /^details?$/i, /^description$/i] },
+];
+
+export function inferTaskMapping(headers: string[]): TaskField[] {
+  const used = new Set<TaskField>();
+  return headers.map((h) => {
+    const cleaned = h.trim();
+    if (!cleaned) return "ignore";
+    for (const { field, tests } of TASK_HEURISTICS) {
+      if (used.has(field)) continue;
+      if (tests.some((re) => re.test(cleaned))) {
+        used.add(field);
+        return field;
+      }
+    }
+    return "ignore";
+  });
+}
+
+const TASK_TYPE_MAP: Record<string, "TASK" | "QUESTION" | "DECISION"> = {
+  task: "TASK",
+  todo: "TASK",
+  action: "TASK",
+  question: "QUESTION",
+  q: "QUESTION",
+  decision: "DECISION",
+  decide: "DECISION",
+  choice: "DECISION",
+  "": "TASK",
+};
+
+export function coerceTaskType(raw: string): "TASK" | "QUESTION" | "DECISION" {
+  return TASK_TYPE_MAP[raw.trim().toLowerCase()] ?? "TASK";
+}
+
+const TASK_PRIORITY_MAP: Record<string, "LOW" | "MEDIUM" | "HIGH" | "URGENT"> = {
+  low: "LOW",
+  l: "LOW",
+  medium: "MEDIUM",
+  med: "MEDIUM",
+  m: "MEDIUM",
+  normal: "MEDIUM",
+  high: "HIGH",
+  h: "HIGH",
+  urgent: "URGENT",
+  u: "URGENT",
+  critical: "URGENT",
+  "": "MEDIUM",
+};
+
+export function coerceTaskPriority(raw: string): "LOW" | "MEDIUM" | "HIGH" | "URGENT" {
+  return TASK_PRIORITY_MAP[raw.trim().toLowerCase()] ?? "MEDIUM";
+}
+
+const TASK_STATUS_MAP: Record<string, "OPEN" | "IN_PROGRESS" | "WAITING" | "DONE" | "ARCHIVED"> = {
+  open: "OPEN",
+  todo: "OPEN",
+  new: "OPEN",
+  pending: "OPEN",
+  "in progress": "IN_PROGRESS",
+  "in_progress": "IN_PROGRESS",
+  doing: "IN_PROGRESS",
+  active: "IN_PROGRESS",
+  wip: "IN_PROGRESS",
+  waiting: "WAITING",
+  blocked: "WAITING",
+  "on hold": "WAITING",
+  done: "DONE",
+  complete: "DONE",
+  completed: "DONE",
+  closed: "DONE",
+  archived: "ARCHIVED",
+  cancelled: "ARCHIVED",
+  canceled: "ARCHIVED",
+  "": "OPEN",
+};
+
+export function coerceTaskStatus(raw: string): "OPEN" | "IN_PROGRESS" | "WAITING" | "DONE" | "ARCHIVED" {
+  return TASK_STATUS_MAP[raw.trim().toLowerCase()] ?? "OPEN";
+}
+
+// Accepts:
+//   - YYYY-MM-DD              → 2026-09-26
+//   - YYYY-MM-DDTHH:mm:ss…    → ISO timestamp (any timezone marker)
+//   - DD/MM/YYYY              → UK-style; we ASSUME UK because the user is UK-based
+//   - DD-MM-YYYY              → same as above
+// Returns a Date or null. Tomorrow / next-week NL parsing is intentionally
+// out of scope — too easy to misread.
+export function coerceTaskDueDate(raw: string): Date | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  // ISO-ish: YYYY-MM-DD or YYYY-MM-DDT…
+  if (/^\d{4}-\d{2}-\d{2}/.test(trimmed)) {
+    const d = new Date(trimmed);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+  // UK-style: DD/MM/YYYY or DD-MM-YYYY
+  const m = trimmed.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
+  if (m) {
+    const [, dd, mm, yyyy] = m;
+    const d = new Date(`${yyyy}-${mm!.padStart(2, "0")}-${dd!.padStart(2, "0")}T00:00:00Z`);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+  return null;
+}

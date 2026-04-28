@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { PageHeader } from "@/components/ui/PageHeader";
@@ -31,9 +32,17 @@ export default async function TasksPage() {
         subtitle={`${open} open · ${done} done`}
         actions={
           editable ? (
-            <AddTaskToggle
-              users={users.map((u) => ({ id: u.id, name: u.name, email: u.email }))}
-            />
+            <>
+              <Link
+                href="/tasks/import"
+                className="inline-flex items-center text-xs font-medium px-2.5 py-1 rounded-sm border border-border-soft bg-canvas text-ink-secondary hover:border-moss-300 hover:text-moss-700"
+              >
+                Import CSV
+              </Link>
+              <AddTaskToggle
+                users={users.map((u) => ({ id: u.id, name: u.name, email: u.email }))}
+              />
+            </>
           ) : undefined
         }
       />

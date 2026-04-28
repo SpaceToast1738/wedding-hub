@@ -249,9 +249,10 @@ export function SeatingCanvas({
                 )}
                 {/* C7 (v1.14.0): per-seat position dots on round tables.
                     Filled (moss) = occupied; outlined (canvas) = empty.
-                    Lets the eye scan tables for free seats without
-                    having to focus each one. Dots sit just outside the
-                    table circumference, at evenly-spaced angles. */}
+                    v1.16.0: now also renders the occupant's first name
+                    next to each filled dot, anchored away from the
+                    table centre so the text reads outward and doesn't
+                    overlap the table circle. */}
                 {t.shape === "ROUND" && t.seats.map((seat, i) => {
                   // -90° offset puts seat 0 at the top of the circle,
                   // matching how a host typically reads round-table
@@ -261,17 +262,46 @@ export function SeatingCanvas({
                   const cx = dotR * Math.cos(angle);
                   const cy = dotR * Math.sin(angle);
                   const occupied = !!seat.guest;
+                  // Label sits a bit further out than the dot. Anchor
+                  // is "end" on the left half of the table, "start" on
+                  // the right half, so the text always grows away from
+                  // the centre rather than crashing into the table.
+                  const labelR = size.r + 18;
+                  const lx = labelR * Math.cos(angle);
+                  const ly = labelR * Math.sin(angle);
+                  const textAnchor: "start" | "middle" | "end" =
+                    lx < -2 ? "end" : lx > 2 ? "start" : "middle";
+                  // Truncate to keep the canvas readable when names
+                  // are long. First-name-only is the convention; a
+                  // 10-char cap catches the rare "Christopher" case.
+                  const firstName = seat.guest?.firstName ?? "";
+                  const label = firstName.length > 10
+                    ? `${firstName.slice(0, 9)}…`
+                    : firstName;
                   return (
-                    <circle
-                      key={seat.id}
-                      cx={cx}
-                      cy={cy}
-                      r={3.5}
-                      fill={occupied ? "var(--color-moss-500)" : "var(--color-canvas)"}
-                      stroke={occupied ? "var(--color-moss-700)" : "var(--color-border-strong)"}
-                      strokeWidth={1}
-                      pointerEvents="none"
-                    />
+                    <g key={seat.id}>
+                      <circle
+                        cx={cx}
+                        cy={cy}
+                        r={3.5}
+                        fill={occupied ? "var(--color-moss-500)" : "var(--color-canvas)"}
+                        stroke={occupied ? "var(--color-moss-700)" : "var(--color-border-strong)"}
+                        strokeWidth={1}
+                        pointerEvents="none"
+                      />
+                      {occupied && (
+                        <text
+                          x={lx}
+                          y={ly + 3}
+                          textAnchor={textAnchor}
+                          fontSize={9}
+                          fill="var(--color-ink-secondary)"
+                          pointerEvents="none"
+                        >
+                          {label}
+                        </text>
+                      )}
+                    </g>
                   );
                 })}
                 <text

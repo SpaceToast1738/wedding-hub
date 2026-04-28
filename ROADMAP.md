@@ -11,7 +11,7 @@
 - **Repo:** [SpaceToast1738/wedding-hub](https://github.com/SpaceToast1738/wedding-hub) · `claude/main` (releases) + `dev` (work-in-progress)
 - **Stack:** Next.js 15 · TypeScript · Tailwind v4 · Prisma · Postgres 16 · Auth.js v5 · Caddy · Docker Compose
 - **Working tree:** `C:\Users\Admin\Code\wedding-hub` (local SSD). The old `\\TOWER\Jamie Spencer\Claude\wedding-hub` mirror is no longer in use — run `Remove-Item -Recurse -Force "\\TOWER\Jamie Spencer\Claude\wedding-hub"` from a fresh PowerShell to delete it.
-- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` at **v1.13.0**, promoted 28 Apr 2026). `dev` is at **v1.15.0** with two pending releases: v1.14.0 (Phase R5a — C1 + C4 + C7 + C11 visual + data drift items) and v1.15.0 (Phase R5b — C6 illustrations ported from prototype + wired into 5 empty-states and the Wedding Book hub; C10 Custom Fields UI for Guest with full CRUD in Settings + per-guest editing on detail page, type-safe parsing for text/number/date/select). **Bucket C scoreboard: 8/12 shipped, 4 accepted as drift.** 167 unit tests.
+- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` at **v1.15.0**, promoted 28 Apr 2026). `dev` is at **v1.16.0** — first user-driven feature release after the post-audit programme. Adds a CSV task importer (mirrors the v0.8.0 guest importer pattern) and guest-name labels next to occupied seat dots on the seating canvas. **Post-audit programme paused: R6 (backup hardening) deferred to a scheduled agent run on 26 Aug 2026 — to be done with realistic production data, 4 weeks before the wedding.** 186 unit tests.
 
 ## Phase status
 
@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.15.0** | 2026-04-28 | [Phase R5b: illustrations ported + Custom Fields UI (C6 + C10)](#2026-04-28--v1150--phase-r5b-illustrations-ported--custom-fields-ui-c6--c10) |
+| **v1.16.0** | 2026-04-28 | [Task CSV importer + guest names on the seating canvas](#2026-04-28--v1160--task-csv-importer--guest-names-on-the-seating-canvas) |
+| v1.15.0 | 2026-04-28 | [Phase R5b: illustrations ported + Custom Fields UI (C6 + C10)](#2026-04-28--v1150--phase-r5b-illustrations-ported--custom-fields-ui-c6--c10) |
 | v1.14.0 | 2026-04-28 | [Phase R5a: Bucket C drift decisions (C1 + C4 + C7 + C11)](#2026-04-28--v1140--phase-r5a-bucket-c-drift-decisions-c1--c4--c7--c11) |
 | v1.13.0 | 2026-04-28 | [Phase R4c: polish MINORs (B6 + B7 + B9) — Bucket B complete](#2026-04-28--v1130--phase-r4c-polish-minors-b6--b7--b9--bucket-b-complete) |
 | v1.12.0 | 2026-04-28 | [Phase R4b: data + UX MINORs (B5 + B8 + B11 + B12)](#2026-04-28--v1120--phase-r4b-data--ux-minors-b5--b8--b11--b12) |
@@ -251,6 +252,18 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-28 · v1.16.0 — Task CSV importer + guest names on the seating canvas
+
+First post-audit feature release. Two user-requested pieces of polish on top of v1.15.0.
+
+**Task CSV importer.** New `/tasks/import` route ([page.tsx](src/app/(app)/tasks/import/page.tsx) + [TaskImportClient.tsx](src/app/(app)/tasks/import/TaskImportClient.tsx)) mirrors the v0.8.0 guest importer pattern: paste CSV/TSV, columns auto-mapped (heuristic in [csv.ts](src/lib/csv.ts) recognises Title / Type / Priority / Status / Due / Assignee / Tags / Notes plus common synonyms — Description, Kind, Urgency, State, Deadline, Owner, Labels, Comments), preview with row-by-row validation, commit creates Task / Question / Decision rows. Coercion helpers handle UK-style `DD/MM/YYYY` dates as well as ISO; assignee emails resolve against the User table at preview time so the user sees "matched" vs "no user with this email — importing unassigned" before clicking Import. 19 new unit tests cover the coercion + heuristic matrix.
+
+The `/tasks` page header gets an "Import CSV" link next to the existing "+ Add task" toggle — gated on `canEdit("tasks")` like the rest of the write surface.
+
+**Guest names on the seating canvas.** Builds on v1.14.0's C7 per-seat dots: each occupied seat now renders the guest's first name as a small text label just outside the dot, anchored away from the table centre so the text reads outward. Names truncate to 10 chars (catches "Christopher" → "Christoph…"). Empty seats stay as just the dot. HEAD-shaped tables unchanged (they don't have the radial seat layout the labels assume).
+
+**Files changed:** 4 modified, 3 new. 19 new unit tests (186 total). Build, lint, typecheck, e2e all green. No schema changes.
 
 ### 2026-04-28 · v1.15.0 — Phase R5b: illustrations ported + Custom Fields UI (C6 + C10)
 

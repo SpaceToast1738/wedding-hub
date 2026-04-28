@@ -233,14 +233,30 @@ in writing. ROADMAP backlog reflects the final v1 scope.
 
 ### Phase R6 — Backup hardening (~2 hrs)
 
-→ No version bump (operational only).
+→ No version bump (operational only). **Deferred 28 Apr 2026 — to be
+revisited in late August 2026 (≈4 weeks before the wedding).**
+
+User chose to focus on polish and feature work after R5b shipped. R6
+is important but not urgent — the wedding is 5 months out, and a real
+restore drill is most valuable when the data we'd be restoring is the
+*final* dataset (RSVPs collected, seating finalised, etc.). Doing it
+in late August means we drill with realistic content rather than
+seed data.
+
+A scheduled reminder fires on **2026-08-26 09:00 BST** (one month
+before the wedding) to bring R6 forward as the final pre-wedding
+hardening pass.
 
 1. **T5** (backup verification cron + alert)
 2. Document the manual off-site procedure in [README.md](README.md).
-3. Run a real restore against a throwaway DB to verify backups are good.
+3. Run a real restore against a throwaway DB to verify backups are
+   good — with the latest production snapshot, not just seed data.
+4. rclone / restic / parity-sync to a second target (off-Tower) so a
+   full Unraid array failure doesn't lose the wedding data.
 
 **Outcome:** if the Unraid array fails on the wedding eve, restore is
-possible.
+possible from off-site, and we've verified the restore path actually
+works end-to-end with realistic data.
 
 ## 5. What this plan deliberately does NOT do
 
