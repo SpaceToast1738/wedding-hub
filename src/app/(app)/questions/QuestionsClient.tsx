@@ -23,6 +23,7 @@ type Q = {
   questionAnswer: string | null;
   notes?: string | null;
   tags?: string[];
+  customFieldValues?: Record<string, string | number | null> | null;
 };
 
 type UserOpt = { id: string; name: string | null; email: string };
@@ -30,14 +31,18 @@ type UserOpt = { id: string; name: string | null; email: string };
 type TypeFilter = "all" | "QUESTION" | "DECISION";
 type PriorityFilter = "all" | "HIGH" | "MED" | "LOW";
 
+import type { CustomFieldDef } from "@/lib/custom-fields";
+
 export function QuestionsClient({
   questions,
   users,
   editable,
+  customFieldDefs = [],
 }: {
   questions: Q[];
   users: UserOpt[];
   editable: boolean;
+  customFieldDefs?: CustomFieldDef[];
 }) {
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
   const [priorityFilter, setPriorityFilter] = useState<PriorityFilter>("all");
@@ -107,8 +112,8 @@ export function QuestionsClient({
           </p>
         ) : (
           <>
-            <Section title="Open" items={open} users={users} usersById={usersById} editable={editable} />
-            <Section title="Answered" items={answered} users={users} usersById={usersById} editable={editable} />
+            <Section title="Open" items={open} users={users} usersById={usersById} editable={editable} customFieldDefs={customFieldDefs} />
+            <Section title="Answered" items={answered} users={users} usersById={usersById} editable={editable} customFieldDefs={customFieldDefs} />
           </>
         )}
       </div>
@@ -122,12 +127,14 @@ function Section({
   users,
   usersById,
   editable,
+  customFieldDefs,
 }: {
   title: string;
   items: Q[];
   users: UserOpt[];
   usersById: Map<string, UserOpt>;
   editable: boolean;
+  customFieldDefs: CustomFieldDef[];
 }) {
   if (items.length === 0) return null;
   return (
@@ -135,7 +142,7 @@ function Section({
       <h2 className="text-[11px] font-bold text-ink-tertiary uppercase tracking-wider mb-2">{title}</h2>
       <ol className="bg-surface border border-border-soft rounded-md shadow-sm divide-y divide-border-soft">
         {items.map((q) => (
-          <Row key={q.id} q={q} users={users} usersById={usersById} editable={editable} />
+          <Row key={q.id} q={q} users={users} usersById={usersById} editable={editable} customFieldDefs={customFieldDefs} />
         ))}
       </ol>
     </section>
@@ -147,11 +154,13 @@ function Row({
   users,
   usersById,
   editable,
+  customFieldDefs,
 }: {
   q: Q;
   users: UserOpt[];
   usersById: Map<string, UserOpt>;
   editable: boolean;
+  customFieldDefs: CustomFieldDef[];
 }) {
   const [editing, setEditing] = useState(false);
   const [pending, startTransition] = useTransition();
@@ -196,6 +205,9 @@ function Row({
             setEditing(false);
           }}
           onCancel={() => setEditing(false)}
+          taskId={q.id}
+          customFieldDefs={customFieldDefs}
+          customFieldValues={q.customFieldValues ?? null}
         />
       </li>
     );

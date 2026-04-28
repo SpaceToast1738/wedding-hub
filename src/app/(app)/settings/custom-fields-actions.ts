@@ -12,8 +12,11 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { audit, requireUser } from "@/lib/actions";
 
+// v1.22.0: extended from guest-only (v1.15.0) to also accept
+// supplier + task. Each entity has its own write action wired in
+// the action files for that section.
 const fieldDefSchema = z.object({
-  entity: z.enum(["guest"]), // R5b: guest only; supplier/task can come later.
+  entity: z.enum(["guest", "supplier", "task"]),
   name: z.string().min(1).max(80),
   type: z.enum(["text", "number", "date", "select"]),
   options: z.array(z.string().min(1).max(80)).max(20).default([]),
@@ -65,8 +68,7 @@ export async function createCustomField(formData: FormData) {
     metadata: { entity: parsed.entity, name: parsed.name, type: parsed.type },
   });
   revalidatePath("/settings");
-  // Revalidate the entity surface so the new field shows up there.
-  if (parsed.entity === "guest") revalidatePath("/guests");
+  revalidateForEntity(parsed.entity);
 }
 
 export async function deleteCustomField(id: string) {
@@ -80,11 +82,21 @@ export async function deleteCustomField(id: string) {
     entityId: id,
     metadata: { entity: def.entity, name: def.name },
   });
-  // Note: existing values on Guest rows aren't migrated. They become
+  // Note: existing values on entity rows aren't migrated. They become
   // orphan keys in `customFieldValues` JSON — invisible because no
   // definition matches. Re-creating a field with the same name gives
   // it a new ID, so old values stay orphaned. This is intentional:
   // we don't want a delete to silently destroy data.
   revalidatePath("/settings");
-  if (def.entity === "guest") revalidatePath("/guests");
+  revalidateForEntity(def.entity);
+}
+
+function revalidateForEntity(entity: string) {
+  // The entity surface that needs to know a new field exists.
+  if (entity === "guest") revalidatePath("/guests");
+  else if (entity === "supplier") revalidatePath("/suppliers");
+  else if (entity === "task") {
+    revalidatePath("/tasks");
+    revalidatePath("/questions");
+  }
 }

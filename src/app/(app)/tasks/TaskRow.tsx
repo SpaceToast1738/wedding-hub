@@ -7,6 +7,7 @@ import { StatusPill } from "@/components/ui/StatusPill";
 import { TaskForm, type UserOpt } from "./TaskForm";
 import { deleteTask, setTaskStatus, updateTask } from "./actions";
 import { formatRelativeDue, isoForInput } from "@/lib/format";
+import type { CustomFieldDef } from "@/lib/custom-fields";
 
 type Task = {
   id: string;
@@ -19,6 +20,7 @@ type Task = {
   tags: string[];
   notes: string | null;
   questionAnswer: string | null;
+  customFieldValues?: Record<string, string | number | null> | null;
 };
 
 const PRIORITY_DOT: Record<string, string> = {
@@ -48,11 +50,13 @@ export function TaskRow({
   users,
   canEdit,
   assigneeName,
+  customFieldDefs = [],
 }: {
   task: Task;
   users: UserOpt[];
   canEdit: boolean;
   assigneeName: string | null;
+  customFieldDefs?: CustomFieldDef[];
 }) {
   const [editing, setEditing] = useState(false);
   const [pending, startTransition] = useTransition();
@@ -94,6 +98,9 @@ export function TaskRow({
             setEditing(false);
           }}
           onCancel={() => setEditing(false)}
+          taskId={task.id}
+          customFieldDefs={customFieldDefs}
+          customFieldValues={task.customFieldValues ?? null}
         />
       </li>
     );

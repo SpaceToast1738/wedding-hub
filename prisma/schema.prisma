@@ -219,6 +219,10 @@ model Task {
   parentId     String?
   parent       Task?       @relation("TaskChildren", fields: [parentId], references: [id])
   children     Task[]      @relation("TaskChildren")
+  // v1.22.0: per-task custom field values, mirrors Guest.customFieldValues
+  // (C10 v1.15.0). Keyed by CustomField.id; values typed per the field's
+  // `type` column. Null when no custom fields are populated.
+  customFieldValues Json?
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
 
@@ -280,6 +284,8 @@ model Supplier {
   contracts       SupplierContract[]
   communications  SupplierCommunication[]
   payments        Payment[]
+  // v1.22.0: per-supplier custom field values, mirrors Guest + Task.
+  customFieldValues Json?
   createdAt       DateTime                @default(now())
   updatedAt       DateTime                @updatedAt
 

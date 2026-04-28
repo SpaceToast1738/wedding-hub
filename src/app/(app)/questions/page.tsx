@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { canEdit, canView } from "@/lib/permissions";
 import { requireUser } from "@/lib/actions";
+import type { CustomFieldDef } from "@/lib/custom-fields";
 import { AddTaskToggle } from "@/app/(app)/tasks/AddTaskToggle";
 import { QuestionsClient } from "./QuestionsClient";
 
@@ -11,13 +12,24 @@ export default async function QuestionsPage() {
   if (!(await canView(user, "questions"))) redirect("/");
   const editable = await canEdit(user, "questions");
 
-  const [questions, users] = await Promise.all([
+  const [questions, users, customFieldDefs] = await Promise.all([
     db.task.findMany({
       where: { type: { in: ["QUESTION", "DECISION"] } },
       orderBy: [{ status: "asc" }, { priority: "desc" }, { createdAt: "desc" }],
     }),
     db.user.findMany({ orderBy: [{ isCouple: "desc" }, { name: "asc" }] }),
+    // v1.22.0: defs scoped to task entity (Question/Decision are
+    // Task rows under the hood, so they share the "task" entity).
+    db.customField.findMany({ where: { entity: "task" }, orderBy: { order: "asc" } }),
   ]);
+  const customFieldDefsTyped: CustomFieldDef[] = customFieldDefs.map((f) => ({
+    id: f.id,
+    entity: f.entity,
+    name: f.name,
+    type: f.type as "text" | "number" | "date" | "select",
+    options: f.options,
+    order: f.order,
+  }));
 
   const open = questions.filter((q) => q.status !== "DONE" && q.status !== "ARCHIVED").length;
   const answered = questions.filter((q) => q.status === "DONE").length;
@@ -52,9 +64,11 @@ export default async function QuestionsPage() {
           questionAnswer: q.questionAnswer,
           notes: q.notes,
           tags: q.tags,
+          customFieldValues: q.customFieldValues as Record<string, string | number | null> | null,
         }))}
         users={users.map((u) => ({ id: u.id, name: u.name, email: u.email }))}
         editable={editable}
+        customFieldDefs={customFieldDefsTyped}
       />
     </>
   );

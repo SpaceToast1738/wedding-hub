@@ -177,7 +177,13 @@ function AddFieldForm({ onDone }: { onDone: () => void }) {
             defaultValue="guest"
             className="w-full text-sm bg-canvas border border-border-soft rounded-sm px-2 py-1.5 text-ink-primary outline-none focus:border-moss-500"
           >
+            {/* v1.22.0: extended from guest-only (v1.15.0) to also
+                cover Supplier and Task. Each entity has its own
+                CustomFieldsBlock render surface and its own write
+                action with the right permission gate. */}
             <option value="guest">Guest</option>
+            <option value="supplier">Supplier</option>
+            <option value="task">Task</option>
           </select>
         </div>
       </div>

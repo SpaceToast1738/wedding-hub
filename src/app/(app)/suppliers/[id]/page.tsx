@@ -5,7 +5,9 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { canEdit, canView } from "@/lib/permissions";
 import { requireUser } from "@/lib/actions";
+import type { CustomFieldDef } from "@/lib/custom-fields";
 import { SupplierDetailClient } from "./SupplierDetailClient";
+import { CustomFieldsBlock } from "./CustomFieldsBlock";
 
 const STATUS_PILL: Record<string, "LEAD" | "BOOKED" | "PAID" | "DECLINED"> = {
   SHORTLIST: "LEAD",
@@ -48,6 +50,23 @@ export default async function SupplierDetailPage({
     },
   });
   if (!supplier) notFound();
+
+  // v1.22.0: pull custom-field defs scoped to suppliers + the values
+  // for this row so CustomFieldsBlock can render at the bottom.
+  const customFieldDefs = await db.customField.findMany({
+    where: { entity: "supplier" },
+    orderBy: { order: "asc" },
+  });
+  const customFieldDefsTyped: CustomFieldDef[] = customFieldDefs.map((f) => ({
+    id: f.id,
+    entity: f.entity,
+    name: f.name,
+    type: f.type as "text" | "number" | "date" | "select",
+    options: f.options,
+    order: f.order,
+  }));
+  const customFieldValues =
+    (supplier.customFieldValues as Record<string, string | number | null> | null) ?? {};
 
   const totalPaid = supplier.payments
     .filter((p) => p.status === "PAID")
@@ -132,6 +151,13 @@ export default async function SupplierDetailPage({
               followUpAt: c.followUpAt,
               createdAt: c.createdAt,
             }))}
+          />
+
+          <CustomFieldsBlock
+            supplierId={supplier.id}
+            fields={customFieldDefsTyped}
+            values={customFieldValues}
+            canEdit={editable}
           />
 
           {/* Linked payments — read-only on this page; full CRUD lives on /payments */}

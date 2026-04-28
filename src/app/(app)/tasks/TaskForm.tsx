@@ -3,6 +3,9 @@
 import { useState, useTransition } from "react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
+import { CustomFieldsBlock } from "@/components/ui/CustomFieldsBlock";
+import type { CustomFieldDef } from "@/lib/custom-fields";
+import { setTaskCustomField } from "./actions";
 
 const TYPES = ["TASK", "QUESTION", "DECISION"] as const;
 const PRIORITIES = ["LOW", "MEDIUM", "HIGH", "URGENT"] as const;
@@ -33,9 +36,27 @@ type Props = {
   onSubmit: (formData: FormData) => Promise<void>;
   onCancel?: () => void;
   showType?: boolean;
+  // v1.22.0: when editing an existing task, the parent passes the task
+  // id + custom-field defs + current values. The form renders a
+  // collapsible CustomFieldsBlock at the bottom. Skipped on the
+  // create path (no taskId yet — fields can be filled in after the
+  // initial create lands).
+  taskId?: string;
+  customFieldDefs?: CustomFieldDef[];
+  customFieldValues?: Record<string, string | number | null> | null;
 };
 
-export function TaskForm({ initial, users, submitLabel = "Create", onSubmit, onCancel, showType = true }: Props) {
+export function TaskForm({
+  initial,
+  users,
+  submitLabel = "Create",
+  onSubmit,
+  onCancel,
+  showType = true,
+  taskId,
+  customFieldDefs = [],
+  customFieldValues,
+}: Props) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
@@ -109,6 +130,17 @@ export function TaskForm({ initial, users, submitLabel = "Create", onSubmit, onC
         {onCancel && <Button type="button" variant="ghost" size="sm" onClick={onCancel} disabled={pending}>Cancel</Button>}
         <Button type="submit" variant="primary" size="sm" disabled={pending}>{pending ? "Saving…" : submitLabel}</Button>
       </div>
+      {taskId && customFieldDefs.length > 0 && (
+        <div className="mt-3 pt-3 border-t border-border-soft">
+          <CustomFieldsBlock
+            fields={customFieldDefs}
+            values={customFieldValues ?? {}}
+            canEdit
+            onSave={(fieldId, raw) => setTaskCustomField(taskId, fieldId, raw)}
+            title="Custom fields"
+          />
+        </div>
+      )}
     </form>
   );
 }

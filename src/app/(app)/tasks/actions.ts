@@ -5,6 +5,13 @@ import { z } from "zod";
 import { Priority, TaskStatus, TaskType } from "@prisma/client";
 import { db } from "@/lib/db";
 import { audit, requireEdit } from "@/lib/actions";
+import {
+  parseCustomFieldValue,
+  mergeCustomFieldValue,
+  type CustomFieldDef,
+  type CustomFieldType,
+  type CustomFieldValues,
+} from "@/lib/custom-fields";
 
 const baseSchema = z.object({
   title: z.string().min(1).max(200),
@@ -128,4 +135,54 @@ export async function deleteTask(id: string) {
   revalidatePath("/tasks");
   revalidatePath("/questions");
   revalidatePath("/");
+}
+
+// ── v1.22.0: per-task custom field value writes ─────────────────────────
+// Mirrors the supplier + guest equivalents. Polymorphic gate dispatches
+// to either tasks or questions depending on the task's type — same
+// pattern as setTaskStatus / deleteTask.
+
+export async function setTaskCustomField(
+  taskId: string,
+  fieldId: string,
+  rawValue: string | null,
+) {
+  const task = await db.task.findUnique({
+    where: { id: taskId },
+    select: { type: true, customFieldValues: true },
+  });
+  if (!task) throw new Error("Task not found");
+  const section = task.type === "TASK" ? "tasks" : "questions";
+  const user = await requireEdit(section);
+
+  const def = await db.customField.findUnique({ where: { id: fieldId } });
+  if (!def || def.entity !== "task") {
+    throw new Error("Custom field not found for this entity");
+  }
+  const typedDef: CustomFieldDef = {
+    id: def.id,
+    entity: def.entity,
+    name: def.name,
+    type: def.type as CustomFieldType,
+    options: def.options,
+    order: def.order,
+  };
+  const value = parseCustomFieldValue(typedDef, rawValue);
+  const next = mergeCustomFieldValue(
+    (task.customFieldValues as CustomFieldValues | null) ?? null,
+    fieldId,
+    value,
+  );
+  await db.task.update({
+    where: { id: taskId },
+    data: { customFieldValues: next },
+  });
+  await audit(user, {
+    action: "update",
+    entity: "Task",
+    entityId: taskId,
+    metadata: { customField: def.name, fieldId, type: task.type },
+  });
+  revalidatePath("/tasks");
+  revalidatePath("/questions");
 }

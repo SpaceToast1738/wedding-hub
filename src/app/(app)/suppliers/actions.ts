@@ -6,6 +6,13 @@ import { SupplierStatus, Priority, TaskStatus, TaskType } from "@prisma/client";
 import { db } from "@/lib/db";
 import { audit, requireEdit } from "@/lib/actions";
 import { decideFollowUpTask } from "@/lib/supplier-follow-up";
+import {
+  parseCustomFieldValue,
+  mergeCustomFieldValue,
+  type CustomFieldDef,
+  type CustomFieldType,
+  type CustomFieldValues,
+} from "@/lib/custom-fields";
 
 const supplierSchema = z.object({
   name: z.string().min(1).max(200),
@@ -276,5 +283,54 @@ export async function deleteSupplierContract(id: string, supplierId: string) {
   const user = await requireEdit("suppliers");
   await db.supplierContract.delete({ where: { id } });
   await audit(user, { action: "delete", entity: "SupplierContract", entityId: id });
+  revalidatePath(`/suppliers/${supplierId}`);
+}
+
+// ── v1.22.0: per-supplier custom field value writes ─────────────────────
+// Mirrors v1.15.0's `setGuestCustomField`. Validation in
+// parseCustomFieldValue. Permission gate: requireEdit("suppliers").
+// Rejects mismatched field.entity so a Guest field can't accidentally
+// land on a Supplier row.
+
+export async function setSupplierCustomField(
+  supplierId: string,
+  fieldId: string,
+  rawValue: string | null,
+) {
+  const user = await requireEdit("suppliers");
+  const def = await db.customField.findUnique({ where: { id: fieldId } });
+  if (!def || def.entity !== "supplier") {
+    throw new Error("Custom field not found for this entity");
+  }
+  const supplier = await db.supplier.findUnique({
+    where: { id: supplierId },
+    select: { customFieldValues: true },
+  });
+  if (!supplier) throw new Error("Supplier not found");
+
+  const typedDef: CustomFieldDef = {
+    id: def.id,
+    entity: def.entity,
+    name: def.name,
+    type: def.type as CustomFieldType,
+    options: def.options,
+    order: def.order,
+  };
+  const value = parseCustomFieldValue(typedDef, rawValue);
+  const next = mergeCustomFieldValue(
+    (supplier.customFieldValues as CustomFieldValues | null) ?? null,
+    fieldId,
+    value,
+  );
+  await db.supplier.update({
+    where: { id: supplierId },
+    data: { customFieldValues: next },
+  });
+  await audit(user, {
+    action: "update",
+    entity: "Supplier",
+    entityId: supplierId,
+    metadata: { customField: def.name, fieldId },
+  });
   revalidatePath(`/suppliers/${supplierId}`);
 }

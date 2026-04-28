@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.21.0** | 2026-04-28 | [Audit log viewer + sticky search on /suppliers + /tasks](#2026-04-28--v1210--audit-log-viewer--sticky-search-on-suppliers--tasks) |
+| **v1.22.0** | 2026-04-28 | [Custom fields for Supplier + Task](#2026-04-28--v1220--custom-fields-for-supplier--task) |
+| v1.21.0 | 2026-04-28 | [Audit log viewer + sticky search on /suppliers + /tasks](#2026-04-28--v1210--audit-log-viewer--sticky-search-on-suppliers--tasks) |
 | v1.20.6 | 2026-04-28 | [Seating: drag-all-guests + RSVP tag in panel](#2026-04-28--v1206--seating-drag-all-guests--rsvp-tag-in-panel) |
 | v1.20.5 | 2026-04-28 | [Seating canvas: bigger labels + S/M/L size selector](#2026-04-28--v1205--seating-canvas-bigger-labels--sml-size-selector) |
 | v1.20.0 | 2026-04-28 | [Wedding details DB-backed (Settings UI + 10 ref replacements)](#2026-04-28--v1200--wedding-details-db-backed) |
@@ -305,6 +306,22 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-28 · v1.22.0 — Custom fields for Supplier + Task
+
+C10/v1.15.0 introduced custom-fields infrastructure but only wired it for Guest. This release extends to Supplier and Task. The infra was built generically; the work was unlocking the entity dropdown + plumbing two more rendering surfaces + two more write actions.
+
+**Schema:** additive Prisma migration adds `customFieldValues Json?` to Supplier and Task — same shape as Guest got in v1.15.0. Existing rows aren't touched (column nullable).
+
+**Settings panel** ([CustomFieldsPanel.tsx](src/app/(app)/settings/CustomFieldsPanel.tsx)): entity dropdown unlocked from `Guest` only to `{Guest, Supplier, Task}`. Action schema (`custom-fields-actions.ts`) now accepts the new entities. `revalidateForEntity` helper fans out `/guests` / `/suppliers` / `/tasks` + `/questions` paths after a definition changes.
+
+**Shared block:** the C10 Guest-coupled `CustomFieldsBlock` was refactored into [src/components/ui/CustomFieldsBlock.tsx](src/components/ui/CustomFieldsBlock.tsx) — takes an `onSave(fieldId, rawValue)` callback so the parent decides which server action to call. Guest variant became a thin wrapper that pre-binds `setGuestCustomField`. Same shape for Supplier (new wrapper at `suppliers/[id]/CustomFieldsBlock.tsx` pre-binds `setSupplierCustomField`).
+
+**Supplier wiring:** `/suppliers/[id]` page fetches `CustomField` defs scoped to `entity: "supplier"` and renders the block below the existing detail sections. Server action `setSupplierCustomField` ([suppliers/actions.ts](src/app/(app)/suppliers/actions.ts)) gates on `requireEdit("suppliers")`, validates via the existing `parseCustomFieldValue` (4 types: text/number/date/select), rejects mismatched `field.entity` so a Guest field can't accidentally land on a Supplier row.
+
+**Task wiring:** Tasks have no detail page (edit happens inline in the list or in the QuestionsClient row), so the custom-fields block renders inside `TaskForm` as a section below the main form. Only shown when editing an existing task (a `taskId` is in scope) and at least one task-scoped def exists. New `setTaskCustomField` action ([tasks/actions.ts](src/app/(app)/tasks/actions.ts)) uses the same polymorphic permission gate as `setTaskStatus` / `deleteTask` — dispatches to either `requireEdit("tasks")` (for TASK rows) or `requireEdit("questions")` (for QUESTION/DECISION rows). Task defs are loaded at the page level (tasks/page.tsx + questions/page.tsx) and threaded down through TaskList → TaskRow → TaskForm + QuestionsClient → Section → Row → TaskForm.
+
+**Files changed:** 9 modified, 2 new (shared CustomFieldsBlock + suppliers wrapper). 1 additive Prisma migration. Existing 18 unit tests on the parser still cover the type matrix; no new tests needed for the entity-routing layer (gates run server-side and existing permissions integration test catches dispatch bugs).
 
 ### 2026-04-28 · v1.21.0 — Audit log viewer + sticky search on /suppliers + /tasks
 

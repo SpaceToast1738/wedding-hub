@@ -6,6 +6,7 @@ import { TaskRow } from "./TaskRow";
 import { TaskBoard } from "./TaskBoard";
 import { FilterTabs, type Filter, type View } from "./FilterTabs";
 import type { UserOpt } from "./TaskForm";
+import type { CustomFieldDef } from "@/lib/custom-fields";
 
 const VIEW_KEY = "wh_tasks_view";
 
@@ -20,6 +21,9 @@ type Task = {
   tags: string[];
   notes: string | null;
   questionAnswer: string | null;
+  // v1.22.0: optional custom-field values per task. Defaults to an
+  // empty object when not present.
+  customFieldValues?: Record<string, string | number | null> | null;
 };
 
 export function TaskList({
@@ -27,11 +31,13 @@ export function TaskList({
   users,
   currentUserId,
   canEdit,
+  customFieldDefs = [],
 }: {
   tasks: Task[];
   users: UserOpt[];
   currentUserId: string;
   canEdit: boolean;
+  customFieldDefs?: CustomFieldDef[];
 }) {
   const [filter, setFilter] = useState<Filter>("all");
   const [view, setView] = useState<View>("list");
@@ -143,6 +149,7 @@ export function TaskList({
                       users={users}
                       canEdit={canEdit}
                       assigneeName={assignee?.name ?? assignee?.email ?? null}
+                      customFieldDefs={customFieldDefs}
                     />
                   );
                 })}
