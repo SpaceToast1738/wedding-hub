@@ -36,10 +36,15 @@ test.describe("anonymous redirects", () => {
   });
 
   test("/api/health is publicly reachable (no auth required)", async ({ page }) => {
+    // What we're asserting: middleware allowlists /api/health (it must
+    // not bounce to /signin). Status code can be 200 (DB up — happy path)
+    // or 503 (DB down — endpoint still returns JSON), both of which mean
+    // the route handler ran. A redirect to /signin would be the audit
+    // failure mode this spec exists to catch.
     const response = await page.goto("/api/health");
-    expect(response?.status()).toBe(200);
-    const body = await page.textContent("body");
-    expect(body).toContain("ok");
+    expect(page.url()).toContain("/api/health");
+    expect(page.url()).not.toContain("/signin");
+    expect([200, 503]).toContain(response?.status() ?? 0);
   });
 
   test("/signin renders without authentication", async ({ page }) => {
