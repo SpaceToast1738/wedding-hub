@@ -11,7 +11,7 @@
 - **Repo:** [SpaceToast1738/wedding-hub](https://github.com/SpaceToast1738/wedding-hub) · `claude/main` (releases) + `dev` (work-in-progress)
 - **Stack:** Next.js 15 · TypeScript · Tailwind v4 · Prisma · Postgres 16 · Auth.js v5 · Caddy · Docker Compose
 - **Working tree:** `C:\Users\Admin\Code\wedding-hub` (local SSD). The old `\\TOWER\Jamie Spencer\Claude\wedding-hub` mirror is no longer in use — run `Remove-Item -Recurse -Force "\\TOWER\Jamie Spencer\Claude\wedding-hub"` from a fresh PowerShell to delete it.
-- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` at **v1.7.0**, promoted 28 Apr 2026 after GHA green). All four user-feedback Tiers complete: mobile signout, Settings UI defence, scroll fix, 4-col Glance, countdown breakdown, Schedule table view, Book hub redesign, +1s as own Guest rows. Item I (Spotify settings UI) was explicitly scrapped — env-var-only stays. Production catches up on next `docker compose pull && up -d` — additive `parentGuestId` migration applies on boot.
+- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` at **v1.7.0**). v1.8.0 (this iteration on `dev`) adds a **Spotify integration setup guide and status chip** to /settings, plus a small status chip on /songs that deep-links to the guide. Discovery + diagnostics for the env-var-based Spotify config without changing the underlying storage approach.
 
 ## Phase status
 
@@ -34,6 +34,7 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
+| _(unreleased on `dev`)_ | 2026-04-28 | [v1.8.0 — Spotify integration setup guide + status chip on Songs](#2026-04-28--v180--spotify-integration-setup-guide--status-chip) |
 | **v1.7.0** | 2026-04-28 | [Tier 3 / A: +1s materialise as own Guest rows](#2026-04-28--v170--tier-3-1s-as-own-guest-rows) |
 | v1.6.0 | 2026-04-28 | [Tier 2 user-feedback polish: Schedule table view + Wedding Book hub redesign](#2026-04-28--v160--tier-2-user-feedback-polish) |
 | v1.5.0 | 2026-04-28 | [Tier 1 user-feedback polish: mobile signout, Settings UI defence, scroll, 4-col Glance, countdown breakdown](#2026-04-28--v150--tier-1-user-feedback-polish) |
@@ -238,11 +239,30 @@ When wrapping up a meaningful iteration:
 
 ### Current version
 
-`1.7.0` on both `dev` and `claude/main` (promoted 28 Apr 2026 after GHA green). Production catches up on next `docker compose pull && up -d` — additive `parentGuestId` migration applies on boot via the entrypoint's `prisma migrate deploy`.
+`1.8.0` on `dev`, `claude/main` at `v1.7.0`. Spotify integration setup guide + status chip shipped to dev. Holding promote until GHA confirms green at the v1.8.0 SHA.
 
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-28 · v1.8.0 — Spotify integration setup guide + status chip
+
+The Spotify config is env-var-driven (we explicitly scrapped storing it in the DB in v1.7.0 / item I). v1.8.0 closes the discoverability gap that surfaced when the user couldn't tell whether their newly-added env vars were live: a status chip on the Songs page header, a full setup-guide panel in Settings.
+
+**[SpotifySettingsPanel.tsx](src/app/(app)/settings/SpotifySettingsPanel.tsx)** — server component on Settings between MyProfilePanel and the permission matrix. Two states:
+
+- **Configured** (`isSpotifyConfigured()` returns true): green `✓ Configured` chip, brief explainer, and a **collapsed** setup-steps `<details>` for reference.
+- **Not configured**: amber `⚠ Not configured` chip, and the setup steps **expanded by default** so the path-to-fix is in the user's face.
+
+Setup-guide depth differs by tier:
+- **Couple-tier:** full step-by-step — Spotify Developer dashboard → create app → copy ID/secret → Compose Manager Plus → .ENV tab → Save → Up (with the explicit caveat that **Save alone doesn't recreate the container** and `docker compose up -d` is what picks up new env vars). Fifth step: verify with `docker compose exec web printenv | grep SPOTIFY`. Final step: link a playlist URL on /songs.
+- **Non-couple:** "🔒 Setup requires server-level env-var access. Ask Jamie or Bryony to flip it on." — gives them context without exposing infra detail.
+
+The panel includes the Client-Credentials-public-playlist caveat ("during each sync the playlist must be public on Spotify") so this isn't a debugging surprise later.
+
+**Status chip on /songs** ([page.tsx](src/app/(app)/songs/page.tsx)) — `🎵 Spotify ✓` (moss) or `🎵 Spotify off` (marigold) in the header `actions` slot, deep-linking to `/settings#spotify-integration`. The panel has `id="spotify-integration"` + `scroll-mt-24` so the anchor lands cleanly below the page header.
+
+No schema, no env, no code-path changes — purely additive UI. Verified: typecheck, lint, build, 83/83 tests, clean `npm ci`. Holding promote until GHA confirms green at the v1.8.0 SHA.
 
 ### 2026-04-28 · v1.7.0 — Tier 3 / A: +1s as own Guest rows
 

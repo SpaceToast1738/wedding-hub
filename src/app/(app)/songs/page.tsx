@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { db } from "@/lib/db";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { canEdit } from "@/lib/permissions";
@@ -39,7 +40,30 @@ export default async function SongsPage() {
       <PageHeader
         title="Songs"
         subtitle={subtitleBits.join(" · ")}
-        actions={editable ? <AddPlaylistToggle /> : undefined}
+        actions={
+          <>
+            {/* Spotify status chip — links to Settings → Spotify integration
+                section so the user has a fast path to debug or set up. */}
+            <Link
+              href="/settings#spotify-integration"
+              className={[
+                "inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-sm border transition-colors",
+                spotifyEnabled
+                  ? "text-moss-700 bg-moss-50 border-moss-100 hover:border-moss-300"
+                  : "text-marigold-700 bg-marigold-100 border-marigold-700/30 hover:bg-marigold-100/80",
+              ].join(" ")}
+              title={
+                spotifyEnabled
+                  ? "Spotify is configured — open Settings for the setup reference"
+                  : "Spotify isn't configured — open Settings to see how to enable it"
+              }
+            >
+              <span aria-hidden>🎵</span>
+              Spotify {spotifyEnabled ? "✓" : "off"}
+            </Link>
+            {editable && <AddPlaylistToggle />}
+          </>
+        }
       />
       <div className="flex-1 overflow-auto">
         <div className="max-w-4xl mx-auto p-6 space-y-4">

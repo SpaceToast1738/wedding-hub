@@ -2,8 +2,10 @@ import { db } from "@/lib/db";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { canEdit } from "@/lib/permissions";
 import { requireUser } from "@/lib/actions";
+import { isSpotifyConfigured } from "@/lib/spotify";
 import { PermissionMatrix } from "./PermissionMatrix";
 import { MyProfilePanel } from "./MyProfilePanel";
+import { SpotifySettingsPanel } from "./SpotifySettingsPanel";
 
 export default async function SettingsPage() {
   const user = await requireUser();
@@ -17,6 +19,8 @@ export default async function SettingsPage() {
       select: { firstName: true, lastName: true, email: true },
     }),
   ]);
+
+  const spotifyConfigured = isSpotifyConfigured();
 
   return (
     <>
@@ -32,6 +36,8 @@ export default async function SettingsPage() {
             initialFirstName={me?.firstName ?? ""}
             initialLastName={me?.lastName ?? ""}
           />
+
+          <SpotifySettingsPanel configured={spotifyConfigured} isCouple={user.isCouple} />
 
           {editable && (
             <div className="bg-marigold-100/40 border border-marigold-700/20 text-marigold-700 rounded-md px-4 py-2.5 text-xs">
