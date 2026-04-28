@@ -345,3 +345,51 @@ export async function hardDeleteGuest(id: string) {
   revalidatePath("/guests");
   revalidatePath("/");
 }
+
+// ── B9 (v1.13.0): inline song-request add on guest detail ─────────────────
+//
+// The guest detail page used to deep-link to /songs for any add — fine
+// for batch data entry, friction for the "while I'm looking at Aunt
+// Margaret's row, capture her request" flow Aimee surfaced. This action
+// creates a song request for a specific guest, gated on guests-EDIT
+// (matches the rest of the guest write surface; songs has its own
+// section but the row is owned by the guest).
+
+const songRequestSchema = z.object({
+  guestId: z.string().min(1),
+  title: z.string().min(1).max(200),
+  artist: z.string().max(200).optional().nullable(),
+});
+
+export async function addSongRequestForGuest(formData: FormData) {
+  const user = await requireEdit("guests");
+  const parsed = songRequestSchema.parse({
+    guestId: formData.get("guestId"),
+    title: formData.get("title"),
+    artist: formData.get("artist") || null,
+  });
+  // Sanity: guest must exist and not be archived. Stops a stale form
+  // from creating an orphan request after the guest was deleted in
+  // another tab.
+  const guest = await db.guest.findUnique({
+    where: { id: parsed.guestId },
+    select: { id: true, archived: true },
+  });
+  if (!guest || guest.archived) throw new Error("Guest not found");
+
+  const created = await db.songRequest.create({
+    data: {
+      guestId: parsed.guestId,
+      title: parsed.title.trim(),
+      artist: parsed.artist?.trim() || null,
+    },
+  });
+  await audit(user, {
+    action: "create",
+    entity: "SongRequest",
+    entityId: created.id,
+    metadata: { guestId: parsed.guestId, title: created.title },
+  });
+  revalidatePath(`/guests/${parsed.guestId}`);
+  revalidatePath("/songs");
+}

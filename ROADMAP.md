@@ -11,7 +11,7 @@
 - **Repo:** [SpaceToast1738/wedding-hub](https://github.com/SpaceToast1738/wedding-hub) · `claude/main` (releases) + `dev` (work-in-progress)
 - **Stack:** Next.js 15 · TypeScript · Tailwind v4 · Prisma · Postgres 16 · Auth.js v5 · Caddy · Docker Compose
 - **Working tree:** `C:\Users\Admin\Code\wedding-hub` (local SSD). The old `\\TOWER\Jamie Spencer\Claude\wedding-hub` mirror is no longer in use — run `Remove-Item -Recurse -Force "\\TOWER\Jamie Spencer\Claude\wedding-hub"` from a fresh PowerShell to delete it.
-- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` at **v1.10.0**, promoted 28 Apr 2026). `dev` is ahead at **v1.12.0** with two pending releases: v1.11.0 (Phase R4a — CSV per-field diff B1, budget actual recompute B2, supplier follow-up auto-Task B3, supplier card last-message B4) and v1.12.0 (Phase R4b — guest search B8, dark-mode persistence B11, seating race fix B12, global toast + (app)/error.tsx error UX B5). 126 unit tests, 5 e2e specs, 1 new integration test.
+- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` at **v1.12.0**, promoted 28 Apr 2026 with v1.11.0 + v1.12.0 tagged together after green CI on both SHAs). `dev` is at **v1.13.0** — Phase R4c closes the last three Bucket B polish MINORs: quick-capture event time picker (B6), mobile day-of scroll-to-NOW (B7), inline song-request add on guest detail (B9). **Phase R4 complete — 11/13 Bucket B items shipped; 2 were already done pre-R4.** 126 unit tests, 5 e2e specs, 2 integration tests.
 
 ## Phase status
 
@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.12.0** | 2026-04-28 | [Phase R4b: data + UX MINORs (B5 + B8 + B11 + B12)](#2026-04-28--v1120--phase-r4b-data--ux-minors-b5--b8--b11--b12) |
+| **v1.13.0** | 2026-04-28 | [Phase R4c: polish MINORs (B6 + B7 + B9) — Bucket B complete](#2026-04-28--v1130--phase-r4c-polish-minors-b6--b7--b9--bucket-b-complete) |
+| v1.12.0 | 2026-04-28 | [Phase R4b: data + UX MINORs (B5 + B8 + B11 + B12)](#2026-04-28--v1120--phase-r4b-data--ux-minors-b5--b8--b11--b12) |
 | v1.11.0 | 2026-04-28 | [Phase R4a: workflow polish (B1 + B2 + B3 + B4)](#2026-04-28--v1110--phase-r4a-workflow-polish-b1--b2--b3--b4) |
 | v1.10.0 | 2026-04-28 | [Phase R3 follow-on: Postgres-backed integration job + Playwright e2e in CI](#2026-04-28--v1100--phase-r3-follow-on-postgres-integration-job--playwright-e2e-in-ci) |
 | v1.9.0 | 2026-04-28 | [Book sections aligned with prototype + Spotify env-var compose fix](#2026-04-28--v190--book-sections-aligned-with-prototype--spotify-env-var-compose-fix) |
@@ -248,6 +249,22 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-28 · v1.13.0 — Phase R4c: polish MINORs (B6 + B7 + B9) — Bucket B complete
+
+The last three Bucket B items from REMEDIATION-PLAN. Three small surface improvements that close out R4 and the post-audit programme to one less than zero unresolved findings (v1 audit's 9 MAJORs and ~10 MINORs all triaged: most shipped, the rest accepted as drift in Bucket C).
+
+**B6 — Quick-capture event time picker.** The `C` modal used to silently drop captured Events at "now + 1 hour, rounded to top of hour" with no way to edit before submit — Jamie surfaced this with the "I just typed it and it disappeared into next month somewhere" friction. The modal now shows a `<input type="datetime-local">` when the type tab is "Event", defaulting to next round hour but visible and editable. A "↺" reset button puts it back if the user changes their mind. The action's schema gained an optional `startTime` string; the action parses it as local time and falls through to the old "next round hour" default if absent or unparseable, so existing call sites keep working.
+
+**B7 — Mobile day-of scroll-to-NOW.** On a phone, opening `/today/day-of` mid-ceremony used to land the user at the start of the day — they had to scroll past ten past-events to find what was actually happening. New tiny client component [ScrollToCurrent.tsx](src/app/(app)/today/day-of/ScrollToCurrent.tsx) takes a target id and `scrollIntoView({ behavior: "smooth", block: "center" })`s on mount. The page picks the most-relevant target — `now` if present, else `next` — and threads the id through. Smooth scroll is intentional (the visible motion tells the user "we adjusted the scroll for you" rather than just appearing to load slowly).
+
+**B9 — Inline song-request add on guest detail.** The guest detail's Songs section was read-only with a "Manage on Songs →" deep-link — fine for batch entry, friction for the "while I'm looking at Aunt Margaret's row, just type her request" flow Aimee surfaced. New [AddSongRequestInline.tsx](src/app/(app)/guests/[id]/AddSongRequestInline.tsx) renders a tiny inline form in the section header (title + optional artist + Add + ×). On submit, fires the new `addSongRequestForGuest` server action ([guests/actions.ts](src/app/(app)/guests/actions.ts)) which is gated on `requireEdit("guests")` and writes via `db.songRequest.create` with an audit row. Errors toast via the B5 notify bus rather than throwing. The page revalidates so the new entry appears in the list above without a manual reload.
+
+**Files changed:** 5 modified, 2 new. No schema changes. Build, lint, typecheck, all 126 unit tests, 5 e2e specs all green.
+
+**Bucket B final tally:** 11/13 shipped (B1 + B2 + B3 + B4 in v1.11.0; B5 + B8 + B11 + B12 in v1.12.0; B6 + B7 + B9 in v1.13.0). B10 + B13 were already done before R4 started. Every item from REMEDIATION-PLAN's Bucket B is now closed.
+
+**Next phases (REMEDIATION-PLAN sequencing):** R5 (Bucket C drift decisions — C1 audience overrides, C7 round-table seat dots, C9 magic-link prune cron, others deferred or accepted) and R6 (backup hardening + restore drill). The post-audit work that started with v1.2.0 is approaching its planned end.
 
 ### 2026-04-28 · v1.12.0 — Phase R4b: data + UX MINORs (B5 + B8 + B11 + B12)
 

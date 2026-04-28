@@ -22,10 +22,25 @@ function isTypingTarget(target: EventTarget | null): boolean {
   return false;
 }
 
+// Format a Date as the local-time string a `<input type="datetime-local">`
+// expects: `YYYY-MM-DDTHH:mm`. No timezone suffix — the browser interprets
+// it as local time and we pass it back to the server the same way.
+function nextRoundHourLocal(): string {
+  const d = new Date();
+  d.setMinutes(0, 0, 0);
+  d.setHours(d.getHours() + 1);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 export function QuickCapture() {
   const [open, setOpen] = useState(false);
   const [type, setType] = useState<CaptureType>("task");
   const [text, setText] = useState("");
+  // B6: editable when type=event. Default to next round hour on open;
+  // resets each time the modal is dismissed so a stale value can't sneak
+  // into a future capture.
+  const [startTime, setStartTime] = useState<string>(nextRoundHourLocal);
   const [error, setError] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<{ type: CaptureType; title: string } | null>(null);
   const [pending, startTransition] = useTransition();
@@ -70,6 +85,7 @@ export function QuickCapture() {
   const reset = useCallback(() => {
     setText("");
     setError(null);
+    setStartTime(nextRoundHourLocal());
     setOpen(false);
   }, []);
 
@@ -77,7 +93,13 @@ export function QuickCapture() {
     const trimmed = text.trim();
     if (!trimmed) return;
     setError(null);
-    const input: QuickCaptureInput = { type, text: trimmed };
+    const input: QuickCaptureInput = {
+      type,
+      text: trimmed,
+      // Only send startTime when capturing an event — the action ignores
+      // it for tasks/questions but sending null keeps the schema honest.
+      startTime: type === "event" ? startTime : null,
+    };
     startTransition(async () => {
       const result = await quickCapture(input);
       if (!result.ok) {
@@ -138,6 +160,30 @@ export function QuickCapture() {
                 placeholder={TYPE_META[type].placeholder}
                 className="w-full text-base bg-surface text-ink-primary border-[1.5px] border-border-soft rounded-sm px-3 py-2.5 outline-none focus:border-moss-500 disabled:opacity-50"
               />
+              {type === "event" && (
+                <div className="mt-2 flex items-center gap-2">
+                  <label className="text-[11px] text-ink-tertiary whitespace-nowrap" htmlFor="qc-event-time">
+                    Starts
+                  </label>
+                  <input
+                    id="qc-event-time"
+                    type="datetime-local"
+                    value={startTime}
+                    onChange={(e) => setStartTime(e.target.value)}
+                    disabled={pending}
+                    className="text-sm bg-surface text-ink-primary border border-border-soft rounded-sm px-2 py-1 outline-none focus:border-moss-500 disabled:opacity-50"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setStartTime(nextRoundHourLocal())}
+                    disabled={pending}
+                    className="text-[10px] text-ink-tertiary hover:text-ink-primary px-1"
+                    title="Reset to the next round hour"
+                  >
+                    ↺
+                  </button>
+                </div>
+              )}
             </div>
             {error && <p className="text-xs text-danger mb-2">{error}</p>}
             <div className="flex items-center justify-between gap-2">

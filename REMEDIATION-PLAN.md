@@ -61,11 +61,12 @@ These hurt ergonomics in real use but don't block the app. Schedule
 across multiple sessions; prioritise by which workflow the couple uses
 most.
 
-> **Status (28 Apr 2026):**
+> **Status (28 Apr 2026): Bucket B complete.**
 > - **R4a (v1.11.0):** B1, B2, B3, B4 shipped.
 > - **R4b (v1.12.0):** B5, B8, B11, B12 shipped.
-> - **Pre-existing:** B10 and B13 already done.
-> - **Remaining for R4c:** B6, B7, B9 (3 polish MINORs).
+> - **R4c (v1.13.0):** B6, B7, B9 shipped.
+> - **Pre-existing:** B10 and B13 were already done.
+> - **All 13 Bucket B items closed.**
 
 | ID | Finding | Severity | Size | Status | Notes |
 |---|---|---|---|---|---|
@@ -74,10 +75,10 @@ most.
 | **B3** | `SupplierCommunication.followUpAt` doesn't auto-create a Task | MAJOR | S (~1.5 hrs) | ✅ shipped v1.11.0 | Comm + auto-task in a single `db.$transaction`. Tag-based linkage (`["supplier-follow-up", "supplier:<id>", "comm:<id>"]`) avoids a schema change. Comm log shows a "Task ↗" pill next to the follow-up date. |
 | **B4** | Supplier card lacks last-message summary | MINOR | XS (~30 min) | ✅ shipped v1.11.0 | Supplier list query now `include`s the most-recent comm; card renders muted "Last (channel, relative date): <summary truncated>". |
 | **B5** | F5 — Server-action errors throw raw `Error` | MINOR | S (~1 hr) | ✅ shipped v1.12.0 | Two-layer fix: `(app)/error.tsx` boundary catches thrown errors and shows a friendly card (detects `Forbidden:` prefix → 🔒 + bare message; otherwise 🦆 generic + raw message in dev). Plus a window-event toast bus (`src/lib/notify.ts` + `Toaster` mounted in AppShell) for non-page-breaking errors; seating drag handlers now toast on collision instead of swallowing silently. |
-| **B6** | Quick-capture Event lands at next round hour with no time picker | MINOR | S (~1 hr) | 🟡 R4c | Add an inline date+time field to the modal when type=Event, default to next hour but visible/editable. |
-| **B7** | Mobile schedule doesn't auto-scroll to NOW | MINOR | XS (~20 min) | 🟡 R4c | `scrollIntoView` on the NOW event on mount (day-of page only). |
+| **B6** | Quick-capture Event lands at next round hour with no time picker | MINOR | S (~1 hr) | ✅ shipped v1.13.0 | `<input type="datetime-local">` when type=event in the QuickCapture modal. Defaults to next round hour; "↺" button resets. Action schema gained optional `startTime`. |
+| **B7** | Mobile schedule doesn't auto-scroll to NOW | MINOR | XS (~20 min) | ✅ shipped v1.13.0 | `ScrollToCurrent` client component scrolls the `now` (or fallback `next`) event into view on mount with `behavior: "smooth", block: "center"`. |
 | **B8** | No search on `/guests` | MINOR | S (~1.5 hrs) | ✅ shipped v1.12.0 | New `GuestList.tsx` thin client wrapper with sticky search input. Filters case-insensitively against household name + guest first/last/full. Counter shows N/M while filtering; "×" clears. |
-| **B9** | Guest detail page has no inline song-request add | MINOR | S (~1 hr) | 🟡 R4c | Add a small `<form>` next to the existing requests list. Reuses existing song-request action. |
+| **B9** | Guest detail page has no inline song-request add | MINOR | S (~1 hr) | ✅ shipped v1.13.0 | New `addSongRequestForGuest` action gated on `requireEdit("guests")`. `AddSongRequestInline` component renders a tiny inline form (title + artist + Add + ×) in the section header. |
 | **B10** | Magic-link URL logged to stdout when SMTP unset | MINOR | XS (~10 min) | ✅ pre-existing | `src/auth.ts:145` already gates on `!EMAIL_SERVER_HOST`. |
 | **B11** | Dark mode not persisted to user account | MINOR | S (~1.5 hrs) | ✅ shipped v1.12.0 | Additive migration `User.darkMode Boolean?`; new `setDarkModePreference` server action; pure decision helper at `src/lib/dark-mode.ts`. AvatarMenu syncs DB → localStorage on mount + writes both on toggle. |
 | **B12** | `assignGuestToSeat` has race-condition window | MINOR | S (~1 hr) | ✅ shipped v1.12.0 | `updateMany` + `update` wrapped in `db.$transaction([…])`. Integration test at `tests/integration/seating.test.ts` fires two parallel assignments and asserts the invariant: exactly one guest at the target seat. |

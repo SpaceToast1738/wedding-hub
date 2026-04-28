@@ -6,6 +6,7 @@ import { StatusPill } from "@/components/ui/StatusPill";
 import { canEdit, canView } from "@/lib/permissions";
 import { requireUser } from "@/lib/actions";
 import { GuestDetailClient } from "./GuestDetailClient";
+import { AddSongRequestInline } from "./AddSongRequestInline";
 
 const RSVP_PILL: Record<string, "YES" | "NO" | "PENDING"> = {
   ATTENDING: "YES",
@@ -212,11 +213,14 @@ export default async function GuestDetailPage({
                   {guest.songRequests.length}
                 </span>
               </h2>
-              {guest.songRequests.length > 0 && (
-                <Link href="/songs" className="text-[11px] text-info hover:underline">
-                  Manage on Songs →
-                </Link>
-              )}
+              <div className="flex items-center gap-3">
+                {editable && <AddSongRequestInline guestId={guest.id} />}
+                {guest.songRequests.length > 0 && (
+                  <Link href="/songs" className="text-[11px] text-info hover:underline">
+                    Manage on Songs →
+                  </Link>
+                )}
+              </div>
             </header>
             {guest.songRequests.length === 0 ? (
               <p className="px-4 py-4 text-sm text-ink-tertiary italic">None.</p>

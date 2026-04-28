@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { db } from "@/lib/db";
 import { requireUser } from "@/lib/actions";
+import { ScrollToCurrent } from "./ScrollToCurrent";
 
 const WEDDING_ISO = process.env.WEDDING_DATE ?? "2026-09-26T14:00:00Z";
 const WEDDING_VENUE = process.env.WEDDING_VENUE ?? "Alveston Manor";
@@ -83,6 +84,13 @@ export default async function DayOfPage() {
   ]);
 
   const events = classifyEvents(eventsRaw, now);
+  // B7 (v1.13.0): pick the most-relevant event to scroll into view —
+  // prefer `now`, fall back to `next`. Null when neither exists (e.g.
+  // we're on the day-of preview before the wedding day, or the day
+  // has fully elapsed).
+  const scrollTargetEvent =
+    events.find((e) => e.status === "now") ?? events.find((e) => e.status === "next");
+  const scrollTargetId = scrollTargetEvent ? `event-${scrollTargetEvent.id}` : null;
   const isWeddingDay =
     now.getFullYear() === wedding.getFullYear() &&
     now.getMonth() === wedding.getMonth() &&
@@ -164,6 +172,10 @@ export default async function DayOfPage() {
                 {events.map((ev) => (
                   <li
                     key={ev.id}
+                    // B7: scroll target. The first event with a `now` or
+                    // `next` status carries the id; ScrollToCurrent picks
+                    // it up and scrolls on mount.
+                    id={ev.status === "now" || ev.status === "next" ? `event-${ev.id}` : undefined}
                     className={[
                       "flex gap-3 px-3 py-2.5 rounded-sm border-l-[3px]",
                       ev.status === "now"
@@ -213,6 +225,7 @@ export default async function DayOfPage() {
                 ))}
               </ul>
             )}
+            <ScrollToCurrent targetId={scrollTargetId} />
           </section>
 
           {/* Day-of contacts */}

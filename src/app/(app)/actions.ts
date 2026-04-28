@@ -20,6 +20,10 @@ import { audit, requireEdit, requireUser } from "@/lib/actions";
 const captureSchema = z.object({
   type: z.enum(["task", "question", "event"]),
   text: z.string().min(1).max(500),
+  // B6 (v1.13.0): optional event start-time. Only honoured when type='event';
+  // the UI exposes a `<input type="datetime-local">` so this arrives as the
+  // browser-local string (no zone), which `new Date(...)` parses as local.
+  startTime: z.string().optional().nullable(),
 });
 
 export type QuickCaptureInput = z.infer<typeof captureSchema>;
@@ -43,12 +47,17 @@ export async function quickCapture(input: QuickCaptureInput): Promise<
   const user = await requireEdit(section);
 
   if (type === "event") {
-    // Default a captured event to "now + 1 hour" so it lands somewhere in
-    // the Schedule view and the user can then pick a real time. We don't
-    // try to parse natural-language dates here — too easy to get wrong.
-    const start = new Date();
-    start.setMinutes(0, 0, 0);
-    start.setHours(start.getHours() + 1);
+    // B6 (v1.13.0): use the user-supplied datetime if present (and parses
+    // to a real Date); otherwise fall back to "next round hour" — the
+    // pre-B6 default which is still the right answer for a one-key capture.
+    const fallback = new Date();
+    fallback.setMinutes(0, 0, 0);
+    fallback.setHours(fallback.getHours() + 1);
+    let start = fallback;
+    if (parsed.data.startTime) {
+      const parsedDate = new Date(parsed.data.startTime);
+      if (!Number.isNaN(parsedDate.getTime())) start = parsedDate;
+    }
     const created = await db.scheduleEvent.create({
       data: {
         title: text.trim(),
