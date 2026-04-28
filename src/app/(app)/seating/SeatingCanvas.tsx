@@ -73,6 +73,33 @@ export function SeatingCanvas({
     () => Object.fromEntries(initialTables.map((t) => [t.id, { x: t.posX, y: t.posY }])),
   );
 
+  // v1.20.5: per-seat label/dot size selector. The pre-v1.20.5 defaults
+  // (dotR=3.5, fontSize=9) were conservative — readable on a desktop
+  // monitor at 100% zoom but cramped on narrower screens. Three sizes:
+  //   S = 1.0  (pre-v1.20.5 default; dot 3.5px, font 9px)
+  //   M = 1.4  (new default; dot 4.9px, font 12.6px)
+  //   L = 1.8  (chunky; dot 6.3px, font 16.2px)
+  // Persisted to localStorage so the user's pick survives navigation.
+  const [labelScale, setLabelScale] = useState<number>(1.4);
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("wh_seating_label_scale");
+      if (saved) {
+        const n = Number(saved);
+        if (n === 1.0 || n === 1.4 || n === 1.8) setLabelScale(n);
+      }
+    } catch {
+      // ignore — non-critical preference
+    }
+  }, []);
+  useEffect(() => {
+    try {
+      localStorage.setItem("wh_seating_label_scale", String(labelScale));
+    } catch {
+      // ignore
+    }
+  }, [labelScale]);
+
   useEffect(() => {
     setPositions((prev) => {
       const next: Record<string, { x: number; y: number }> = {};
@@ -258,17 +285,19 @@ export function SeatingCanvas({
                   // matching how a host typically reads round-table
                   // seating ("twelve o'clock first").
                   const angle = (i / t.capacity) * 2 * Math.PI - Math.PI / 2;
-                  const dotR = size.r + 8;
-                  const cx = dotR * Math.cos(angle);
-                  const cy = dotR * Math.sin(angle);
+                  const dotOffset = size.r + 8 * labelScale;
+                  const cx = dotOffset * Math.cos(angle);
+                  const cy = dotOffset * Math.sin(angle);
                   const occupied = !!seat.guest;
                   // Label sits a bit further out than the dot. Anchor
                   // is "end" on the left half of the table, "start" on
                   // the right half, so the text always grows away from
                   // the centre rather than crashing into the table.
-                  const labelR = size.r + 18;
-                  const lx = labelR * Math.cos(angle);
-                  const ly = labelR * Math.sin(angle);
+                  // v1.20.5: dot/label/offset all scale together so
+                  // S/M/L feels like one cohesive size step.
+                  const labelOffset = size.r + 18 * labelScale;
+                  const lx = labelOffset * Math.cos(angle);
+                  const ly = labelOffset * Math.sin(angle);
                   const textAnchor: "start" | "middle" | "end" =
                     lx < -2 ? "end" : lx > 2 ? "start" : "middle";
                   // Truncate to keep the canvas readable when names
@@ -283,7 +312,7 @@ export function SeatingCanvas({
                       <circle
                         cx={cx}
                         cy={cy}
-                        r={3.5}
+                        r={3.5 * labelScale}
                         fill={occupied ? "var(--color-moss-500)" : "var(--color-canvas)"}
                         stroke={occupied ? "var(--color-moss-700)" : "var(--color-border-strong)"}
                         strokeWidth={1}
@@ -292,9 +321,9 @@ export function SeatingCanvas({
                       {occupied && (
                         <text
                           x={lx}
-                          y={ly + 3}
+                          y={ly + 3 * labelScale}
                           textAnchor={textAnchor}
-                          fontSize={9}
+                          fontSize={9 * labelScale}
                           fill="var(--color-ink-secondary)"
                           pointerEvents="none"
                         >
@@ -340,13 +369,44 @@ export function SeatingCanvas({
             onClose={() => setFocusedId(null)}
           />
         ) : (
-          <div className="bg-surface border border-border-soft rounded-md p-4 shadow-sm text-xs text-ink-tertiary">
-            <strong className="block text-ink-secondary text-[11px] uppercase tracking-wider mb-1.5">
-              Canvas
-            </strong>
-            {canEdit
-              ? "Drag tables to reposition. Click to focus and assign seats. Arrow keys nudge the focused table; hold ⇧ for bigger steps."
-              : "Click a table to view its seating. Editing is read-only for your role."}
+          <div className="bg-surface border border-border-soft rounded-md p-4 shadow-sm text-xs text-ink-tertiary space-y-3">
+            <div>
+              <strong className="block text-ink-secondary text-[11px] uppercase tracking-wider mb-1.5">
+                Canvas
+              </strong>
+              {canEdit
+                ? "Drag tables to reposition. Click to focus and assign seats. Arrow keys nudge the focused table; hold ⇧ for bigger steps."
+                : "Click a table to view its seating. Editing is read-only for your role."}
+            </div>
+            {/* v1.20.5: per-seat label/dot scale toggle. The user's
+                pick persists across sessions via localStorage. */}
+            <div className="pt-3 border-t border-border-soft">
+              <strong className="block text-ink-secondary text-[11px] uppercase tracking-wider mb-1.5">
+                Seat label size
+              </strong>
+              <div className="inline-flex gap-px bg-canvas border border-border-soft rounded-full p-0.5">
+                {([
+                  { label: "S", value: 1.0 },
+                  { label: "M", value: 1.4 },
+                  { label: "L", value: 1.8 },
+                ] as const).map((opt) => (
+                  <button
+                    key={opt.label}
+                    type="button"
+                    onClick={() => setLabelScale(opt.value)}
+                    className={[
+                      "text-xs px-3 py-0.5 rounded-full font-semibold transition-colors",
+                      labelScale === opt.value
+                        ? "bg-moss-500 text-white"
+                        : "text-ink-tertiary hover:text-ink-primary",
+                    ].join(" ")}
+                    aria-pressed={labelScale === opt.value}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
         )}
         <UnseatedPanel guests={unseatedGuests} />

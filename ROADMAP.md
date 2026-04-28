@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.20.0** | 2026-04-28 | [Wedding details DB-backed (Settings UI + 10 ref replacements)](#2026-04-28--v1200--wedding-details-db-backed) |
+| **v1.20.5** | 2026-04-28 | [Seating canvas: bigger labels + S/M/L size selector](#2026-04-28--v1205--seating-canvas-bigger-labels--sml-size-selector) |
+| v1.20.0 | 2026-04-28 | [Wedding details DB-backed (Settings UI + 10 ref replacements)](#2026-04-28--v1200--wedding-details-db-backed) |
 | v1.19.6 | 2026-04-28 | [README rewrite: standing rules, current test pyramid, fix stale phase-status](#2026-04-28--v1196--readme-rewrite) |
 | v1.19.5 | 2026-04-28 | [Email deliverability: Reply-To + List-Unsubscribe + DNS docs](#2026-04-28--v1195--email-deliverability-reply-to--list-unsubscribe--dns-docs) |
 | v1.19.0 | 2026-04-28 | [Today page redesign + mobile nav fix + IllusCountdown port](#2026-04-28--v1190--today-page-redesign--mobile-nav-fix--illuscountdown-port) |
@@ -302,6 +303,20 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-28 · v1.20.5 — Seating canvas: bigger labels + S/M/L size selector
+
+v1.16.0 added first-name labels next to occupied seat dots on round tables. Defaults were conservative — `dotR=3.5`, `fontSize=9`, label radius `+18` — readable at 100% zoom on a desktop monitor but cramped on phones, smaller monitors, or when the user zooms out the canvas. User asked for both larger defaults and a size selector.
+
+**Implementation.** Single `labelScale` state in [SeatingCanvas.tsx](src/app/(app)/seating/SeatingCanvas.tsx). Three sizes: S = 1.0 (pre-v1.20.5 default — kept as a small option for power users), M = 1.4 (new default), L = 1.8 (chunky). Dot radius, font size, and the radial label offset all scale together so the size step feels cohesive — pre-v1.20.5 only fontSize would have scaled, leaving label and dot fighting for the same pixel.
+
+**Persistence.** localStorage `wh_seating_label_scale`. SSR renders M (default 1.4); a `useEffect` on mount restores the saved value. Mirrors the dark-mode + tasks-view-toggle patterns elsewhere.
+
+**Selector UI.** S/M/L pill toggle in the canvas's right-hand side panel (the empty-state slot when no table is focused). Same visual language as the CountdownCard's M/W/D toggle and TodayEventsCard's Mine/Everyone toggle so the toggle vocabulary stays consistent across the app.
+
+**HEAD-shaped tables** unchanged — they don't have the radial seat layout, so the labels don't apply. The table-name label inside the rectangle is enough.
+
+**Files changed:** 1 (SeatingCanvas.tsx). No schema, no new tests (pure visual + state).
 
 ### 2026-04-28 · v1.20.0 — Wedding details DB-backed
 
