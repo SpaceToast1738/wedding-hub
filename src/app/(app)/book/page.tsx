@@ -1,12 +1,14 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { PageHeader } from "@/components/ui/PageHeader";
-import { canEdit } from "@/lib/permissions";
+import { canEdit, canView } from "@/lib/permissions";
 import { requireUser } from "@/lib/actions";
 import { AddSectionToggle } from "./AddSectionToggle";
 
 export default async function BookHubPage() {
   const user = await requireUser();
+  if (!(await canView(user, "book"))) redirect("/");
   const editable = await canEdit(user, "book");
 
   const [sections, shotCounts] = await Promise.all([

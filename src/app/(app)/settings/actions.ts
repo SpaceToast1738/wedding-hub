@@ -14,6 +14,18 @@ const setPermSchema = z.object({
 
 export async function setPermission(formData: FormData) {
   const user = await requireEdit("settings");
+  // Granting / revoking permissions is couple-only regardless of any other
+  // EDIT-on-settings access. Without this, a non-couple user with
+  // EDIT(settings) could grant arbitrary permissions to any user.
+  if (!user.isCouple) {
+    await audit(user, {
+      action: "settings_denied",
+      entity: "User",
+      entityId: String(formData.get("userId") ?? ""),
+      metadata: { reason: "not_couple", target_action: "setPermission" },
+    });
+    throw new Error("Forbidden: only the couple can change permissions");
+  }
   const parsed = setPermSchema.parse({
     userId: formData.get("userId"),
     section: formData.get("section"),
@@ -35,6 +47,19 @@ export async function setPermission(formData: FormData) {
 
 export async function setUserCouple(userId: string, isCouple: boolean) {
   const user = await requireEdit("settings");
+  // The self-elevation vector. Without this isCouple gate, a non-couple
+  // user with EDIT(settings) could call setUserCouple(myOwnId, true)
+  // and promote themselves to couple-tier. Audit-log denied attempts so
+  // a future operator can spot intrusion attempts.
+  if (!user.isCouple) {
+    await audit(user, {
+      action: "settings_denied",
+      entity: "User",
+      entityId: userId,
+      metadata: { reason: "not_couple", target_action: "setUserCouple", target_isCouple: isCouple },
+    });
+    throw new Error("Forbidden: only the couple can change couple-tier membership");
+  }
   await db.user.update({ where: { id: userId }, data: { isCouple } });
   await audit(user, { action: "set-couple", entity: "User", entityId: userId, metadata: { isCouple } });
   revalidatePath("/settings");
@@ -42,6 +67,17 @@ export async function setUserCouple(userId: string, isCouple: boolean) {
 
 export async function removeUser(userId: string) {
   const user = await requireEdit("settings");
+  // Removing a user is couple-only. Without this gate a non-couple user
+  // with EDIT(settings) could remove the couple and lock everyone out.
+  if (!user.isCouple) {
+    await audit(user, {
+      action: "settings_denied",
+      entity: "User",
+      entityId: userId,
+      metadata: { reason: "not_couple", target_action: "removeUser" },
+    });
+    throw new Error("Forbidden: only the couple can remove users");
+  }
   if (userId === user.id) {
     throw new Error("You can't remove yourself.");
   }

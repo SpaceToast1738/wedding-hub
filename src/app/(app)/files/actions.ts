@@ -95,6 +95,34 @@ export async function updateFile(
     data.folder = trimmed.length === 0 ? null : trimmed.slice(0, 100);
   }
   if (patch.visibility !== undefined) {
+    // Visibility transitions touching COUPLE_ONLY are couple-only.
+    // Without this gate a non-couple user with EDIT(files) could either
+    // (a) flip a couple-only file to EVERYONE and read couple-only
+    //     content via a normal download, or
+    // (b) flip a public file to COUPLE_ONLY (low impact today since
+    //     isCouple sees everything, but principled defence).
+    const current = await db.file.findUnique({
+      where: { id },
+      select: { visibility: true },
+    });
+    if (!current) throw new Error("File not found");
+    const isCoupleTouched =
+      current.visibility === "COUPLE_ONLY" ||
+      patch.visibility === "COUPLE_ONLY";
+    if (isCoupleTouched && !user.isCouple) {
+      await audit(user, {
+        action: "files_denied",
+        entity: "File",
+        entityId: id,
+        metadata: {
+          reason: "not_couple",
+          target_action: "updateFile.visibility",
+          from: current.visibility,
+          to: patch.visibility,
+        },
+      });
+      throw new Error("Forbidden: only the couple can change couple-only file visibility");
+    }
     data.visibility = patch.visibility;
   }
   if (Object.keys(data).length === 0) return;

@@ -11,7 +11,7 @@
 - **Repo:** [SpaceToast1738/wedding-hub](https://github.com/SpaceToast1738/wedding-hub) · `claude/main` (releases) + `dev` (work-in-progress)
 - **Stack:** Next.js 15 · TypeScript · Tailwind v4 · Prisma · Postgres 16 · Auth.js v5 · Caddy · Docker Compose
 - **Working tree:** `C:\Users\Admin\Code\wedding-hub` (local SSD). The old `\\TOWER\Jamie Spencer\Claude\wedding-hub` mirror is no longer in use — run `Remove-Item -Recurse -Force "\\TOWER\Jamie Spencer\Claude\wedding-hub"` from a fresh PowerShell to delete it.
-- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` at **v1.1.0**, promoted 27 Apr 2026). v1.1.0 ships the `/glance` dashboard: live RSVP donut, budget bar (couple-only), payments-due list, audit-log activity feed. Builds on v1.0.0's release-1 polish across every page (Today, Tasks kanban, Schedule timeline, Suppliers detail, Budget collapsible, Files thumbnails, Songs reorder, wedding-party section, Book anchor nav).
+- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` at **v1.1.0**). v1.2.0 (this iteration on `dev`) is **Phase R1 — Trust Restoration**, the first remediation phase from the [post-audit plan](REMEDIATION-PLAN.md). Closes 2 newly-discovered BLOCKER-class privilege escalations (settings self-elevation, file visibility leak), 4 MAJOR/MINOR audit findings, and adds the project's first automated test suite (Vitest, 60 tests).
 
 ## Phase status
 
@@ -34,6 +34,7 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
+| _(unreleased on `dev`)_ | 2026-04-28 | [v1.2.0 — Phase R1: trust restoration (audit fixes + Vitest)](#2026-04-28--v120--phase-r1-trust-restoration-audit-fixes--vitest) |
 | **v1.1.0** | 2026-04-27 | [At a Glance dashboard](#2026-04-27--v110--at-a-glance-dashboard) |
 | v1.0.0 | 2026-04-27 | [🎉 Release-1 design polish across all pages](#2026-04-27--v100--release-1-design-polish-across-all-pages) |
 | v0.15.0 | 2026-04-27 | [Phase G2 day-of mode + quick-capture](#2026-04-27--v0150--phase-g2-day-of-mode--quick-capture) |
@@ -230,11 +231,41 @@ When wrapping up a meaningful iteration:
 
 ### Current version
 
-`1.1.0` on both `dev` and `claude/main` (promoted 27 Apr 2026). Production catches up after the GHCR image rebuilds and Unraid runs `docker compose pull && up -d`. No migrations, no env changes.
+`1.2.0` on `dev`, `claude/main` at `v1.1.0`. Phase R1 of the [post-audit remediation plan](REMEDIATION-PLAN.md) is complete. No schema or env changes. Promote when smoke-tested.
 
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-28 · v1.2.0 — Phase R1: trust restoration (audit fixes + Vitest)
+
+First remediation phase from the [post-audit plan](REMEDIATION-PLAN.md). Six fixes that close every audit-flagged permission/data-leak class, plus the project's first automated test suite. No schema changes; no env changes.
+
+**Two BLOCKER-class privilege escalations closed** (escalated from MAJOR after static verification revealed worse-than-audit-described behaviour):
+
+- **A2 — settings self-elevation.** `setPermission`, `setUserCouple`, and `removeUser` in [src/app/(app)/settings/actions.ts](src/app/(app)/settings/actions.ts) were gated only by `requireEdit("settings")`. A non-couple user with `EDIT(settings)` could call `setUserCouple(myOwnId, true)` and self-promote to couple-tier. All three now require `user.isCouple === true` explicitly. Denied attempts log a `settings_denied` audit entry with the target action and reason.
+- **A6 — file visibility leak.** `updateFile` in [src/app/(app)/files/actions.ts](src/app/(app)/files/actions.ts) had no `isCouple` check on visibility transitions at all. A non-couple user with `EDIT(files)` could flip a `COUPLE_ONLY` file to `EVERYONE` and read couple-only documents. Now any visibility transition touching `COUPLE_ONLY` (in either direction) requires couple-tier, with denied attempts logged as `files_denied`.
+
+**Four smaller audit findings closed:**
+
+- **A1 — list-page `canView` gates.** [src/app/(app)/tasks/page.tsx](src/app/(app)/tasks/page.tsx), [questions/page.tsx](src/app/(app)/questions/page.tsx), [book/page.tsx](src/app/(app)/book/page.tsx), and [guests/page.tsx](src/app/(app)/guests/page.tsx) now redirect to `/` when the caller lacks `canView` for the section. Sidebar nav already hid these for blocked users; the routes themselves were reachable by URL. Mirrors the pattern already in use at `/guests/[id]` and `/guests/catering`.
+- **A5 — polymorphic Task gate.** `setTaskStatus` and `deleteTask` in [src/app/(app)/tasks/actions.ts](src/app/(app)/tasks/actions.ts) operate on the `Task` model that stores TASK / QUESTION / DECISION rows. They now read the row's `type` first and dispatch to `requireEdit("tasks")` or `requireEdit("questions")` accordingly. Closes the cross-section gate gap a user with `EDIT(tasks)` + `NONE(questions)` could exploit via crafted requests.
+
+**Test infrastructure (T1) shipped:**
+
+- [vitest.config.ts](vitest.config.ts) with the `@/*` path alias matching tsconfig.
+- `npm test` and `npm run test:watch` scripts.
+- 60 unit tests across four files:
+  - [tests/unit/permissions.test.ts](tests/unit/permissions.test.ts) — 17 tests covering `canView` / `canEdit` for every (section, level, isCouple) combination, including F1 escalation reproductions for tasks/questions/book/guests.
+  - [tests/unit/csv-merge.test.ts](tests/unit/csv-merge.test.ts) — 33 tests for the import coercers and helpers (`coerceBool`, `coerceRsvp`, `coerceSide`, `coerceChild`, `coerceDietary`, `coerceTags`, `splitFullName`, `inferField`, `dedupeKey`, `isEmptyValue`, `nonEmptyOrNull`, `detectSeparator`).
+  - [tests/unit/spotify.test.ts](tests/unit/spotify.test.ts) — 8 tests for `parsePlaylistId` (URL-with-?si=, bare URL, `spotify:` URI, bare ID, whitespace, junk inputs) and `isSpotifyConfigured`.
+  - [tests/unit/smoke.test.ts](tests/unit/smoke.test.ts) — runner-wired-up sanity check.
+
+Tests run in <1s after the first cold start. Future audit findings should land alongside a regression test that would have caught them.
+
+**Out of scope for R1** (deferred to R2/R3 per the [remediation plan](REMEDIATION-PLAN.md) §4): magic-link rate limit (A3), archived-guest restore UI (A4), permission integration test against a real DB (T2), Playwright e2e (T3), TESTING.md (T4), backup verification cron (T5), all Bucket B and C items.
+
+Verified: `npm run typecheck`, `npm run lint`, `npm run build`, `npm test` all clean.
 
 ### 2026-04-27 · v1.1.0 — At a Glance dashboard
 

@@ -1,13 +1,15 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { PageHeader } from "@/components/ui/PageHeader";
-import { canEdit } from "@/lib/permissions";
+import { canEdit, canView } from "@/lib/permissions";
 import { requireUser } from "@/lib/actions";
 import { AddHouseholdToggle } from "./AddHouseholdToggle";
 import { HouseholdBlock } from "./HouseholdBlock";
 
 export default async function GuestsPage() {
   const user = await requireUser();
+  if (!(await canView(user, "guests"))) redirect("/");
   const editable = await canEdit(user, "guests");
 
   const households = await db.household.findMany({

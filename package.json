@@ -1,6 +1,6 @@
 {
   "name": "wedding-hub",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -8,6 +8,8 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate deploy",
     "db:migrate:dev": "prisma migrate dev",
@@ -35,13 +37,15 @@
     "@types/nodemailer": "^6.4.17",
     "@types/react": "^19.0.1",
     "@types/react-dom": "^19.0.1",
+    "@vitest/ui": "^4.1.5",
     "eslint": "^9.16.0",
     "eslint-config-next": "15.0.4",
     "postcss": "^8.4.49",
     "prisma": "^5.22.0",
     "tailwindcss": "^4.0.0",
     "tsx": "^4.19.2",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "vitest": "^4.1.5"
   },
   "engines": {
     "node": ">=20.18.0"

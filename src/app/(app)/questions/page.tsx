@@ -1,12 +1,14 @@
+import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { PageHeader } from "@/components/ui/PageHeader";
-import { canEdit } from "@/lib/permissions";
+import { canEdit, canView } from "@/lib/permissions";
 import { requireUser } from "@/lib/actions";
 import { AddTaskToggle } from "@/app/(app)/tasks/AddTaskToggle";
 import { QuestionsClient } from "./QuestionsClient";
 
 export default async function QuestionsPage() {
   const user = await requireUser();
+  if (!(await canView(user, "questions"))) redirect("/");
   const editable = await canEdit(user, "questions");
 
   const [questions, users] = await Promise.all([

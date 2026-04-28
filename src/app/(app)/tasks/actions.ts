@@ -86,9 +86,16 @@ export async function updateTask(id: string, formData: FormData) {
 }
 
 export async function setTaskStatus(id: string, status: TaskStatus) {
-  const user = await requireEdit("tasks");
+  // Task is a polymorphic table — TASK / QUESTION / DECISION rows live
+  // here. Read the row first so we can dispatch to the right permission
+  // gate. Without this, a user with EDIT(tasks) but NONE on questions
+  // could change a Question's status via a crafted call.
+  const task = await db.task.findUnique({ where: { id }, select: { type: true } });
+  if (!task) throw new Error("Task not found");
+  const section = task.type === "TASK" ? "tasks" : "questions";
+  const user = await requireEdit(section);
   await db.task.update({ where: { id }, data: { status } });
-  await audit(user, { action: "status", entity: "Task", entityId: id, metadata: { status } });
+  await audit(user, { action: "status", entity: "Task", entityId: id, metadata: { status, type: task.type } });
   revalidatePath("/tasks");
   revalidatePath("/questions");
   revalidatePath("/");
@@ -110,9 +117,14 @@ export async function answerQuestion(id: string, answer: string) {
 }
 
 export async function deleteTask(id: string) {
-  const user = await requireEdit("tasks");
+  // Same polymorphic dispatch as setTaskStatus — gate by the row's type
+  // rather than blanket EDIT(tasks).
+  const task = await db.task.findUnique({ where: { id }, select: { type: true } });
+  if (!task) throw new Error("Task not found");
+  const section = task.type === "TASK" ? "tasks" : "questions";
+  const user = await requireEdit(section);
   await db.task.delete({ where: { id } });
-  await audit(user, { action: "delete", entity: "Task", entityId: id });
+  await audit(user, { action: "delete", entity: "Task", entityId: id, metadata: { type: task.type } });
   revalidatePath("/tasks");
   revalidatePath("/questions");
   revalidatePath("/");

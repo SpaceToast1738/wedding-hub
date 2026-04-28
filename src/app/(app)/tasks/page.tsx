@@ -1,12 +1,14 @@
+import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { PageHeader } from "@/components/ui/PageHeader";
-import { canEdit } from "@/lib/permissions";
+import { canEdit, canView } from "@/lib/permissions";
 import { requireUser } from "@/lib/actions";
 import { AddTaskToggle } from "./AddTaskToggle";
 import { TaskList } from "./TaskList";
 
 export default async function TasksPage() {
   const user = await requireUser();
+  if (!(await canView(user, "tasks"))) redirect("/");
   const editable = await canEdit(user, "tasks");
 
   const [tasks, users] = await Promise.all([
