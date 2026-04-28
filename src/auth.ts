@@ -4,6 +4,7 @@ import { PrismaAdapter } from "@auth/prisma-adapter";
 import { UserRole } from "@prisma/client";
 import { db } from "@/lib/db";
 import { authConfig } from "@/auth.config";
+import { checkAndRecordAttempt } from "@/lib/rate-limit";
 
 function allowedEmails(): string[] {
   return (process.env.AUTH_ALLOWED_EMAILS ?? "")
@@ -111,6 +112,36 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         : { host: "localhost", port: 1025 },
       from: process.env.EMAIL_FROM ?? "noreply@localhost",
       sendVerificationRequest: async ({ identifier, url, provider }) => {
+        // Rate-limit BEFORE we check the allowlist or send anything.
+        // We don't want to leak which addresses are on the allowlist by
+        // having different timing for allowed/disallowed emails — but
+        // we also don't want a single attacker to flood our SMTP quota
+        // by hammering one allowed address. 5/hour/email is the cap;
+        // see src/lib/rate-limit.ts. The decision short-circuits the
+        // send and audit-logs the rejection.
+        const decision = await checkAndRecordAttempt({ identifier });
+        if (!decision.ok) {
+          await db.auditLog
+            .create({
+              data: {
+                action: "magic_link_rate_limited",
+                entity: "MagicLinkAttempt",
+                metadata: {
+                  identifier,
+                  reason: decision.reason,
+                  retryAfterSec: decision.retryAfterSec,
+                },
+              },
+            })
+            .catch(() => undefined);
+          // Throwing here surfaces a 500 to the sign-in form, which the
+          // user will see as a generic error. Not ideal UX but acceptable
+          // — a friendly cooldown message is a B-bucket polish item.
+          throw new Error(
+            `Too many sign-in attempts for this email — try again in ${decision.retryAfterSec} seconds`,
+          );
+        }
+
         if (!process.env.EMAIL_SERVER_HOST) {
           console.log(
             `\n📧 Magic link for ${identifier}\n   ${url}\n   (set EMAIL_SERVER_HOST in .env.local to send real emails)\n`,

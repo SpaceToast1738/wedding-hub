@@ -531,6 +531,20 @@ model AuditLog {
   @@index([entity, entityId])
 }
 
+// Tracks magic-link send attempts for rate-limiting. The auth flow checks
+// recent rows for a given email before sending; rows older than the rate-
+// limit window are pruned opportunistically on the same check. Designed
+// to stay tiny (a few hundred rows max in normal operation).
+model MagicLinkAttempt {
+  id         String   @id @default(cuid())
+  identifier String   // email address (lowercased)
+  ip         String?  // best-effort; null when the auth callback can't access headers
+  createdAt  DateTime @default(now())
+
+  @@index([identifier, createdAt])
+  @@index([createdAt])
+}
+
 // ─── Custom fields (Settings) ──────────────────────────────────────────────
 
 model CustomField {

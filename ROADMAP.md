@@ -11,7 +11,7 @@
 - **Repo:** [SpaceToast1738/wedding-hub](https://github.com/SpaceToast1738/wedding-hub) · `claude/main` (releases) + `dev` (work-in-progress)
 - **Stack:** Next.js 15 · TypeScript · Tailwind v4 · Prisma · Postgres 16 · Auth.js v5 · Caddy · Docker Compose
 - **Working tree:** `C:\Users\Admin\Code\wedding-hub` (local SSD). The old `\\TOWER\Jamie Spencer\Claude\wedding-hub` mirror is no longer in use — run `Remove-Item -Recurse -Force "\\TOWER\Jamie Spencer\Claude\wedding-hub"` from a fresh PowerShell to delete it.
-- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` at **v1.2.4**, promoted 28 Apr 2026 after the GHA build went green at the same SHA). Phase R1 — Trust Restoration — shipped at v1.2.0 (2 BLOCKER privilege escalations + 4 smaller findings + Vitest). v1.2.1 → v1.2.4 are a four-version cascade fixing the Docker build under the v1.2.0 dep tree — full post-mortem in the Changelog. R2 (magic-link rate-limit + archived-guest restore UI) is the next remediation phase.
+- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` at **v1.2.4**). v1.3.0 (this iteration on `dev`) ships **Phase R2** — magic-link rate limit (5/hour/email; A3) and archived-guest restore (soft-delete + Show archived view + couple-only Delete forever; A4). Adds an additive `MagicLinkAttempt` migration; 9 new unit tests; no env changes.
 
 ## Phase status
 
@@ -34,6 +34,7 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
+| _(unreleased on `dev`)_ | 2026-04-28 | [v1.3.0 — Phase R2: magic-link rate limit + archived-guest restore](#2026-04-28--v130--phase-r2-magic-link-rate-limit--archived-guest-restore) |
 | **v1.2.4** | 2026-04-28 | [Dockerfile copies `.npmrc` — first version of the v1.2.x line that built green in CI](#2026-04-28--v124--dockerfile-copies-npmrc-so-the-legacy-peer-deps-actually-applies-in-ci) |
 | _(no tag)_ | 2026-04-28 | v1.2.1 / v1.2.2 / v1.2.3 — three failed CI fix attempts; not tagged on principle (only green-CI SHAs get tags). Documented in the changelog for traceability. |
 | **v1.2.0** | 2026-04-28 | [Phase R1: trust restoration (audit fixes + Vitest)](#2026-04-28--v120--phase-r1-trust-restoration-audit-fixes--vitest) |
@@ -233,11 +234,32 @@ When wrapping up a meaningful iteration:
 
 ### Current version
 
-`1.2.4` on both `dev` and `claude/main` (promoted 28 Apr 2026 after GHA went green on the same SHA). v1.2.1–v1.2.3 were left untagged because they never built in CI — broken builds don't earn tags. Production catches up after `docker compose pull && up -d`.
+`1.3.0` on `dev`, `claude/main` at `v1.2.4`. R2 fixes shipped (rate limit + archived-guest restore). Holding promote until GHA confirms green at `v1.3.0`'s SHA.
 
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-28 · v1.3.0 — Phase R2: magic-link rate limit + archived-guest restore
+
+Second remediation phase from the [post-audit plan](REMEDIATION-PLAN.md). Closes the two MAJOR audit findings deferred from R1 because they needed schema or UI work.
+
+**A3 — magic-link rate limit.** New `MagicLinkAttempt` table tracks send attempts; up to 5 per hour per email. Checked in [src/auth.ts](src/auth.ts) `sendVerificationRequest` *before* the SMTP send and *before* the allowlist check (so timing doesn't leak which addresses are on the allowlist). Rejected attempts log a `magic_link_rate_limited` audit entry with the `retryAfterSec` value; the user sees a "Too many sign-in attempts — try again in N seconds" error. Per-IP limiting is documented in the brief but skipped — the auth callback doesn't ergonomically expose the request IP, and the AUTH_ALLOWED_EMAILS allowlist already caps the realistic attack surface to ~5 addresses. Can be added later at the middleware layer if real abuse appears.
+
+Decision logic split into a pure function ([src/lib/rate-limit.ts](src/lib/rate-limit.ts) `decideRateLimit`) and a thin DB-aware wrapper (`checkAndRecordAttempt`). The pure function gets 9 unit tests; the wrapper is integration territory. Pruning of expired rows happens opportunistically inside the same `Promise.all` as the count + oldest-attempt query, so the table stays tiny without a separate cron.
+
+**A4 — archived-guest restore.** [`deleteGuest`](src/app/(app)/guests/actions.ts) was a hard delete; the audit's persona walkthrough flagged the lack of undo as a real risk on the wedding day. Now soft-deletes (set `archived = true`, free the seat). Two new actions:
+
+- `restoreGuest(id)` — flip `archived` back to `false`. Their seat does NOT auto-reassign; they come back unseated and the user reseats them.
+- `hardDeleteGuest(id)` — actual `db.guest.delete`. Couple-only (gated explicitly on `user.isCouple`, audit-logged as `guests_denied` if a non-couple user tries). Requires the row to already be `archived = true` — you can't skip the soft-delete step.
+
+UI: `/guests?archived=1` switches to a flat list of archived guests with Restore and (couple-only) Delete-forever buttons. Active view gets an "Archived (N)" link in the header that only shows when `N > 0`. Implemented as a server-component branch in [page.tsx](src/app/(app)/guests/page.tsx) with a small client component [ArchivedGuestList.tsx](src/app/(app)/guests/ArchivedGuestList.tsx) handling the actions.
+
+**Schema** ([prisma/schema.prisma](prisma/schema.prisma)) adds the `MagicLinkAttempt` model. Two indexes — `(identifier, createdAt)` for the rate-limit check, and `(createdAt)` for the prune. Migration [20260428100000_add_magic_link_attempt](prisma/migrations/20260428100000_add_magic_link_attempt/migration.sql) is purely additive — runs on `prisma migrate deploy` at next prod boot.
+
+**Tests** ([tests/unit/rate-limit.test.ts](tests/unit/rate-limit.test.ts)) — 9 new cases for `decideRateLimit`: zero attempts, below threshold, at-max-1, at-threshold, above threshold, retry-after computation against window start, full-window fallback when oldest is missing, custom max + window overrides. 69 unit tests total now (60 → 69).
+
+Verified: typecheck + lint + build + 69/69 tests + clean `npm ci` from wiped `node_modules`. Holding promote until GHA confirms green at the v1.3.0 SHA.
 
 ### 2026-04-28 · v1.2.4 — Dockerfile copies .npmrc (so the legacy-peer-deps actually applies in CI)
 

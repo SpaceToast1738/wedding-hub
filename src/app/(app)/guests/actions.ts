@@ -166,10 +166,79 @@ export async function setGuestRsvp(id: string, rsvp: RsvpStatus) {
   revalidatePath("/");
 }
 
+// Soft-archive — was previously a hard delete, but the audit (R1)
+// flagged the lack of undo as a real risk on the wedding day. Default
+// flow now sets `archived = true`; the row is hidden from default
+// views but can be restored. Their tableSeat is freed at the same
+// time so the seat goes back into the pool.
 export async function deleteGuest(id: string) {
   const user = await requireEdit("guests");
+  const guest = await db.guest.findUnique({
+    where: { id },
+    select: { firstName: true, lastName: true, tableSeatId: true },
+  });
+  if (!guest) return;
+  await db.guest.update({
+    where: { id },
+    data: { archived: true, tableSeatId: null },
+  });
+  await audit(user, {
+    action: "archive",
+    entity: "Guest",
+    entityId: id,
+    metadata: {
+      firstName: guest.firstName,
+      lastName: guest.lastName,
+      hadSeat: guest.tableSeatId !== null,
+    },
+  });
+  revalidatePath("/guests");
+  revalidatePath("/seating");
+  revalidatePath("/");
+}
+
+// Bring an archived guest back. Their seat does NOT auto-reassign —
+// that would be surprising — they come back unseated and the user
+// reseats them via the Seating page.
+export async function restoreGuest(id: string) {
+  const user = await requireEdit("guests");
+  await db.guest.update({ where: { id }, data: { archived: false } });
+  await audit(user, { action: "restore", entity: "Guest", entityId: id });
+  revalidatePath("/guests");
+  revalidatePath("/");
+}
+
+// Couple-only escape hatch for actually wiping a guest from the DB
+// (e.g. cleanup of a typo'd row). The archived view exposes this on
+// each row alongside Restore. Doesn't go through `requireEdit` alone
+// — also gated on `user.isCouple` so a non-couple EDIT-on-guests user
+// can't bypass the soft-delete guarantee.
+export async function hardDeleteGuest(id: string) {
+  const user = await requireEdit("guests");
+  if (!user.isCouple) {
+    await audit(user, {
+      action: "guests_denied",
+      entity: "Guest",
+      entityId: id,
+      metadata: { reason: "not_couple", target_action: "hardDeleteGuest" },
+    });
+    throw new Error("Forbidden: only the couple can permanently delete a guest");
+  }
+  const guest = await db.guest.findUnique({
+    where: { id },
+    select: { firstName: true, lastName: true, archived: true },
+  });
+  if (!guest) return;
+  if (!guest.archived) {
+    throw new Error("Archive the guest first; only archived guests can be permanently deleted.");
+  }
   await db.guest.delete({ where: { id } });
-  await audit(user, { action: "delete", entity: "Guest", entityId: id });
+  await audit(user, {
+    action: "hard_delete",
+    entity: "Guest",
+    entityId: id,
+    metadata: { firstName: guest.firstName, lastName: guest.lastName },
+  });
   revalidatePath("/guests");
   revalidatePath("/");
 }

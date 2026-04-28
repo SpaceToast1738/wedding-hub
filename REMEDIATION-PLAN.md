@@ -46,8 +46,8 @@ until these are addressed.
 |---|---|---|---|---|---|
 | **A1** | F1 — `/tasks`, `/questions`, `/book`, `/guests` list pages bypass `canView` | MAJOR | XS (~30 min) | ✅ shipped v1.2.0 | Mirrors the pattern at `/guests/[id]` and `/guests/catering`. |
 | **A2** | F3 — Settings EDIT lets non-couple grant permissions | **BLOCKER** *(escalated)* | S (~1 hr) | ✅ shipped v1.2.0 | `setPermission`, `setUserCouple`, `removeUser` all require `user.isCouple === true` explicitly. Denied attempts logged as `settings_denied`. |
-| **A3** | F4 — No magic-link rate limit | MAJOR | S–M (~2 hrs) | 🟡 R2 | Add a `MagicLinkRequest` table; reject if 5+ in last hour for email or 20+ for IP. Hourly prune. |
-| **A4** | Guest hard-delete with no undo | MAJOR | S (~1.5 hrs) | 🟡 R2 | Replace `deleteGuest` with `archiveGuest`. Add "Show archived" toggle on `/guests` with `Restore` action. |
+| **A3** | F4 — No magic-link rate limit | MAJOR | S–M (~2 hrs) | ✅ shipped v1.3.0 | `MagicLinkAttempt` table; 5/hour/email; opportunistic prune on every check. Per-IP deferred — allowlist already caps surface area. |
+| **A4** | Guest hard-delete with no undo | MAJOR | S (~1.5 hrs) | ✅ shipped v1.3.0 | `deleteGuest` now soft-archives + frees seat; `restoreGuest` action; couple-only `hardDeleteGuest` for actual cleanup. `/guests?archived=1` view + Archived (N) link. |
 | **A5** | F6 — `setTaskStatus`/`deleteTask` polymorphic gate | MINOR | XS (~20 min) | ✅ shipped v1.2.0 | Reads `Task.type` and dispatches `requireEdit("tasks"|"questions")`. |
 | **A6** | F2 — `updateFile` visibility transition gate | **BLOCKER** *(escalated)* | XS (~30 min) | ✅ shipped v1.2.0 | Static verification revealed no `isCouple` check at all — non-couple user with EDIT(files) could flip COUPLE_ONLY → EVERYONE. Both transition directions now require couple-tier. |
 
