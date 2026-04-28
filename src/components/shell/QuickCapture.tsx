@@ -115,7 +115,9 @@ export function QuickCapture() {
     <>
       {open && (
         <div
-          className="fixed inset-0 z-[600] flex items-start justify-center pt-20 px-4"
+          // v1.17.0: less top padding on mobile (iPhone SE-class screens
+          // were pushing the input below the visible viewport at pt-20).
+          className="fixed inset-0 z-[600] flex items-start justify-center pt-6 sm:pt-20 px-4"
           role="dialog"
           aria-modal="true"
           aria-label="Quick capture"

@@ -130,8 +130,11 @@ export default async function DayOfPage() {
   return (
     <div className="flex-1 overflow-auto bg-moss-50 p-4 sm:p-6">
       <div className="max-w-[1100px] mx-auto">
-        {/* Hero band */}
-        <div className="bg-moss-700 text-white rounded-lg px-6 py-5 mb-4 flex items-center justify-between gap-3 flex-wrap">
+        {/* Hero band — v1.17.0: sticky at the top on mobile so the
+            venue + date stay visible while scrolling the timeline.
+            Desktop has plenty of vertical space; sticky everywhere
+            would just eat real estate, so it's mobile-only. */}
+        <div className="bg-moss-700 text-white rounded-lg px-6 py-5 mb-4 flex items-center justify-between gap-3 flex-wrap sticky top-0 z-10 sm:static">
           <div>
             <div className="text-[11px] font-bold uppercase tracking-wider opacity-70">
               Day of · {weddingDateLabel}

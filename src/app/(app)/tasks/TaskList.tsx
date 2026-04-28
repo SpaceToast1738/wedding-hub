@@ -37,10 +37,17 @@ export function TaskList({
   const [view, setView] = useState<View>("list");
 
   // Restore view preference. SSR renders 'list' so the markup stays stable.
+  // v1.17.0: also force list view on narrow viewports — the kanban board
+  // can't be used on touch (no drag) and the columns crush at <640px.
+  // The user's localStorage preference is preserved; if they grow the
+  // window back to desktop the next visit resumes their saved view.
   useEffect(() => {
     try {
       const saved = localStorage.getItem(VIEW_KEY);
-      if (saved === "list" || saved === "board") setView(saved);
+      if (saved === "list" || saved === "board") {
+        const isMobile = typeof window !== "undefined" && window.innerWidth < 640;
+        setView(isMobile ? "list" : saved);
+      }
     } catch {
       // ignore
     }

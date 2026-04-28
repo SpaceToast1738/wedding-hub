@@ -25,21 +25,29 @@ function ceilDays(from: Date, to: Date): number {
   return Math.max(0, Math.ceil((to.getTime() - from.getTime()) / 86_400_000));
 }
 
-// Build the secondary "breakdown" line for a given primary unit so the
-// user gets full precision regardless of the toggle:
-//   days   → "" (days is already the finest grain)
-//   weeks  → "3 days" (or "")
-//   months → "2 weeks 3 days" / "2 weeks" / "3 days" / ""
-// Returns an empty string when nothing is left over so callers can hide
-// the line cleanly.
-function buildBreakdown(unit: Unit, now: Date, target: Date): string {
-  if (unit === "days") return "";
+type BreakdownPart = { value: number; label: string };
+
+// Build the multi-segment breakdown so every part renders at the same
+// visual prominence. Always includes the primary unit's segment, then
+// stacks finer-grained leftovers as separate segments. Examples:
+//   unit=days, target in 2 days   → [{2, "days"}]
+//   unit=weeks, target in 17 days → [{2, "weeks"}, {3, "days"}]
+//   unit=months, target in 4 mo + 2 wk + 3 d → [{4, "months"}, {2, "weeks"}, {3, "days"}]
+// Zero-value finer segments are dropped (e.g. "exactly 2 weeks" → just
+// the weeks part).
+function buildBreakdown(unit: Unit, now: Date, target: Date): BreakdownPart[] {
+  if (unit === "days") {
+    const days = ceilDays(now, target);
+    return [{ value: days, label: days === 1 ? "day" : "days" }];
+  }
 
   if (unit === "weeks") {
     const totalDays = ceilDays(now, target);
+    const weeks = Math.floor(totalDays / 7);
     const days = totalDays % 7;
-    if (days === 0) return "";
-    return `${days} day${days === 1 ? "" : "s"}`;
+    const parts: BreakdownPart[] = [{ value: weeks, label: weeks === 1 ? "week" : "weeks" }];
+    if (days > 0) parts.push({ value: days, label: days === 1 ? "day" : "days" });
+    return parts;
   }
 
   // months
@@ -48,10 +56,10 @@ function buildBreakdown(unit: Unit, now: Date, target: Date): string {
   const daysAfterMonths = ceilDays(afterMonths, target);
   const weeks = Math.floor(daysAfterMonths / 7);
   const days = daysAfterMonths % 7;
-  const parts: string[] = [];
-  if (weeks > 0) parts.push(`${weeks} week${weeks === 1 ? "" : "s"}`);
-  if (days > 0) parts.push(`${days} day${days === 1 ? "" : "s"}`);
-  return parts.join(" ");
+  const parts: BreakdownPart[] = [{ value: months, label: months === 1 ? "month" : "months" }];
+  if (weeks > 0) parts.push({ value: weeks, label: weeks === 1 ? "week" : "weeks" });
+  if (days > 0) parts.push({ value: days, label: days === 1 ? "day" : "days" });
+  return parts;
 }
 
 export function CountdownCard({
@@ -85,19 +93,13 @@ export function CountdownCard({
 
   const target = new Date(targetIso);
   const now = new Date();
-  const ms = target.getTime() - now.getTime();
-  const days = Math.max(0, Math.ceil(ms / 86_400_000));
-  const weeks = Math.ceil(days / 7);
-  const months = diffMonths(target, now);
-
-  const value = unit === "days" ? days : unit === "weeks" ? weeks : months;
   const breakdown = buildBreakdown(unit, now, target);
   const targetLabel = target.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
 
   return (
     <section className="mb-6 bg-surface border border-border-soft rounded-lg p-6 flex items-center justify-between gap-6 flex-wrap shadow-sm">
-      <div className="flex-1 min-w-[200px]">
-        <div className="flex items-center justify-between gap-3 mb-1">
+      <div className="flex-1 min-w-0 sm:min-w-[200px]">
+        <div className="flex items-center justify-between gap-3 mb-2">
           <div className="text-xs text-ink-tertiary uppercase tracking-wider font-semibold">
             Until the wedding
           </div>
@@ -108,7 +110,9 @@ export function CountdownCard({
                 type="button"
                 onClick={() => setUnit(u)}
                 className={[
-                  "text-[10px] px-2 py-0.5 rounded-full font-semibold transition-colors uppercase",
+                  // Bigger tap targets on mobile (≥32px); compress on desktop
+                  // where the same row already has plenty of breathing room.
+                  "text-xs px-3 py-1 sm:text-[10px] sm:px-2 sm:py-0.5 rounded-full font-semibold transition-colors uppercase",
                   unit === u
                     ? "bg-moss-500 text-white"
                     : "text-ink-tertiary hover:text-ink-primary",
@@ -120,15 +124,22 @@ export function CountdownCard({
             ))}
           </div>
         </div>
-        <div className="font-display text-5xl font-semibold text-moss-700 leading-none">
-          {value}
+        {/* v1.17.0: render the breakdown inline as equally-prominent
+            segments. When unit=days there's just one segment; when
+            unit=weeks/months there can be 2–3, separated by a dot. */}
+        <div className="flex items-baseline gap-3 flex-wrap">
+          {breakdown.map((part, i) => (
+            <div key={part.label} className="flex items-baseline gap-2">
+              {i > 0 && <span className="text-moss-700/30 text-2xl leading-none">·</span>}
+              <span className="font-display text-5xl font-semibold text-moss-700 leading-none tabular-nums">
+                {part.value}
+              </span>
+              <span className="font-display text-base text-moss-700 capitalize">
+                {part.label}
+              </span>
+            </div>
+          ))}
         </div>
-        <div className="font-display text-base text-moss-700 mt-1 capitalize">{unit}</div>
-        {breakdown && (
-          <div className="text-xs text-ink-tertiary mt-1 tabular-nums">
-            + {breakdown}
-          </div>
-        )}
       </div>
       <div className="text-right">
         <div className="text-xs text-ink-tertiary">{targetLabel}</div>

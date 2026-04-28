@@ -54,8 +54,11 @@ export function ScheduleTable({
           <tr className="border-b border-border-soft text-[10px] font-bold text-ink-tertiary uppercase tracking-wider bg-canvas">
             <th className="px-3 py-2 text-left whitespace-nowrap">When</th>
             <th className="px-3 py-2 text-left">Event</th>
-            <th className="px-3 py-2 text-left">Where</th>
-            <th className="px-3 py-2 text-left">Audience</th>
+            {/* v1.17.0: Where + Audience hide on small screens; the
+                event cell already includes a notes line, so the screen
+                isn't useless without these — they reappear at md+. */}
+            <th className="px-3 py-2 text-left hidden md:table-cell">Where</th>
+            <th className="px-3 py-2 text-left hidden md:table-cell">Audience</th>
             {canEdit && <th className="px-3 py-2 w-24" aria-label="Actions" />}
           </tr>
         </thead>
@@ -123,16 +126,23 @@ function Row({ event, canEdit }: { event: Event; canEdit: boolean }) {
           <EventMotifIcon motif={classifyEventMotif(event.title)} />
           <span>{event.title}</span>
         </div>
+        {/* v1.17.0: location echoes here on mobile only (the dedicated
+            Where column hides at <md). Hidden at md+ to avoid duplication. */}
+        {event.location && (
+          <div className="text-[11px] text-ink-tertiary mt-0.5 md:hidden">
+            📍 {event.location}
+          </div>
+        )}
         {event.notes && (
           <p className="text-[11px] text-ink-secondary mt-1 whitespace-pre-wrap">
             {event.notes}
           </p>
         )}
       </td>
-      <td className="px-3 py-2.5 text-xs text-ink-tertiary">
+      <td className="px-3 py-2.5 text-xs text-ink-tertiary hidden md:table-cell">
         {event.location ?? "—"}
       </td>
-      <td className="px-3 py-2.5">
+      <td className="px-3 py-2.5 hidden md:table-cell">
         {event.audience.length === 0 ? (
           <span className="text-xs text-ink-tertiary">—</span>
         ) : (
@@ -150,7 +160,8 @@ function Row({ event, canEdit }: { event: Event; canEdit: boolean }) {
       </td>
       {canEdit && (
         <td className="px-3 py-2.5">
-          <div className="flex gap-1 justify-end opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+          {/* v1.17.0: always visible on touch; hover-fade reserved for desktop. */}
+          <div className="flex gap-1 justify-end opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 transition-opacity">
             <Button variant="ghost" size="sm" onClick={() => setEditing(true)} disabled={pending}>
               Edit
             </Button>

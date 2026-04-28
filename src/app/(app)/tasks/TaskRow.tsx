@@ -149,7 +149,10 @@ export function TaskRow({
         <span className="text-xs text-ink-tertiary w-20 text-right">{formatRelativeDue(task.dueDate)}</span>
       </div>
       {canEdit && (
-        <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+        // v1.17.0: hover-only fade on desktop (clean at-rest UI) but
+        // always visible on touch (no hover state on mobile, so the
+        // edit/delete actions were effectively invisible).
+        <div className="flex gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity flex-shrink-0">
           <Button variant="ghost" size="sm" onClick={() => setEditing(true)} disabled={pending}>Edit</Button>
           <Button variant="ghost" size="sm" onClick={onDelete} disabled={pending}>Delete</Button>
         </div>

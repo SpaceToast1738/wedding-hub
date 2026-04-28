@@ -11,7 +11,7 @@
 - **Repo:** [SpaceToast1738/wedding-hub](https://github.com/SpaceToast1738/wedding-hub) · `claude/main` (releases) + `dev` (work-in-progress)
 - **Stack:** Next.js 15 · TypeScript · Tailwind v4 · Prisma · Postgres 16 · Auth.js v5 · Caddy · Docker Compose
 - **Working tree:** `C:\Users\Admin\Code\wedding-hub` (local SSD). The old `\\TOWER\Jamie Spencer\Claude\wedding-hub` mirror is no longer in use — run `Remove-Item -Recurse -Force "\\TOWER\Jamie Spencer\Claude\wedding-hub"` from a fresh PowerShell to delete it.
-- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` at **v1.15.0**, promoted 28 Apr 2026). `dev` is at **v1.16.0** — first user-driven feature release after the post-audit programme. Adds a CSV task importer (mirrors the v0.8.0 guest importer pattern) and guest-name labels next to occupied seat dots on the seating canvas. **Post-audit programme paused: R6 (backup hardening) deferred to a scheduled agent run on 26 Aug 2026 — to be done with realistic production data, 4 weeks before the wedding.** 186 unit tests.
+- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` at **v1.15.0**, promoted 28 Apr 2026). `dev` is ahead at **v1.17.0** with two pending releases: v1.16.0 (task CSV importer + seating canvas guest names) and v1.17.0 (countdown breakdown redesign, focused mobile-usability pass, guest list filtering + sorting + saved-default preference). **Post-audit programme paused: R6 deferred to a scheduled agent run on 26 Aug 2026 with realistic production data, 4 weeks before the wedding.** 186 unit tests.
 
 ## Phase status
 
@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.16.0** | 2026-04-28 | [Task CSV importer + guest names on the seating canvas](#2026-04-28--v1160--task-csv-importer--guest-names-on-the-seating-canvas) |
+| **v1.17.0** | 2026-04-28 | [Countdown breakdown · mobile pass · guest list filter/sort](#2026-04-28--v1170--countdown-breakdown--mobile-pass--guest-list-filtersort) |
+| v1.16.0 | 2026-04-28 | [Task CSV importer + guest names on the seating canvas](#2026-04-28--v1160--task-csv-importer--guest-names-on-the-seating-canvas) |
 | v1.15.0 | 2026-04-28 | [Phase R5b: illustrations ported + Custom Fields UI (C6 + C10)](#2026-04-28--v1150--phase-r5b-illustrations-ported--custom-fields-ui-c6--c10) |
 | v1.14.0 | 2026-04-28 | [Phase R5a: Bucket C drift decisions (C1 + C4 + C7 + C11)](#2026-04-28--v1140--phase-r5a-bucket-c-drift-decisions-c1--c4--c7--c11) |
 | v1.13.0 | 2026-04-28 | [Phase R4c: polish MINORs (B6 + B7 + B9) — Bucket B complete](#2026-04-28--v1130--phase-r4c-polish-minors-b6--b7--b9--bucket-b-complete) |
@@ -252,6 +253,26 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-28 · v1.17.0 — Countdown breakdown · mobile pass · guest list filter/sort
+
+Three user-asked items bundled.
+
+**Countdown card breakdown redesign.** Pre-v1.17.0, the countdown showed a giant primary number (e.g. "4") + small "+ 2 weeks 3 days" leftover line — visually inconsistent: the "4" dominated and the "1 day" got buried at text-xs. Now renders as inline equally-prominent segments — `4 months · 2 weeks · 3 days` with each number at the same large font and a muted dot separator. Single-unit cases (just days) collapse to one segment naturally. Same toggle (M / W / D) controls the most-prominent unit; finer-grained leftovers always render at the same prominence. The toggle buttons themselves got bigger tap targets on mobile (text-xs px-3 py-1) while keeping the compact desktop look (sm:text-[10px] sm:px-2 sm:py-0.5).
+
+**Mobile usability pass.** A focused audit of the codebase found 20 issues across three tiers; this release picks the highest-leverage Tier 1 + Tier 2 fixes:
+- [CountdownCard](src/app/(app)/CountdownCard.tsx) min-width unblocks shrink to <320px (was `min-w-[200px]`, now `min-w-0 sm:min-w-[200px]`).
+- [ScheduleTable](src/app/(app)/schedule/ScheduleTable.tsx) hides the Where + Audience columns at `<md` and echoes location into the Event cell with a 📍 prefix, so mobile users still see the venue without a horizontal-scroll dance.
+- [TaskRow](src/app/(app)/tasks/TaskRow.tsx) and ScheduleTable's edit/delete actions used `opacity-0 group-hover:opacity-100` — invisible on touch. Now visible by default, hover-fade reserved for desktop (`sm:opacity-0 sm:group-hover:opacity-100`).
+- [QuickCapture](src/components/shell/QuickCapture.tsx) modal pulled in to `pt-6` on mobile (was `pt-20` everywhere — pushed input below iPhone SE viewport).
+- [TaskList](src/app/(app)/tasks/TaskList.tsx) auto-switches to list view on first load when window width <640px. The kanban board can't be used on touch (no drag), and columns crush at narrow widths.
+- [today/day-of](src/app/(app)/today/day-of/page.tsx) hero band is `sticky top-0` on mobile so the venue + date stay visible while scrolling. Desktop keeps the static layout (plenty of room).
+
+The remaining audit findings (PermissionMatrix mobile rework, generic Button size bumps, TaskBoard column headers) are tracked but not blocking — the surfaces above cover the day-of mobile use case (wedding-party members on-site).
+
+**Guest list filtering, sorting, default preference.** [GuestList](src/app/(app)/guests/GuestList.tsx) gains four dropdowns under the search bar: Sort (5 options — household name asc/desc, side, size desc/asc), RSVP filter (5 — all + 4 statuses), Side filter (4), Show filter (3 — all / has-children / has-dietary). All filter logic runs client-side against the SSR payload, so changes are instant. Two localStorage slots: `wh_guests_view_current` (last-used, restored every visit) and `wh_guests_view_default` (explicit user-pinned default). UI exposes "Save as default" when the current state diverges from the saved default, "✓ default" when they match, and a "Reset to default" / "Reset" link when the current state isn't empty. The household-passes-filter rule is "any guest matches" — hiding a household because half its members declined would lose the host.
+
+**Files changed:** 7 modified, 0 new. No schema changes. 186 unit tests still passing; e2e green; build clean.
 
 ### 2026-04-28 · v1.16.0 — Task CSV importer + guest names on the seating canvas
 
