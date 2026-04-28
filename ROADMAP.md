@@ -11,7 +11,7 @@
 - **Repo:** [SpaceToast1738/wedding-hub](https://github.com/SpaceToast1738/wedding-hub) · `claude/main` (releases) + `dev` (work-in-progress)
 - **Stack:** Next.js 15 · TypeScript · Tailwind v4 · Prisma · Postgres 16 · Auth.js v5 · Caddy · Docker Compose
 - **Working tree:** `C:\Users\Admin\Code\wedding-hub` (local SSD). The old `\\TOWER\Jamie Spencer\Claude\wedding-hub` mirror is no longer in use — run `Remove-Item -Recurse -Force "\\TOWER\Jamie Spencer\Claude\wedding-hub"` from a fresh PowerShell to delete it.
-- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` at **v1.2.4**). v1.3.0 (this iteration on `dev`) ships **Phase R2** — magic-link rate limit (5/hour/email; A3) and archived-guest restore (soft-delete + Show archived view + couple-only Delete forever; A4). Adds an additive `MagicLinkAttempt` migration; 9 new unit tests; no env changes.
+- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` at **v1.3.0**, promoted 28 Apr 2026 after GHA went green at the same SHA — first promote following the green-CI-first rule). Phase R2 shipped: magic-link rate limit (5/hour/email) and archived-guest restore (soft-delete + Show archived view + couple-only Delete forever). Adds an additive `MagicLinkAttempt` migration; 69 unit tests; no env changes. Phase R3 (test depth — Playwright e2e + permission integration tests + TESTING.md + CI wiring) is the next remediation step.
 
 ## Phase status
 
@@ -34,8 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| _(unreleased on `dev`)_ | 2026-04-28 | [v1.3.0 — Phase R2: magic-link rate limit + archived-guest restore](#2026-04-28--v130--phase-r2-magic-link-rate-limit--archived-guest-restore) |
-| **v1.2.4** | 2026-04-28 | [Dockerfile copies `.npmrc` — first version of the v1.2.x line that built green in CI](#2026-04-28--v124--dockerfile-copies-npmrc-so-the-legacy-peer-deps-actually-applies-in-ci) |
+| **v1.3.0** | 2026-04-28 | [Phase R2: magic-link rate limit + archived-guest restore](#2026-04-28--v130--phase-r2-magic-link-rate-limit--archived-guest-restore) |
+| v1.2.4 | 2026-04-28 | [Dockerfile copies `.npmrc` — first version of the v1.2.x line that built green in CI](#2026-04-28--v124--dockerfile-copies-npmrc-so-the-legacy-peer-deps-actually-applies-in-ci) |
 | _(no tag)_ | 2026-04-28 | v1.2.1 / v1.2.2 / v1.2.3 — three failed CI fix attempts; not tagged on principle (only green-CI SHAs get tags). Documented in the changelog for traceability. |
 | **v1.2.0** | 2026-04-28 | [Phase R1: trust restoration (audit fixes + Vitest)](#2026-04-28--v120--phase-r1-trust-restoration-audit-fixes--vitest) |
 | v1.1.0 | 2026-04-27 | [At a Glance dashboard](#2026-04-27--v110--at-a-glance-dashboard) |
@@ -234,7 +234,7 @@ When wrapping up a meaningful iteration:
 
 ### Current version
 
-`1.3.0` on `dev`, `claude/main` at `v1.2.4`. R2 fixes shipped (rate limit + archived-guest restore). Holding promote until GHA confirms green at `v1.3.0`'s SHA.
+`1.3.0` on both `dev` and `claude/main` (promoted 28 Apr 2026 after GHA green). Production catches up after the GHCR image rebuilds and Unraid runs `docker compose pull && up -d` — the additive `MagicLinkAttempt` migration applies on boot.
 
 ## Changelog
 
