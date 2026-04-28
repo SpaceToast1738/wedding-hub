@@ -5,6 +5,7 @@ import type { TableShape } from "@prisma/client";
 import { Button } from "@/components/ui/Button";
 import { notify } from "@/lib/notify";
 import { assignGuestToSeat, deleteTable, updateTablePosition } from "./actions";
+import type { AllGuest } from "./SeatingClient";
 
 type Seat = {
   id: string;
@@ -57,10 +58,12 @@ function FillForShape(shape: TableShape): string {
 export function SeatingCanvas({
   tables: initialTables,
   unseatedGuests,
+  allGuests,
   canEdit,
 }: {
   tables: Table[];
   unseatedGuests: GuestOpt[];
+  allGuests: AllGuest[];
   canEdit: boolean;
 }) {
   const svgRef = useRef<SVGSVGElement>(null);
@@ -81,6 +84,42 @@ export function SeatingCanvas({
   //   L = 1.8  (chunky; dot 6.3px, font 16.2px)
   // Persisted to localStorage so the user's pick survives navigation.
   const [labelScale, setLabelScale] = useState<number>(1.4);
+
+  // v1.20.6: HTML5 drag-and-drop wiring for seat assignment.
+  // - Panel rows: `draggable`, `onDragStart` sets dataTransfer + state
+  // - Seat groups: wider transparent drop-zone circle that listens for
+  //   `onDragOver` (preventDefault to allow drop) + `onDrop`
+  // - Panel itself: `onDrop` unseats (assignGuestToSeat(currentSeatId, null))
+  // The action's transaction (B12, v1.12.0) handles the multi-guest
+  // race + unique-constraint case atomically.
+  const [draggingGuestId, setDraggingGuestId] = useState<string | null>(null);
+  const [dragOverSeatId, setDragOverSeatId] = useState<string | null>(null);
+
+  function dropOnSeat(seatId: string, guestId: string) {
+    startTransitionDrop(async () => {
+      try {
+        await assignGuestToSeat(seatId, guestId);
+      } catch (err) {
+        notify("error", err instanceof Error ? err.message : "Couldn't assign seat");
+      }
+    });
+  }
+
+  function dropOnPanel(guestId: string) {
+    // Look up the guest's current seat; only call the action if there
+    // is one (otherwise it's a no-op drag from panel → panel).
+    const g = allGuests.find((x) => x.id === guestId);
+    if (!g?.currentSeatId) return;
+    startTransitionDrop(async () => {
+      try {
+        await assignGuestToSeat(g.currentSeatId!, null);
+      } catch (err) {
+        notify("error", err instanceof Error ? err.message : "Couldn't unseat");
+      }
+    });
+  }
+
+  const [, startTransitionDrop] = useTransition();
   useEffect(() => {
     try {
       const saved = localStorage.getItem("wh_seating_label_scale");
@@ -307,15 +346,60 @@ export function SeatingCanvas({
                   const label = firstName.length > 10
                     ? `${firstName.slice(0, 9)}…`
                     : firstName;
+                  const isDragOver = dragOverSeatId === seat.id;
                   return (
                     <g key={seat.id}>
+                      {/* v1.20.6: invisible wider drop-zone behind the
+                          visible dot — only rendered while a guest is
+                          being dragged, so normal pointer events pass
+                          through to the table-drag handler. */}
+                      {canEdit && draggingGuestId && (
+                        <circle
+                          cx={cx}
+                          cy={cy}
+                          r={Math.max(14, 8 * labelScale)}
+                          fill="transparent"
+                          onDragEnter={(e) => {
+                            e.preventDefault();
+                            setDragOverSeatId(seat.id);
+                          }}
+                          onDragOver={(e) => {
+                            e.preventDefault();
+                            e.dataTransfer.dropEffect = "move";
+                          }}
+                          onDragLeave={() => {
+                            setDragOverSeatId((prev) => (prev === seat.id ? null : prev));
+                          }}
+                          onDrop={(e) => {
+                            e.preventDefault();
+                            const guestId =
+                              e.dataTransfer.getData("guestId") || draggingGuestId;
+                            if (guestId) dropOnSeat(seat.id, guestId);
+                            setDraggingGuestId(null);
+                            setDragOverSeatId(null);
+                          }}
+                          style={{ cursor: "copy" }}
+                        />
+                      )}
                       <circle
                         cx={cx}
                         cy={cy}
                         r={3.5 * labelScale}
-                        fill={occupied ? "var(--color-moss-500)" : "var(--color-canvas)"}
-                        stroke={occupied ? "var(--color-moss-700)" : "var(--color-border-strong)"}
-                        strokeWidth={1}
+                        fill={
+                          isDragOver
+                            ? "var(--color-marigold-500)"
+                            : occupied
+                              ? "var(--color-moss-500)"
+                              : "var(--color-canvas)"
+                        }
+                        stroke={
+                          isDragOver
+                            ? "var(--color-marigold-700)"
+                            : occupied
+                              ? "var(--color-moss-700)"
+                              : "var(--color-border-strong)"
+                        }
+                        strokeWidth={isDragOver ? 2 : 1}
                         pointerEvents="none"
                       />
                       {occupied && (
@@ -409,7 +493,21 @@ export function SeatingCanvas({
             </div>
           </div>
         )}
-        <UnseatedPanel guests={unseatedGuests} />
+        <AllGuestsPanel
+          guests={allGuests}
+          canEdit={canEdit}
+          draggingGuestId={draggingGuestId}
+          onDragStart={(id) => setDraggingGuestId(id)}
+          onDragEnd={() => {
+            setDraggingGuestId(null);
+            setDragOverSeatId(null);
+          }}
+          onDropToUnseat={(id) => {
+            dropOnPanel(id);
+            setDraggingGuestId(null);
+            setDragOverSeatId(null);
+          }}
+        />
       </aside>
     </div>
   );
@@ -513,33 +611,182 @@ function FocusPanel({
   );
 }
 
-function UnseatedPanel({ guests }: { guests: GuestOpt[] }) {
-  if (guests.length === 0) {
-    return (
-      <div className="bg-moss-50/40 border border-moss-100 text-moss-700 rounded-md p-3 text-xs text-center">
-        ✓ Everyone attending has a seat.
-      </div>
-    );
-  }
+// v1.20.6: replaces the pre-v1.20.6 UnseatedPanel. Shows ALL non-archived
+// guests with their RSVP state at a glance + currently-seated table
+// label. Each row is draggable (when canEdit); the panel itself is a
+// drop target for unseating. Declined guests are hidden by default —
+// they don't get seats, but the toggle exists so the user can scan
+// for "did anyone I know declined?" if needed.
+function AllGuestsPanel({
+  guests,
+  canEdit,
+  draggingGuestId,
+  onDragStart,
+  onDragEnd,
+  onDropToUnseat,
+}: {
+  guests: AllGuest[];
+  canEdit: boolean;
+  draggingGuestId: string | null;
+  onDragStart: (guestId: string) => void;
+  onDragEnd: () => void;
+  onDropToUnseat: (guestId: string) => void;
+}) {
+  const [showDeclined, setShowDeclined] = useState(false);
+  const [showAll, setShowAll] = useState(false);
+
+  const visible = guests.filter((g) => showDeclined || g.rsvp !== "DECLINED");
+  // Order: attending unseated first (most actionable) → attending seated
+  // → pending → maybe → declined.
+  const ordered = [...visible].sort((a, b) => {
+    const rank = (g: AllGuest) =>
+      g.rsvp === "ATTENDING" && !g.currentSeatId
+        ? 0
+        : g.rsvp === "ATTENDING"
+          ? 1
+          : g.rsvp === "PENDING"
+            ? 2
+            : g.rsvp === "MAYBE"
+              ? 3
+              : 4;
+    const r = rank(a) - rank(b);
+    if (r !== 0) return r;
+    return a.firstName.localeCompare(b.firstName);
+  });
+  const visibleSlice = showAll ? ordered : ordered.slice(0, 18);
+
+  const counts = guests.reduce(
+    (acc, g) => {
+      acc[g.rsvp] = (acc[g.rsvp] ?? 0) + 1;
+      return acc;
+    },
+    {} as Record<string, number>,
+  );
+
   return (
-    <section className="bg-surface border border-border-soft rounded-md p-3 shadow-sm">
-      <header className="flex items-baseline justify-between mb-2">
+    <section
+      className="bg-surface border border-border-soft rounded-md p-3 shadow-sm"
+      onDragOver={
+        canEdit && draggingGuestId
+          ? (e) => {
+              e.preventDefault();
+              e.dataTransfer.dropEffect = "move";
+            }
+          : undefined
+      }
+      onDrop={
+        canEdit && draggingGuestId
+          ? (e) => {
+              e.preventDefault();
+              const guestId = e.dataTransfer.getData("guestId") || draggingGuestId;
+              if (guestId) onDropToUnseat(guestId);
+            }
+          : undefined
+      }
+    >
+      <header className="flex items-baseline justify-between mb-2 gap-2">
         <strong className="text-[11px] uppercase tracking-wider text-ink-tertiary font-bold">
-          Unseated
+          Guests
         </strong>
-        <span className="text-[11px] text-ink-tertiary">{guests.length}</span>
+        <span className="text-[11px] text-ink-tertiary tabular-nums">
+          {counts.ATTENDING ?? 0} ✓ · {counts.PENDING ?? 0} ?
+          {(counts.DECLINED ?? 0) > 0 && (
+            <>
+              {" "}
+              · <button
+                type="button"
+                onClick={() => setShowDeclined((v) => !v)}
+                className="underline hover:text-ink-primary"
+              >
+                {counts.DECLINED} ✗ {showDeclined ? "hide" : "show"}
+              </button>
+            </>
+          )}
+        </span>
       </header>
-      <ul className="flex flex-wrap gap-1.5">
-        {guests.map((g) => (
-          <li
+      {canEdit && (
+        <p className="text-[10px] text-ink-tertiary mb-2 italic">
+          Drag a guest onto a seat to assign · drag back here to unseat.
+        </p>
+      )}
+      <ul className="flex flex-col gap-1">
+        {visibleSlice.map((g) => (
+          <GuestRow
             key={g.id}
-            className="text-xs text-ink-secondary bg-canvas border border-border-soft rounded-md px-2 py-0.5"
-          >
-            {g.firstName} {g.lastName}
-          </li>
+            guest={g}
+            canEdit={canEdit}
+            isDragging={draggingGuestId === g.id}
+            onDragStart={() => onDragStart(g.id)}
+            onDragEnd={onDragEnd}
+          />
         ))}
       </ul>
+      {ordered.length > 18 && (
+        <button
+          type="button"
+          onClick={() => setShowAll((v) => !v)}
+          className="mt-2 text-[11px] text-info hover:underline"
+        >
+          {showAll ? `Show first 18` : `Show all ${ordered.length}`}
+        </button>
+      )}
     </section>
+  );
+}
+
+function GuestRow({
+  guest,
+  canEdit,
+  isDragging,
+  onDragStart,
+  onDragEnd,
+}: {
+  guest: AllGuest;
+  canEdit: boolean;
+  isDragging: boolean;
+  onDragStart: () => void;
+  onDragEnd: () => void;
+}) {
+  const tagClass =
+    guest.rsvp === "ATTENDING"
+      ? "text-moss-700 bg-moss-50 border-moss-100"
+      : guest.rsvp === "PENDING"
+        ? "text-marigold-700 bg-marigold-100 border-marigold-700/20"
+        : guest.rsvp === "MAYBE"
+          ? "text-info bg-[color:#eef4f5] dark:bg-muted border-[color:#d0e4e8] dark:border-border-soft"
+          : "text-ink-tertiary bg-canvas border-border-soft";
+  const tagLabel =
+    guest.rsvp === "ATTENDING" ? "✓"
+    : guest.rsvp === "PENDING" ? "?"
+    : guest.rsvp === "MAYBE" ? "~"
+    : "✗";
+  return (
+    <li
+      draggable={canEdit}
+      onDragStart={(e) => {
+        e.dataTransfer.setData("guestId", guest.id);
+        e.dataTransfer.effectAllowed = "move";
+        onDragStart();
+      }}
+      onDragEnd={onDragEnd}
+      className={[
+        "flex items-center gap-2 px-2 py-1 rounded-sm border text-xs",
+        canEdit ? "cursor-grab active:cursor-grabbing" : "cursor-default",
+        isDragging ? "opacity-40 border-moss-300" : "border-transparent hover:border-border-soft hover:bg-canvas/50",
+      ].join(" ")}
+    >
+      <span className={["text-[10px] font-bold px-1 rounded border flex-shrink-0", tagClass].join(" ")}>
+        {tagLabel}
+      </span>
+      <span className="text-ink-primary flex-1 truncate">
+        {guest.firstName} {guest.lastName}
+      </span>
+      {guest.currentTableName && (
+        <span className="text-[10px] text-ink-tertiary flex-shrink-0">
+          {guest.currentTableName}
+        </span>
+      )}
+    </li>
   );
 }
 

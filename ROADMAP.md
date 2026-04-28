@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.20.5** | 2026-04-28 | [Seating canvas: bigger labels + S/M/L size selector](#2026-04-28--v1205--seating-canvas-bigger-labels--sml-size-selector) |
+| **v1.20.6** | 2026-04-28 | [Seating: drag-all-guests + RSVP tag in panel](#2026-04-28--v1206--seating-drag-all-guests--rsvp-tag-in-panel) |
+| v1.20.5 | 2026-04-28 | [Seating canvas: bigger labels + S/M/L size selector](#2026-04-28--v1205--seating-canvas-bigger-labels--sml-size-selector) |
 | v1.20.0 | 2026-04-28 | [Wedding details DB-backed (Settings UI + 10 ref replacements)](#2026-04-28--v1200--wedding-details-db-backed) |
 | v1.19.6 | 2026-04-28 | [README rewrite: standing rules, current test pyramid, fix stale phase-status](#2026-04-28--v1196--readme-rewrite) |
 | v1.19.5 | 2026-04-28 | [Email deliverability: Reply-To + List-Unsubscribe + DNS docs](#2026-04-28--v1195--email-deliverability-reply-to--list-unsubscribe--dns-docs) |
@@ -303,6 +304,25 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-28 · v1.20.6 — Seating: drag-all-guests + RSVP tag in panel
+
+v0.6.0 shipped click-to-assign drag from the unseated panel onto a seat. Pre-v1.20.6 the side panel only showed *attending unseated* guests, and there was no way to drag a seated guest to a different seat (you had to click the seat → "unassign" → click another seat → assign). This release extends drag in both directions and surfaces RSVP state at a glance.
+
+**All-guests panel.** Replaces the legacy `UnseatedPanel` (~25 lines) with a richer `AllGuestsPanel`. Now shows every non-archived guest, ordered by usefulness for seating: attending-unseated first (most actionable), then attending-seated, then pending, then maybe, then declined. Each row carries an RSVP tag (`✓` moss for ATTENDING, `?` marigold for PENDING, `~` info for MAYBE, `✗` muted for DECLINED) and a small "currently at X" subscript when the guest is seated.
+
+**Show declined toggle.** Declined guests hidden by default since they don't get seats; the count is shown next to the header with a "show / hide" link if the user wants to scan the full list. "Show all N" link expands the list past the first 18 visible rows so a 50-guest wedding doesn't crowd the side rail.
+
+**Drag wiring.** HTML5 drag-and-drop, since SVG `<g>` and `<circle>` elements both fire `onDragStart` / `onDragOver` / `onDrop` in modern browsers. Pattern:
+- **Panel rows** are `draggable={canEdit}`. `onDragStart` writes the guest id into `dataTransfer` and pushes it to component state for visual feedback (the dragged row goes 40% opacity).
+- **Seat dots** stay visual-only (`pointerEvents="none"`) so the table-drag pointer events still work. While a guest is being dragged, the canvas renders a wider transparent drop-zone circle behind each seat (radius `Math.max(14, 8*labelScale)` — forgiving target). The drop zone has `onDragOver` (preventDefault, required for `onDrop` to fire), `onDragEnter`/`onDragLeave` (track which seat the user is hovering — the dot turns marigold when valid drop), and `onDrop` (calls `assignGuestToSeat(seatId, guestId)`).
+- **Panel itself** is also a drop target. Dropping a guest there calls `assignGuestToSeat(currentSeatId, null)` — unseat. No-op if the guest wasn't seated.
+
+**Action reuse.** The action's transaction (B12, v1.12.0) already handles the "two simultaneous drops on the same seat" case atomically via the `Guest.tableSeatId @unique` constraint. No action change needed; just new UI hooked up to the same entry point. Errors surface via the v1.12.0 toast bus instead of crashing.
+
+**HEAD-shaped tables** unchanged — no radial seat layout; legacy `<select>` dropdown in the FocusPanel still handles those.
+
+**Files changed:** 3 (page.tsx query, SeatingClient.tsx props, SeatingCanvas.tsx panel + drop wiring). No schema; no new tests (UI-only behaviour layered on the existing B12 transaction integration test).
 
 ### 2026-04-28 · v1.20.5 — Seating canvas: bigger labels + S/M/L size selector
 

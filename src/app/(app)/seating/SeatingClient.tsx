@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { TableShape } from "@prisma/client";
 import { EmptySeating, EmptyState } from "@/components/ui/Illustrations";
 import { SeatingCanvas } from "./SeatingCanvas";
@@ -23,6 +23,18 @@ type Table = {
   seats: Seat[];
 };
 
+// v1.20.6: panel now shows ALL non-archived guests with RSVP tag, not
+// just unseated attending. The legacy `GuestOpt` shape (id+firstName+
+// lastName) is still accepted by sub-components that don't need RSVP.
+export type AllGuest = {
+  id: string;
+  firstName: string;
+  lastName: string;
+  rsvp: "PENDING" | "ATTENDING" | "DECLINED" | "MAYBE";
+  currentSeatId: string | null;
+  currentTableName: string | null;
+};
+
 type GuestOpt = { id: string; firstName: string; lastName: string };
 
 type View = "canvas" | "list";
@@ -31,13 +43,23 @@ const VIEW_STORAGE_KEY = "wh-seating-view";
 
 export function SeatingClient({
   tables,
-  unseatedGuests,
+  allGuests,
   canEdit,
 }: {
   tables: Table[];
-  unseatedGuests: GuestOpt[];
+  allGuests: AllGuest[];
   canEdit: boolean;
 }) {
+  // Sub-components that only need {id, firstName, lastName} (the seat
+  // picker dropdown for the FocusPanel) get a slimmed-down list of
+  // unseated attending guests — same semantics as pre-v1.20.6.
+  const unseatedGuests = useMemo<GuestOpt[]>(
+    () =>
+      allGuests
+        .filter((g) => g.rsvp === "ATTENDING" && !g.currentSeatId)
+        .map((g) => ({ id: g.id, firstName: g.firstName, lastName: g.lastName })),
+    [allGuests],
+  );
   const [view, setView] = useState<View>("canvas");
   const [hydrated, setHydrated] = useState(false);
 
@@ -66,6 +88,7 @@ export function SeatingClient({
         <SeatingCanvas
           tables={tables}
           unseatedGuests={unseatedGuests}
+          allGuests={allGuests}
           canEdit={canEdit}
         />
       ) : (
