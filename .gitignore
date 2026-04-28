@@ -38,6 +38,11 @@ next-env.d.ts
 # tsbuildinfo
 *.tsbuildinfo
 
+# Playwright artifacts (HTML report + test failure screenshots/videos)
+/playwright-report
+/test-results
+/playwright/.cache
+
 # transpiled seed (produced inside the Docker builder stage)
 /prisma-build
 

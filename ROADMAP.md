@@ -11,7 +11,7 @@
 - **Repo:** [SpaceToast1738/wedding-hub](https://github.com/SpaceToast1738/wedding-hub) · `claude/main` (releases) + `dev` (work-in-progress)
 - **Stack:** Next.js 15 · TypeScript · Tailwind v4 · Prisma · Postgres 16 · Auth.js v5 · Caddy · Docker Compose
 - **Working tree:** `C:\Users\Admin\Code\wedding-hub` (local SSD). The old `\\TOWER\Jamie Spencer\Claude\wedding-hub` mirror is no longer in use — run `Remove-Item -Recurse -Force "\\TOWER\Jamie Spencer\Claude\wedding-hub"` from a fresh PowerShell to delete it.
-- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` at **v1.9.0**, promoted 28 Apr 2026 after GHA green). Wedding Book aligned with prototype's 7 canonical sections (10 cards total — 7 prototype + 3 legacy). Plus a latent Spotify-env-var compose-forwarding bug from v0.14.0 fixed. Production confirmed working post-deploy.
+- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` at **v1.9.0**, promoted 28 Apr 2026 after GHA green). `dev` is at **v1.10.0** awaiting CI green: Phase R3 follow-on adds a Postgres-backed integration job and a Playwright e2e job to the GHA workflow, with anonymous-redirect specs as the first regression net for the middleware permissions matrix.
 
 ## Phase status
 
@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.9.0** | 2026-04-28 | [Book sections aligned with prototype + Spotify env-var compose fix](#2026-04-28--v190--book-sections-aligned-with-prototype--spotify-env-var-compose-fix) |
+| **v1.10.0** | 2026-04-28 | [Phase R3 follow-on: Postgres-backed integration job + Playwright e2e in CI](#2026-04-28--v1100--phase-r3-follow-on-postgres-integration-job--playwright-e2e-in-ci) |
+| v1.9.0 | 2026-04-28 | [Book sections aligned with prototype + Spotify env-var compose fix](#2026-04-28--v190--book-sections-aligned-with-prototype--spotify-env-var-compose-fix) |
 | v1.8.0 | 2026-04-28 | [Spotify integration setup guide + status chip on Songs](#2026-04-28--v180--spotify-integration-setup-guide--status-chip) |
 | v1.7.0 | 2026-04-28 | [Tier 3 / A: +1s materialise as own Guest rows](#2026-04-28--v170--tier-3-1s-as-own-guest-rows) |
 | v1.6.0 | 2026-04-28 | [Tier 2 user-feedback polish: Schedule table view + Wedding Book hub redesign](#2026-04-28--v160--tier-2-user-feedback-polish) |
@@ -245,6 +246,26 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-28 · v1.10.0 — Phase R3 follow-on: Postgres integration job + Playwright e2e in CI
+
+Closes the two open items from the original R3 scope (`T2` integration tests against a real DB and `T3` Playwright e2e). v1.4.0 wired Vitest + a TESTING.md plan; v1.10.0 actually runs both new tiers on every PR.
+
+**`integration` job** — a new GHA job in [.github/workflows/build.yml](.github/workflows/build.yml) that boots `postgres:16-alpine` as a service container, runs `prisma migrate deploy`, and executes `npm run test:integration` against a real database. Catches regressions that unit tests with mocked `loadPermissions` can't see — e.g. cascade behaviour on the `Guest.parentGuestId` self-relation, or a Prisma schema field that compiles fine but doesn't actually exist after migrate. Postgres health-check ensures the container is ready before tests run; runs in parallel with `verify` (typecheck + lint + unit) so total CI wall-clock doesn't grow much.
+
+**`e2e` job** — a Playwright job needing both `verify` and `integration` (no point in running browsers if static checks failed). Caches `~/.cache/ms-playwright` keyed on the `@playwright/test` version, so subsequent runs reuse the Chromium binary instead of re-downloading ~150 MB. The `webServer` block in [playwright.config.ts](playwright.config.ts) auto-starts `npm run dev` (or `start` in CI) and waits for `/api/health` before tests fire. On failure the HTML report is uploaded as an artifact (retention 7 days) so a failed PR check links straight to the trace viewer.
+
+**First specs in [e2e/auth-redirect.spec.ts](e2e/auth-redirect.spec.ts)** — five anonymous-flow tests covering the audit's permissions matrix at the routing layer. `/` bounces to `/signin`; `/guests` bounces to `/signin?callbackUrl=...` with the original target preserved; `/budget` bounces to `/signin` (auth gate fires before the couple-only gate); `/api/health` is publicly reachable; `/signin` renders without authentication. These are the regression net for `src/middleware.ts` — couple-only redirects from `/budget` and per-section `canView` gates remain at the unit + integration tier, where they're cheaper to assert.
+
+**`build` job depends on `[verify, integration, e2e]`** — Docker images are not built (and definitely not tagged) unless every test tier is green. Combined with the standing rule from v1.2.x ("never tag a build until GHA goes green on the same SHA"), this means a release tag is now a hard guarantee that unit + integration + e2e all passed against the SHA that produced the image.
+
+**Files:**
+- New: [.github/workflows/build.yml](.github/workflows/build.yml) (`integration` + `e2e` jobs added; `build` rewired)
+- New: [playwright.config.ts](playwright.config.ts), [e2e/auth-redirect.spec.ts](e2e/auth-redirect.spec.ts)
+- Modified: [package.json](package.json) (`@playwright/test` devDep, `test:e2e` + `test:e2e:ui` scripts, version bump)
+- Modified: [.gitignore](.gitignore) (`/playwright-report`, `/test-results`, `/playwright/.cache`)
+
+**Out of scope, deferred to a later phase:** Playwright specs covering authenticated flows (would require seeding a session in CI — adds friction; punted until R4 or later when a richer fixture story is needed). Per-row visibility integration tests (B-tier polish; not blocked by R3).
 
 ### 2026-04-28 · v1.9.0 — Book sections aligned with prototype + Spotify env-var compose fix
 

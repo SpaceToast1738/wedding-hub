@@ -2,8 +2,9 @@ name: Test, build, and publish image
 
 # Single workflow for two reasons:
 # 1) Tests should gate the image build — a green image of broken code
-#    helps no one. The `verify` job runs first; `build` only runs after
-#    it passes.
+#    helps no one. `verify` and `integration` run first in parallel;
+#    `e2e` follows once they pass; `build` only runs after every test
+#    job goes green.
 # 2) GHA's free runner minutes are bounded; one workflow is cheaper
 #    than two split jobs that share cache.
 #
@@ -24,7 +25,7 @@ env:
 
 jobs:
   verify:
-    name: Typecheck, lint, test
+    name: Typecheck, lint, unit tests
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -55,9 +56,128 @@ jobs:
       - name: Unit tests
         run: npm test
 
+  integration:
+    name: Integration tests (Postgres)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: wedding
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: wedding_hub_test
+        ports:
+          - 5432:5432
+        # Wait for the DB to be ready before steps run. Mirrors the
+        # production stack's healthcheck pattern (see docker-compose.yml).
+        options: >-
+          --health-cmd "pg_isready -U wedding"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # Matches the URL shape tests/integration/permissions.test.ts
+      # checks for ("test|local" — see the TEST_DB_AVAILABLE guard).
+      DATABASE_URL: postgresql://wedding:test@localhost:5432/wedding_hub_test?schema=public
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Apply migrations
+        run: npx prisma migrate deploy
+
+      - name: Integration tests
+        run: npm run test:integration
+
+  e2e:
+    name: Playwright e2e
+    needs: [verify, integration]
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: wedding
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: wedding_hub_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U wedding"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://wedding:test@localhost:5432/wedding_hub_test?schema=public
+      # Auth.js needs a stable secret + URL even for tests that don't
+      # complete a magic-link flow — middleware reads them on every req.
+      AUTH_SECRET: e2e-test-secret-not-for-production-use-only
+      AUTH_URL: http://localhost:3000
+      AUTH_TRUST_HOST: "true"
+      AUTH_ALLOWED_EMAILS: jamie@example.com,bryony@example.com
+      WEDDING_DATE: "2026-09-26T14:00:00Z"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Apply migrations
+        run: npx prisma migrate deploy
+
+      # Cache Playwright's browser binaries between runs (~150MB Chromium).
+      # Key on the package-lock so a Playwright bump invalidates the cache.
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        id: playwright-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Install Playwright Chromium
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps chromium
+
+      - name: Install Playwright system deps (cache hit branch)
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
+
+      - name: Run e2e tests
+        run: npm run test:e2e
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7
+
   build:
     name: Build and publish image
-    needs: verify
+    needs: [verify, integration, e2e]
     runs-on: ubuntu-latest
     permissions:
       contents: read
