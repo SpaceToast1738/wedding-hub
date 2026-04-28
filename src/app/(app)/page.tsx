@@ -2,16 +2,9 @@ import Link from "next/link";
 import { auth } from "@/auth";
 import { db } from "@/lib/db";
 import { redirect } from "next/navigation";
+import { getWeddingSettings } from "@/lib/wedding-settings";
 import { CountdownCard } from "./CountdownCard";
 import { TodayEventsCard } from "./TodayEventsCard";
-
-const WEDDING_ISO = process.env.WEDDING_DATE ?? "2026-09-26T14:00:00Z";
-const WEDDING_VENUE = process.env.WEDDING_VENUE ?? "Alveston Manor";
-// v1.19.0: hardcoded couple label for now; v1.20.0 wires this to
-// WeddingSettings so the user can edit it in Settings without a
-// redeploy.
-const COUPLE_LABEL =
-  process.env.WEDDING_COUPLE_SHORT ?? "Jamie & Bryony's Wedding";
 
 function formatDue(due: Date | null): string {
   if (!due) return "no due date";
@@ -38,6 +31,7 @@ export default async function TodayPage() {
   const session = await auth();
   if (!session?.user) redirect("/signin");
   const userId = session.user.id;
+  const wedding = await getWeddingSettings();
 
   const [myTasks, totalTaskCount, guestStats, dietaryRows, upcomingEvents] = await Promise.all([
     db.task.findMany({
@@ -118,9 +112,9 @@ export default async function TodayPage() {
             line up to the tallest. */}
         <div className="grid gap-4 lg:grid-cols-3 mb-4 items-stretch">
           <CountdownCard
-            targetIso={WEDDING_ISO}
-            venueLabel={WEDDING_VENUE}
-            coupleLabel={COUPLE_LABEL}
+            targetIso={wedding.weddingDate.toISOString()}
+            venueLabel={wedding.venue}
+            coupleLabel={wedding.coupleShort}
           />
 
           <section className="bg-surface border border-border-soft rounded-lg p-5 shadow-sm h-full flex flex-col">

@@ -603,3 +603,30 @@ model CustomField {
 
   @@unique([entity, name])
 }
+
+// ─── App-wide singleton: wedding details ───────────────────────────────────
+//
+// v1.20.0: edit date / venue / couple in Settings instead of redeploying
+// to change env vars. Singleton enforced via `@id @default(1)` — the first
+// (and only) row uses id=1; reads use `findUnique({ where: { id: 1 } })`.
+// Bootstrap row inserted in seed from env-var defaults so an empty DB still
+// boots reasonably; existing references fall through to the same env vars.
+
+model WeddingSettings {
+  id           Int      @id @default(1)
+  // ISO timestamp. The day-of timeline + countdown read this; the
+  // ceremony-time string (below) is the human-friendly label.
+  weddingDate  DateTime
+  ceremonyTime String   @default("2:00pm ceremony")
+  venue        String
+  venueAddress String?
+  // Long form: "Spencer · Olwyn-Davis Wedding" — used as document
+  // titles, schedule letterhead, AppShell sidebar header.
+  coupleLabel  String   @default("Spencer · Olwyn-Davis Wedding")
+  // Short, possessive form: "Jamie & Bryony's Wedding" — used in the
+  // CountdownCard inside the homepage 3-column grid (v1.19.0).
+  coupleShort  String   @default("Jamie & Bryony's Wedding")
+  brideFirst   String   @default("Bryony")
+  groomFirst   String   @default("Jamie")
+  updatedAt    DateTime @updatedAt
+}

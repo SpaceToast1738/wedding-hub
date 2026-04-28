@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Inter, Fraunces } from "next/font/google";
 import { DarkModeScript } from "@/components/shell/DarkModeScript";
+import { getWeddingSettings, formatWeddingDateShort } from "@/lib/wedding-settings";
 import "./globals.css";
 
 const inter = Inter({
@@ -15,11 +16,26 @@ const fraunces = Fraunces({
   display: "swap",
 });
 
-export const metadata: Metadata = {
-  title: "Wedding Hub",
-  description: "Jamie & Bryony — 26 Sep 2026",
-  robots: { index: false, follow: false },
-};
+// v1.20.0: dynamic metadata pulled from WeddingSettings. The loader is
+// React.cache()-wrapped so this won't add a round-trip when a page on
+// the same render already called it. Nice-to-have only; the page
+// content itself reads the same loader for consistency.
+export async function generateMetadata(): Promise<Metadata> {
+  try {
+    const w = await getWeddingSettings();
+    return {
+      title: "Wedding Hub",
+      description: `${w.brideFirst} & ${w.groomFirst} — ${formatWeddingDateShort(w)}`,
+      robots: { index: false, follow: false },
+    };
+  } catch {
+    return {
+      title: "Wedding Hub",
+      description: "Private wedding-planning app",
+      robots: { index: false, follow: false },
+    };
+  }
+}
 
 export default function RootLayout({
   children,

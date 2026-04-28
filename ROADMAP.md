@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.19.6** | 2026-04-28 | [README rewrite: standing rules, current test pyramid, fix stale phase-status](#2026-04-28--v1196--readme-rewrite) |
+| **v1.20.0** | 2026-04-28 | [Wedding details DB-backed (Settings UI + 10 ref replacements)](#2026-04-28--v1200--wedding-details-db-backed) |
+| v1.19.6 | 2026-04-28 | [README rewrite: standing rules, current test pyramid, fix stale phase-status](#2026-04-28--v1196--readme-rewrite) |
 | v1.19.5 | 2026-04-28 | [Email deliverability: Reply-To + List-Unsubscribe + DNS docs](#2026-04-28--v1195--email-deliverability-reply-to--list-unsubscribe--dns-docs) |
 | v1.19.0 | 2026-04-28 | [Today page redesign + mobile nav fix + IllusCountdown port](#2026-04-28--v1190--today-page-redesign--mobile-nav-fix--illuscountdown-port) |
 | v1.18.5 | 2026-04-28 | [Bugfix: edit questions and decisions](#2026-04-28--v1185--bugfix-edit-questions-and-decisions) |
@@ -301,6 +302,32 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-28 · v1.20.0 — Wedding details DB-backed
+
+Pre-v1.20.0, every reference to the wedding date / venue / couple names read straight from `WEDDING_DATE` / `WEDDING_VENUE` / `WEDDING_COUPLE` env vars at module scope. Editing meant a redeploy. This release centralises the read into a DB-backed singleton with a Settings UI; the user can now edit any of the eight fields without touching the server.
+
+**Schema:** new `WeddingSettings` model — singleton enforced via `id Int @id @default(1)`. Eight fields: `weddingDate`, `ceremonyTime`, `venue`, `venueAddress`, `coupleLabel` (long form, used on schedule letterhead + sign-in email), `coupleShort` (possessive form, used inside the Today countdown card), `brideFirst`, `groomFirst`. Additive Prisma migration; seed inserts the bootstrap row from env-var defaults so an empty DB still boots reasonably.
+
+**Loader at [src/lib/wedding-settings.ts](src/lib/wedding-settings.ts).** `getWeddingSettings()` is React.cache-wrapped — pages on the same render share one DB hit. Falls through to env-var defaults if the row is missing or the DB is unreachable, so a hiccup mid-render shows generic content rather than crashing the page. Exports `formatWeddingDate` and `formatWeddingDateShort` helpers so a single change rolls everywhere.
+
+**Settings panel at [WeddingSettingsPanel.tsx](src/app/(app)/settings/WeddingSettingsPanel.tsx).** Couple-only — server action gates on `user.isCouple === true` (mirrors A2's settings lockdown from v1.2.0). Non-couple users see read-only values. Edit toggles inline form with all eight fields; save calls `updateWeddingSettings` which upserts the row + audit-logs + revalidates every page that reads settings (`/`, `/glance`, `/schedule`, `/today/day-of`, `/guests/catering`, `/settings`).
+
+**Replaced 10 references** that previously read env vars or hardcoded "Jamie & Bryony" strings:
+- [src/app/(app)/page.tsx](src/app/(app)/page.tsx) — Today countdown reads `wedding.weddingDate`, `wedding.venue`, `wedding.coupleShort`.
+- [src/app/(app)/glance/page.tsx](src/app/(app)/glance/page.tsx) — `daysUntil` now takes a Date from settings.
+- [src/app/(app)/schedule/page.tsx](src/app/(app)/schedule/page.tsx) — print letterhead uses `wedding.coupleLabel` + `wedding.venue`.
+- [src/app/(app)/today/day-of/page.tsx](src/app/(app)/today/day-of/page.tsx) — hero band reads from settings.
+- [src/app/(app)/guests/catering/page.tsx](src/app/(app)/guests/catering/page.tsx) — letterhead uses `wedding.coupleLabel` + `wedding.venueAddress ?? wedding.venue`.
+- [src/components/shell/Sidebar.tsx](src/components/shell/Sidebar.tsx) — header reads `${brideFirst} & ${groomFirst} · ${formatWeddingDateShort}`. Made the Sidebar an async server component to support the await.
+- [src/app/layout.tsx](src/app/layout.tsx) — switched from static `metadata` to async `generateMetadata` so the document description picks up edits.
+- [src/app/signin/page.tsx](src/app/signin/page.tsx) — heading + "contact X or Y" copy.
+- [src/app/signin/error/page.tsx](src/app/signin/error/page.tsx) — error messages substitute couple names dynamically.
+- [src/auth.ts](src/auth.ts) — magic-link email subject + body (text + HTML) interpolate bride/groom names + formatted wedding date.
+
+Env vars stay as the seed source so an empty DB still boots — they're now bootstrap-only; live config lives in Settings. The README's "Email deliverability" section already documented the relevant subset; no doc change needed for env vars.
+
+**Files changed:** 12 modified, 4 new (`wedding-settings.ts`, `wedding-settings-actions.ts`, `WeddingSettingsPanel.tsx`, `wedding-settings.test.ts`). 1 additive migration. 2 new unit tests (188 total). e2e + build green.
 
 ### 2026-04-28 · v1.19.6 — README rewrite
 

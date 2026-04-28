@@ -205,9 +205,38 @@ async function seedPhotographyShots() {
   console.log(`  ✓ ${shots.length} sample photography shots`);
 }
 
+// v1.20.0: bootstrap the WeddingSettings singleton from env vars on
+// first run. Re-running the seed is upsert-safe: existing fields stay,
+// only `updatedAt` ticks. To reset the row to env defaults, delete it
+// in Prisma Studio first.
+async function seedWeddingSettings() {
+  const dateStr = process.env.WEDDING_DATE ?? "2026-09-26T14:00:00Z";
+  const data = {
+    weddingDate: new Date(dateStr),
+    ceremonyTime: process.env.WEDDING_CEREMONY_TIME ?? "2:00pm ceremony",
+    venue: process.env.WEDDING_VENUE ?? "Alveston Manor",
+    venueAddress: process.env.WEDDING_VENUE_ADDRESS ?? null,
+    coupleLabel: process.env.WEDDING_COUPLE ?? "Spencer · Olwyn-Davis Wedding",
+    coupleShort: process.env.WEDDING_COUPLE_SHORT ?? "Jamie & Bryony's Wedding",
+    brideFirst: process.env.WEDDING_BRIDE_FIRST ?? "Bryony",
+    groomFirst: process.env.WEDDING_GROOM_FIRST ?? "Jamie",
+  };
+  await db.weddingSettings.upsert({
+    where: { id: 1 },
+    create: { id: 1, ...data },
+    // Update venue + ceremony defaults from env on re-seed, but
+    // preserve any user-edited copy. We do that by NOT updating
+    // anything on re-run — once the row exists, Settings UI is the
+    // source of truth.
+    update: {},
+  });
+  console.log(`  ✓ wedding settings (${data.coupleLabel})`);
+}
+
 async function main() {
   console.log("Seeding Wedding Hub…");
   await seedUsersAndPermissions();
+  await seedWeddingSettings();
   await seedScheduleEvents();
   await seedSampleTasks();
   await seedSampleHouseholds();

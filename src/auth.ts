@@ -20,7 +20,10 @@ export function isAllowed(email: string): boolean {
 // Friendly "Wedding Hub" magic-link email. Inline CSS only — Gmail / Outlook /
 // Apple Mail discard <style> blocks. Wrapped in a 600px table for desktop and
 // stacks naturally on mobile.
-function magicLinkHtml(url: string): string {
+//
+// v1.20.0: brideFirst / groomFirst / weddingDateLabel injected from the
+// WeddingSettings singleton at send time — no env-var hardcoding.
+function magicLinkHtml(url: string, brideFirst: string, groomFirst: string, weddingDateLabel: string): string {
   return `<!doctype html>
 <html lang="en">
   <head>
@@ -36,7 +39,7 @@ function magicLinkHtml(url: string): string {
             <tr>
               <td style="padding:32px 32px 16px;border-bottom:1px solid #F1ECE2;">
                 <div style="font-family:Georgia,'Times New Roman',serif;font-size:22px;font-weight:600;color:#3F4F30;letter-spacing:-0.01em;">Wedding Hub</div>
-                <div style="font-size:12px;color:#8A8175;margin-top:4px;">Jamie &amp; Bryony · 26 September 2026</div>
+                <div style="font-size:12px;color:#8A8175;margin-top:4px;">${brideFirst} &amp; ${groomFirst} · ${weddingDateLabel}</div>
               </td>
             </tr>
             <tr>
@@ -68,9 +71,9 @@ function magicLinkHtml(url: string): string {
 </html>`;
 }
 
-function magicLinkText(url: string): string {
+function magicLinkText(url: string, brideFirst: string, groomFirst: string, weddingDateLabel: string): string {
   return [
-    "Wedding Hub — Jamie & Bryony · 26 September 2026",
+    `Wedding Hub — ${brideFirst} & ${groomFirst} · ${weddingDateLabel}`,
     "",
     "Your sign-in link (valid 24 hours, single-use):",
     "",
@@ -150,23 +153,27 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         }
         const nodemailer = await import("nodemailer");
         const transport = nodemailer.createTransport(provider.server);
-        // v1.19.5: deliverability hardening. Reply-To gives receivers
-        // a real address to reply to (absence is a soft spam signal).
-        // List-Unsubscribe (RFC 2369) lowers Gmail's spam-classifier
-        // weight even on transactional auth mail. The Resend domain
-        // auth (SPF/DKIM/DMARC on spencer-net.com) is the bigger
-        // lever — see README "Email deliverability" section.
+        // v1.20.0: pull bride/groom names + wedding date from
+        // WeddingSettings instead of hardcoded strings, so editing in
+        // /settings updates the magic-link email body without a
+        // redeploy.
+        const { getWeddingSettings, formatWeddingDate } = await import("@/lib/wedding-settings");
+        const wedding = await getWeddingSettings();
+        // v1.19.5: deliverability hardening — replyTo + List-Unsubscribe.
+        // Resend domain auth (SPF/DKIM/DMARC on spencer-net.com) is the
+        // bigger lever; see README "Email deliverability".
         const replyTo =
           process.env.EMAIL_REPLY_TO ?? process.env.EMAIL_FROM ?? undefined;
         const unsubscribeAddress =
           process.env.EMAIL_REPLY_TO ?? "hello@spencer-net.com";
+        const dateLabel = formatWeddingDate(wedding);
         await transport.sendMail({
           to: identifier,
           from: provider.from,
           replyTo,
           subject: "Your Wedding Hub sign-in link",
-          text: magicLinkText(url),
-          html: magicLinkHtml(url),
+          text: magicLinkText(url, wedding.brideFirst, wedding.groomFirst, dateLabel),
+          html: magicLinkHtml(url, wedding.brideFirst, wedding.groomFirst, dateLabel),
           headers: {
             "List-Unsubscribe": `<mailto:${unsubscribeAddress}?subject=unsubscribe>`,
             "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",

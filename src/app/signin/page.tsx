@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { signIn, isAllowed } from "@/auth";
+import { getWeddingSettings, formatWeddingDateShort } from "@/lib/wedding-settings";
 
 async function startSignIn(formData: FormData) {
   "use server";
@@ -19,6 +20,7 @@ export default async function SignInPage({
   searchParams: Promise<{ error?: string; callbackUrl?: string }>;
 }) {
   const { error } = await searchParams;
+  const wedding = await getWeddingSettings();
   return (
     <div className="min-h-screen flex items-center justify-center px-4 bg-canvas">
       <div className="w-full max-w-sm bg-surface border border-border-soft rounded-lg shadow-md p-7">
@@ -26,7 +28,7 @@ export default async function SignInPage({
           Wedding Hub
         </h1>
         <p className="text-xs text-ink-tertiary mb-6">
-          Jamie &amp; Bryony · 26 Sep 2026
+          {wedding.brideFirst} &amp; {wedding.groomFirst} · {formatWeddingDateShort(wedding)}
         </p>
         <form action={startSignIn} className="flex flex-col gap-3">
           <label className="text-xs font-medium text-ink-secondary uppercase tracking-wider">
@@ -54,7 +56,7 @@ export default async function SignInPage({
         )}
         <p className="text-xs text-ink-tertiary mt-6">
           Sign-in is restricted to the wedding party. If you weren&apos;t given
-          access, contact Jamie or Bryony.
+          access, contact {wedding.brideFirst} or {wedding.groomFirst}.
         </p>
       </div>
     </div>

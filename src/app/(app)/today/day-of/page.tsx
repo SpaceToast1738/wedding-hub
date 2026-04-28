@@ -1,10 +1,8 @@
 import Link from "next/link";
 import { db } from "@/lib/db";
 import { requireUser } from "@/lib/actions";
+import { getWeddingSettings } from "@/lib/wedding-settings";
 import { ScrollToCurrent } from "./ScrollToCurrent";
-
-const WEDDING_ISO = process.env.WEDDING_DATE ?? "2026-09-26T14:00:00Z";
-const WEDDING_VENUE = process.env.WEDDING_VENUE ?? "Alveston Manor";
 
 type EventStatus = "past" | "now" | "next" | "upcoming";
 
@@ -46,7 +44,8 @@ function formatTime(d: Date): string {
 export default async function DayOfPage() {
   const user = await requireUser();
   const now = new Date();
-  const wedding = new Date(WEDDING_ISO);
+  const settings = await getWeddingSettings();
+  const wedding = settings.weddingDate;
 
   // Window: same calendar day as the wedding date, in local time. We display
   // events that start between 00:00 and 23:59 of that day. Outside the window
@@ -143,7 +142,7 @@ export default async function DayOfPage() {
               {isWeddingDay ? "Today is the day." : "Day-of preview"}
             </div>
             <div className="text-xs opacity-85 mt-1">
-              {WEDDING_VENUE}
+              {settings.venue}
               {user.name ? ` · Logged in as ${user.name}` : ""}
             </div>
           </div>

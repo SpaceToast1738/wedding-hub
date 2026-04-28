@@ -2,17 +2,16 @@ import { db } from "@/lib/db";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { canEdit } from "@/lib/permissions";
 import { requireUser } from "@/lib/actions";
+import { getWeddingSettings } from "@/lib/wedding-settings";
 import { EmptySchedule, EmptyState } from "@/components/ui/Illustrations";
 import { ScheduleClient } from "./ScheduleClient";
 import { AddEventToggle } from "./AddEventToggle";
 import { PrintScheduleButton } from "./PrintScheduleButton";
 
-const WEDDING_VENUE = process.env.WEDDING_VENUE ?? "Alveston Manor";
-const COUPLE_NAME = process.env.WEDDING_COUPLE ?? "Spencer · Olwyn-Davis Wedding";
-
 export default async function SchedulePage() {
   const user = await requireUser();
   const editable = await canEdit(user, "schedule");
+  const wedding = await getWeddingSettings();
 
   const events = await db.scheduleEvent.findMany({
     orderBy: [{ startTime: "asc" }, { order: "asc" }],
@@ -37,9 +36,9 @@ export default async function SchedulePage() {
         <div className="max-w-3xl mx-auto px-6 py-6">
           {/* Print-only letterhead */}
           <div className="print-only-block border-b-2 border-ink-primary pb-3 mb-6">
-            <h1 className="font-display text-2xl text-ink-primary">{COUPLE_NAME}</h1>
+            <h1 className="font-display text-2xl text-ink-primary">{wedding.coupleLabel}</h1>
             <div className="text-xs text-ink-tertiary mt-1">
-              Running schedule · {WEDDING_VENUE}
+              Running schedule · {wedding.venue}
             </div>
           </div>
 

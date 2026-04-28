@@ -4,11 +4,10 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { Avatar } from "@/components/ui/Avatar";
 import { requireUser } from "@/lib/actions";
+import { getWeddingSettings } from "@/lib/wedding-settings";
 
-const WEDDING_ISO = process.env.WEDDING_DATE ?? "2026-09-26T14:00:00Z";
-
-function daysUntil(iso: string): number {
-  const ms = new Date(iso).getTime() - Date.now();
+function daysUntil(d: Date): number {
+  const ms = d.getTime() - Date.now();
   return Math.max(0, Math.ceil(ms / (1000 * 60 * 60 * 24)));
 }
 
@@ -89,6 +88,7 @@ const COUPLE_ONLY_ENTITIES = new Set([
 export default async function AtAGlancePage() {
   const user = await requireUser();
   const isCouple = user.isCouple;
+  const wedding = await getWeddingSettings();
 
   // Parallelise everything that's safe to fan out.
   const [
@@ -159,7 +159,7 @@ export default async function AtAGlancePage() {
   const pending = guestsByRsvp.find((g) => g.rsvp === "PENDING")?._count._all ?? 0;
   const declined = guestsByRsvp.find((g) => g.rsvp === "DECLINED")?._count._all ?? 0;
 
-  const days = daysUntil(WEDDING_ISO);
+  const days = daysUntil(wedding.weddingDate);
 
   // Budget aggregates (couple only). `actual` follows B2 manual-override
   // semantics: stored value wins; otherwise sum of payments.

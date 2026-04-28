@@ -3,16 +3,18 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { canEdit } from "@/lib/permissions";
 import { requireUser } from "@/lib/actions";
 import { isSpotifyConfigured } from "@/lib/spotify";
+import { getWeddingSettings } from "@/lib/wedding-settings";
 import { PermissionMatrix } from "./PermissionMatrix";
 import { MyProfilePanel } from "./MyProfilePanel";
 import { SpotifySettingsPanel } from "./SpotifySettingsPanel";
 import { CustomFieldsPanel } from "./CustomFieldsPanel";
+import { WeddingSettingsPanel } from "./WeddingSettingsPanel";
 
 export default async function SettingsPage() {
   const user = await requireUser();
   const editable = await canEdit(user, "settings");
 
-  const [users, permissions, me, customFields] = await Promise.all([
+  const [users, permissions, me, customFields, wedding] = await Promise.all([
     db.user.findMany({ orderBy: [{ isCouple: "desc" }, { name: "asc" }] }),
     db.permission.findMany(),
     db.user.findUnique({
@@ -20,7 +22,13 @@ export default async function SettingsPage() {
       select: { firstName: true, lastName: true, email: true },
     }),
     db.customField.findMany({ orderBy: [{ entity: "asc" }, { order: "asc" }] }),
+    getWeddingSettings(),
   ]);
+
+  // Format the date for the datetime-local input + read view.
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const d = wedding.weddingDate;
+  const dateForInput = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 
   const spotifyConfigured = isSpotifyConfigured();
 
@@ -37,6 +45,20 @@ export default async function SettingsPage() {
             email={me?.email ?? user.email}
             initialFirstName={me?.firstName ?? ""}
             initialLastName={me?.lastName ?? ""}
+          />
+
+          <WeddingSettingsPanel
+            initial={{
+              weddingDate: dateForInput,
+              ceremonyTime: wedding.ceremonyTime,
+              venue: wedding.venue,
+              venueAddress: wedding.venueAddress ?? "",
+              coupleLabel: wedding.coupleLabel,
+              coupleShort: wedding.coupleShort,
+              brideFirst: wedding.brideFirst,
+              groomFirst: wedding.groomFirst,
+            }}
+            isCouple={user.isCouple}
           />
 
           <SpotifySettingsPanel configured={spotifyConfigured} isCouple={user.isCouple} />

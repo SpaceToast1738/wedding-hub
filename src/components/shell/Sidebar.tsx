@@ -2,6 +2,7 @@ import { SidebarItem } from "@/components/shell/SidebarItem";
 import { AvatarMenu } from "@/components/shell/AvatarMenu";
 import { NAV_GROUPS, type Counts } from "@/components/shell/nav-config";
 import { APP_VERSION } from "@/lib/version";
+import { getWeddingSettings, formatWeddingDateShort } from "@/lib/wedding-settings";
 
 type Props = {
   user: { id: string; name?: string | null; email: string; isCouple: boolean; role: string; darkMode: boolean | null };
@@ -9,11 +10,13 @@ type Props = {
   signOutAction: () => Promise<void>;
 };
 
-export function Sidebar({ user, counts, signOutAction }: Props) {
+export async function Sidebar({ user, counts, signOutAction }: Props) {
   const groups = NAV_GROUPS.map((g) => ({
     ...g,
     items: g.items.filter((i) => !i.coupleOnly || user.isCouple),
   })).filter((g) => g.items.length > 0);
+  const wedding = await getWeddingSettings();
+  const headline = `${wedding.brideFirst} & ${wedding.groomFirst} · ${formatWeddingDateShort(wedding)}`;
 
   return (
     <aside
@@ -25,7 +28,7 @@ export function Sidebar({ user, counts, signOutAction }: Props) {
           Wedding Hub
         </div>
         <div className="text-[11px] text-ink-tertiary mt-0.5">
-          Jamie &amp; Bryony · 26 Sep 2026
+          {headline}
         </div>
       </div>
 

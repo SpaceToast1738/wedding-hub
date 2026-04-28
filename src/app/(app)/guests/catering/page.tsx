@@ -3,11 +3,8 @@ import { db } from "@/lib/db";
 import { requireUser } from "@/lib/actions";
 import { canView } from "@/lib/permissions";
 import { redirect } from "next/navigation";
+import { getWeddingSettings } from "@/lib/wedding-settings";
 import { PrintButton } from "./PrintButton";
-
-const WEDDING_DATE = process.env.WEDDING_DATE ?? "2026-09-26T14:00:00Z";
-const WEDDING_VENUE = process.env.WEDDING_VENUE ?? "Alveston Manor, Stratford-upon-Avon";
-const COUPLE_NAME = process.env.WEDDING_COUPLE ?? "Spencer · Olwyn-Davis Wedding";
 
 type GuestRow = {
   id: string;
@@ -118,7 +115,8 @@ export default async function CateringBriefPage() {
 
   const groups = groupByTable(attending);
 
-  const weddingDateLabel = new Date(WEDDING_DATE).toLocaleDateString("en-GB", {
+  const wedding = await getWeddingSettings();
+  const weddingDateLabel = wedding.weddingDate.toLocaleDateString("en-GB", {
     weekday: "long",
     day: "numeric",
     month: "long",
@@ -149,10 +147,10 @@ export default async function CateringBriefPage() {
             ink-primary rule beneath. Mirrors the prototype's VenueCateringExport. */}
         <header className="border-b-2 border-ink-primary pb-4">
           <h1 className="font-display text-3xl sm:text-[26px] font-semibold text-ink-primary leading-tight">
-            {COUPLE_NAME}
+            {wedding.coupleLabel}
           </h1>
           <div className="mt-1 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 text-xs text-ink-secondary">
-            <span>{weddingDateLabel} · {WEDDING_VENUE}</span>
+            <span>{weddingDateLabel} · {wedding.venueAddress ?? wedding.venue}</span>
             <span className="text-ink-tertiary">Generated {generatedAt}</span>
           </div>
           <p className="text-xs text-ink-tertiary mt-2 italic">
