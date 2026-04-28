@@ -18,7 +18,10 @@ type SessionUser = {
 async function getCounts(user: SessionUser): Promise<Counts> {
   const [tasks, questions, guests, payments] = await Promise.all([
     db.task.count({ where: { status: { not: "DONE" }, type: "TASK" } }),
-    db.task.count({ where: { status: "OPEN", type: "QUESTION" } }),
+    // v1.18.0: count both QUESTIONs and DECISIONs — they share the
+    // /questions surface and the nav label says "Questions & Decisions".
+    // Decisions in DONE status are excluded the same way questions are.
+    db.task.count({ where: { status: { not: "DONE" }, type: { in: ["QUESTION", "DECISION"] } } }),
     db.guest.count({ where: { rsvp: "PENDING", archived: false } }),
     user.isCouple
       ? db.payment.count({ where: { status: { in: ["DUE", "SCHEDULED", "OVERDUE"] } } })

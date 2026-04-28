@@ -11,7 +11,7 @@
 - **Repo:** [SpaceToast1738/wedding-hub](https://github.com/SpaceToast1738/wedding-hub) · `claude/main` (releases) + `dev` (work-in-progress)
 - **Stack:** Next.js 15 · TypeScript · Tailwind v4 · Prisma · Postgres 16 · Auth.js v5 · Caddy · Docker Compose
 - **Working tree:** `C:\Users\Admin\Code\wedding-hub` (local SSD). The old `\\TOWER\Jamie Spencer\Claude\wedding-hub` mirror is no longer in use — run `Remove-Item -Recurse -Force "\\TOWER\Jamie Spencer\Claude\wedding-hub"` from a fresh PowerShell to delete it.
-- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` at **v1.15.0**, promoted 28 Apr 2026). `dev` is ahead at **v1.17.0** with two pending releases: v1.16.0 (task CSV importer + seating canvas guest names) and v1.17.0 (countdown breakdown redesign, focused mobile-usability pass, guest list filtering + sorting + saved-default preference). **Post-audit programme paused: R6 deferred to a scheduled agent run on 26 Aug 2026 with realistic production data, 4 weeks before the wedding.** 186 unit tests.
+- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` at **v1.15.0**, promoted 28 Apr 2026). `dev` is ahead at **v1.18.0** with three pending releases: v1.16.0 (task CSV importer + seating canvas guest names), v1.17.0 (countdown breakdown redesign + mobile pass + guest list filter/sort/default), v1.18.0 (decisions surfaced in nav + count + page header; planner-only backlog catalogued). Standing rule established: app is admin-only, no guest-facing surfaces. R6 (backup hardening) deferred to scheduled agent run on 26 Aug 2026. 186 unit tests.
 
 ## Phase status
 
@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.17.0** | 2026-04-28 | [Countdown breakdown · mobile pass · guest list filter/sort](#2026-04-28--v1170--countdown-breakdown--mobile-pass--guest-list-filtersort) |
+| **v1.18.0** | 2026-04-28 | [Decisions surfaced in nav + planner-only backlog catalogued](#2026-04-28--v1180--decisions-surfaced-in-nav--planner-only-backlog-catalogued) |
+| v1.17.0 | 2026-04-28 | [Countdown breakdown · mobile pass · guest list filter/sort](#2026-04-28--v1170--countdown-breakdown--mobile-pass--guest-list-filtersort) |
 | v1.16.0 | 2026-04-28 | [Task CSV importer + guest names on the seating canvas](#2026-04-28--v1160--task-csv-importer--guest-names-on-the-seating-canvas) |
 | v1.15.0 | 2026-04-28 | [Phase R5b: illustrations ported + Custom Fields UI (C6 + C10)](#2026-04-28--v1150--phase-r5b-illustrations-ported--custom-fields-ui-c6--c10) |
 | v1.14.0 | 2026-04-28 | [Phase R5a: Bucket C drift decisions (C1 + C4 + C7 + C11)](#2026-04-28--v1140--phase-r5a-bucket-c-drift-decisions-c1--c4--c7--c11) |
@@ -137,23 +138,66 @@ Each section has server actions wrapped with `requireEdit(section)` + `audit()`,
 
 ## Deferred / Backlog
 
-Ranked roughly by usefulness × ease.
+Ranked roughly by usefulness × ease. **Standing rule (28 Apr 2026):**
+Wedding Hub is admin-only — planners + couple + wedding party. Guest
+data is managed via Say I Do, not in-app. So no items below should
+introduce guest-facing surfaces (public RSVP forms, guest portals,
+magic links sent to invitees, etc.). If a feature drifts toward giving
+guests access, defer to "out of scope" rather than building behind a
+feature flag.
 
-### High value
-- **Seating constraint rules** — must-sit-together / must-not-sit / prefer-group hints, plus violation indicators on the canvas. The prototype had a richer rules panel; we shipped the canvas without it for v0.6.0.
-- **CSV import: update / dedupe modes** — v0.8.0 always creates new rows. A future iteration could add "match by email and update existing" + "skip duplicates" modes alongside the current "create".
+### Planner-only feature shortlist (post-v1.17.0)
 
-### Medium value
+The user picked these from a wider menu on 28 Apr 2026. Items 5 (public
+RSVP form) and 7 (guest portal) from the original menu were explicitly
+dropped because they violate the admin-only rule above.
+
+- **Audit log viewer in Settings** — data already exists (every server
+  action writes an `AuditLog` row); just no UI. Useful when "who changed
+  Bryony's RSVP" comes up. ~1 hr.
+- **Search beyond /guests** — extend the v1.12.0 sticky-search pattern
+  ([GuestList.tsx](src/app/(app)/guests/GuestList.tsx)) to `/suppliers`
+  and `/tasks`. Aimee asked for it on guests; the same pattern fits
+  both other surfaces. ~1.5 hrs.
+- **Custom fields for Supplier + Task** — extends v1.15.0's Guest-only
+  registry. The `CustomField.entity` field already supports it; just
+  unlock the entity dropdown in the Settings panel + wire two more
+  rendering surfaces (`/suppliers/[id]`, `/tasks/[id]` if it exists, or
+  the inline TaskRow edit form). ~2 hrs.
+- **Print stylesheet for /budget + /payments** — couple-only sheets
+  the venue or planner might want as paper. The pattern is already in
+  use on `/schedule` and `/guests/catering`. ~1 hr.
+- **Email reminders / nudges** — `Guest.lastNudgedAt` is already in the
+  schema. Build the "nudge unconfirmed RSVPs" + "follow-up task due
+  tomorrow" surfaces. Sends to the planner / couple, not to guests
+  (per the standing rule). ~3 hrs.
+- **BookSection audience overrides** — currently only BookSubsection
+  has `visibility EVERYONE|COUPLE_ONLY` (C1, v1.14.0). Extend to the
+  parent BookSection so the couple can hide a whole section, not just
+  individual pages. ~1 hr.
+
+### Older / lower-priority backlog
+
+- **Seating constraint rules** — must-sit-together / must-not-sit /
+  prefer-group hints, plus violation indicators on the canvas. The
+  prototype had a richer rules panel; we shipped the canvas without it
+  for v0.6.0.
+- **CSV import: update / dedupe modes** — v0.8.0 always creates new
+  rows. A future iteration could add "match by email and update
+  existing" + "skip duplicates" modes alongside the current "create".
+- **Rate-limit on `/api/auth/*`** — Caddyfile stub waiting on a custom
+  Caddy build with `xcaddy --with github.com/mholt/caddy-ratelimit`.
+  Auth.js token expiry + email allow-list is the current mitigation.
 - ~~**Day-of mode**~~ — shipped in v0.15.0.
-- ~~**Quick-capture (`C` shortcut) modal**~~ — shipped in v0.15.0 (Task / Question / Event types; Payment intentionally excluded).
-
-### Lower value
-- ~~**Say I Do sync**~~ — covered by the v0.8.0 CSV import path. Just export to CSV from Say I Do and paste it into `/guests/import`.
-- ~~**Spotify playlist sync**~~ — shipped in v0.14.0 as Phase G1 (Client Credentials, public-playlist read-only mirror). User-OAuth for private playlists still possible if needed.
-- ~~**Glance / At-a-glance dashboard**~~ — shipped in v1.1.0 (RSVP donut, budget bar, payments due, audit-log activity feed).
-- **Custom fields UI in Settings** — the schema has `CustomField` but no UI. Defer until something needs it.
-- **Rate-limit on `/api/auth/*`** — Caddyfile stub waiting on a custom Caddy build with `xcaddy --with github.com/mholt/caddy-ratelimit`. Auth.js token expiry + email allow-list is the current mitigation.
-- **Audit log viewer** — there's data, no UI. Could live under Settings.
+- ~~**Quick-capture (`C` shortcut) modal**~~ — shipped in v0.15.0
+  (Task / Question / Event types; Payment intentionally excluded).
+- ~~**Say I Do sync**~~ — covered by the v0.8.0 CSV import path. Just
+  export to CSV from Say I Do and paste it into `/guests/import`.
+- ~~**Spotify playlist sync**~~ — shipped in v0.14.0 as Phase G1
+  (Client Credentials, public-playlist read-only mirror).
+- ~~**Glance / At-a-glance dashboard**~~ — shipped in v1.1.0.
+- ~~**Custom fields UI in Settings**~~ — shipped for Guest in v1.15.0
+  (R5b, C10). Supplier + Task in the planner-only shortlist above.
 
 ## Open questions / risks
 
@@ -253,6 +297,25 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-28 · v1.18.0 — Decisions surfaced in nav + planner-only backlog catalogued
+
+Two small things that fix a discoverability gap and pin the next chunk of work in the ROADMAP.
+
+**Decisions are now visible.** The Task model has supported a `DECISION` type since the beginning — with its own icon (△), its own filter chip on the /questions page, even its own metadata field (`decisionAnswer`). But the sidebar nav said "Questions", the count badge only counted `QUESTION`-typed tasks, and the page title said "Questions" — so users (correctly) believed decisions had nowhere to live. Three small changes:
+- [nav-config.ts](src/components/shell/nav-config.ts) renames the entry to "Questions & Decisions".
+- [AppShell.tsx](src/components/shell/AppShell.tsx) `getCounts` now counts `type IN (QUESTION, DECISION) AND status != DONE` for the badge.
+- [questions/page.tsx](src/app/(app)/questions/page.tsx) header reads "Questions & Decisions" and the subtitle splits the count into questions vs decisions. The "+ New question" button became "+ New" with the type-picker visible (`showType={true}`) so creating a Decision from this page is one click.
+
+No data migration — the rows have always been there, they're just discoverable now.
+
+**Planner-only backlog catalogued.** ROADMAP's *Deferred / Backlog* section gained a "Planner-only feature shortlist (post-v1.17.0)" subsection with six items the user picked from a wider menu: audit log viewer in Settings, search beyond /guests, custom fields for Supplier + Task, print stylesheet for /budget + /payments, email reminders / nudges (planner-facing only), BookSection audience overrides. Two items from the original menu (public RSVP form, guest portal) were explicitly dropped under a new standing rule:
+
+> **Wedding Hub is admin-only — planners + couple + wedding party. Guest data is managed via Say I Do, not in-app.**
+
+Recorded as a top-of-section note so future feature drafts default to "planner-facing" rather than "guest-facing".
+
+**Files changed:** 3 modified, 0 new. No schema changes. Tests untouched (existing tests still pass — this is purely surface).
 
 ### 2026-04-28 · v1.17.0 — Countdown breakdown · mobile pass · guest list filter/sort
 

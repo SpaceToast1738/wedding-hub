@@ -28,7 +28,7 @@ export const NAV_GROUPS: NavGroup[] = [
     id: "work",
     items: [
       { href: "/tasks",     label: "Tasks",     icon: "✓", countKey: "tasks" },
-      { href: "/questions", label: "Questions", icon: "?", countKey: "questions" },
+      { href: "/questions", label: "Questions & Decisions", icon: "?", countKey: "questions" },
       { href: "/schedule",  label: "Schedule",  icon: "◷" },
       { href: "/suppliers", label: "Suppliers", icon: "◈" },
     ],

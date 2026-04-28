@@ -21,19 +21,21 @@ export default async function QuestionsPage() {
 
   const open = questions.filter((q) => q.status !== "DONE" && q.status !== "ARCHIVED").length;
   const answered = questions.filter((q) => q.status === "DONE").length;
+  const decisionCount = questions.filter((q) => q.type === "DECISION").length;
+  const questionCount = questions.length - decisionCount;
 
   return (
     <>
       <PageHeader
-        title="Questions"
-        subtitle={`${open} open · ${answered} answered`}
+        title="Questions & Decisions"
+        subtitle={`${open} open · ${answered} resolved · ${questionCount} question${questionCount === 1 ? "" : "s"} + ${decisionCount} decision${decisionCount === 1 ? "" : "s"}`}
         actions={
           editable ? (
             <AddTaskToggle
               users={users.map((u) => ({ id: u.id, name: u.name, email: u.email }))}
               defaultType="QUESTION"
-              showType={false}
-              buttonLabel="+ New question"
+              showType={true}
+              buttonLabel="+ New"
             />
           ) : undefined
         }
