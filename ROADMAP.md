@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| _(unreleased on `dev`)_ | 2026-04-28 | [v1.2.3 — `.npmrc` legacy-peer-deps + revert nodemailer to v6 (CI fix, third attempt)](#2026-04-28--v123--npmrc-legacy-peer-deps--revert-nodemailer-to-v6) |
+| _(unreleased on `dev`)_ | 2026-04-28 | [v1.2.4 — Dockerfile copies `.npmrc` (so the legacy-peer-deps actually applies in CI)](#2026-04-28--v124--dockerfile-copies-npmrc-so-the-legacy-peer-deps-actually-applies-in-ci) |
+| v1.2.3 | 2026-04-28 | [`.npmrc` legacy-peer-deps + revert nodemailer to v6 (didn't reach CI npm)](#2026-04-28--v123--npmrc-legacy-peer-deps--revert-nodemailer-to-v6) |
 | v1.2.2 | 2026-04-28 | [Bumped nodemailer to v7 (broke next-auth peer; didn't fix CI)](#2026-04-28--v122--bump-nodemailer-to-v7--fix-jwt-augmentation-real-ci-fix) |
 | v1.2.1 | 2026-04-28 | [Pin Vitest to v2.x (didn't actually fix CI)](#2026-04-28--v121--pin-vitest-to-v2x-to-fix-docker-build) |
 | **v1.2.0** | 2026-04-28 | [Phase R1: trust restoration (audit fixes + Vitest)](#2026-04-28--v120--phase-r1-trust-restoration-audit-fixes--vitest) |
@@ -234,11 +235,30 @@ When wrapping up a meaningful iteration:
 
 ### Current version
 
-`1.2.3` on `dev`, `claude/main` at `v1.2.1`. Holding the promote until GHA confirms green on the same SHA — first time we've followed that rule in this session, after burning v1.2.1 and v1.2.2 by promoting prematurely.
+`1.2.4` on `dev`, `claude/main` at `v1.2.1`. v1.2.3 was correct except the Dockerfile didn't copy `.npmrc` into the image, so the alpine npm ran without `legacy-peer-deps`. v1.2.4 fixes the COPY. Holding the promote until GHA on `dev` confirms green at `v1.2.4`'s SHA.
 
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-28 · v1.2.4 — Dockerfile copies .npmrc (so the legacy-peer-deps actually applies in CI)
+
+v1.2.3's `.npmrc` was at the project root and worked locally — but the GHA build still failed with a different error:
+
+```
+npm error code EUSAGE
+npm error Missing: nodemailer@7.0.13 from lock file
+```
+
+Cause: the Dockerfile `deps` stage copies `package.json package-lock.json* ./` into the image, but **not `.npmrc`**. So `npm ci` inside the alpine image runs without `legacy-peer-deps=true`, sees the unresolvable optional-peer conflict, decides nodemailer@7.0.13 *must* exist, looks for it in the lockfile, doesn't find it, fails EUSAGE.
+
+The local `npm ci` worked because the project-root `.npmrc` was visible. The Docker `npm ci` didn't have the file in scope.
+
+**Fix:** [Dockerfile](Dockerfile) line 7 now copies `.npmrc*` alongside `package.json` and `package-lock.json*`. The `*` glob makes it tolerant of the file being absent on future restructures. Commented inline so the next reader knows why.
+
+This is the genuinely-final fix for the four-version cascade. Building locally with `docker build --target deps` would have caught this immediately — the new standing rule in [CLAUDE.md](CLAUDE.md) is to run that step before promoting any release that touches deps.
+
+Verified: typecheck, lint, build, 60/60 tests, `npm ci` clean from a wiped `node_modules`. Holding promote until GHA on `dev` confirms green.
 
 ### 2026-04-28 · v1.2.3 — .npmrc legacy-peer-deps + revert nodemailer to v6
 

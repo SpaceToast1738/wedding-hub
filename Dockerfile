@@ -4,7 +4,12 @@
 FROM node:20-alpine AS deps
 WORKDIR /app
 RUN apk add --no-cache libc6-compat openssl
-COPY package.json package-lock.json* ./
+# `.npmrc` MUST be copied before `npm ci` — it sets legacy-peer-deps=true,
+# which the alpine npm 10.8.2 needs to skip the optional-peer conflict
+# between next-auth (peer-wants nodemailer ^6) and @auth/core (peer-wants
+# ^7). See `.npmrc` and CLAUDE.md for the full story. The `*` glob makes
+# this tolerant of the file being absent on a future restructure.
+COPY package.json package-lock.json* .npmrc* ./
 COPY prisma ./prisma
 RUN npm ci --no-audit --no-fund
 
