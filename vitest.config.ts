@@ -10,7 +10,10 @@ import path from "node:path";
 export default defineConfig({
   test: {
     environment: "node",
-    include: ["tests/**/*.test.ts"],
+    // Unit tests only — integration tests live in tests/integration/**
+    // and have their own config (vitest.config.integration.ts) so they
+    // don't ride along with `npm test`.
+    include: ["tests/unit/**/*.test.ts"],
   },
   resolve: {
     alias: {

@@ -1,16 +1,63 @@
-name: Build and publish image
+name: Test, build, and publish image
+
+# Single workflow for two reasons:
+# 1) Tests should gate the image build — a green image of broken code
+#    helps no one. The `verify` job runs first; `build` only runs after
+#    it passes.
+# 2) GHA's free runner minutes are bounded; one workflow is cheaper
+#    than two split jobs that share cache.
+#
+# Branch trigger covers `claude/main` (default branch — release tip) and
+# `dev` (work-in-progress; current production-deploy source via the :dev
+# tag). The legacy `main` branch isn't in the list because it doesn't
+# exist in this repo.
 
 on:
   push:
-    branches: [main, dev]
+    branches: [claude/main, dev]
   workflow_dispatch:
 
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
+  NODE_VERSION: 20
 
 jobs:
+  verify:
+    name: Typecheck, lint, test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        # Same flags as the Dockerfile so we exercise the same install
+        # path the production image uses. The .npmrc at the repo root
+        # is picked up automatically (legacy-peer-deps=true — see
+        # CLAUDE.md for the full story).
+        run: npm ci --no-audit --no-fund
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit tests
+        run: npm test
+
   build:
+    name: Build and publish image
+    needs: verify
     runs-on: ubuntu-latest
     permissions:
       contents: read

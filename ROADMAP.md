@@ -11,7 +11,7 @@
 - **Repo:** [SpaceToast1738/wedding-hub](https://github.com/SpaceToast1738/wedding-hub) · `claude/main` (releases) + `dev` (work-in-progress)
 - **Stack:** Next.js 15 · TypeScript · Tailwind v4 · Prisma · Postgres 16 · Auth.js v5 · Caddy · Docker Compose
 - **Working tree:** `C:\Users\Admin\Code\wedding-hub` (local SSD). The old `\\TOWER\Jamie Spencer\Claude\wedding-hub` mirror is no longer in use — run `Remove-Item -Recurse -Force "\\TOWER\Jamie Spencer\Claude\wedding-hub"` from a fresh PowerShell to delete it.
-- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` at **v1.3.0**, promoted 28 Apr 2026 after GHA went green at the same SHA — first promote following the green-CI-first rule). Phase R2 shipped: magic-link rate limit (5/hour/email) and archived-guest restore (soft-delete + Show archived view + couple-only Delete forever). Adds an additive `MagicLinkAttempt` migration; 69 unit tests; no env changes. Phase R3 (test depth — Playwright e2e + permission integration tests + TESTING.md + CI wiring) is the next remediation step.
+- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` at **v1.3.0**). v1.4.0 (this iteration on `dev`) ships **Phase R3 (partial) — test depth**: Vitest now runs in CI before the Docker image build (a green image of broken code is no longer possible), [TESTING.md](TESTING.md) codifies the persona-walkthrough smoke checklist, and an integration-test scaffold under `tests/integration/` lets us exercise the permission resolver against a real Postgres in CI. Playwright e2e (T3) deferred to a follow-on session.
 
 ## Phase status
 
@@ -34,6 +34,7 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
+| _(unreleased on `dev`)_ | 2026-04-28 | [v1.4.0 — Phase R3 (partial): tests in CI + TESTING.md + integration scaffold](#2026-04-28--v140--phase-r3-partial-tests-in-ci--testingmd--integration-scaffold) |
 | **v1.3.0** | 2026-04-28 | [Phase R2: magic-link rate limit + archived-guest restore](#2026-04-28--v130--phase-r2-magic-link-rate-limit--archived-guest-restore) |
 | v1.2.4 | 2026-04-28 | [Dockerfile copies `.npmrc` — first version of the v1.2.x line that built green in CI](#2026-04-28--v124--dockerfile-copies-npmrc-so-the-legacy-peer-deps-actually-applies-in-ci) |
 | _(no tag)_ | 2026-04-28 | v1.2.1 / v1.2.2 / v1.2.3 — three failed CI fix attempts; not tagged on principle (only green-CI SHAs get tags). Documented in the changelog for traceability. |
@@ -234,11 +235,30 @@ When wrapping up a meaningful iteration:
 
 ### Current version
 
-`1.3.0` on both `dev` and `claude/main` (promoted 28 Apr 2026 after GHA green). Production catches up after the GHCR image rebuilds and Unraid runs `docker compose pull && up -d` — the additive `MagicLinkAttempt` migration applies on boot.
+`1.4.0` on `dev`, `claude/main` at `v1.3.0`. R3 partial (CI test gates + TESTING.md + integration scaffold) on dev. Holding promote until GHA confirms green at the v1.4.0 SHA.
 
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-28 · v1.4.0 — Phase R3 (partial): tests in CI + TESTING.md + integration scaffold
+
+Test-depth phase from the [post-audit plan](REMEDIATION-PLAN.md). No user-visible features; locks in the test substrate so future fixes can't regress quietly.
+
+**T5 — CI gates the image build on tests passing** ([.github/workflows/build.yml](.github/workflows/build.yml)). Renamed workflow to `Test, build, and publish image`. Split into two jobs:
+
+- `verify` — installs deps with the same flags as the Dockerfile (so we exercise the same install path, including the `.npmrc legacy-peer-deps=true` from the v1.2.x cascade), generates the Prisma client, runs typecheck → lint → unit tests in order.
+- `build` — only runs `needs: verify`. Same docker-build steps as before.
+
+A green Docker image of broken-code typecheck/lint/test will no longer ship to GHCR. Branch trigger updated to `claude/main` (was `main` — the legacy default-branch reference that meant `claude/main` pushes weren't actually triggering a build for the entire session).
+
+**T4 — [TESTING.md](TESTING.md)** codifies the test strategy and the pre-promote smoke checklist. Persona walkthroughs (Bryony / Jamie / Josh / Aimee) for the full pre-wedding rehearsal. The "automated gates must pass + GHA green on same SHA" rule is now written down and references CLAUDE.md.
+
+**T2 — integration-test scaffold** ([vitest.config.integration.ts](vitest.config.integration.ts) + [tests/integration/permissions.test.ts](tests/integration/permissions.test.ts)). Separate Vitest config so unit tests stay fast (`npm test` in <1s); integration tests run via `npm run test:integration` against a real Postgres set via `DATABASE_URL`. Tests self-skip when the env var isn't set (or doesn't look "test"-y), so the scaffold is safe on a dev machine without Docker. Five permission-resolver scenarios covered: EDIT user, NONE user, no Permission row, couple-only-section denial, couple-tier passes everywhere. CI wiring for the integration job is **not** in this release — that's a follow-on with the Playwright phase. Local-run instructions documented in TESTING.md.
+
+**T3 — Playwright e2e deferred.** Scaffolding Playwright that's reliable on Windows AND in GHA is a session-of-its-own. Tracked in [REMEDIATION-PLAN.md](REMEDIATION-PLAM.md) §3-T3.
+
+**Verified:** typecheck, lint, build, 69/69 unit tests pass, integration runner skips cleanly without `DATABASE_URL`, full clean `npm ci` from wiped `node_modules`. Holding promote until GHA confirms green at this SHA — first release where the green-CI-first rule was set up *before* the new test gates landed, so this is also the test of whether the new GHA pipeline itself works.
 
 ### 2026-04-28 · v1.3.0 — Phase R2: magic-link rate limit + archived-guest restore
 

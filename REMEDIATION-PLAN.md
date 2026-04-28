@@ -178,15 +178,21 @@ exists. Future audits start from a higher floor.
 
 ### Phase R3 — Test depth (~5 hrs)
 
-→ Internal release / no version bump (test infrastructure only).
+**Status: T5 + T4 + T2-scaffold shipped in v1.4.0; T3 (Playwright) deferred.**
 
-1. **T2** (permission integration tests) — ~2 hrs
-2. **T3** (Playwright scaffold + 4 specs) — ~3 hrs
-3. **T4** (TESTING.md) — ~30 min
-4. CI wiring.
+1. ~~**T5**~~ — CI gates the image build on typecheck + lint + tests
+   passing ([.github/workflows/build.yml](.github/workflows/build.yml)). ✅ shipped v1.4.0
+2. ~~**T4**~~ — [TESTING.md](TESTING.md) with persona-walkthrough smoke
+   checklist + pre-promote rule. ✅ shipped v1.4.0
+3. ~~**T2 scaffold**~~ — separate Vitest config + integration test
+   skeleton at [tests/integration/permissions.test.ts](tests/integration/permissions.test.ts).
+   Self-skips without `DATABASE_URL`. ✅ shipped v1.4.0
+4. **T2 CI** — Postgres service container + integration job in GHA. 🟡 TODO
+5. **T3** — Playwright scaffold + 4 e2e specs. 🟡 deferred to its own session
 
 **Outcome:** every future fix can ship with a regression test in
-~30 min. Pre-promote checklist becomes runnable with one command.
+~30 min. Pre-promote checklist runnable. CI image build no longer
+ships when tests are red.
 
 ### Phase R4 — Workflow polish (multiple sessions)
 
