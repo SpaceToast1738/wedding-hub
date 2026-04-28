@@ -61,9 +61,11 @@ These hurt ergonomics in real use but don't block the app. Schedule
 across multiple sessions; prioritise by which workflow the couple uses
 most.
 
-> **Status:** B1, B2, B3, B4 shipped in v1.11.0 (Phase R4a, 28 Apr 2026).
-> B10 and B13 were already done before R4a started. The remaining
-> items (B5–B9, B11, B12) are scheduled for R4b / R4c.
+> **Status (28 Apr 2026):**
+> - **R4a (v1.11.0):** B1, B2, B3, B4 shipped.
+> - **R4b (v1.12.0):** B5, B8, B11, B12 shipped.
+> - **Pre-existing:** B10 and B13 already done.
+> - **Remaining for R4c:** B6, B7, B9 (3 polish MINORs).
 
 | ID | Finding | Severity | Size | Status | Notes |
 |---|---|---|---|---|---|
@@ -71,15 +73,15 @@ most.
 | **B2** | `BudgetLine.actual` doesn't recompute from `Payment` rows | MAJOR | M–L (~3–4 hrs) | ✅ shipped v1.11.0 | Compute on read via `computeActual` in `src/lib/budget.ts`. Stored `actual` is the manual override; null = sum-of-payments. Additive migration adds `@@index([budgetLineId])`. UI relabels the edit form ("Manual override / clear to recompute"). |
 | **B3** | `SupplierCommunication.followUpAt` doesn't auto-create a Task | MAJOR | S (~1.5 hrs) | ✅ shipped v1.11.0 | Comm + auto-task in a single `db.$transaction`. Tag-based linkage (`["supplier-follow-up", "supplier:<id>", "comm:<id>"]`) avoids a schema change. Comm log shows a "Task ↗" pill next to the follow-up date. |
 | **B4** | Supplier card lacks last-message summary | MINOR | XS (~30 min) | ✅ shipped v1.11.0 | Supplier list query now `include`s the most-recent comm; card renders muted "Last (channel, relative date): <summary truncated>". |
-| **B5** | F5 — Server-action errors throw raw `Error` | MINOR | S (~1 hr) | Replace `throw new Error("Forbidden")` with a structured "you don't have edit access" UX. Surface a friendly toast rather than a Next error overlay. |
-| **B6** | Quick-capture Event lands at next round hour with no time picker | MINOR | S (~1 hr) | Add an inline date+time field to the modal when type=Event, default to next hour but visible/editable. |
-| **B7** | Mobile schedule doesn't auto-scroll to NOW | MINOR | XS (~20 min) | `scrollIntoView` on the NOW event on mount (day-of page only). |
-| **B8** | No search on `/guests` | MINOR | S (~1.5 hrs) | Sticky search field at top of `/guests`; filters households + guests as you type. Trivial client-side filter. |
-| **B9** | Guest detail page has no inline song-request add | MINOR | S (~1 hr) | Add a small `<form>` next to the existing requests list. Reuses existing song-request action. |
-| **B10** | Magic-link URL logged to stdout when SMTP unset | MINOR | XS (~10 min) | Already documented; either fail loudly when EMAIL_SERVER_HOST is empty in production (assert-on-boot), or write the link to a dev-only file. |
-| **B11** | Dark mode not persisted to user account | MINOR | S (~1.5 hrs) | Add `User.darkMode: Boolean @default(false)`; load on session init; toggle persists via server action. Migration is additive. |
-| **B12** | `assignGuestToSeat` has race-condition window | MINOR | S (~1 hr) | Wrap the `updateMany` + `update` in a `db.$transaction([…])` and rely on the `Guest.tableSeatId @unique` constraint to fail noisily on conflict. Add an integration test with two parallel calls. |
-| **B13** | Photography print button — clarity that it's `window.print()` | MINOR | XS (~10 min) | Update tooltip / hint copy: "Use your browser's Print → Save as PDF to email a copy." |
+| **B5** | F5 — Server-action errors throw raw `Error` | MINOR | S (~1 hr) | ✅ shipped v1.12.0 | Two-layer fix: `(app)/error.tsx` boundary catches thrown errors and shows a friendly card (detects `Forbidden:` prefix → 🔒 + bare message; otherwise 🦆 generic + raw message in dev). Plus a window-event toast bus (`src/lib/notify.ts` + `Toaster` mounted in AppShell) for non-page-breaking errors; seating drag handlers now toast on collision instead of swallowing silently. |
+| **B6** | Quick-capture Event lands at next round hour with no time picker | MINOR | S (~1 hr) | 🟡 R4c | Add an inline date+time field to the modal when type=Event, default to next hour but visible/editable. |
+| **B7** | Mobile schedule doesn't auto-scroll to NOW | MINOR | XS (~20 min) | 🟡 R4c | `scrollIntoView` on the NOW event on mount (day-of page only). |
+| **B8** | No search on `/guests` | MINOR | S (~1.5 hrs) | ✅ shipped v1.12.0 | New `GuestList.tsx` thin client wrapper with sticky search input. Filters case-insensitively against household name + guest first/last/full. Counter shows N/M while filtering; "×" clears. |
+| **B9** | Guest detail page has no inline song-request add | MINOR | S (~1 hr) | 🟡 R4c | Add a small `<form>` next to the existing requests list. Reuses existing song-request action. |
+| **B10** | Magic-link URL logged to stdout when SMTP unset | MINOR | XS (~10 min) | ✅ pre-existing | `src/auth.ts:145` already gates on `!EMAIL_SERVER_HOST`. |
+| **B11** | Dark mode not persisted to user account | MINOR | S (~1.5 hrs) | ✅ shipped v1.12.0 | Additive migration `User.darkMode Boolean?`; new `setDarkModePreference` server action; pure decision helper at `src/lib/dark-mode.ts`. AvatarMenu syncs DB → localStorage on mount + writes both on toggle. |
+| **B12** | `assignGuestToSeat` has race-condition window | MINOR | S (~1 hr) | ✅ shipped v1.12.0 | `updateMany` + `update` wrapped in `db.$transaction([…])`. Integration test at `tests/integration/seating.test.ts` fires two parallel assignments and asserts the invariant: exactly one guest at the target seat. |
+| **B13** | Photography print button — clarity that it's `window.print()` | MINOR | XS (~10 min) | ✅ pre-existing | Tooltip already explains "Print or save as PDF". |
 
 **Bucket B acceptance:** track in [ROADMAP.md](ROADMAP.md) as v1.3.0 →
 v1.5.0 across multiple sessions. Each item ships with a test where

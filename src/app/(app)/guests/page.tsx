@@ -5,7 +5,7 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { canEdit, canView } from "@/lib/permissions";
 import { requireUser } from "@/lib/actions";
 import { AddHouseholdToggle } from "./AddHouseholdToggle";
-import { HouseholdBlock } from "./HouseholdBlock";
+import { GuestList } from "./GuestList";
 import { ArchivedGuestList } from "./ArchivedGuestList";
 
 // `?archived=1` switches the view from active households to a flat list of
@@ -130,13 +130,13 @@ export default async function GuestsPage({
         }
       />
       <div className="flex-1 overflow-auto">
-        <div className="max-w-5xl mx-auto p-6 space-y-4">
+        <div className="max-w-5xl mx-auto p-6">
           {households.length === 0 ? (
             <p className="text-sm text-ink-tertiary text-center py-12">
               No households yet. {editable && "Add one above."}
             </p>
           ) : (
-            households.map((h) => <HouseholdBlock key={h.id} household={h} canEdit={editable} />)
+            <GuestList households={households} canEdit={editable} />
           )}
         </div>
       </div>

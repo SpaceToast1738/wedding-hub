@@ -4,7 +4,7 @@ import { NAV_GROUPS, type Counts } from "@/components/shell/nav-config";
 import { APP_VERSION } from "@/lib/version";
 
 type Props = {
-  user: { id: string; name?: string | null; email: string; isCouple: boolean; role: string };
+  user: { id: string; name?: string | null; email: string; isCouple: boolean; role: string; darkMode: boolean | null };
   counts: Counts;
   signOutAction: () => Promise<void>;
 };

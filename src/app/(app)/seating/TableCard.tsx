@@ -2,6 +2,7 @@
 
 import { useTransition } from "react";
 import { Button } from "@/components/ui/Button";
+import { notify } from "@/lib/notify";
 import { assignGuestToSeat, deleteTable } from "./actions";
 
 type Seat = { id: string; index: number; guest: { id: string; firstName: string; lastName: string } | null };
@@ -22,11 +23,23 @@ export function TableCard({
 
   function onDelete() {
     if (!confirm(`Delete table "${table.name}"?`)) return;
-    startTransition(async () => { await deleteTable(table.id); });
+    startTransition(async () => {
+      try {
+        await deleteTable(table.id);
+      } catch (err) {
+        notify("error", err instanceof Error ? err.message : "Couldn't delete table");
+      }
+    });
   }
 
   function onAssign(seatId: string, guestId: string) {
-    startTransition(async () => { await assignGuestToSeat(seatId, guestId || null); });
+    startTransition(async () => {
+      try {
+        await assignGuestToSeat(seatId, guestId || null);
+      } catch (err) {
+        notify("error", err instanceof Error ? err.message : "Couldn't assign seat");
+      }
+    });
   }
 
   return (

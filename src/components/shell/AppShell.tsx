@@ -2,6 +2,7 @@ import { db } from "@/lib/db";
 import { Sidebar } from "@/components/shell/Sidebar";
 import { MobileTabBar } from "@/components/shell/MobileTabBar";
 import { QuickCapture } from "@/components/shell/QuickCapture";
+import { Toaster } from "@/components/ui/Toaster";
 import { signOut } from "@/auth";
 import type { Counts } from "@/components/shell/nav-config";
 
@@ -11,6 +12,7 @@ type SessionUser = {
   email: string;
   isCouple: boolean;
   role: string;
+  darkMode: boolean | null;
 };
 
 async function getCounts(user: SessionUser): Promise<Counts> {
@@ -47,6 +49,7 @@ export async function AppShell({
       </main>
       <MobileTabBar isCouple={user.isCouple} signOutAction={signOutAction} />
       <QuickCapture />
+      <Toaster />
     </div>
   );
 }

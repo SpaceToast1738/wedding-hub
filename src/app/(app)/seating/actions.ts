@@ -100,13 +100,20 @@ export async function updateTablePosition(
 
 export async function assignGuestToSeat(seatId: string, guestId: string | null) {
   const user = await requireEdit("seating");
+  // B12 (v1.12.0): wrap clear-and-assign in a single transaction so two
+  // simultaneous drags can't both think they own the seat for a moment.
+  // The `Guest.tableSeatId` column has a unique constraint, so the
+  // *second* offender will fail noisily inside the transaction rather
+  // than producing a half-applied state. Either both updates land or
+  // neither.
   if (guestId) {
-    // Unassign any other seat this guest had
-    await db.guest.updateMany({
-      where: { tableSeatId: seatId, NOT: { id: guestId } },
-      data: { tableSeatId: null },
-    });
-    await db.guest.update({ where: { id: guestId }, data: { tableSeatId: seatId } });
+    await db.$transaction([
+      db.guest.updateMany({
+        where: { tableSeatId: seatId, NOT: { id: guestId } },
+        data: { tableSeatId: null },
+      }),
+      db.guest.update({ where: { id: guestId }, data: { tableSeatId: seatId } }),
+    ]);
   } else {
     await db.guest.updateMany({ where: { tableSeatId: seatId }, data: { tableSeatId: null } });
   }

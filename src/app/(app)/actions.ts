@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { TaskType, TaskStatus, Priority } from "@prisma/client";
 import { db } from "@/lib/db";
-import { audit, requireEdit } from "@/lib/actions";
+import { audit, requireEdit, requireUser } from "@/lib/actions";
 
 // ── Quick-capture (the C shortcut) ────────────────────────────────────────
 //
@@ -86,4 +86,21 @@ export async function quickCapture(input: QuickCaptureInput): Promise<
   revalidatePath(type === "question" ? "/questions" : "/tasks");
   revalidatePath("/");
   return { ok: true, type, id: created.id, title: created.title };
+}
+
+// ── B11: dark-mode preference ─────────────────────────────────────────────
+//
+// Persists per-user so the choice rides along when the user signs in on
+// a new device. No permission gate — every signed-in user can set their
+// own theme. The toggle UI updates localStorage in parallel so the next
+// page load's pre-hydration script paints the right theme without a
+// flash.
+
+export async function setDarkModePreference(enabled: boolean): Promise<{ ok: true }> {
+  const user = await requireUser();
+  await db.user.update({
+    where: { id: user.id },
+    data: { darkMode: enabled },
+  });
+  return { ok: true };
 }

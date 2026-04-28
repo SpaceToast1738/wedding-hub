@@ -11,7 +11,7 @@
 - **Repo:** [SpaceToast1738/wedding-hub](https://github.com/SpaceToast1738/wedding-hub) · `claude/main` (releases) + `dev` (work-in-progress)
 - **Stack:** Next.js 15 · TypeScript · Tailwind v4 · Prisma · Postgres 16 · Auth.js v5 · Caddy · Docker Compose
 - **Working tree:** `C:\Users\Admin\Code\wedding-hub` (local SSD). The old `\\TOWER\Jamie Spencer\Claude\wedding-hub` mirror is no longer in use — run `Remove-Item -Recurse -Force "\\TOWER\Jamie Spencer\Claude\wedding-hub"` from a fresh PowerShell to delete it.
-- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` at **v1.10.0**, promoted 28 Apr 2026). `dev` is at **v1.11.0** — Phase R4a (workflow polish): CSV import now shows per-field "old → new" diffs on merge rows with per-field opt-out checkboxes (B1), `BudgetLine.actual` recomputes on read from `Payment` rows when null with manual-override semantics (B2), supplier follow-ups auto-create a Task in the same transaction with a back-link from the comm log (B3), and supplier cards surface the most-recent communication summary (B4). 119 unit tests, 5 e2e specs.
+- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` at **v1.10.0**, promoted 28 Apr 2026). `dev` is ahead at **v1.12.0** with two pending releases: v1.11.0 (Phase R4a — CSV per-field diff B1, budget actual recompute B2, supplier follow-up auto-Task B3, supplier card last-message B4) and v1.12.0 (Phase R4b — guest search B8, dark-mode persistence B11, seating race fix B12, global toast + (app)/error.tsx error UX B5). 126 unit tests, 5 e2e specs, 1 new integration test.
 
 ## Phase status
 
@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.11.0** | 2026-04-28 | [Phase R4a: workflow polish (B1 + B2 + B3 + B4)](#2026-04-28--v1110--phase-r4a-workflow-polish-b1--b2--b3--b4) |
+| **v1.12.0** | 2026-04-28 | [Phase R4b: data + UX MINORs (B5 + B8 + B11 + B12)](#2026-04-28--v1120--phase-r4b-data--ux-minors-b5--b8--b11--b12) |
+| v1.11.0 | 2026-04-28 | [Phase R4a: workflow polish (B1 + B2 + B3 + B4)](#2026-04-28--v1110--phase-r4a-workflow-polish-b1--b2--b3--b4) |
 | v1.10.0 | 2026-04-28 | [Phase R3 follow-on: Postgres-backed integration job + Playwright e2e in CI](#2026-04-28--v1100--phase-r3-follow-on-postgres-integration-job--playwright-e2e-in-ci) |
 | v1.9.0 | 2026-04-28 | [Book sections aligned with prototype + Spotify env-var compose fix](#2026-04-28--v190--book-sections-aligned-with-prototype--spotify-env-var-compose-fix) |
 | v1.8.0 | 2026-04-28 | [Spotify integration setup guide + status chip on Songs](#2026-04-28--v180--spotify-integration-setup-guide--status-chip) |
@@ -247,6 +248,22 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-28 · v1.12.0 — Phase R4b: data + UX MINORs (B5 + B8 + B11 + B12)
+
+The second batch of REMEDIATION-PLAN Bucket B. v1.11.0 was the three MAJORs; v1.12.0 is the four MINORs that, together, lift daily-use friction and close the last data-integrity gap surfaced by the audit.
+
+**B12 — `assignGuestToSeat` race-condition window.** The action used to do `updateMany` (clear other guests off the seat) followed by `update` (assign the new guest) as two separate Prisma calls. With two simultaneous drags onto the same seat, both could clear and both could try to assign — leaving the DB in a half-applied state until the unique constraint on `Guest.tableSeatId` fired. Now wrapped in `db.$transaction([…])` so either both updates land or the unique constraint rejects the second offender atomically. New integration test at [tests/integration/seating.test.ts](tests/integration/seating.test.ts) fires two parallel `assignGuestToSeat` calls and asserts exactly one guest ends up at the target seat. (Postgres serialisation may also cleanly serialise the two transactions — both outcomes are acceptable; the test asserts the *invariant*, not a specific timing.)
+
+**B8 — Sticky search on `/guests`.** Aimee surfaced this — the guest list scrolled forever once we hit ~50 households. New thin client wrapper [GuestList.tsx](src/app/(app)/guests/GuestList.tsx) wraps the list with a sticky search input above the household blocks. Filters case-insensitively against household name and each guest's first/last/full name. Client-side because the full guest list is already in the SSR payload — no need for a round-trip per keystroke. Counter shows `N/M` matching while a query is active; "×" button clears.
+
+**B11 — Dark mode persistence per-account.** Pre-B11 the toggle wrote to localStorage only — sign in on a new device and you're back to light. Additive Prisma migration adds `User.darkMode Boolean?` (nullable so existing rows aren't forced to commit). New server action `setDarkModePreference` in [(app)/actions.ts](src/app/(app)/actions.ts); pure decision helper [src/lib/dark-mode.ts](src/lib/dark-mode.ts) (`resolveDarkMode`) covers the precedence rule (DB > localStorage > light). [AvatarMenu](src/components/shell/AvatarMenu.tsx) gets the user's `darkMode` prop, syncs DB → localStorage on mount (so the next page-load's pre-hydration script paints right), and fires the action on toggle. 7 new unit tests on the precedence matrix.
+
+**B5 — Global server-action error UX.** The audit's last MINOR — raw `throw new Error("Forbidden: …")` from `requireEdit` was surfacing as Next's red error overlay in dev and a generic error page in prod. Two-layer fix: (1) [(app)/error.tsx](src/app/(app)/error.tsx) catches anything thrown from the (app) tree and renders a friendly card — detects "Forbidden:" prefix and shows a 🔒 + the bare message, otherwise generic "Something went wrong" with the raw message in dev only and a "Try again" button. (2) Lightweight toast bus at [src/lib/notify.ts](src/lib/notify.ts) (window-event based — no Provider plumbing) + [Toaster](src/components/ui/Toaster.tsx) component mounted in AppShell. The seating drag handlers ([TableCard](src/app/(app)/seating/TableCard.tsx), [SeatingCanvas](src/app/(app)/seating/SeatingCanvas.tsx)) now toast on errors instead of swallowing them silently — the most obvious B12 race window users would actually feel.
+
+**Files changed:** 13 modified, 7 new, 1 migration. 7 new unit tests + 2 new integration tests (seating race + cascade). Build size +0.3 KB shared (Toaster component). e2e specs untouched (no new auth-redirect surfaces).
+
+**Bucket B status after v1.12.0:** B1, B2, B3, B4, B5, B8, B11, B12 shipped (8/13). B10 + B13 already done before R4 started (2/13). Remaining for R4c: B6 (quick-capture event time picker), B7 (mobile schedule scroll-to-NOW), B9 (inline song-request on guest detail) — 3 polish MINORs, ~2.5 hrs.
 
 ### 2026-04-28 · v1.11.0 — Phase R4a: workflow polish (B1 + B2 + B3 + B4)
 

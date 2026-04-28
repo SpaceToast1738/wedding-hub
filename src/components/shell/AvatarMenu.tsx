@@ -3,9 +3,10 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Avatar } from "@/components/ui/Avatar";
+import { setDarkModePreference } from "@/app/(app)/actions";
 
 type Props = {
-  user: { id: string; name?: string | null; email: string; isCouple: boolean; role: string };
+  user: { id: string; name?: string | null; email: string; isCouple: boolean; role: string; darkMode: boolean | null };
   signOutAction: () => Promise<void>;
 };
 
@@ -21,9 +22,23 @@ export function AvatarMenu({ user, signOutAction }: Props) {
   const [dark, setDark] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
+  // B11: reconcile DB pref → localStorage on mount. The pre-hydration
+  // DarkModeScript can only see localStorage; the DB value lands here
+  // (server-rendered into props) and we sync it forward so the next
+  // page load on this device paints correctly without a flash.
   useEffect(() => {
+    if (typeof user.darkMode === "boolean") {
+      setDark(user.darkMode);
+      const cls = document.documentElement.classList;
+      if (user.darkMode) cls.add("dark"); else cls.remove("dark");
+      try {
+        localStorage.setItem("wh-theme", user.darkMode ? "dark" : "light");
+      } catch {}
+      return;
+    }
+    // No DB pref — fall back to whatever the inline script applied.
     setDark(document.documentElement.classList.contains("dark"));
-  }, []);
+  }, [user.darkMode]);
 
   useEffect(() => {
     if (!open) return;
@@ -51,6 +66,10 @@ export function AvatarMenu({ user, signOutAction }: Props) {
       document.documentElement.classList.remove("dark");
       try { localStorage.setItem("wh-theme", "light"); } catch {}
     }
+    // Fire-and-forget DB sync so the choice rides along to other devices.
+    // If the action fails, the UI doesn't roll back — localStorage is
+    // already authoritative on this device for this session.
+    void setDarkModePreference(next).catch(() => {});
   }
 
   const displayName = user.name ?? user.email;

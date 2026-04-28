@@ -24,6 +24,7 @@ export default async function AppLayout({
       lastName: true,
       role: true,
       isCouple: true,
+      darkMode: true,
     },
   });
   if (!dbUser) redirect("/signin");
@@ -37,6 +38,7 @@ export default async function AppLayout({
         name: dbUser.name,
         isCouple: dbUser.isCouple,
         role: dbUser.role,
+        darkMode: dbUser.darkMode,
       }}
     >
       {children}

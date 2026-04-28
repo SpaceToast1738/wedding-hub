@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import type { TableShape } from "@prisma/client";
 import { Button } from "@/components/ui/Button";
+import { notify } from "@/lib/notify";
 import { assignGuestToSeat, deleteTable, updateTablePosition } from "./actions";
 
 type Seat = {
@@ -313,7 +314,14 @@ function FocusPanel({
 
   function onAssign(seatId: string, guestId: string) {
     startTransition(async () => {
-      await assignGuestToSeat(seatId, guestId || null);
+      try {
+        await assignGuestToSeat(seatId, guestId || null);
+      } catch (err) {
+        notify(
+          "error",
+          err instanceof Error ? err.message : "Couldn't update seating",
+        );
+      }
     });
   }
 

@@ -23,6 +23,11 @@ model User {
   emailVerified DateTime?
   role          UserRole   @default(VIEWER)
   isCouple      Boolean    @default(false)
+  // B11 (v1.12.0): per-account dark-mode preference. Synced from
+  // localStorage on first toggle so existing users keep their pick.
+  // Null = "follow the device default" (system preference); rare in
+  // practice since the toggle UI sets a concrete value.
+  darkMode      Boolean?
   accounts      Account[]
   sessions      Session[]
   auditLogs     AuditLog[]
