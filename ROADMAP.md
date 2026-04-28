@@ -11,7 +11,7 @@
 - **Repo:** [SpaceToast1738/wedding-hub](https://github.com/SpaceToast1738/wedding-hub) · `claude/main` (releases) + `dev` (work-in-progress)
 - **Stack:** Next.js 15 · TypeScript · Tailwind v4 · Prisma · Postgres 16 · Auth.js v5 · Caddy · Docker Compose
 - **Working tree:** `C:\Users\Admin\Code\wedding-hub` (local SSD). The old `\\TOWER\Jamie Spencer\Claude\wedding-hub` mirror is no longer in use — run `Remove-Item -Recurse -Force "\\TOWER\Jamie Spencer\Claude\wedding-hub"` from a fresh PowerShell to delete it.
-- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` at **v1.4.0**, promoted 28 Apr 2026 after GHA green). Phase R3 (partial) shipped: Vitest gates the Docker image build, [TESTING.md](TESTING.md) codifies the smoke checklist, and an integration-test scaffold lives at `tests/integration/`. Playwright e2e (T3) and the integration-test CI job (T2-CI) deferred. R4 (workflow polish — Bucket B from the audit) is next.
+- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` at **v1.4.0**). v1.5.0 (this iteration on `dev`) is **Tier 1 user-feedback polish** — six small fixes from the live-use review: mobile sign-out (was unreachable), Settings UI defence-in-depth for permission elevation, page-scroll feel on Settings, Glance laid out as 4 long columns, countdown card now shows full multi-unit precision (`4 months 2 weeks 3 days`), plus a repo-hygiene pass (orphan `EventRow.tsx` deleted, three audit docs consolidated to `AUDIT.md`).
 
 ## Phase status
 
@@ -34,6 +34,7 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
+| _(unreleased on `dev`)_ | 2026-04-28 | [v1.5.0 — Tier 1 user-feedback polish: mobile signout, Settings UI defence, scroll, 4-col Glance, countdown breakdown](#2026-04-28--v150--tier-1-user-feedback-polish) |
 | **v1.4.0** | 2026-04-28 | [Phase R3 (partial): tests in CI + TESTING.md + integration scaffold](#2026-04-28--v140--phase-r3-partial-tests-in-ci--testingmd--integration-scaffold) |
 | v1.3.0 | 2026-04-28 | [Phase R2: magic-link rate limit + archived-guest restore](#2026-04-28--v130--phase-r2-magic-link-rate-limit--archived-guest-restore) |
 | v1.2.4 | 2026-04-28 | [Dockerfile copies `.npmrc` — first version of the v1.2.x line that built green in CI](#2026-04-28--v124--dockerfile-copies-npmrc-so-the-legacy-peer-deps-actually-applies-in-ci) |
@@ -235,11 +236,41 @@ When wrapping up a meaningful iteration:
 
 ### Current version
 
-`1.4.0` on both `dev` and `claude/main` (promoted 28 Apr 2026 after GHA green). Production catches up on next `docker compose pull && up -d` — code-only release, no migrations.
+`1.5.0` on `dev`, `claude/main` at `v1.4.0`. Tier 1 of the user-feedback list shipped (mobile signout, Settings UI defence, scroll, 4-col Glance, countdown breakdown, repo cleanup). Holding promote until GHA confirms green at the v1.5.0 SHA.
 
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-28 · v1.5.0 — Tier 1 user-feedback polish
+
+Six small fixes from the live-use review (Tier 1 of the issues raised after R3). No schema or env changes.
+
+**Mobile sign-out (G).** The `Sidebar` (which contains `AvatarMenu` → Sign out) has `display: none` at ≤720px viewport — so mobile users had **no path to sign out**. [MobileTabBar.tsx](src/components/shell/MobileTabBar.tsx) now takes a `signOutAction` prop and renders Sign out as the last item in the More sheet, separated by a divider. AppShell threads the existing `signOutAction` server action through.
+
+**Settings UI defence-in-depth for permission elevation (F).** The audit's A2 (settings self-elevation BLOCKER) was fixed server-side in v1.2.0 — `setPermission`, `setUserCouple`, and `removeUser` all throw `Forbidden` for non-couple callers. But the UI still showed clickable Couple checkboxes and permission selects to non-couple users with `EDIT(settings)`, who would only see the error at submit time. Now [PermissionMatrix.tsx](src/app/(app)/settings/PermissionMatrix.tsx) takes `currentUserIsCouple` and disables the controls accordingly:
+- Read-only banner explains why for non-couple viewers
+- Couple checkbox + section selects gain `disabled` + tooltip when current user isn't couple
+- Member × button only renders for couple-tier callers
+- Server gates from v1.2.0 still hold — this is purely UI honesty
+
+**Settings page scroll feel (H).** Three issues addressed:
+- Page wrapper changed from `overflow-auto` (both axes) to `overflow-y-auto overflow-x-hidden`. Stops the trackpad-wobble when two scroll axes fight.
+- The permission matrix's `<thead>` is now `sticky top-0 z-20`, so column labels stay anchored while scrolling vertically through a long member list. Background colour explicit per cell so the sticky header is opaque.
+- Member column already had `sticky left-0` — z-index bumped to 30 so it sits above the now-sticky thead at the corner.
+
+**Glance dashboard, 4 long columns (B).** [glance/page.tsx](src/app/(app)/glance/page.tsx) grid switched from `repeat(auto-fit, minmax(280px, 1fr))` to `grid-cols-1 sm:grid-cols-2 lg:grid-cols-4`. Each card is taller and narrower at desktop width; stacks on phone, pairs on tablet.
+
+**Countdown card multi-unit breakdown (C).** [CountdownCard.tsx](src/app/(app)/CountdownCard.tsx) now shows full precision regardless of the toggle:
+- `days` — single unit (e.g. `120 days`)
+- `weeks` — primary + remainder (e.g. `17 weeks` with `+ 1 day` underneath)
+- `months` — primary + multi-remainder (e.g. `4 months` with `+ 2 weeks 3 days` underneath)
+
+The big-number aesthetic stays; precision is in a small subtitle line. Helper functions (`addMonths`, `ceilDays`, `buildBreakdown`) are inline; could be lifted to `src/lib/format.ts` if reused elsewhere.
+
+**Repo hygiene.** Deleted [src/app/(app)/schedule/EventRow.tsx](src/app/(app)/schedule/EventRow.tsx) — orphan since the v1.0.0 schedule timeline rewrite (replaced by `EventNode.tsx` + `ScheduleTimeline.tsx`, no remaining imports). Consolidated `AUDIT-BRIEF.md` + `AUDIT-PLAN.md` + `AUDIT-REPORT.md` into a single [AUDIT.md](AUDIT.md) — same content, three sections, easier to find. References in REMEDIATION-PLAN, ROADMAP, and TESTING all updated.
+
+Verified: typecheck, lint, build, 69/69 tests, clean `npm ci` from wiped `node_modules`. Holding promote until GHA confirms green at this SHA.
 
 ### 2026-04-28 · v1.4.0 — Phase R3 (partial): tests in CI + TESTING.md + integration scaffold
 

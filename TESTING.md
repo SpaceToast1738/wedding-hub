@@ -147,4 +147,4 @@ Run once before the wedding (target: ~2 weeks out, after the rehearsal data is r
 - [ ] Add a song request via her own guest entry → Songs page
 - [ ] Read the Hen Do plan on the Wedding Party section; confirm she can see it (no per-page audience yet — see C1 in the remediation plan)
 
-If any flow has a friction not in the [audit report](AUDIT-REPORT.md), log it in the relevant section's GitHub issues or in a working `FRICTION-LOG.md`.
+If any flow has a friction not in the [audit report](AUDIT.md), log it in the relevant section's GitHub issues or in a working `FRICTION-LOG.md`.

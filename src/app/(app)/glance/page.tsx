@@ -167,7 +167,11 @@ export default async function AtAGlancePage() {
       />
       <div className="flex-1 overflow-auto">
         <div className="max-w-[1100px] mx-auto p-6">
-          <div className="grid gap-4" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))" }}>
+          {/* Four long columns on lg+; stack on smaller viewports so the
+              cards don't squish below ~280px. The four cards (RSVPs,
+              Budget/Wedding-day, Payments/Tasks, Recent activity) line
+              up in a single row at desktop width. */}
+          <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
             {/* RSVPs — donut + recent */}
             <GlanceCard title="RSVPs" viewAllHref="/guests">
               <RsvpDonut

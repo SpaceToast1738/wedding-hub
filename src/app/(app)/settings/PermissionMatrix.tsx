@@ -34,16 +34,25 @@ export function PermissionMatrix({
   users,
   permissions,
   currentUserId,
+  currentUserIsCouple,
   canEdit,
 }: {
   users: User[];
   permissions: Perm[];
   currentUserId: string;
+  currentUserIsCouple: boolean;
   canEdit: boolean;
 }) {
   const [pending, startTransition] = useTransition();
   const permMap = new Map<string, "NONE" | "VIEW" | "EDIT">();
   for (const p of permissions) permMap.set(`${p.userId}|${p.section}`, p.level);
+
+  // Belt-and-braces: only the couple can change permissions, grant
+  // couple-tier, or remove users. The server actions also gate on
+  // user.isCouple (see settings/actions.ts — A2 fix from v1.2.0), so
+  // even a forged request fails. This UI flag just stops non-couple
+  // users from seeing clickable controls that will only error on submit.
+  const couplePrivileged = canEdit && currentUserIsCouple;
 
   function changeLevel(userId: string, section: string, level: string) {
     const fd = new FormData();
@@ -70,14 +79,30 @@ export function PermissionMatrix({
   }
 
   return (
+    <>
+      {canEdit && !currentUserIsCouple && (
+        <div className="mb-3 bg-canvas border border-border-soft text-ink-secondary rounded-md px-4 py-2.5 text-xs flex items-start gap-2">
+          <span className="text-marigold-700 flex-shrink-0">🔒</span>
+          <span>
+            <strong>Read-only.</strong> You have edit access to Settings, but only the couple
+            can change other members&apos; permissions, grant couple-tier access, or remove members.
+          </span>
+        </div>
+      )}
     <div className="overflow-x-auto bg-surface border border-border-soft rounded-md shadow-sm">
       <table className="text-sm w-full">
-        <thead>
+        {/* Sticky thead so column labels stay visible while scrolling
+            the page vertically — this list grows as members are added.
+            The Member column's left-stickiness was already present;
+            combining it with thead-sticky gives both axes a fixed
+            anchor. z-20 on thead so it sits above the z-10 Member
+            column cells when both stick simultaneously. */}
+        <thead className="sticky top-0 z-20">
           <tr className="border-b border-border-soft text-[10px] font-bold text-ink-tertiary uppercase tracking-wider bg-canvas">
-            <th className="px-4 py-2 text-left sticky left-0 bg-canvas z-10">Member</th>
-            <th className="px-3 py-2 text-center">Couple</th>
+            <th className="px-4 py-2 text-left sticky left-0 bg-canvas z-30">Member</th>
+            <th className="px-3 py-2 text-center bg-canvas">Couple</th>
             {SECTIONS.map((s) => (
-              <th key={s} className="px-2 py-2 text-center font-bold whitespace-nowrap">{SECTION_LABELS[s]}</th>
+              <th key={s} className="px-2 py-2 text-center font-bold whitespace-nowrap bg-canvas">{SECTION_LABELS[s]}</th>
             ))}
           </tr>
         </thead>
@@ -91,7 +116,7 @@ export function PermissionMatrix({
                     <div className="text-sm font-medium text-ink-primary truncate">{u.name ?? u.email}{u.id === currentUserId && <span className="text-[10px] text-ink-tertiary ml-1">(you)</span>}</div>
                     <div className="text-[11px] text-ink-tertiary truncate">{u.role.replace("_", " ").toLowerCase()}</div>
                   </div>
-                  {canEdit && u.id !== currentUserId && (
+                  {couplePrivileged && u.id !== currentUserId && (
                     <button
                       type="button"
                       onClick={() => remove(u)}
@@ -109,21 +134,37 @@ export function PermissionMatrix({
                 <input
                   type="checkbox"
                   checked={u.isCouple}
-                  disabled={!canEdit || pending || u.id === currentUserId}
+                  disabled={!couplePrivileged || pending || u.id === currentUserId}
                   onChange={(e) => toggleCouple(u.id, e.target.checked)}
+                  title={
+                    !currentUserIsCouple
+                      ? "Only the couple can change couple-tier membership"
+                      : u.id === currentUserId
+                        ? "You can't change your own couple flag"
+                        : undefined
+                  }
                 />
               </td>
               {SECTIONS.map((s) => {
                 const isCoupleOnly = COUPLE_ONLY_SECTIONS.includes(s);
                 const effective: "NONE" | "VIEW" | "EDIT" =
                   u.isCouple ? "EDIT" : (isCoupleOnly ? "NONE" : permMap.get(`${u.id}|${s}`) ?? "NONE");
-                const editable = canEdit && !u.isCouple && !isCoupleOnly;
+                const editable = couplePrivileged && !u.isCouple && !isCoupleOnly;
                 return (
                   <td key={s} className="px-2 py-2.5 text-center">
                     <select
                       value={effective}
                       disabled={!editable || pending}
                       onChange={(e) => changeLevel(u.id, s, e.target.value)}
+                      title={
+                        !currentUserIsCouple
+                          ? "Only the couple can change permissions"
+                          : u.isCouple
+                            ? "Couple-tier members have edit access on every section"
+                            : isCoupleOnly
+                              ? "Couple-only section — non-couple members can't be granted access"
+                              : undefined
+                      }
                       className="text-[11px] bg-canvas border border-border-soft rounded-sm px-1 py-0.5 text-ink-secondary outline-none disabled:opacity-50"
                     >
                       <option value="NONE">None</option>
@@ -138,5 +179,6 @@ export function PermissionMatrix({
         </tbody>
       </table>
     </div>
+    </>
   );
 }

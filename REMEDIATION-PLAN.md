@@ -1,6 +1,6 @@
 # Wedding Hub — Post-audit Remediation Plan
 
-> Triage and execution plan based on [AUDIT-REPORT.md](AUDIT-REPORT.md)
+> Triage and execution plan based on [AUDIT.md](AUDIT.md)
 > findings (v1.1.0, audited 2026-04-27) plus the testing-strategy
 > conversation that followed. The audit produced reports; this document
 > turns them into actionable work items with sizing, dependencies, and
@@ -291,7 +291,7 @@ Confirms every audit finding is mapped to either a remediation item or
 an explicit accept-the-drift decision. Items added in the v1.2 plan
 edit are tagged `(added in cross-check)`.
 
-### From [AUDIT-REPORT.md](AUDIT-REPORT.md) §6.1 — Permissions
+### From [AUDIT.md](AUDIT.md) §6.1 — Permissions
 
 | Finding | Plan item |
 |---|---|
@@ -303,7 +303,7 @@ edit are tagged `(added in cross-check)`.
 | F6 — polymorphic `setTaskStatus` / `deleteTask` gate | A5 |
 | Permissioned-out UI silent redirect | B5 (same fix surfaces friendly UX) |
 
-### From [AUDIT-REPORT.md](AUDIT-REPORT.md) §6.2 — Functional defects
+### From [AUDIT.md](AUDIT.md) §6.2 — Functional defects
 
 | Finding | Plan item |
 |---|---|
@@ -320,7 +320,7 @@ edit are tagged `(added in cross-check)`.
 | `/glance` no `canView` gate | not a finding (intentional role-aware redact) |
 | `assignGuestToSeat` race condition | **B12** *(added in cross-check)* |
 
-### From [AUDIT-REPORT.md](AUDIT-REPORT.md) §6.3 — Design fidelity
+### From [AUDIT.md](AUDIT.md) §6.3 — Design fidelity
 
 | Finding | Plan item |
 |---|---|
@@ -332,7 +332,7 @@ edit are tagged `(added in cross-check)`.
 | `User.darkMode` field missing | B11 |
 | A3-landscape Seating + DRAFT watermark | **C12** *(added in cross-check)* |
 
-### From [AUDIT-REPORT.md](AUDIT-REPORT.md) §6.4 — Persona friction
+### From [AUDIT.md](AUDIT.md) §6.4 — Persona friction
 
 | Friction | Plan item |
 |---|---|
@@ -349,7 +349,7 @@ edit are tagged `(added in cross-check)`.
 | Aimee — no inline song-request add on Guest detail | B9 |
 | Aimee — Hen plan visible to Josh (no audience override) | C1 |
 
-### From [AUDIT-PLAN.md](AUDIT-PLAN.md) §0 — Spec drift table
+### From [AUDIT.md](AUDIT.md) §0 — Spec drift table
 
 | Drift | Plan item |
 |---|---|

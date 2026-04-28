@@ -21,7 +21,11 @@ export default async function SettingsPage() {
   return (
     <>
       <PageHeader title="Settings" subtitle="Your profile, members, and per-section permissions" />
-      <div className="flex-1 overflow-auto">
+      {/* Vertical-only on the page; horizontal scrolling lives inside the
+          permission matrix's own container so the page itself doesn't
+          scroll sideways. Stops the trackpad-wobble where two scroll
+          axes fight each other. */}
+      <div className="flex-1 overflow-y-auto overflow-x-hidden">
         <div className="max-w-6xl mx-auto p-6 space-y-4">
           <MyProfilePanel
             email={me?.email ?? user.email}
@@ -49,6 +53,7 @@ export default async function SettingsPage() {
               level: p.level,
             }))}
             currentUserId={user.id}
+            currentUserIsCouple={user.isCouple}
             canEdit={editable}
           />
         </div>

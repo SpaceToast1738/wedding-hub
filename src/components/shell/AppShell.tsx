@@ -45,7 +45,7 @@ export async function AppShell({
       <main className="flex-1 flex flex-col overflow-hidden min-w-0">
         {children}
       </main>
-      <MobileTabBar isCouple={user.isCouple} />
+      <MobileTabBar isCouple={user.isCouple} signOutAction={signOutAction} />
       <QuickCapture />
     </div>
   );

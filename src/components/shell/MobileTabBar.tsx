@@ -5,7 +5,13 @@ import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { MOBILE_TABS, NAV_GROUPS } from "@/components/shell/nav-config";
 
-export function MobileTabBar({ isCouple }: { isCouple: boolean }) {
+export function MobileTabBar({
+  isCouple,
+  signOutAction,
+}: {
+  isCouple: boolean;
+  signOutAction: () => Promise<void>;
+}) {
   const pathname = usePathname();
   const [moreOpen, setMoreOpen] = useState(false);
 
@@ -84,6 +90,22 @@ export function MobileTabBar({ isCouple }: { isCouple: boolean }) {
                 {item.label}
               </Link>
             ))}
+            {/* Sign out — mobile users have no other path to it (the
+                AvatarMenu lives in the Sidebar, which is display:none
+                at ≤720px). Form-based so the server action handles
+                redirect to /signin. */}
+            <div className="mt-2 pt-2 border-t border-border-soft">
+              <form action={signOutAction}>
+                <button
+                  type="submit"
+                  onClick={() => setMoreOpen(false)}
+                  className="flex items-center gap-3.5 w-full px-5 py-3 text-[15px] text-ink-primary cursor-pointer"
+                >
+                  <span className="w-5 text-center opacity-70">⏻</span>
+                  Sign out
+                </button>
+              </form>
+            </div>
           </div>
         </div>
       )}

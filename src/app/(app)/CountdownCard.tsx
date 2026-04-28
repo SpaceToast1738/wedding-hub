@@ -11,6 +11,49 @@ function diffMonths(target: Date, now: Date): number {
   return Math.max(0, months + (dayDiff >= 0 ? 0 : -1));
 }
 
+// Add `months` calendar months to `from`, returning the new Date. Used by
+// the multi-unit breakdown to compute the leftover-days after stripping
+// out whole months.
+function addMonths(from: Date, months: number): Date {
+  const d = new Date(from.getTime());
+  d.setMonth(d.getMonth() + months);
+  return d;
+}
+
+// Whole days between two dates, ceiling. Negative inputs clamp to 0.
+function ceilDays(from: Date, to: Date): number {
+  return Math.max(0, Math.ceil((to.getTime() - from.getTime()) / 86_400_000));
+}
+
+// Build the secondary "breakdown" line for a given primary unit so the
+// user gets full precision regardless of the toggle:
+//   days   → "" (days is already the finest grain)
+//   weeks  → "3 days" (or "")
+//   months → "2 weeks 3 days" / "2 weeks" / "3 days" / ""
+// Returns an empty string when nothing is left over so callers can hide
+// the line cleanly.
+function buildBreakdown(unit: Unit, now: Date, target: Date): string {
+  if (unit === "days") return "";
+
+  if (unit === "weeks") {
+    const totalDays = ceilDays(now, target);
+    const days = totalDays % 7;
+    if (days === 0) return "";
+    return `${days} day${days === 1 ? "" : "s"}`;
+  }
+
+  // months
+  const months = diffMonths(target, now);
+  const afterMonths = addMonths(now, months);
+  const daysAfterMonths = ceilDays(afterMonths, target);
+  const weeks = Math.floor(daysAfterMonths / 7);
+  const days = daysAfterMonths % 7;
+  const parts: string[] = [];
+  if (weeks > 0) parts.push(`${weeks} week${weeks === 1 ? "" : "s"}`);
+  if (days > 0) parts.push(`${days} day${days === 1 ? "" : "s"}`);
+  return parts.join(" ");
+}
+
 export function CountdownCard({
   targetIso,
   venueLabel,
@@ -48,6 +91,7 @@ export function CountdownCard({
   const months = diffMonths(target, now);
 
   const value = unit === "days" ? days : unit === "weeks" ? weeks : months;
+  const breakdown = buildBreakdown(unit, now, target);
   const targetLabel = target.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
 
   return (
@@ -80,6 +124,11 @@ export function CountdownCard({
           {value}
         </div>
         <div className="font-display text-base text-moss-700 mt-1 capitalize">{unit}</div>
+        {breakdown && (
+          <div className="text-xs text-ink-tertiary mt-1 tabular-nums">
+            + {breakdown}
+          </div>
+        )}
       </div>
       <div className="text-right">
         <div className="text-xs text-ink-tertiary">{targetLabel}</div>
