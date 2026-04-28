@@ -150,12 +150,27 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         }
         const nodemailer = await import("nodemailer");
         const transport = nodemailer.createTransport(provider.server);
+        // v1.19.5: deliverability hardening. Reply-To gives receivers
+        // a real address to reply to (absence is a soft spam signal).
+        // List-Unsubscribe (RFC 2369) lowers Gmail's spam-classifier
+        // weight even on transactional auth mail. The Resend domain
+        // auth (SPF/DKIM/DMARC on spencer-net.com) is the bigger
+        // lever — see README "Email deliverability" section.
+        const replyTo =
+          process.env.EMAIL_REPLY_TO ?? process.env.EMAIL_FROM ?? undefined;
+        const unsubscribeAddress =
+          process.env.EMAIL_REPLY_TO ?? "hello@spencer-net.com";
         await transport.sendMail({
           to: identifier,
           from: provider.from,
+          replyTo,
           subject: "Your Wedding Hub sign-in link",
           text: magicLinkText(url),
           html: magicLinkHtml(url),
+          headers: {
+            "List-Unsubscribe": `<mailto:${unsubscribeAddress}?subject=unsubscribe>`,
+            "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+          },
         });
       },
     }),

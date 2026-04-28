@@ -215,6 +215,70 @@ If you ever want to drop Cloudflare and let Caddy terminate TLS itself:
 3. Drop the `br0` static IP and `auto_https off` config.
 4. Add an A record for `${DOMAIN}` and forward 80 + 443 from the router to the Unraid LAN IP.
 
+## Email deliverability
+
+Magic-link emails ship via Resend SMTP. Sending from a custom domain
+(`hello@spencer-net.com`) requires SPF + DKIM records on
+`spencer-net.com` so receivers (Gmail, Outlook, Apple Mail) accept the
+mail as authenticated. Without them, even well-formed transactional
+mail lands in Spam.
+
+### Setup checklist
+
+1. **In Resend dashboard** (https://resend.com/domains) → Add Domain
+   → enter `spencer-net.com`. Resend generates three DNS records:
+   - SPF (TXT @): `v=spf1 include:_spf.resend.com ~all`
+     (or appended to existing SPF — only one SPF record allowed per
+     domain, multiple is a config error that breaks all of them)
+   - DKIM (TXT at `resend._domainkey.spencer-net.com`): the public
+     key Resend generates (~250 chars)
+   - MX (optional, for bounce handling — skip for transactional only)
+
+2. **Publish the records** via your DNS provider. Wait for propagation
+   (Cloudflare <1 hr; some providers up to 24 hr).
+
+3. **Verify in Resend** → Domains → click the domain. Should flip to
+   ✓ Verified.
+
+4. **Add DMARC** (recommended, observe-mode first). TXT at
+   `_dmarc.spencer-net.com`:
+   ```
+   v=DMARC1; p=none; rua=mailto:dmarc@spencer-net.com; pct=100
+   ```
+   `p=none` = "tell receivers to do nothing differently, just send me
+   reports." After ~2 weeks of clean reports, ramp to `p=quarantine`,
+   then `p=reject`.
+
+### Verify it's working
+
+Send yourself a magic link via the live site. View raw headers in
+Gmail (`⋮ → Show original`). Confirm:
+- `Authentication-Results: ... dkim=pass`
+- `Authentication-Results: ... spf=pass`
+- `Authentication-Results: ... dmarc=pass` (after step 4)
+- `List-Unsubscribe: <mailto:...>` is present (added in v1.19.5)
+- `Reply-To: hello@spencer-net.com` (or whatever `EMAIL_REPLY_TO` is)
+
+If `dkim` or `spf` say `none` instead of `pass`, the DNS records
+aren't propagated yet (or are missing). Recheck Resend's dashboard.
+
+### Env vars (relevant subset)
+
+- `EMAIL_SERVER_HOST` — `smtp.resend.com`
+- `EMAIL_SERVER_PORT` — `587`
+- `EMAIL_SERVER_USER` — `resend`
+- `EMAIL_SERVER_PASSWORD` — Resend API key (`re_…`)
+- `EMAIL_FROM` — `Jamie & Bryony <hello@spencer-net.com>` (must match
+  the verified domain)
+- `EMAIL_REPLY_TO` — optional override; defaults to the From address.
+  Useful if replies should land in a separate inbox
+
+### First-time recipient
+
+Gmail flags first-time senders even with auth. Tell new recipients to
+mark "Not spam" once on their first magic link; subsequent emails land
+in Inbox.
+
 ## Phase status
 
 - **Phase A (done):** bootable shell — auth, AppShell, Today page with real data, stubs for the other 12 sections, `/api/health`

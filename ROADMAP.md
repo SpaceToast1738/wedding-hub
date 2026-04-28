@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.19.0** | 2026-04-28 | [Today page redesign + mobile nav fix + IllusCountdown port](#2026-04-28--v1190--today-page-redesign--mobile-nav-fix--illuscountdown-port) |
+| **v1.19.5** | 2026-04-28 | [Email deliverability: Reply-To + List-Unsubscribe + DNS docs](#2026-04-28--v1195--email-deliverability-reply-to--list-unsubscribe--dns-docs) |
+| v1.19.0 | 2026-04-28 | [Today page redesign + mobile nav fix + IllusCountdown port](#2026-04-28--v1190--today-page-redesign--mobile-nav-fix--illuscountdown-port) |
 | v1.18.5 | 2026-04-28 | [Bugfix: edit questions and decisions](#2026-04-28--v1185--bugfix-edit-questions-and-decisions) |
 | v1.18.0 | 2026-04-28 | [Decisions surfaced in nav + planner-only backlog catalogued](#2026-04-28--v1180--decisions-surfaced-in-nav--planner-only-backlog-catalogued) |
 | v1.17.0 | 2026-04-28 | [Countdown breakdown · mobile pass · guest list filter/sort](#2026-04-28--v1170--countdown-breakdown--mobile-pass--guest-list-filtersort) |
@@ -299,6 +300,18 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-28 · v1.19.5 — Email deliverability: Reply-To + List-Unsubscribe + DNS docs
+
+User reported magic-link emails landing in spam. Code-side fix is small (the body was already clean — inline CSS, text alternative, no spam-trigger words); the real lever is DNS auth on the sending domain. Two-pronged release:
+
+**Code:** [src/auth.ts](src/auth.ts) `transport.sendMail` call gains a `replyTo` (defaults to `EMAIL_REPLY_TO` env var or falls through to `EMAIL_FROM`) and a `List-Unsubscribe` header (RFC 2369, mailto: form). Both reduce Gmail's spam-classifier weight on transactional auth mail. New `List-Unsubscribe-Post: List-Unsubscribe=One-Click` header pairs with it for one-click handling per RFC 8058.
+
+**Docs:** new "Email deliverability" section in [README.md](README.md) with the Resend domain-verification flow (SPF + DKIM TXT records on `spencer-net.com`), DMARC observe-mode TXT, and a verification checklist (`Authentication-Results: dkim=pass spf=pass dmarc=pass` in raw headers).
+
+The DNS records themselves are user-side ops work — Resend's dashboard generates the per-account values. After the records propagate, mail sent from `Jamie & Bryony <hello@spencer-net.com>` will be SPF/DKIM-authenticated and stop landing in spam. Code change is the smaller half (~10% impact); DNS is the bigger half (~80%).
+
+No schema changes; no new tests (purely config + headers).
 
 ### 2026-04-28 · v1.19.0 — Today page redesign + mobile nav fix + IllusCountdown port
 
