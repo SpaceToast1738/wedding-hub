@@ -11,7 +11,7 @@
 - **Repo:** [SpaceToast1738/wedding-hub](https://github.com/SpaceToast1738/wedding-hub) · `claude/main` (releases) + `dev` (work-in-progress)
 - **Stack:** Next.js 15 · TypeScript · Tailwind v4 · Prisma · Postgres 16 · Auth.js v5 · Caddy · Docker Compose
 - **Working tree:** `C:\Users\Admin\Code\wedding-hub` (local SSD). The old `\\TOWER\Jamie Spencer\Claude\wedding-hub` mirror is no longer in use — run `Remove-Item -Recurse -Force "\\TOWER\Jamie Spencer\Claude\wedding-hub"` from a fresh PowerShell to delete it.
-- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` at **v1.7.0**). v1.8.0 (this iteration on `dev`) adds a **Spotify integration setup guide and status chip** to /settings, plus a small status chip on /songs that deep-links to the guide. Discovery + diagnostics for the env-var-based Spotify config without changing the underlying storage approach.
+- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` at **v1.8.0**, promoted 28 Apr 2026 after GHA green). Spotify setup guide + status chip on Settings/Songs. All four user-feedback Tiers complete; remaining backlog is in [REMEDIATION-PLAN.md](REMEDIATION-PLAN.md) — R3 follow-on (Playwright + integration CI), R4 Bucket B polish, R5 Bucket C decisions, R6 backup hardening.
 
 ## Phase status
 
@@ -34,8 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| _(unreleased on `dev`)_ | 2026-04-28 | [v1.8.0 — Spotify integration setup guide + status chip on Songs](#2026-04-28--v180--spotify-integration-setup-guide--status-chip) |
-| **v1.7.0** | 2026-04-28 | [Tier 3 / A: +1s materialise as own Guest rows](#2026-04-28--v170--tier-3-1s-as-own-guest-rows) |
+| **v1.8.0** | 2026-04-28 | [Spotify integration setup guide + status chip on Songs](#2026-04-28--v180--spotify-integration-setup-guide--status-chip) |
+| v1.7.0 | 2026-04-28 | [Tier 3 / A: +1s materialise as own Guest rows](#2026-04-28--v170--tier-3-1s-as-own-guest-rows) |
 | v1.6.0 | 2026-04-28 | [Tier 2 user-feedback polish: Schedule table view + Wedding Book hub redesign](#2026-04-28--v160--tier-2-user-feedback-polish) |
 | v1.5.0 | 2026-04-28 | [Tier 1 user-feedback polish: mobile signout, Settings UI defence, scroll, 4-col Glance, countdown breakdown](#2026-04-28--v150--tier-1-user-feedback-polish) |
 | v1.4.0 | 2026-04-28 | [Phase R3 (partial): tests in CI + TESTING.md + integration scaffold](#2026-04-28--v140--phase-r3-partial-tests-in-ci--testingmd--integration-scaffold) |
@@ -239,7 +239,7 @@ When wrapping up a meaningful iteration:
 
 ### Current version
 
-`1.8.0` on `dev`, `claude/main` at `v1.7.0`. Spotify integration setup guide + status chip shipped to dev. Holding promote until GHA confirms green at the v1.8.0 SHA.
+`1.8.0` on both `dev` and `claude/main` (promoted 28 Apr 2026 after GHA green). Code-only release — no migrations, no env changes. Production catches up on next `docker compose pull && up -d`.
 
 ## Changelog
 
