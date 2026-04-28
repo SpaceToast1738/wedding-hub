@@ -11,7 +11,7 @@
 - **Repo:** [SpaceToast1738/wedding-hub](https://github.com/SpaceToast1738/wedding-hub) · `claude/main` (releases) + `dev` (work-in-progress)
 - **Stack:** Next.js 15 · TypeScript · Tailwind v4 · Prisma · Postgres 16 · Auth.js v5 · Caddy · Docker Compose
 - **Working tree:** `C:\Users\Admin\Code\wedding-hub` (local SSD). The old `\\TOWER\Jamie Spencer\Claude\wedding-hub` mirror is no longer in use — run `Remove-Item -Recurse -Force "\\TOWER\Jamie Spencer\Claude\wedding-hub"` from a fresh PowerShell to delete it.
-- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` at **v1.9.0**, promoted 28 Apr 2026 after GHA green). `dev` is at **v1.10.0** awaiting CI green: Phase R3 follow-on adds a Postgres-backed integration job and a Playwright e2e job to the GHA workflow, with anonymous-redirect specs as the first regression net for the middleware permissions matrix.
+- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` at **v1.10.0**, promoted 28 Apr 2026 after GHA green on both `dev` and the release branch). Phase R3 follow-on shipped: a Postgres-backed integration job and a Playwright e2e job now run on every push, with anonymous-redirect specs as the first regression net for the middleware permissions matrix. Build job is gated on all three test tiers — release tags now imply unit + integration + e2e all passed against the SHA that produced the image. `gh` CLI installed on the dev box (Apr 28) so CI runs are watched directly rather than via copy-pasted logs.
 
 ## Phase status
 
