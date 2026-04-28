@@ -11,7 +11,7 @@
 - **Repo:** [SpaceToast1738/wedding-hub](https://github.com/SpaceToast1738/wedding-hub) · `claude/main` (releases) + `dev` (work-in-progress)
 - **Stack:** Next.js 15 · TypeScript · Tailwind v4 · Prisma · Postgres 16 · Auth.js v5 · Caddy · Docker Compose
 - **Working tree:** `C:\Users\Admin\Code\wedding-hub` (local SSD). The old `\\TOWER\Jamie Spencer\Claude\wedding-hub` mirror is no longer in use — run `Remove-Item -Recurse -Force "\\TOWER\Jamie Spencer\Claude\wedding-hub"` from a fresh PowerShell to delete it.
-- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` at **v1.5.0**, promoted 28 Apr 2026 after GHA green). Tier 1 user-feedback polish shipped: mobile sign-out, Settings UI defence-in-depth, scroll fix, 4-col Glance, countdown multi-unit breakdown, repo cleanup. Tier 2 (Schedule table view + Wedding Book design fidelity) is next; Tier 3 (+1s as own rows, Spotify settings UI) follows.
+- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` at **v1.5.0**). v1.6.0 (this iteration on `dev`) ships **Tier 2 user-feedback polish**: a Table | Timeline view toggle on Schedule and a redesigned Wedding Book hub with accent colours, glyphs, descriptions, and hover-lift. Tier 3 (+1s as own rows, Spotify settings UI) follows.
 
 ## Phase status
 
@@ -34,6 +34,7 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
+| _(unreleased on `dev`)_ | 2026-04-28 | [v1.6.0 — Tier 2 user-feedback polish: Schedule table view + Wedding Book hub redesign](#2026-04-28--v160--tier-2-user-feedback-polish) |
 | **v1.5.0** | 2026-04-28 | [Tier 1 user-feedback polish: mobile signout, Settings UI defence, scroll, 4-col Glance, countdown breakdown](#2026-04-28--v150--tier-1-user-feedback-polish) |
 | v1.4.0 | 2026-04-28 | [Phase R3 (partial): tests in CI + TESTING.md + integration scaffold](#2026-04-28--v140--phase-r3-partial-tests-in-ci--testingmd--integration-scaffold) |
 | v1.3.0 | 2026-04-28 | [Phase R2: magic-link rate limit + archived-guest restore](#2026-04-28--v130--phase-r2-magic-link-rate-limit--archived-guest-restore) |
@@ -236,11 +237,37 @@ When wrapping up a meaningful iteration:
 
 ### Current version
 
-`1.5.0` on both `dev` and `claude/main` (promoted 28 Apr 2026 after GHA green). Code-only release — no migrations, no env changes. Production catches up on next `docker compose pull && up -d`.
+`1.6.0` on `dev`, `claude/main` at `v1.5.0`. Tier 2 (Schedule table view + Book hub redesign) shipped to dev. Holding promote until GHA confirms green at the v1.6.0 SHA.
 
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-28 · v1.6.0 — Tier 2 user-feedback polish
+
+Two visual / structural upgrades from the user-feedback list. No schema, env, or test changes.
+
+**D — Schedule Table | Timeline toggle.** [`/schedule`](src/app/(app)/schedule/page.tsx) now offers two views, persisted per-device via `localStorage` (`wh_schedule_view`):
+
+- **Timeline** (default, unchanged) — vertical timeline with sticky day headers and node markers. Print-friendly.
+- **Table** — flat sortable table with When / Event / Where / Audience / actions columns. Useful when there are 20+ events and the timeline becomes long to scroll. Inline edit reuses `EventForm` so the data model stays single.
+
+Wired through a new client component [`ScheduleClient.tsx`](src/app/(app)/schedule/ScheduleClient.tsx) that holds the view state; the server `page.tsx` query is unchanged. Print stylesheet keeps the timeline behaviour regardless of selected view (the toggle lives under `no-print`).
+
+**E — Wedding Book hub card redesign** ([`/book`](src/app/(app)/book/page.tsx)). Match the prototype's BookCard treatment:
+
+- **Accent backgrounds** per section (moss-50 / moss-100 / marigold-100) — looked up by slug from a code-side `SECTION_META` map. User-created sections fall back to a neutral default. No schema migration.
+- **Glyph spot** in the top-left corner (💍 ceremony, 🥂 reception, 🗓 logistics, 📷 photography, 👰 wedding-party). Top-right keeps the `→` indicator the prototype uses.
+- **Descriptions** under the section title (e.g. *"Order of service, vows, readings, music"*) — also from `SECTION_META`.
+- **Hover lift** — `hover:shadow-md hover:-translate-y-0.5 transition-all duration-150`. Matches the prototype's effect.
+- **Display font** for the title, semi-bold; subtitle in `text-ink-secondary`; meta count in `text-ink-tertiary`.
+- **Wider container** (`max-w-[960px]`) and **auto-fill grid** (`minmax(260px, 1fr)`) to mirror the prototype's 2/3-column layout depending on viewport.
+
+The Photography card still surfaces the shot-list progress (`X of Y captured`) instead of subsection count — that's the special-case logic from v0.13.0 (Phase F2), preserved.
+
+What's still off-spec vs the prototype: real SVG illustrations, full audience picker on subsections, 7-card hub (we have 5). All deferred per the audit report's design-fidelity findings.
+
+Verified: typecheck, lint, build, 69/69 tests, clean `npm ci`. Holding promote until GHA confirms green.
 
 ### 2026-04-28 · v1.5.0 — Tier 1 user-feedback polish
 

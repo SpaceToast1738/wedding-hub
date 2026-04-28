@@ -2,7 +2,7 @@ import { db } from "@/lib/db";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { canEdit } from "@/lib/permissions";
 import { requireUser } from "@/lib/actions";
-import { ScheduleTimeline } from "./ScheduleTimeline";
+import { ScheduleClient } from "./ScheduleClient";
 import { AddEventToggle } from "./AddEventToggle";
 import { PrintScheduleButton } from "./PrintScheduleButton";
 
@@ -47,7 +47,7 @@ export default async function SchedulePage() {
               No events yet. {editable && "Add the first one above."}
             </p>
           ) : (
-            <ScheduleTimeline
+            <ScheduleClient
               events={events.map((e) => ({
                 id: e.id,
                 title: e.title,
