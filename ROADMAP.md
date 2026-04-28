@@ -11,7 +11,7 @@
 - **Repo:** [SpaceToast1738/wedding-hub](https://github.com/SpaceToast1738/wedding-hub) · `claude/main` (releases) + `dev` (work-in-progress)
 - **Stack:** Next.js 15 · TypeScript · Tailwind v4 · Prisma · Postgres 16 · Auth.js v5 · Caddy · Docker Compose
 - **Working tree:** `C:\Users\Admin\Code\wedding-hub` (local SSD). The old `\\TOWER\Jamie Spencer\Claude\wedding-hub` mirror is no longer in use — run `Remove-Item -Recurse -Force "\\TOWER\Jamie Spencer\Claude\wedding-hub"` from a fresh PowerShell to delete it.
-- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` at **v1.15.0**, promoted 28 Apr 2026). `dev` is ahead at **v1.18.0** with three pending releases: v1.16.0 (task CSV importer + seating canvas guest names), v1.17.0 (countdown breakdown redesign + mobile pass + guest list filter/sort/default), v1.18.0 (decisions surfaced in nav + count + page header; planner-only backlog catalogued). Standing rule established: app is admin-only, no guest-facing surfaces. R6 (backup hardening) deferred to scheduled agent run on 26 Aug 2026. 186 unit tests.
+- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` at **v1.15.0**, promoted 28 Apr 2026). `dev` is ahead at **v1.18.5** with four pending releases: v1.16.0 (task CSV importer + seating guest names), v1.17.0 (countdown breakdown + mobile pass + guest filter/sort), v1.18.0 (decisions surfaced + planner backlog), v1.18.5 (bugfix: edit Q/D). Multi-version plan F1 covers v1.19.0 → v1.25.0+. Standing rule: admin-only. R6 deferred to scheduled agent run on 26 Aug 2026.
 
 ## Phase status
 
@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.18.0** | 2026-04-28 | [Decisions surfaced in nav + planner-only backlog catalogued](#2026-04-28--v1180--decisions-surfaced-in-nav--planner-only-backlog-catalogued) |
+| **v1.18.5** | 2026-04-28 | [Bugfix: edit questions and decisions](#2026-04-28--v1185--bugfix-edit-questions-and-decisions) |
+| v1.18.0 | 2026-04-28 | [Decisions surfaced in nav + planner-only backlog catalogued](#2026-04-28--v1180--decisions-surfaced-in-nav--planner-only-backlog-catalogued) |
 | v1.17.0 | 2026-04-28 | [Countdown breakdown · mobile pass · guest list filter/sort](#2026-04-28--v1170--countdown-breakdown--mobile-pass--guest-list-filtersort) |
 | v1.16.0 | 2026-04-28 | [Task CSV importer + guest names on the seating canvas](#2026-04-28--v1160--task-csv-importer--guest-names-on-the-seating-canvas) |
 | v1.15.0 | 2026-04-28 | [Phase R5b: illustrations ported + Custom Fields UI (C6 + C10)](#2026-04-28--v1150--phase-r5b-illustrations-ported--custom-fields-ui-c6--c10) |
@@ -297,6 +298,14 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-28 · v1.18.5 — Bugfix: edit questions and decisions
+
+v1.18.0 surfaced decisions in the nav, which made an existing bug visible: questions and decisions could be created (via the `+ New` toggle) and resolved (via `AnswerForm`), but never edited. The shared Task model already had `updateTask` and `deleteTask` actions; the gap was purely that `QuestionsClient.tsx` rendered no Edit/Delete buttons on each row — only the AnswerForm.
+
+Refactored each list row into a stateful `Row` component (mirrors `TaskRow.tsx`) with Edit + Delete buttons that render full-opacity on touch and hover-fade on desktop (the v1.17.0 mobile-pass pattern). Edit toggles the row into an inline `TaskForm` re-using the same form the `+ New` toggle uses for creation. Delete confirms then calls `deleteTask`, which is already polymorphic per A5 (v1.2.0) — the gate auto-dispatches to `requireEdit("questions")` for QUESTION/DECISION rows.
+
+Page query extended to pass `notes` and `tags` to the client so the edit form can populate them. No schema changes; no new server actions.
 
 ### 2026-04-28 · v1.18.0 — Decisions surfaced in nav + planner-only backlog catalogued
 

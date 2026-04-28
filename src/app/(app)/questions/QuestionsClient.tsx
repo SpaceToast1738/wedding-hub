@@ -1,11 +1,15 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { Avatar } from "@/components/ui/Avatar";
+import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { Tag } from "@/components/ui/Tag";
-import { formatRelativeDue } from "@/lib/format";
+import { formatRelativeDue, isoForInput } from "@/lib/format";
+import { notify } from "@/lib/notify";
+import { deleteTask, updateTask } from "@/app/(app)/tasks/actions";
+import { TaskForm, type UserOpt as TaskFormUserOpt } from "@/app/(app)/tasks/TaskForm";
 import { AnswerForm } from "./AnswerForm";
 
 type Q = {
@@ -17,6 +21,8 @@ type Q = {
   assigneeId: string | null;
   dueDate: Date | null;
   questionAnswer: string | null;
+  notes?: string | null;
+  tags?: string[];
 };
 
 type UserOpt = { id: string; name: string | null; email: string };
@@ -101,8 +107,8 @@ export function QuestionsClient({
           </p>
         ) : (
           <>
-            <Section title="Open" items={open} usersById={usersById} editable={editable} />
-            <Section title="Answered" items={answered} usersById={usersById} editable={editable} />
+            <Section title="Open" items={open} users={users} usersById={usersById} editable={editable} />
+            <Section title="Answered" items={answered} users={users} usersById={usersById} editable={editable} />
           </>
         )}
       </div>
@@ -113,11 +119,13 @@ export function QuestionsClient({
 function Section({
   title,
   items,
+  users,
   usersById,
   editable,
 }: {
   title: string;
   items: Q[];
+  users: UserOpt[];
   usersById: Map<string, UserOpt>;
   editable: boolean;
 }) {
@@ -126,61 +134,128 @@ function Section({
     <section>
       <h2 className="text-[11px] font-bold text-ink-tertiary uppercase tracking-wider mb-2">{title}</h2>
       <ol className="bg-surface border border-border-soft rounded-md shadow-sm divide-y divide-border-soft">
-        {items.map((q) => {
-          const a = q.assigneeId ? usersById.get(q.assigneeId) : null;
-          const priorityBucket =
-            q.priority === "URGENT" || q.priority === "HIGH"
-              ? "HIGH"
-              : q.priority === "LOW"
-                ? "LOW"
-                : "MED";
-          return (
-            <li key={q.id} className="px-4 py-3">
-              <div className="flex items-baseline gap-2 flex-wrap">
-                <span
-                  className={[
-                    "text-[10px] font-bold flex-shrink-0 px-1 rounded",
-                    q.type === "DECISION"
-                      ? "text-marigold-700 bg-marigold-100"
-                      : "text-info bg-[color:#eef4f5] dark:bg-muted",
-                  ].join(" ")}
-                >
-                  {q.type === "DECISION" ? "△" : "?"}
-                </span>
-                <span
-                  className={[
-                    "text-sm flex-1 min-w-[180px]",
-                    q.status === "DONE" ? "text-ink-tertiary" : "text-ink-primary font-medium",
-                  ].join(" ")}
-                >
-                  {q.title}
-                </span>
-                {a && (
-                  <span className="flex items-center gap-1 flex-shrink-0">
-                    <Avatar name={a.name ?? a.email} size={18} />
-                    <span className="text-xs text-ink-tertiary">
-                      {(a.name ?? a.email).split(" ")[0]}
-                    </span>
-                  </span>
-                )}
-                <StatusPill
-                  status={q.status === "DONE" ? "DONE" : priorityBucket}
-                  label={q.status === "DONE" ? "Answered" : priorityBucket}
-                />
-                <span className="text-xs text-ink-tertiary w-20 text-right">
-                  {formatRelativeDue(q.dueDate)}
-                </span>
-              </div>
-              {q.questionAnswer && q.status === "DONE" && (
-                <p className="text-xs text-ink-secondary italic mt-2 pl-6">{q.questionAnswer}</p>
-              )}
-              {editable && q.status !== "DONE" && (
-                <AnswerForm taskId={q.id} initialAnswer={q.questionAnswer ?? ""} />
-              )}
-            </li>
-          );
-        })}
+        {items.map((q) => (
+          <Row key={q.id} q={q} users={users} usersById={usersById} editable={editable} />
+        ))}
       </ol>
     </section>
+  );
+}
+
+function Row({
+  q,
+  users,
+  usersById,
+  editable,
+}: {
+  q: Q;
+  users: UserOpt[];
+  usersById: Map<string, UserOpt>;
+  editable: boolean;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [pending, startTransition] = useTransition();
+
+  const a = q.assigneeId ? usersById.get(q.assigneeId) : null;
+  const priorityBucket =
+    q.priority === "URGENT" || q.priority === "HIGH"
+      ? "HIGH"
+      : q.priority === "LOW"
+        ? "LOW"
+        : "MED";
+
+  function onDelete() {
+    if (!confirm(`Delete "${q.title}"?`)) return;
+    startTransition(async () => {
+      try {
+        await deleteTask(q.id);
+      } catch (err) {
+        notify("error", err instanceof Error ? err.message : "Couldn't delete");
+      }
+    });
+  }
+
+  if (editing) {
+    return (
+      <li className="bg-surface border-y border-moss-100 px-4 py-3">
+        <TaskForm
+          users={users as TaskFormUserOpt[]}
+          submitLabel="Save"
+          initial={{
+            title: q.title,
+            type: q.type,
+            priority: q.priority,
+            status: q.status,
+            assigneeId: q.assigneeId,
+            dueDate: isoForInput(q.dueDate),
+            category: q.tags?.[0] ?? "",
+            notes: q.notes ?? "",
+          }}
+          onSubmit={async (fd) => {
+            await updateTask(q.id, fd);
+            setEditing(false);
+          }}
+          onCancel={() => setEditing(false)}
+        />
+      </li>
+    );
+  }
+
+  return (
+    <li className="px-4 py-3 group">
+      <div className="flex items-baseline gap-2 flex-wrap">
+        <span
+          className={[
+            "text-[10px] font-bold flex-shrink-0 px-1 rounded",
+            q.type === "DECISION"
+              ? "text-marigold-700 bg-marigold-100"
+              : "text-info bg-[color:#eef4f5] dark:bg-muted",
+          ].join(" ")}
+        >
+          {q.type === "DECISION" ? "△" : "?"}
+        </span>
+        <span
+          className={[
+            "text-sm flex-1 min-w-[180px]",
+            q.status === "DONE" ? "text-ink-tertiary" : "text-ink-primary font-medium",
+          ].join(" ")}
+        >
+          {q.title}
+        </span>
+        {a && (
+          <span className="flex items-center gap-1 flex-shrink-0">
+            <Avatar name={a.name ?? a.email} size={18} />
+            <span className="text-xs text-ink-tertiary">
+              {(a.name ?? a.email).split(" ")[0]}
+            </span>
+          </span>
+        )}
+        <StatusPill
+          status={q.status === "DONE" ? "DONE" : priorityBucket}
+          label={q.status === "DONE" ? "Answered" : priorityBucket}
+        />
+        <span className="text-xs text-ink-tertiary w-20 text-right">
+          {formatRelativeDue(q.dueDate)}
+        </span>
+        {editable && (
+          // v1.18.5: Edit/Delete actions. Visible on touch / hover-fade
+          // on desktop — same pattern as TaskRow.tsx (v1.17.0 mobile pass).
+          <div className="flex gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity flex-shrink-0">
+            <Button variant="ghost" size="sm" onClick={() => setEditing(true)} disabled={pending}>
+              Edit
+            </Button>
+            <Button variant="ghost" size="sm" onClick={onDelete} disabled={pending}>
+              Delete
+            </Button>
+          </div>
+        )}
+      </div>
+      {q.questionAnswer && q.status === "DONE" && (
+        <p className="text-xs text-ink-secondary italic mt-2 pl-6">{q.questionAnswer}</p>
+      )}
+      {editable && q.status !== "DONE" && (
+        <AnswerForm taskId={q.id} initialAnswer={q.questionAnswer ?? ""} />
+      )}
+    </li>
   );
 }

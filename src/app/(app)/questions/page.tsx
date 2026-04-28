@@ -50,6 +50,8 @@ export default async function QuestionsPage() {
           assigneeId: q.assigneeId,
           dueDate: q.dueDate,
           questionAnswer: q.questionAnswer,
+          notes: q.notes,
+          tags: q.tags,
         }))}
         users={users.map((u) => ({ id: u.id, name: u.name, email: u.email }))}
         editable={editable}
