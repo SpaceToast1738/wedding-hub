@@ -42,7 +42,10 @@ export function TodayEventsCard({
   events: EventLite[];
   currentUserRole: string;
 }) {
-  const [persona, setPersona] = useState<Persona>("everyone");
+  // v1.19.0: default to "mine" — most useful default for wedding-party
+  // users (Aimee/Josh) who care about the events that involve them.
+  // The couple can flip to Everyone in one click.
+  const [persona, setPersona] = useState<Persona>("mine");
 
   const filtered =
     persona === "everyone"
@@ -50,19 +53,19 @@ export function TodayEventsCard({
       : events.filter((e) => audienceMatchesRole(e.audience, currentUserRole));
 
   return (
-    <section className="bg-surface border border-border-soft rounded-lg p-5 shadow-sm">
-      <div className="flex items-center justify-between gap-2 mb-2">
-        <h2 className="text-sm font-semibold text-ink-primary">Upcoming</h2>
-        <div className="flex gap-px">
+    <section className="bg-surface border border-border-soft rounded-lg p-5 shadow-sm h-full flex flex-col">
+      <div className="flex items-center justify-between gap-2 mb-3">
+        <h2 className="text-sm font-semibold text-ink-primary">Upcoming events</h2>
+        <div className="flex gap-px bg-canvas border border-border-soft rounded-full p-0.5">
           {(["mine", "everyone"] as Persona[]).map((p) => (
             <button
               key={p}
               type="button"
               onClick={() => setPersona(p)}
               className={[
-                "text-[10px] px-2 py-0.5 rounded-full font-semibold transition-colors",
+                "text-[10px] px-2.5 py-0.5 rounded-full font-semibold transition-colors",
                 persona === p
-                  ? "bg-moss-500 text-white"
+                  ? "bg-moss-700 text-white"
                   : "text-ink-tertiary hover:text-ink-primary",
               ].join(" ")}
               aria-pressed={persona === p}
@@ -73,18 +76,25 @@ export function TodayEventsCard({
         </div>
       </div>
       {filtered.length === 0 ? (
-        <p className="text-xs text-ink-tertiary py-2">
+        <p className="text-xs text-ink-tertiary py-2 flex-1">
           {persona === "mine" ? "No events for your role." : "No events scheduled."}
         </p>
       ) : (
-        <ul className="space-y-2">
+        <ul className="space-y-3 flex-1">
           {filtered.slice(0, 5).map((e) => (
-            <li key={e.id} className="flex items-baseline gap-2">
-              <span className="text-xs font-medium text-moss-700 w-16 flex-shrink-0">
+            <li key={e.id} className="flex items-start gap-3">
+              <span className="text-xs font-medium text-moss-700 w-14 flex-shrink-0 pt-0.5">
                 {formatTime(new Date(e.startTime))}
               </span>
-              <span className="text-xs text-ink-secondary flex-1 truncate">{e.title}</span>
-              <span className="text-[10px] text-ink-tertiary flex-shrink-0">
+              <div className="flex-1 min-w-0">
+                <div className="text-sm text-ink-primary font-medium truncate">{e.title}</div>
+                {e.audience.length > 0 && (
+                  <div className="text-[11px] text-ink-tertiary capitalize">
+                    {e.audience.join(" · ")}
+                  </div>
+                )}
+              </div>
+              <span className="text-[11px] text-ink-tertiary flex-shrink-0 pt-0.5">
                 {formatDate(new Date(e.startTime))}
               </span>
             </li>
@@ -93,7 +103,7 @@ export function TodayEventsCard({
       )}
       <Link
         href="/schedule"
-        className="block mt-3 text-xs text-moss-500 hover:text-moss-700 hover:underline"
+        className="block mt-4 pt-3 border-t border-border-soft text-xs text-moss-500 hover:text-moss-700 hover:underline"
       >
         Full schedule →
       </Link>

@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.18.5** | 2026-04-28 | [Bugfix: edit questions and decisions](#2026-04-28--v1185--bugfix-edit-questions-and-decisions) |
+| **v1.19.0** | 2026-04-28 | [Today page redesign + mobile nav fix + IllusCountdown port](#2026-04-28--v1190--today-page-redesign--mobile-nav-fix--illuscountdown-port) |
+| v1.18.5 | 2026-04-28 | [Bugfix: edit questions and decisions](#2026-04-28--v1185--bugfix-edit-questions-and-decisions) |
 | v1.18.0 | 2026-04-28 | [Decisions surfaced in nav + planner-only backlog catalogued](#2026-04-28--v1180--decisions-surfaced-in-nav--planner-only-backlog-catalogued) |
 | v1.17.0 | 2026-04-28 | [Countdown breakdown · mobile pass · guest list filter/sort](#2026-04-28--v1170--countdown-breakdown--mobile-pass--guest-list-filtersort) |
 | v1.16.0 | 2026-04-28 | [Task CSV importer + guest names on the seating canvas](#2026-04-28--v1160--task-csv-importer--guest-names-on-the-seating-canvas) |
@@ -298,6 +299,22 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-28 · v1.19.0 — Today page redesign + mobile nav fix + IllusCountdown port
+
+The user sent a mockup for the homepage and pointed out mobile nav was broken after v1.17.0's responsive pass. This release rebuilds the Today page to match the mockup, unifies the mobile breakpoint, and ports the IllusCountdown SVG that v1.15.0's C6 had skipped.
+
+**Today page — three-column equal grid.** The pre-v1.19.0 layout had a full-width countdown band at top with a 2/3 + 1/3 grid below (My tasks + RSVPs/Upcoming). Replaced with a single 3-column row at `lg:` breakpoint where each card has `h-full` so they line up to the tallest. Cards stack on mobile.
+
+- **Column 1 — CountdownCard:** Marigold-tinted (`bg-marigold-100/60`) card with the new `IllusCountdown` watermark top-right at 18% opacity. Inside: "UNTIL THE WEDDING" caps label + M/W/D unit toggle on one row; giant primary number + unit label below; secondary breakdown segments (when unit=W or M) at smaller text underneath; couple label + `${date} · ${venue}` muted line at the bottom. The `ceremonyLabel` prop is gone — the schedule covers ceremony time, the countdown card is now about the date itself.
+- **Column 2 — My open tasks:** Header with `{N} open` count chip; list of 5 tasks with priority dot column (1×7 colored bar), disabled checkbox (so the visual matches the mockup; live toggling stays on `/tasks`), title, due date (overdue dates in red). Footer link "See all {totalTaskCount} tasks →" — the total is a fresh DB count.
+- **Column 3 — Upcoming events:** [TodayEventsCard](src/app/(app)/TodayEventsCard.tsx) restyled to match the column. Header reads "Upcoming events" (was "Upcoming"); Mine/Everyone toggle styled as a pill group matching the countdown card's M/W/D toggle; default persona flipped to **Mine** (better default for wedding-party users; couple flips to Everyone in one click). Audience tags rendered below each event title. Footer link "Full schedule →".
+
+The pre-v1.19.0 standalone "RSVPs · {N} pending" card is gone — the snapshot strip below the grid already shows the breakdown.
+
+**Mobile nav fix.** v1.17.0's mobile pass used Tailwind `sm:` (640px) for new responsive rules but `globals.css` swapped sidebar/tabbar at 720px. The 640–720px band saw both nav modes plus desktop-styled hover-fades. Unified `globals.css` at 640px. Plus: `MobileTabBar.tsx` active-state now treats `/today/*` as part of the Today tab's scope, so `/today/day-of` highlights the Today tab on mobile (it showed nothing before).
+
+**Files changed:** 5 modified (page, CountdownCard, TodayEventsCard, globals.css, MobileTabBar) + 1 new SVG (IllusCountdown in [Illustrations.tsx](src/components/ui/Illustrations.tsx)). No schema changes; no new tests (visual + state).
 
 ### 2026-04-28 · v1.18.5 — Bugfix: edit questions and decisions
 

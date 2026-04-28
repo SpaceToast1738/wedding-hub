@@ -119,7 +119,13 @@ kbd {
   font-size: 0.85em;
 }
 
-@media (max-width: 720px) {
+/* v1.19.0: unified to 640px to match Tailwind's `sm:` breakpoint.
+   Pre-v1.19.0 used 720px here while v1.17.0's mobile pass used `sm:`
+   (640px) for new responsive rules — between 640 and 720px the user
+   got both nav modes (sidebar visible AND mobile-tabbar visible) plus
+   `sm:`-scoped desktop styles like hover-only fades. Now everything
+   pivots at the same breakpoint. */
+@media (max-width: 639px) {
   .desktop-sidebar {
     display: none !important;
   }
@@ -128,7 +134,7 @@ kbd {
   }
 }
 
-@media (min-width: 721px) {
+@media (min-width: 640px) {
   .mobile-tabbar {
     display: none !important;
   }

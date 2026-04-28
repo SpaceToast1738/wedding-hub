@@ -35,7 +35,11 @@ export function MobileTabBar({
             tab.isMore
               ? moreOpen
               : tab.href === "/"
-                ? pathname === "/"
+                // v1.19.0: Today tab also active on /today/day-of (and any
+                // future /today/* sub-pages). Without this, /today/day-of
+                // showed no active tab — disorienting on mobile where the
+                // sidebar isn't there to anchor the user.
+                ? pathname === "/" || pathname.startsWith("/today")
                 : pathname.startsWith(tab.href);
           if (tab.isMore) {
             return (

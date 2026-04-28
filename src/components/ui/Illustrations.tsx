@@ -13,6 +13,35 @@
 // `EventMotifIcon.tsx` — kept separate because they have a heuristic
 // classifier paired with them.
 
+// ── Decorative watermarks ──────────────────────────────────────────────────
+
+// IllusCountdown: a 240×140 watermark for the homepage countdown card.
+// Renders at 18% opacity, absolutely positioned top-right inside the
+// card. Caller sets `position: relative` on the parent and gives the
+// card enough height for the watermark not to crowd the text.
+export function IllusCountdown({ width = 240, height = 140 }: { width?: number; height?: number }) {
+  return (
+    <svg
+      width={width}
+      height={height}
+      viewBox="0 0 240 140"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden
+      style={{ opacity: 0.18, position: "absolute", top: 0, right: 0, pointerEvents: "none" }}
+    >
+      <path d="M220 10 C200 30 190 60 200 80 C210 60 230 35 220 10Z" fill="var(--color-moss-500)" stroke="var(--color-moss-700)" strokeWidth="1" />
+      <path d="M220 10 L200 80" stroke="var(--color-moss-700)" strokeWidth="0.8" />
+      <path d="M195 20 C180 35 178 55 188 65 C192 50 200 28 195 20Z" fill="var(--color-moss-300)" stroke="var(--color-moss-500)" strokeWidth="0.8" />
+      <path d="M195 20 L188 65" stroke="var(--color-moss-500)" strokeWidth="0.6" />
+      <rect x="110" y="90" width="12" height="32" rx="2" fill="var(--color-moss-100)" stroke="var(--color-moss-500)" strokeWidth="1" />
+      <path d="M116 82 C116 82 120 88 116 92 C112 88 116 82 116 82Z" fill="var(--color-marigold-500)" stroke="var(--color-marigold-700)" strokeWidth="0.8" />
+      <line x1="100" y1="122" x2="132" y2="122" stroke="var(--color-moss-500)" strokeWidth="1" />
+      <path d="M60 100 C70 90 80 110 90 100 C100 90 110 110 120 100" stroke="var(--color-marigold-500)" strokeWidth="1.5" fill="none" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 // ── Scene illustrations (48px) ──────────────────────────────────────────────
 
 export function IllusWeddingParty({ size = 48 }: { size?: number }) {

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { IllusCountdown } from "@/components/ui/Illustrations";
 
 const STORAGE_KEY = "wh_countdown_unit";
 type Unit = "months" | "weeks" | "days";
@@ -65,11 +66,15 @@ function buildBreakdown(unit: Unit, now: Date, target: Date): BreakdownPart[] {
 export function CountdownCard({
   targetIso,
   venueLabel,
-  ceremonyLabel,
+  coupleLabel,
 }: {
   targetIso: string;
   venueLabel: string;
-  ceremonyLabel: string;
+  // v1.19.0: replaces the old `ceremonyLabel` prop. The mockup shows
+  // "Jamie & Bryony's Wedding" + "26 September 2026 · Alveston Manor"
+  // inside the card; the ceremony-time line is now part of the
+  // schedule, not the countdown.
+  coupleLabel: string;
 }) {
   const [unit, setUnit] = useState<Unit>("days");
 
@@ -97,24 +102,28 @@ export function CountdownCard({
   const targetLabel = target.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
 
   return (
-    <section className="mb-6 bg-surface border border-border-soft rounded-lg p-6 flex items-center justify-between gap-6 flex-wrap shadow-sm">
-      <div className="flex-1 min-w-0 sm:min-w-[200px]">
-        <div className="flex items-center justify-between gap-3 mb-2">
-          <div className="text-xs text-ink-tertiary uppercase tracking-wider font-semibold">
+    // v1.19.0: marigold/cream tinted background per the mockup. The
+    // IllusCountdown watermark sits absolute top-right at 18% opacity
+    // (the SVG handles its own positioning); the parent has
+    // `relative overflow-hidden` so it clips inside the rounded
+    // corners.
+    <section className="relative overflow-hidden bg-marigold-100/60 border border-marigold-700/15 rounded-lg p-6 shadow-sm h-full flex flex-col">
+      <IllusCountdown />
+      <div className="relative flex-1 flex flex-col">
+        <div className="flex items-center justify-between gap-3 mb-3">
+          <div className="text-[10px] text-marigold-700 uppercase tracking-wider font-bold">
             Until the wedding
           </div>
-          <div className="flex gap-px bg-canvas border border-border-soft rounded-full p-0.5">
+          <div className="flex gap-px bg-surface/80 border border-marigold-700/15 rounded-full p-0.5">
             {(["months", "weeks", "days"] as Unit[]).map((u) => (
               <button
                 key={u}
                 type="button"
                 onClick={() => setUnit(u)}
                 className={[
-                  // Bigger tap targets on mobile (≥32px); compress on desktop
-                  // where the same row already has plenty of breathing room.
                   "text-xs px-3 py-1 sm:text-[10px] sm:px-2 sm:py-0.5 rounded-full font-semibold transition-colors uppercase",
                   unit === u
-                    ? "bg-moss-500 text-white"
+                    ? "bg-moss-700 text-white"
                     : "text-ink-tertiary hover:text-ink-primary",
                 ].join(" ")}
                 aria-pressed={unit === u}
@@ -124,27 +133,43 @@ export function CountdownCard({
             ))}
           </div>
         </div>
-        {/* v1.17.0: render the breakdown inline as equally-prominent
-            segments. When unit=days there's just one segment; when
-            unit=weeks/months there can be 2–3, separated by a dot. */}
-        <div className="flex items-baseline gap-3 flex-wrap">
-          {breakdown.map((part, i) => (
-            <div key={part.label} className="flex items-baseline gap-2">
-              {i > 0 && <span className="text-moss-700/30 text-2xl leading-none">·</span>}
-              <span className="font-display text-5xl font-semibold text-moss-700 leading-none tabular-nums">
-                {part.value}
-              </span>
-              <span className="font-display text-base text-moss-700 capitalize">
-                {part.label}
-              </span>
-            </div>
-          ))}
+        <div className="flex flex-col gap-1 flex-1">
+          {/* Stack the segments vertically so the giant first number
+              gets full prominence (matches the mockup); when there's a
+              breakdown (W/M units), the smaller segments wrap below
+              with consistent label sizing. */}
+          {breakdown.length > 0 && (
+            <>
+              <div className="flex items-baseline gap-3 flex-wrap">
+                <span className="font-display text-6xl font-semibold text-moss-700 leading-none tabular-nums">
+                  {breakdown[0]!.value}
+                </span>
+              </div>
+              <div className="font-display text-xl text-moss-700 capitalize mb-3">
+                {breakdown[0]!.label}
+              </div>
+              {breakdown.length > 1 && (
+                <div className="flex items-baseline gap-2 flex-wrap text-moss-700 -mt-2 mb-3">
+                  {breakdown.slice(1).map((part, i) => (
+                    <span key={part.label} className="text-sm">
+                      {i > 0 && <span className="text-moss-700/40 mr-1">·</span>}
+                      <span className="font-semibold tabular-nums">{part.value}</span>{" "}
+                      <span className="capitalize">{part.label}</span>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
         </div>
-      </div>
-      <div className="text-right">
-        <div className="text-xs text-ink-tertiary">{targetLabel}</div>
-        <div className="text-sm text-ink-secondary mt-0.5">{venueLabel}</div>
-        <div className="text-sm text-ink-secondary">{ceremonyLabel}</div>
+        <div className="mt-auto">
+          <div className="font-display text-base font-semibold text-marigold-700">
+            {coupleLabel}
+          </div>
+          <div className="text-xs text-ink-secondary mt-0.5">
+            {targetLabel} · {venueLabel}
+          </div>
+        </div>
       </div>
     </section>
   );

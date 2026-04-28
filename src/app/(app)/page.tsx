@@ -1,13 +1,17 @@
 import Link from "next/link";
 import { auth } from "@/auth";
 import { db } from "@/lib/db";
-import { StatusPill } from "@/components/ui/StatusPill";
 import { redirect } from "next/navigation";
 import { CountdownCard } from "./CountdownCard";
 import { TodayEventsCard } from "./TodayEventsCard";
 
 const WEDDING_ISO = process.env.WEDDING_DATE ?? "2026-09-26T14:00:00Z";
 const WEDDING_VENUE = process.env.WEDDING_VENUE ?? "Alveston Manor";
+// v1.19.0: hardcoded couple label for now; v1.20.0 wires this to
+// WeddingSettings so the user can edit it in Settings without a
+// redeploy.
+const COUPLE_LABEL =
+  process.env.WEDDING_COUPLE_SHORT ?? "Jamie & Bryony's Wedding";
 
 function formatDue(due: Date | null): string {
   if (!due) return "no due date";
@@ -22,10 +26,12 @@ function formatDue(due: Date | null): string {
   return due.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 }
 
-function priorityLabel(p: string): "HIGH" | "MED" | "LOW" {
-  if (p === "HIGH" || p === "URGENT") return "HIGH";
-  if (p === "MEDIUM") return "MED";
-  return "LOW";
+// Per-priority dot colour — moss for HIGH/URGENT, marigold for MEDIUM,
+// muted for LOW. Matches the StatusPill palette without the box.
+function priorityDotColour(p: string): string {
+  if (p === "URGENT" || p === "HIGH") return "bg-marigold-700";
+  if (p === "MEDIUM") return "bg-marigold-500";
+  return "bg-border-strong";
 }
 
 export default async function TodayPage() {
@@ -33,7 +39,7 @@ export default async function TodayPage() {
   if (!session?.user) redirect("/signin");
   const userId = session.user.id;
 
-  const [myTasks, guestStats, dietaryRows, upcomingEvents] = await Promise.all([
+  const [myTasks, totalTaskCount, guestStats, dietaryRows, upcomingEvents] = await Promise.all([
     db.task.findMany({
       where: {
         status: { in: ["OPEN", "IN_PROGRESS", "WAITING"] },
@@ -41,8 +47,11 @@ export default async function TodayPage() {
         OR: [{ assigneeId: userId }, { assigneeId: null }],
       },
       orderBy: [{ dueDate: "asc" }, { createdAt: "asc" }],
-      take: 8,
+      take: 5,
     }),
+    // v1.19.0: total non-archived task count for the "See all N tasks →"
+    // footer link in the column-2 card.
+    db.task.count({ where: { type: "TASK", status: { not: "ARCHIVED" } } }),
     db.guest.groupBy({
       by: ["rsvp"],
       where: { archived: false },
@@ -104,57 +113,80 @@ export default async function TodayPage() {
           </Link>
         </div>
 
-        <CountdownCard
-          targetIso={WEDDING_ISO}
-          venueLabel={WEDDING_VENUE}
-          ceremonyLabel="2:00pm ceremony"
-        />
+        {/* v1.19.0: 3-column equal grid matching the mockup. Cards
+            stack on mobile (<sm). Each card is `h-full` so they all
+            line up to the tallest. */}
+        <div className="grid gap-4 lg:grid-cols-3 mb-4 items-stretch">
+          <CountdownCard
+            targetIso={WEDDING_ISO}
+            venueLabel={WEDDING_VENUE}
+            coupleLabel={COUPLE_LABEL}
+          />
 
-        <div className="grid gap-4 md:grid-cols-3 mb-4">
-          <section className="md:col-span-2 bg-surface border border-border-soft rounded-lg p-5 shadow-sm">
+          <section className="bg-surface border border-border-soft rounded-lg p-5 shadow-sm h-full flex flex-col">
             <div className="flex items-center justify-between mb-3">
-              <h2 className="text-sm font-semibold text-ink-primary">My tasks</h2>
-              <Link href="/tasks" className="text-xs text-moss-500 hover:text-moss-700 hover:underline">
-                See all →
-              </Link>
+              <h2 className="text-sm font-semibold text-ink-primary">My open tasks</h2>
+              <span className="text-xs text-ink-tertiary">
+                {myTasks.length} open
+              </span>
             </div>
             {myTasks.length === 0 ? (
-              <p className="text-sm text-ink-tertiary py-6 text-center">
+              <p className="text-sm text-ink-tertiary py-6 text-center flex-1">
                 Nothing on your plate. Nice.
               </p>
             ) : (
-              <ul className="divide-y divide-border-soft">
-                {myTasks.map((t) => (
-                  <li key={t.id} className="flex items-center gap-3 py-2.5">
-                    <StatusPill status={priorityLabel(t.priority)} size="sm" />
-                    <span className="text-sm text-ink-primary flex-1 truncate">{t.title}</span>
-                    <span className="text-xs text-ink-tertiary flex-shrink-0">{formatDue(t.dueDate)}</span>
-                  </li>
-                ))}
+              <ul className="flex-1 space-y-2.5">
+                {myTasks.map((t) => {
+                  const overdue = t.dueDate && t.dueDate < new Date();
+                  return (
+                    <li key={t.id} className="flex items-center gap-3">
+                      <span
+                        className={[
+                          "w-1 h-7 rounded flex-shrink-0",
+                          priorityDotColour(t.priority),
+                        ].join(" ")}
+                        aria-hidden
+                      />
+                      <input
+                        type="checkbox"
+                        disabled
+                        className="cursor-not-allowed opacity-60 flex-shrink-0"
+                        aria-label={`Mark "${t.title}" done — open Tasks page to toggle`}
+                      />
+                      <span className="text-sm text-ink-primary flex-1 truncate">
+                        {t.title}
+                      </span>
+                      <span
+                        className={[
+                          "text-xs flex-shrink-0 tabular-nums",
+                          overdue ? "text-danger font-medium" : "text-ink-tertiary",
+                        ].join(" ")}
+                      >
+                        {formatDue(t.dueDate)}
+                      </span>
+                    </li>
+                  );
+                })}
               </ul>
             )}
+            <Link
+              href="/tasks"
+              className="block mt-4 pt-3 border-t border-border-soft text-xs text-moss-500 hover:text-moss-700 hover:underline"
+            >
+              See all {totalTaskCount} tasks →
+            </Link>
           </section>
 
-          <div className="flex flex-col gap-4">
-            <section className="bg-surface border border-border-soft rounded-lg p-5 shadow-sm">
-              <h2 className="text-sm font-semibold text-ink-primary mb-2">RSVPs</h2>
-              <div className="font-display text-3xl text-marigold-700 font-semibold">
-                {pending}
-              </div>
-              <div className="text-xs text-ink-tertiary mt-0.5">awaiting reply</div>
-            </section>
-
-            <TodayEventsCard
-              events={upcomingEvents.map((e) => ({
-                id: e.id,
-                title: e.title,
-                startTime: e.startTime,
-                location: e.location,
-                audience: e.audience,
-              }))}
-              currentUserRole={session.user.role}
-            />
-          </div>
+          <TodayEventsCard
+            events={upcomingEvents.map((e) => ({
+              id: e.id,
+              title: e.title,
+              startTime: e.startTime,
+              location: e.location,
+              audience: e.audience,
+            }))}
+            currentUserRole={session.user.role}
+          />
         </div>
 
         {/* RSVP / catering snapshot strip */}
