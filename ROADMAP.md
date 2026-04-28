@@ -11,7 +11,7 @@
 - **Repo:** [SpaceToast1738/wedding-hub](https://github.com/SpaceToast1738/wedding-hub) · `claude/main` (releases) + `dev` (work-in-progress)
 - **Stack:** Next.js 15 · TypeScript · Tailwind v4 · Prisma · Postgres 16 · Auth.js v5 · Caddy · Docker Compose
 - **Working tree:** `C:\Users\Admin\Code\wedding-hub` (local SSD). The old `\\TOWER\Jamie Spencer\Claude\wedding-hub` mirror is no longer in use — run `Remove-Item -Recurse -Force "\\TOWER\Jamie Spencer\Claude\wedding-hub"` from a fresh PowerShell to delete it.
-- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` at **v1.5.0**). v1.6.0 (this iteration on `dev`) ships **Tier 2 user-feedback polish**: a Table | Timeline view toggle on Schedule and a redesigned Wedding Book hub with accent colours, glyphs, descriptions, and hover-lift. Tier 3 (+1s as own rows, Spotify settings UI) follows.
+- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` at **v1.6.0**, promoted 28 Apr 2026 after GHA green). Tier 1 + Tier 2 user-feedback polish shipped (mobile signout, Settings UI defence, scroll fix, 4-col Glance, countdown breakdown, Schedule table view, Book hub redesign). Tier 3 (+1s as own rows, Spotify settings UI) follows.
 
 ## Phase status
 
@@ -34,8 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| _(unreleased on `dev`)_ | 2026-04-28 | [v1.6.0 — Tier 2 user-feedback polish: Schedule table view + Wedding Book hub redesign](#2026-04-28--v160--tier-2-user-feedback-polish) |
-| **v1.5.0** | 2026-04-28 | [Tier 1 user-feedback polish: mobile signout, Settings UI defence, scroll, 4-col Glance, countdown breakdown](#2026-04-28--v150--tier-1-user-feedback-polish) |
+| **v1.6.0** | 2026-04-28 | [Tier 2 user-feedback polish: Schedule table view + Wedding Book hub redesign](#2026-04-28--v160--tier-2-user-feedback-polish) |
+| v1.5.0 | 2026-04-28 | [Tier 1 user-feedback polish: mobile signout, Settings UI defence, scroll, 4-col Glance, countdown breakdown](#2026-04-28--v150--tier-1-user-feedback-polish) |
 | v1.4.0 | 2026-04-28 | [Phase R3 (partial): tests in CI + TESTING.md + integration scaffold](#2026-04-28--v140--phase-r3-partial-tests-in-ci--testingmd--integration-scaffold) |
 | v1.3.0 | 2026-04-28 | [Phase R2: magic-link rate limit + archived-guest restore](#2026-04-28--v130--phase-r2-magic-link-rate-limit--archived-guest-restore) |
 | v1.2.4 | 2026-04-28 | [Dockerfile copies `.npmrc` — first version of the v1.2.x line that built green in CI](#2026-04-28--v124--dockerfile-copies-npmrc-so-the-legacy-peer-deps-actually-applies-in-ci) |
@@ -237,7 +237,7 @@ When wrapping up a meaningful iteration:
 
 ### Current version
 
-`1.6.0` on `dev`, `claude/main` at `v1.5.0`. Tier 2 (Schedule table view + Book hub redesign) shipped to dev. Holding promote until GHA confirms green at the v1.6.0 SHA.
+`1.6.0` on both `dev` and `claude/main` (promoted 28 Apr 2026 after GHA green). Code-only release — no migrations, no env changes. Production catches up on next `docker compose pull && up -d`.
 
 ## Changelog
 
