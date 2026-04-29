@@ -236,19 +236,18 @@ model Task {
   // decision).
   supplierId   String?
   supplier     Supplier?   @relation(fields: [supplierId], references: [id], onDelete: SetNull)
-  // v1.30.0: optional Wedding Book subsection link. Same pattern as
-  // supplierId — nullable, onDelete SetNull. Lets the user attach a
-  // task / question / decision to a specific card on a book page so
-  // the question lives next to the page where it'll be answered.
-  bookSubsectionId String?
-  bookSubsection   BookSubsection? @relation(fields: [bookSubsectionId], references: [id], onDelete: SetNull)
+  // v1.30.5: replaces v1.30.0's bookSubsectionId. Tasks can now attach
+  // to multiple book sections AND multiple nav tags via a unified
+  // "Topics" multi-select on the form. Implicit m2m means Prisma
+  // manages the junction tables (_BookSectionToTask + _NavTagToTask).
+  bookSections BookSection[]
+  navTags      NavTag[]
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
 
   @@index([status])
   @@index([type])
   @@index([supplierId])
-  @@index([bookSubsectionId])
 }
 
 enum TaskType {
@@ -281,10 +280,6 @@ model ScheduleEvent {
   endTime     DateTime?
   location    String?
   notes       String?   @db.Text
-  // v1.27.1: legacy persona audience, kept for backward compat read
-  // path. New events write to attendeeIds instead. A future schema
-  // cleanup release will drop this once all rows are migrated.
-  audience    String[]  @default([])
   // v1.27.1: replaces the persona-based `audience`. User IDs of who
   // needs to know about / attend this event. The form renders a
   // multi-user picker; renderers show user names (resolved client-
@@ -444,6 +439,10 @@ model BookSection {
   // can collapse both checks. Default EVERYONE so existing rows stay
   // visible after the migration.
   visibility BookSubsectionVisibility @default(EVERYONE)
+  // v1.30.5: tasks/questions/decisions tagged to this section via the
+  // unified Topics multi-select on Task. Implicit m2m — Prisma manages
+  // the _BookSectionToTask junction table.
+  tasks       Task[]
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
 }
@@ -475,9 +474,8 @@ model BookSubsection {
   recipe     BookRecipe?
   shotList   BookShotList?
   outfitCard BookOutfitCard?
-  // v1.30.0: tasks/questions/decisions linked to this subsection.
-  // SetNull cascade — see Task.bookSubsection.
-  tasks      Task[]
+  // v1.30.5: subsection-level task link removed; replaced by section-
+  // level link on the parent BookSection (see BookSection.tasks).
   updatedAt  DateTime    @updatedAt
 
   @@unique([sectionId, slug])
@@ -571,26 +569,29 @@ enum BookSubsectionVisibility {
   COUPLE_ONLY
 }
 
-// ─── Photography shot list ────────────────────────────────────────────────
+// ─── Navigation tags (v1.30.5) ────────────────────────────────────────────
 //
-// Lives under the Wedding Book section in the UI but stored separately
-// because the data model (checkboxes + multi-name target list) doesn't fit
-// the BookSubsection JSON-fields archetype. withWhom is a free-text list
-// rather than a Guest relation: shot lists describe people by display name,
-// and we don't want a deleted Guest to silently remove a planned shot.
-
-model PhotographyShot {
-  id         String    @id @default(cuid())
-  title      String
-  withWhom   String[]  @default([])
-  location   String?
-  notes      String?   @db.Text
-  captured   Boolean   @default(false)
-  capturedAt DateTime?
-  order      Int       @default(0)
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
+// Small user-configurable list of navigation-menu tags (Music, Ceremony,
+// Reception, Guests by default — couple can rename / add / delete via
+// Settings). Tasks attach to one or more via the unified Topics multi-
+// select. The optional `route` deep-links the picker label and the linked-
+// tasks chip to an actual app route when one exists; null when the tag is
+// purely conceptual (an ad-hoc grouping the couple invents).
+model NavTag {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  route     String?
+  order     Int      @default(0)
+  tasks     Task[]   // implicit m2m: Task ↔ NavTag (_NavTagToTask)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
+
+// v1.30.5: PhotographyShot dropped. Data was migrated to BookShot under
+// a SHOT_LIST card on the Photography section in v1.27.6; the legacy
+// table was retained one release as a recoverability buffer. Buffer
+// elapsed; table dropped.
 
 // ─── Seating ───────────────────────────────────────────────────────────────
 

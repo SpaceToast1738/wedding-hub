@@ -6,7 +6,7 @@ import { TaskRow } from "./TaskRow";
 import { TaskBoard } from "./TaskBoard";
 import { FilterTabs, type Filter, type View } from "./FilterTabs";
 import { TaskDrawer } from "./TaskDrawer";
-import type { UserOpt, SupplierOpt, BookSubsectionOpt } from "./TaskForm";
+import type { UserOpt, SupplierOpt, BookSectionOpt, NavTagOpt } from "./TaskForm";
 import type { CustomFieldDef } from "@/lib/custom-fields";
 
 const VIEW_KEY = "wh_tasks_view";
@@ -27,8 +27,9 @@ type Task = {
   customFieldValues?: Record<string, string | number | null> | null;
   // v1.28.0: optional supplier link.
   supplierId: string | null;
-  // v1.30.0: optional Wedding Book subsection link.
-  bookSubsectionId: string | null;
+  // v1.30.5: m2m topic relations replace v1.30.0's bookSubsectionId.
+  bookSections: Array<{ id: string; title: string }>;
+  navTags: Array<{ id: string; name: string }>;
 };
 
 type SortKey = "smart" | "due" | "priority" | "title" | "assignee" | "created";
@@ -44,12 +45,15 @@ const SORT_LABELS: Record<SortKey, string> = {
 // v1.29.0: group-by buckets. "none" preserves the v1.27.x flat list.
 // Each non-"none" bucket renders sectioned headers above the relevant
 // rows; the user-facing labels match the existing pill / column copy.
-type GroupKey = "none" | "assignee" | "category" | "supplier" | "priority" | "status";
+// v1.30.5: "topic" added — buckets by the union of bookSections + navTags
+// (a task in two topics appears in both buckets).
+type GroupKey = "none" | "assignee" | "category" | "supplier" | "topic" | "priority" | "status";
 const GROUP_LABELS: Record<GroupKey, string> = {
   none: "None",
   assignee: "Assignee",
   category: "Category",
   supplier: "Supplier",
+  topic: "Topic",
   priority: "Priority",
   status: "Status",
 };
@@ -88,7 +92,8 @@ export function TaskList({
   tasks,
   users,
   suppliers = [],
-  bookSubsections = [],
+  bookSections = [],
+  navTags = [],
   currentUserId,
   canEdit,
   customFieldDefs = [],
@@ -96,11 +101,11 @@ export function TaskList({
   tasks: Task[];
   users: UserOpt[];
   // v1.28.0: optional list of suppliers for the supplier picker on the
-  // task drawer + filter pills. Empty array hides supplier UI.
+  // task drawer. Empty array hides supplier UI.
   suppliers?: SupplierOpt[];
-  // v1.30.0: optional list of book subsections for the book-link
-  // picker on the task drawer.
-  bookSubsections?: BookSubsectionOpt[];
+  // v1.30.5: lists for the Topics multi-select on the drawer.
+  bookSections?: BookSectionOpt[];
+  navTags?: NavTagOpt[];
   currentUserId: string;
   canEdit: boolean;
   customFieldDefs?: CustomFieldDef[];
@@ -166,6 +171,18 @@ export function TaskList({
     suppliers.forEach((s) => m.set(s.id, s));
     return m;
   }, [suppliers]);
+
+  // v1.30.5: book-section / nav-tag lookups for the topic grouping.
+  const bookSectionsById = useMemo(() => {
+    const m = new Map<string, BookSectionOpt>();
+    bookSections.forEach((s) => m.set(s.id, s));
+    return m;
+  }, [bookSections]);
+  const navTagsById = useMemo(() => {
+    const m = new Map<string, NavTagOpt>();
+    navTags.forEach((t) => m.set(t.id, t));
+    return m;
+  }, [navTags]);
 
   // v1.27.4: distinct categories from `tags[0]` (the convention the
   // rest of the app uses for "primary category"). Sorted alphabetically
@@ -292,6 +309,23 @@ export function TaskList({
           }
           break;
         }
+        case "topic": {
+          // v1.30.5: union of book sections + nav tags. A task in two
+          // topics appears in both buckets.
+          if (t.bookSections.length === 0 && t.navTags.length === 0) {
+            bump("topic:null", "No topic", t, 99);
+          } else {
+            for (const s of t.bookSections) {
+              const label = bookSectionsById.get(s.id)?.title ?? s.title;
+              bump(`topic:bs:${s.id}`, label, t, 0);
+            }
+            for (const tg of t.navTags) {
+              const label = navTagsById.get(tg.id)?.name ?? tg.name;
+              bump(`topic:nt:${tg.id}`, label, t, 1);
+            }
+          }
+          break;
+        }
         case "priority": {
           const idx = PRIORITY_ORDER.indexOf(t.priority);
           bump(`p:${t.priority}`, t.priority, t, idx >= 0 ? idx : 99);
@@ -308,7 +342,7 @@ export function TaskList({
       if (a.rank !== b.rank) return a.rank - b.rank;
       return a.label.localeCompare(b.label);
     });
-  }, [sorted, groupKey, usersById, suppliersById]);
+  }, [sorted, groupKey, usersById, suppliersById, bookSectionsById, navTagsById]);
 
   const openTask = openTaskId ? tasks.find((t) => t.id === openTaskId) : null;
 
@@ -487,7 +521,8 @@ export function TaskList({
           task={openTask}
           users={users}
           suppliers={suppliers}
-          bookSubsections={bookSubsections}
+          bookSections={bookSections}
+          navTags={navTags}
           canEdit={canEdit}
           onClose={() => setOpenTaskId(null)}
         />

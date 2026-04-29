@@ -13,9 +13,6 @@ type Event = {
   startTime: Date;
   endTime: Date | null;
   location: string | null;
-  // Legacy persona audience — kept for back-compat read on rows
-  // created before v1.27.1 that still have values here.
-  audience: string[];
   // v1.27.1: User-IDs of who should attend / be aware of this event.
   attendeeIds: string[];
   // v1.27.1: when true the time component is ignored on render.
@@ -124,9 +121,9 @@ export function EventNode({
       {event.location && (
         <div className="text-xs text-ink-tertiary mt-0.5">📍 {event.location}</div>
       )}
-      {/* v1.27.1: prefer attendee names; fall back to legacy persona
-          audience for old rows that pre-date the migration. */}
-      {event.attendeeIds.length > 0 ? (
+      {/* v1.30.5: legacy persona-`audience` fallback removed (column
+          dropped this release). Render attendees only. */}
+      {event.attendeeIds.length > 0 && (
         <div className="flex gap-1 mt-1.5 flex-wrap">
           {event.attendeeIds.map((id) => {
             const u = users.find((x) => x.id === id);
@@ -141,18 +138,7 @@ export function EventNode({
             );
           })}
         </div>
-      ) : event.audience.length > 0 ? (
-        <div className="flex gap-1 mt-1.5 flex-wrap">
-          {event.audience.map((a) => (
-            <span
-              key={a}
-              className="text-[10px] px-1.5 py-px rounded-md bg-muted text-ink-secondary border border-border-soft capitalize"
-            >
-              {a}
-            </span>
-          ))}
-        </div>
-      ) : null}
+      )}
       {event.notes && (
         <p className="text-xs text-ink-secondary mt-2 whitespace-pre-wrap">{event.notes}</p>
       )}

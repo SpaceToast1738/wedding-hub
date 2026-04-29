@@ -64,7 +64,6 @@ export default async function SchedulePage() {
                 startTime: e.startTime,
                 endTime: e.endTime,
                 location: e.location,
-                audience: e.audience,
                 attendeeIds: e.attendeeIds,
                 allDay: e.allDay,
                 notes: e.notes,

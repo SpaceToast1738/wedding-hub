@@ -11,7 +11,6 @@ type Event = {
   startTime: Date;
   endTime: Date | null;
   location: string | null;
-  audience: string[];
   attendeeIds: string[];
   allDay: boolean;
   notes: string | null;

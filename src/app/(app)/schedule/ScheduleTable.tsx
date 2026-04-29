@@ -13,7 +13,6 @@ type Event = {
   startTime: Date;
   endTime: Date | null;
   location: string | null;
-  audience: string[];
   attendeeIds: string[];
   allDay: boolean;
   notes: string | null;
@@ -167,9 +166,11 @@ function Row({
         {event.location ?? "—"}
       </td>
       <td className="px-3 py-2.5 hidden md:table-cell">
-        {/* v1.27.1: prefer attendee names; fall back to legacy
-            persona audience for old rows that pre-date the migration. */}
-        {event.attendeeIds.length > 0 ? (
+        {/* v1.30.5: legacy persona-`audience` fallback removed (column
+            dropped this release). Render attendees only. */}
+        {event.attendeeIds.length === 0 ? (
+          <span className="text-xs text-ink-tertiary">—</span>
+        ) : (
           <div className="flex gap-1 flex-wrap">
             {event.attendeeIds.map((id) => {
               const u = users.find((x) => x.id === id);
@@ -183,19 +184,6 @@ function Row({
                 </span>
               );
             })}
-          </div>
-        ) : event.audience.length === 0 ? (
-          <span className="text-xs text-ink-tertiary">—</span>
-        ) : (
-          <div className="flex gap-1 flex-wrap">
-            {event.audience.map((a) => (
-              <span
-                key={a}
-                className="text-[10px] px-1.5 py-px rounded-md bg-muted text-ink-secondary border border-border-soft capitalize"
-              >
-                {a}
-              </span>
-            ))}
           </div>
         )}
       </td>

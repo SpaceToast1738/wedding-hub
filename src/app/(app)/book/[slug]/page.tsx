@@ -7,6 +7,7 @@ import { requireUser } from "@/lib/actions";
 import { AddSubsectionToggle } from "./AddSubsectionToggle";
 import { CardRouter } from "./CardRouter";
 import { SectionVisibilityToggle } from "./SectionVisibilityToggle";
+import { LinkedTasksPanel } from "./LinkedTasksPanel";
 
 export default async function BookSectionPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
@@ -39,32 +40,20 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
   // how the hub-page filter hides them from the index.
   if (section.visibility === "COUPLE_ONLY" && !user.isCouple) notFound();
 
-  // v1.30.0: pull all tasks/questions/decisions linked to any
-  // subsection in this section. Grouped client-side per-card by the
-  // CardRouter so each card surfaces its own linked items.
-  const subsectionIds = section.subsections.map((s) => s.id);
-  const linkedTasks = subsectionIds.length
-    ? await db.task.findMany({
-        where: { bookSubsectionId: { in: subsectionIds } },
-        orderBy: [{ status: "asc" }, { priority: "desc" }, { dueDate: "asc" }],
-        select: {
-          id: true,
-          title: true,
-          type: true,
-          status: true,
-          priority: true,
-          dueDate: true,
-          bookSubsectionId: true,
-        },
-      })
-    : [];
-  const tasksBySubsection = new Map<string, typeof linkedTasks>();
-  for (const t of linkedTasks) {
-    if (!t.bookSubsectionId) continue;
-    const arr = tasksBySubsection.get(t.bookSubsectionId) ?? [];
-    arr.push(t);
-    tasksBySubsection.set(t.bookSubsectionId, arr);
-  }
+  // v1.30.5: pull section-level linked tasks (m2m bookSections relation).
+  // Replaces v1.30.0's per-subsection link.
+  const linkedTasks = await db.task.findMany({
+    where: { bookSections: { some: { id: section.id } } },
+    orderBy: [{ status: "asc" }, { priority: "desc" }, { dueDate: "asc" }],
+    select: {
+      id: true,
+      title: true,
+      type: true,
+      status: true,
+      priority: true,
+      dueDate: true,
+    },
+  });
 
   return (
     <>
@@ -106,6 +95,10 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
             </nav>
           )}
 
+          {/* v1.30.5: section-level linked tasks panel. Renders above
+              the cards. Auto-hides when there are no linked tasks. */}
+          <LinkedTasksPanel tasks={linkedTasks} />
+
           {section.subsections.length === 0 ? (
             <p className="text-sm text-ink-tertiary text-center py-12">
               This section has no pages yet. {editable && "Add one above."}
@@ -117,7 +110,6 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
                 sub={s}
                 canEdit={editable}
                 isCouple={user.isCouple}
-                linkedTasks={tasksBySubsection.get(s.id) ?? []}
               />
             ))
           )}

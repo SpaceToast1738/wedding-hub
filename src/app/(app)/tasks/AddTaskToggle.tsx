@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/Button";
-import { TaskForm, type UserOpt, type SupplierOpt, type BookSubsectionOpt } from "./TaskForm";
+import { TaskForm, type UserOpt, type SupplierOpt, type BookSectionOpt, type NavTagOpt } from "./TaskForm";
 import { createTask } from "./actions";
 
 // v1.27.0: New-task button now opens a fixed-position popover at
@@ -13,10 +13,12 @@ import { createTask } from "./actions";
 export function AddTaskToggle({
   users,
   suppliers = [],
-  bookSubsections = [],
+  bookSections = [],
+  navTags = [],
   defaultType = "TASK",
   defaultSupplierId,
-  defaultBookSubsectionId,
+  defaultBookSectionIds,
+  defaultNavTagIds,
   showType = true,
   buttonLabel = "+ New task",
 }: {
@@ -25,12 +27,13 @@ export function AddTaskToggle({
   // on a supplier-detail page, callers can also pass `defaultSupplierId`
   // to pre-select that supplier in the new-task form.
   suppliers?: SupplierOpt[];
-  // v1.30.0: optional book-subsection picker. Same pattern as
-  // suppliers — pass defaultBookSubsectionId to pre-select.
-  bookSubsections?: BookSubsectionOpt[];
+  // v1.30.5: lists for the combined Topics multi-select.
+  bookSections?: BookSectionOpt[];
+  navTags?: NavTagOpt[];
   defaultType?: string;
   defaultSupplierId?: string;
-  defaultBookSubsectionId?: string;
+  defaultBookSectionIds?: string[];
+  defaultNavTagIds?: string[];
   showType?: boolean;
   buttonLabel?: string;
 }) {
@@ -79,12 +82,14 @@ export function AddTaskToggle({
             <TaskForm
               users={users}
               suppliers={suppliers}
-              bookSubsections={bookSubsections}
+              bookSections={bookSections}
+              navTags={navTags}
               showType={showType}
               initial={{
                 type: defaultType,
                 supplierId: defaultSupplierId ?? null,
-                bookSubsectionId: defaultBookSubsectionId ?? null,
+                bookSectionIds: defaultBookSectionIds ?? [],
+                navTagIds: defaultNavTagIds ?? [],
               }}
               submitLabel="Create"
               onSubmit={async (fd) => {

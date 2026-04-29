@@ -213,11 +213,15 @@ export default async function DayOfPage() {
                       >
                         {ev.title}
                       </div>
-                      {(ev.location || ev.audience.length > 0) && (
+                      {(ev.location || ev.attendeeIds.length > 0) && (
                         <div className="text-[11px] text-ink-tertiary mt-0.5">
                           {ev.location && <>{ev.location}</>}
-                          {ev.location && ev.audience.length > 0 && " · "}
-                          {ev.audience.length > 0 && <>{ev.audience.join(", ")}</>}
+                          {ev.location && ev.attendeeIds.length > 0 && " · "}
+                          {ev.attendeeIds.length > 0 && (
+                            <>
+                              {ev.attendeeIds.length} attending
+                            </>
+                          )}
                         </div>
                       )}
                     </div>

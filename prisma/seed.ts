@@ -63,15 +63,28 @@ async function seedUsersAndPermissions() {
 
 async function seedScheduleEvents() {
   const day = "2026-09-26";
-  const events = [
-    { title: "Bridal suite check-in",  startTime: `${day}T12:00:00Z`, audience: ["couple", "party"], order: 1 },
-    { title: "Arrival",                 startTime: `${day}T13:00:00Z`, audience: ["everyone"],         order: 2 },
-    { title: "Ceremony",                startTime: `${day}T14:00:00Z`, audience: ["everyone"],         order: 3 },
-    { title: "Drinks Reception",        startTime: `${day}T14:30:00Z`, audience: ["everyone"],         order: 4 },
-    { title: "Wedding Breakfast",       startTime: `${day}T16:00:00Z`, audience: ["everyone"],         order: 5 },
-    { title: "Speeches",                startTime: `${day}T18:00:00Z`, audience: ["everyone"],         order: 6 },
-    { title: "First Dance",             startTime: `${day}T19:30:00Z`, audience: ["everyone"],         order: 7 },
-    { title: "Evening Buffet",          startTime: `${day}T20:00:00Z`, audience: ["everyone"],         order: 8 },
+  // v1.30.5: persona-based `audience` was dropped. Resolve real user IDs
+  // for the seeded couple + wedding-party so the events arrive with
+  // realistic `attendeeIds` instead of legacy persona strings.
+  const allUsers = await db.user.findMany({ select: { id: true, isCouple: true, role: true } });
+  const coupleIds = allUsers.filter((u) => u.isCouple).map((u) => u.id);
+  const partyIds = allUsers.filter((u) => u.role === "WEDDING_PARTY").map((u) => u.id);
+  const everyone = allUsers.map((u) => u.id);
+
+  const events: Array<{
+    title: string;
+    startTime: string;
+    attendeeIds: string[];
+    order: number;
+  }> = [
+    { title: "Bridal suite check-in", startTime: `${day}T12:00:00Z`, attendeeIds: [...coupleIds, ...partyIds], order: 1 },
+    { title: "Arrival",               startTime: `${day}T13:00:00Z`, attendeeIds: everyone,                  order: 2 },
+    { title: "Ceremony",              startTime: `${day}T14:00:00Z`, attendeeIds: everyone,                  order: 3 },
+    { title: "Drinks Reception",      startTime: `${day}T14:30:00Z`, attendeeIds: everyone,                  order: 4 },
+    { title: "Wedding Breakfast",     startTime: `${day}T16:00:00Z`, attendeeIds: everyone,                  order: 5 },
+    { title: "Speeches",              startTime: `${day}T18:00:00Z`, attendeeIds: everyone,                  order: 6 },
+    { title: "First Dance",           startTime: `${day}T19:30:00Z`, attendeeIds: everyone,                  order: 7 },
+    { title: "Evening Buffet",        startTime: `${day}T20:00:00Z`, attendeeIds: everyone,                  order: 8 },
   ];
   for (const e of events) {
     const existing = await db.scheduleEvent.findFirst({ where: { title: e.title, startTime: new Date(e.startTime) } });
@@ -81,7 +94,7 @@ async function seedScheduleEvents() {
         title: e.title,
         startTime: new Date(e.startTime),
         location: "Alveston Manor",
-        audience: e.audience,
+        attendeeIds: e.attendeeIds,
         order: e.order,
       },
     });
@@ -185,24 +198,30 @@ async function seedWeddingPartySubsections() {
   console.log(`  ✓ ${subs.length} wedding party subsections`);
 }
 
-// Idempotent: only seeds when there are zero shots in the DB. Real shots
-// added via the UI are never overwritten by a re-run of `npm run db:seed`.
-async function seedPhotographyShots() {
-  const existing = await db.photographyShot.count();
-  if (existing > 0) {
-    console.log(`  ✓ photography shots already present (${existing}); skipping seed`);
-    return;
-  }
-  const shots = [
-    { title: "Couple portraits",         withWhom: ["Jamie", "Bryony"],                                  location: "Garden if dry, library if not", notes: null,             order: 1 },
-    { title: "Whole wedding party",      withWhom: ["Jamie", "Bryony", "Joshua", "Aimee"],               location: "Front lawn",                    notes: null,             order: 2 },
-    { title: "Bride's immediate family", withWhom: ["Bryony", "Torin", "Tia"],                           location: "Drawing room",                  notes: null,             order: 3 },
-    { title: "Groom's immediate family", withWhom: ["Jamie", "Tyler"],                                   location: "Library",                       notes: null,             order: 4 },
-    { title: "Ring keepers with rings",  withWhom: ["Joshua", "Aimee", "Jamie", "Bryony"],               location: null,                            notes: "Before ceremony", order: 5 },
-    { title: "Flower girl & page boy",   withWhom: ["Clara", "Torin"],                                   location: "Garden",                        notes: null,             order: 6 },
+// v1.30.5: PhotographyShot seed removed. Data was migrated to BookShot
+// under a SHOT_LIST card on the Photography section in v1.27.6; the
+// legacy table was dropped in this release. Sample shots can be added
+// via the UI (Wedding Book → Photography → Add card → Shot list) or via
+// a follow-up BookShot seeder if recurring sample data becomes useful.
+
+// v1.30.5: seed the four default navigation tags (Music · Ceremony ·
+// Reception · Guests). User-configurable via Settings — couple can
+// rename / add / remove. Idempotent upsert by slug.
+async function seedNavTags() {
+  const tags = [
+    { slug: "music",     name: "Music",     route: "/songs",            order: 1 },
+    { slug: "ceremony",  name: "Ceremony",  route: "/seating/ceremony", order: 2 },
+    { slug: "reception", name: "Reception", route: null,                order: 3 },
+    { slug: "guests",    name: "Guests",    route: "/guests",           order: 4 },
   ];
-  await db.photographyShot.createMany({ data: shots });
-  console.log(`  ✓ ${shots.length} sample photography shots`);
+  for (const t of tags) {
+    await db.navTag.upsert({
+      where: { slug: t.slug },
+      create: t,
+      update: { name: t.name, route: t.route, order: t.order },
+    });
+  }
+  console.log(`  ✓ ${tags.length} nav tags`);
 }
 
 // v1.20.0: bootstrap the WeddingSettings singleton from env vars on
@@ -242,7 +261,7 @@ async function main() {
   await seedSampleHouseholds();
   await seedBookSections();
   await seedWeddingPartySubsections();
-  await seedPhotographyShots();
+  await seedNavTags();
   console.log("Done.");
 }
 

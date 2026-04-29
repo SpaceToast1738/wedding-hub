@@ -8,7 +8,10 @@ type EventLite = {
   title: string;
   startTime: Date;
   location: string | null;
-  audience: string[];
+  // v1.30.5: replaces v1.27.x's persona-based `audience` (column dropped
+  // this release). User IDs of who's expected at the event. Empty array
+  // = everyone.
+  attendeeIds: string[];
   // v1.27.9: when true, render "All day" instead of the time. Pre-fix
   // all-day events showed as 01:00 / midnight depending on browser
   // locale because we just toLocaleTimeString'd whatever was stored
@@ -17,20 +20,6 @@ type EventLite = {
 };
 
 type Persona = "mine" | "everyone";
-
-// Map a session-user role to the audience tag we filter on. The current
-// audience strings on ScheduleEvent are free-form ("couple", "party",
-// "guests", "suppliers", "everyone") so we match by lowercase substring.
-function audienceMatchesRole(audience: string[], role: string): boolean {
-  if (audience.length === 0) return true; // unspecified = everyone
-  const lower = audience.map((a) => a.toLowerCase());
-  if (lower.includes("everyone")) return true;
-  const r = role.toLowerCase();
-  if (r === "couple" && (lower.includes("couple") || lower.includes("bride") || lower.includes("groom"))) return true;
-  if (r === "wedding_party" && (lower.includes("party") || lower.includes("wedding party"))) return true;
-  if (r === "planner" && (lower.includes("planner") || lower.includes("suppliers"))) return true;
-  return false;
-}
 
 function formatTime(d: Date): string {
   return d.toLocaleTimeString("en-GB", { hour: "numeric", minute: "2-digit", hour12: true }).toLowerCase();
@@ -42,10 +31,13 @@ function formatDate(d: Date): string {
 
 export function TodayEventsCard({
   events,
-  currentUserRole,
+  currentUserId,
 }: {
   events: EventLite[];
-  currentUserRole: string;
+  // v1.30.5: replaces currentUserRole. The "Mine" persona now matches
+  // attendeeIds against this user's id. Empty attendeeIds = everyone
+  // (so they always show in "Mine").
+  currentUserId: string;
 }) {
   // v1.19.0: default to "mine" — most useful default for wedding-party
   // users (Aimee/Josh) who care about the events that involve them.
@@ -55,7 +47,7 @@ export function TodayEventsCard({
   const filtered =
     persona === "everyone"
       ? events
-      : events.filter((e) => audienceMatchesRole(e.audience, currentUserRole));
+      : events.filter((e) => e.attendeeIds.length === 0 || e.attendeeIds.includes(currentUserId));
 
   return (
     <section className="bg-surface border border-border-soft rounded-lg p-5 shadow-sm h-full flex flex-col">
@@ -82,7 +74,7 @@ export function TodayEventsCard({
       </div>
       {filtered.length === 0 ? (
         <p className="text-xs text-ink-tertiary py-2 flex-1">
-          {persona === "mine" ? "No events for your role." : "No events scheduled."}
+          {persona === "mine" ? "No events for you." : "No events scheduled."}
         </p>
       ) : (
         <ul className="space-y-3 flex-1">
@@ -93,9 +85,9 @@ export function TodayEventsCard({
               </span>
               <div className="flex-1 min-w-0">
                 <div className="text-sm text-ink-primary font-medium truncate">{e.title}</div>
-                {e.audience.length > 0 && (
-                  <div className="text-[11px] text-ink-tertiary capitalize">
-                    {e.audience.join(" · ")}
+                {e.attendeeIds.length > 0 && (
+                  <div className="text-[11px] text-ink-tertiary">
+                    {e.attendeeIds.length} attending
                   </div>
                 )}
               </div>

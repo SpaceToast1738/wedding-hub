@@ -11,6 +11,7 @@ import { CustomFieldsPanel } from "./CustomFieldsPanel";
 import { WeddingSettingsPanel } from "./WeddingSettingsPanel";
 import { AuditLogPanel } from "./AuditLogPanel";
 import { NudgesPanel } from "./NudgesPanel";
+import { NavTagsBlock } from "./NavTagsBlock";
 
 export default async function SettingsPage({
   searchParams,
@@ -21,7 +22,7 @@ export default async function SettingsPage({
   const editable = await canEdit(user, "settings");
   const { audit_before } = await searchParams;
 
-  const [users, permissions, me, customFields, wedding] = await Promise.all([
+  const [users, permissions, me, customFields, wedding, navTagsRaw] = await Promise.all([
     db.user.findMany({ orderBy: [{ isCouple: "desc" }, { name: "asc" }] }),
     db.permission.findMany(),
     db.user.findUnique({
@@ -30,6 +31,16 @@ export default async function SettingsPage({
     }),
     db.customField.findMany({ orderBy: [{ entity: "asc" }, { order: "asc" }] }),
     getWeddingSettings(),
+    // v1.30.5: nav tags + linked-task counts for the couple-only
+    // NavTagsBlock. Only the couple needs to see the management
+    // surface, but the underlying read is cheap so we always run it
+    // and gate at the render site.
+    user.isCouple
+      ? db.navTag.findMany({
+          orderBy: { order: "asc" },
+          include: { _count: { select: { tasks: true } } },
+        })
+      : Promise.resolve([]),
   ]);
 
   // Format the date for the datetime-local input + read view.
@@ -80,6 +91,21 @@ export default async function SettingsPage({
             }))}
             isCouple={user.isCouple}
           />
+
+          {/* v1.30.5: nav tags admin block, couple-only. Tags surface
+              on tasks/questions/decisions via the Topics multi-select. */}
+          {user.isCouple && (
+            <NavTagsBlock
+              tags={navTagsRaw.map((t) => ({
+                id: t.id,
+                name: t.name,
+                slug: t.slug,
+                route: t.route,
+                order: t.order,
+                linkedTaskCount: t._count.tasks,
+              }))}
+            />
+          )}
 
           {editable && (
             <div className="bg-marigold-100/40 border border-marigold-700/20 text-marigold-700 rounded-md px-4 py-2.5 text-xs">

@@ -161,13 +161,15 @@ export default async function TodayPage() {
               title: e.title,
               startTime: e.startTime,
               location: e.location,
-              audience: e.audience,
+              attendeeIds: e.attendeeIds,
               // v1.27.9: pass through the all-day flag so the card
               // renders "All day" instead of toLocaleTimeString'ing
               // a midnight-UTC timestamp into "01:00".
               allDay: e.allDay,
             }))}
-            currentUserRole={session.user.role}
+            // v1.30.5: filter "Mine" by attendee user IDs instead of
+            // the legacy persona-based role comparison.
+            currentUserId={userId}
           />
         </div>
 

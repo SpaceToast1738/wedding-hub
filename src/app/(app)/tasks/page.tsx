@@ -23,13 +23,18 @@ export default async function TasksPage({
   const sp = await searchParams;
   const supplierFilter = typeof sp.supplier === "string" ? sp.supplier : null;
 
-  const [tasks, users, customFieldDefs, suppliers, bookSubsectionsRaw] = await Promise.all([
+  const [tasks, users, customFieldDefs, suppliers, bookSections, navTags] = await Promise.all([
     db.task.findMany({
       where: {
         type: "TASK",
         ...(supplierFilter ? { supplierId: supplierFilter } : {}),
       },
       orderBy: [{ status: "asc" }, { priority: "desc" }, { dueDate: "asc" }, { createdAt: "desc" }],
+      // v1.30.5: include the m2m relations for the chip-row render.
+      include: {
+        bookSections: { select: { id: true, title: true } },
+        navTags: { select: { id: true, name: true } },
+      },
     }),
     db.user.findMany({ orderBy: [{ isCouple: "desc" }, { name: "asc" }] }),
     // v1.22.0: defs scoped to task entity, passed down so TaskRow's edit
@@ -40,28 +45,17 @@ export default async function TasksPage({
       orderBy: [{ category: "asc" }, { name: "asc" }],
       select: { id: true, name: true, category: true },
     }),
-    // v1.30.0: book subsection picker on task forms. Pull all
-    // sections + their subsections (admin-only app, the dataset is
-    // small) and flatten into the picker shape downstream.
+    // v1.30.5: book sections (page-level) for the Topics multi-select.
     db.bookSection.findMany({
       orderBy: { order: "asc" },
-      select: {
-        id: true,
-        title: true,
-        subsections: {
-          orderBy: { order: "asc" },
-          select: { id: true, title: true },
-        },
-      },
+      select: { id: true, title: true },
+    }),
+    // v1.30.5: nav tags for the Topics multi-select.
+    db.navTag.findMany({
+      orderBy: { order: "asc" },
+      select: { id: true, name: true, route: true },
     }),
   ]);
-  const bookSubsections = bookSubsectionsRaw.flatMap((sec) =>
-    sec.subsections.map((sub) => ({
-      id: sub.id,
-      title: sub.title,
-      sectionTitle: sec.title,
-    })),
-  );
   const customFieldDefsTyped: CustomFieldDef[] = customFieldDefs.map((f) => ({
     id: f.id,
     entity: f.entity,
@@ -96,7 +90,8 @@ export default async function TasksPage({
               <AddTaskToggle
                 users={users.map((u) => ({ id: u.id, name: u.name, email: u.email }))}
                 suppliers={suppliers}
-                bookSubsections={bookSubsections}
+                bookSections={bookSections}
+                navTags={navTags}
               />
             </>
           ) : undefined
@@ -125,7 +120,8 @@ export default async function TasksPage({
         }))}
         users={users.map((u) => ({ id: u.id, name: u.name, email: u.email }))}
         suppliers={suppliers}
-        bookSubsections={bookSubsections}
+        bookSections={bookSections}
+        navTags={navTags}
         currentUserId={user.id}
         canEdit={editable}
         customFieldDefs={customFieldDefsTyped}

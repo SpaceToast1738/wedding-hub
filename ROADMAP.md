@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.30.0** | 2026-04-29 | [Tasks ↔ Wedding Book subsection link · picker on task forms + drawer · Linked tasks panel under each card on `/book/[slug]` with per-card search](#2026-04-29--v1300--tasks--wedding-book-subsection-link) |
+| **v1.30.5** | 2026-04-29 | [Schema cleanup + Topics multi-select · drop legacy `PhotographyShot` and `ScheduleEvent.audience` · combined Wedding Book section + NavTag picker on tasks · NavTag CRUD in Settings · audit-rule standing add + first-pass enrichment](#2026-04-29--v1305--schema-cleanup--topics-multi-select--audit-rule) |
+| v1.30.0 | 2026-04-29 | [Tasks ↔ Wedding Book subsection link · picker on task forms + drawer · Linked tasks panel under each card on `/book/[slug]` with per-card search](#2026-04-29--v1300--tasks--wedding-book-subsection-link) |
 | v1.29.0 | 2026-04-29 | [Task grouping: None / Assignee / Category / Supplier / Priority / Status · localStorage-persisted dropdown beside Sort · sectioned headers with counts](#2026-04-29--v1290--task-grouping) |
 | v1.28.0 | 2026-04-29 | [Task ↔ Supplier link · supplier picker on Task / Question / Decision forms · Linked tasks section on supplier detail · `?supplier=` deep-link from supplier page](#2026-04-29--v1280--task--supplier-link) |
 | v1.27.9 | 2026-04-29 | [Tasks polish: drop list container · wider rightmost columns · Type changer in the drawer · all-day events render "All day" instead of "01:00"](#2026-04-29--v1279--tasks-polish-round-3--all-day-display-fix) |
@@ -577,6 +578,7 @@ UI. Don't ship piecemeal.
 
 - **Server actions** live in `actions.ts` next to the page they serve, gated by `requireEdit("section")`, mutating via Prisma, then `revalidatePath` for the relevant routes.
 - **Audit log** every server action that mutates user-visible state. Sign-in already audits.
+- **Audit-aware feature design (v1.30.5).** After each feature request, scan for audit / activity-list opportunities. When adding an audit row, enrich its `metadata` with the relevant snapshot fields (titles, key IDs, counts, changed-field names) so the row reads usefully without re-joining the originating entity. Logging only `{ entity, entityId }` is the minimum, not the target.
 - **Permission section keys** must match the union in [src/lib/permissions.ts](src/lib/permissions.ts) (`SECTIONS` const).
 - **Couple-only routes** are gated in two places — middleware (defence-in-depth) and the page itself (`if (!user.isCouple) redirect("/")`).
 - **Forms** use plain `<form action={serverAction}>` with a small client wrapper for `useTransition`-driven pending state. No client-side form libraries in Phase A–C.
@@ -656,6 +658,65 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-29 · v1.30.5 — Schema cleanup · Topics multi-select · audit rule
+
+Three landings in one tagged release.
+
+**1. Schema cleanup.** Two legacy bits dropped after their one-release recoverability buffer elapsed:
+
+- `PhotographyShot` table — data migrated to `BookShot` rows in v1.27.6. New migration: `prisma/migrations/20260429090000_drop_photography_shot/migration.sql`.
+- `ScheduleEvent.audience` String[] column — replaced by `attendeeIds` in v1.27.1. Five files touched to remove read fallbacks (`schedule/page.tsx`, `ScheduleClient.tsx`, `ScheduleTable.tsx`, `ScheduleTimeline.tsx`, `EventNode.tsx`); `seedScheduleEvents()` rewritten to use real user IDs. New migration: `prisma/migrations/20260429100000_drop_schedule_audience/migration.sql`.
+- `TodayEventsCard` and the day-of timeline both lost their persona-based audience filtering and switched to `attendeeIds.includes(currentUserId)` for the "Mine" persona — semantically tighter (matches actual attendees, not role heuristics).
+
+**2. Topics multi-select.** Replaces v1.30.0's single-select Wedding Book subsection link with a unified multi-select that combines BookSections **and** a new user-configurable NavTag list.
+
+- New `NavTag` model + four seeded defaults (Music · Ceremony · Reception · Guests, with optional `route` deep-links to the matching app routes).
+- v1.30.0's `Task.bookSubsectionId` rolled up to `Task.bookSections` m2m at the section level (coarser scope per user feedback). v1.30.0 data backfilled to the parent section in the migration.
+- New `TopicPicker` component renders a chip row + grouped checkbox dropdown (Wedding Book + Nav tags). Read-only mode renders the chip row without the trigger.
+- `TaskForm`, `TaskDrawer`, `AddTaskToggle`, `TaskList` all switched from the v1.30.0 single-select to the new multi-select. `TaskList` group-by gains a "Topic" option that buckets by the union of book sections + nav tags (a task in two topics appears in both).
+- `LinkedTasksPanel` extracted from `CardRouter` to its own file and relocated to render once per page (above the cards) on `/book/[slug]`, sourced from the section-level m2m.
+- New `Settings → Navigation tags` couple-only block for CRUD on the NavTag list. `nav-tag-actions.ts` server actions follow the result-shape pattern with full audit metadata (`name`, `slug`, `route`, `linkedTaskCount` on delete).
+
+New migration `prisma/migrations/20260429110000_task_topics_links/migration.sql` does it all in one block: NavTag table, both implicit-m2m junction tables (`_BookSectionToTask` + `_NavTagToTask`), backfill from v1.30.0, then drop the v1.30.0 column / FK / index.
+
+**3. New standing rule + first-pass audit enrichment.** User added the rule this turn:
+
+> Audit-aware feature design — after each feature request, scan for audit/activity-list opportunities. When adding an audit row, enrich its metadata with relevant snapshot fields. Logging only `{ entity, entityId }` is the minimum, not the target.
+
+Persisted into the project's Conventions block (so any future plan that ignores it gets caught at review time). Applied to every audit touch-point this release opened:
+
+- `createScheduleEvent` → metadata `{ title, startTime, allDay, attendeeCount }`.
+- `updateScheduleEvent` → same snapshot **plus** `{ changedFields }` diff against the pre-update row.
+- `deleteScheduleEvent` → `{ title, startTime }` snapshot read pre-delete.
+- `createTask` → `{ title, type, supplierId, bookSectionIds, navTagIds }`.
+- `updateTask` → `{ title, type, changedFields }` with diff covering 9 task fields including the m2m relations.
+- `deleteTask` → `{ title, type }` snapshot pre-delete.
+- All NavTag CRUD actions → `{ name, slug, route }` snapshots.
+
+Broader audit sweep (guests, suppliers, payments, files, seating, book cards, plus the recent-activity feed surface) remains the v1.31.0 design item.
+
+**Files modified:**
+- `prisma/schema.prisma` — drop PhotographyShot model + ScheduleEvent.audience; drop v1.30.0 Task.bookSubsectionId/relation/index; add NavTag + Task.bookSections + Task.navTags m2m + BookSection.tasks back-relation; remove BookSubsection.tasks.
+- `prisma/seed.ts` — drop seedPhotographyShots, rewrite seedScheduleEvents to attendeeIds, add seedNavTags.
+- 3 new migrations.
+- `src/app/(app)/schedule/actions.ts` — drop audience; enrich audits.
+- `src/app/(app)/schedule/page.tsx`, `ScheduleClient.tsx`, `ScheduleTable.tsx`, `ScheduleTimeline.tsx`, `EventNode.tsx` — remove audience.
+- `src/app/(app)/TodayEventsCard.tsx` — switch from role-based to attendeeIds-based "Mine" filter.
+- `src/app/(app)/page.tsx` — pass currentUserId.
+- `src/app/(app)/today/day-of/page.tsx` — drop audience read.
+- New: `src/app/(app)/tasks/TopicPicker.tsx`.
+- `src/app/(app)/tasks/TaskForm.tsx`, `TaskDrawer.tsx`, `AddTaskToggle.tsx`, `TaskList.tsx` — Topics multi-select wiring + group-by topic.
+- `src/app/(app)/tasks/actions.ts` — parseTopicKeys + m2m connect/set + enriched audits.
+- `src/app/(app)/tasks/page.tsx`, `questions/page.tsx` — fetch BookSections + NavTags.
+- `src/app/(app)/book/[slug]/page.tsx` — section-level linked-tasks fetch + render.
+- `src/app/(app)/book/[slug]/CardRouter.tsx` — strip per-card panel.
+- New: `src/app/(app)/book/[slug]/LinkedTasksPanel.tsx`.
+- New: `src/app/(app)/settings/NavTagsBlock.tsx` + `nav-tag-actions.ts`.
+- `src/app/(app)/settings/page.tsx` — mount NavTagsBlock.
+- `ROADMAP.md` — Conventions block gains the audit rule.
+
+**Verification:** typecheck + lint clean, all 232 unit tests pass, clean `.next` build green. Manual paths exercised in the verification block of the original plan.
 
 ### 2026-04-29 · v1.30.0 — Tasks ↔ Wedding Book subsection link
 

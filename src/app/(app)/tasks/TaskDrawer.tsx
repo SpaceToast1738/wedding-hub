@@ -6,7 +6,8 @@ import { Button } from "@/components/ui/Button";
 import { notify } from "@/lib/notify";
 import { isoForInput } from "@/lib/format";
 import { deleteTask, updateTask } from "./actions";
-import type { UserOpt, SupplierOpt, BookSubsectionOpt } from "./TaskForm";
+import type { UserOpt, SupplierOpt, BookSectionOpt, NavTagOpt } from "./TaskForm";
+import { TopicPicker } from "./TopicPicker";
 
 type Task = {
   id: string;
@@ -20,8 +21,10 @@ type Task = {
   notes: string | null;
   // v1.28.0: optional supplier link.
   supplierId: string | null;
-  // v1.30.0: optional Wedding Book subsection link.
-  bookSubsectionId: string | null;
+  // v1.30.5: replaces v1.30.0's bookSubsectionId. Multi-select
+  // relations — current selections come from m2m relation rows.
+  bookSections: Array<{ id: string; title: string }>;
+  navTags: Array<{ id: string; name: string }>;
 };
 
 const STATUS_OPTIONS: { value: string; label: string }[] = [
@@ -57,18 +60,17 @@ export function TaskDrawer({
   task,
   users,
   suppliers = [],
-  bookSubsections = [],
+  bookSections = [],
+  navTags = [],
   canEdit,
   onClose,
 }: {
   task: Task;
   users: UserOpt[];
-  // v1.28.0: optional list of suppliers for the supplier-link picker.
-  // Empty array hides the field entirely.
   suppliers?: SupplierOpt[];
-  // v1.30.0: optional list of Wedding Book subsections for the
-  // book-link picker. Empty array hides the field.
-  bookSubsections?: BookSubsectionOpt[];
+  // v1.30.5: lists for the combined Topics multi-select.
+  bookSections?: BookSectionOpt[];
+  navTags?: NavTagOpt[];
   canEdit: boolean;
   onClose: () => void;
 }) {
@@ -81,7 +83,13 @@ export function TaskDrawer({
   const [category, setCategory] = useState(task.tags[0] ?? "");
   const [notes, setNotes] = useState(task.notes ?? "");
   const [supplierId, setSupplierId] = useState(task.supplierId ?? "");
-  const [bookSubsectionId, setBookSubsectionId] = useState(task.bookSubsectionId ?? "");
+  // v1.30.5: m2m selections live as ID arrays. The TopicPicker emits
+  // hidden inputs but we mirror the state here for the dirty check
+  // and to set FormData on save.
+  const initialBookSectionIds = task.bookSections.map((s) => s.id).sort();
+  const initialNavTagIds = task.navTags.map((t) => t.id).sort();
+  const [bookSectionIds, setBookSectionIds] = useState<string[]>(initialBookSectionIds);
+  const [navTagIds, setNavTagIds] = useState<string[]>(initialNavTagIds);
   const [pending, startTransition] = useTransition();
 
   // ESC key dismisses the drawer.
@@ -103,7 +111,8 @@ export function TaskDrawer({
     category !== (task.tags[0] ?? "") ||
     notes !== (task.notes ?? "") ||
     (supplierId || null) !== (task.supplierId ?? null) ||
-    (bookSubsectionId || null) !== (task.bookSubsectionId ?? null);
+    bookSectionIds.slice().sort().join(",") !== initialBookSectionIds.join(",") ||
+    navTagIds.slice().sort().join(",") !== initialNavTagIds.join(",");
 
   function save() {
     if (!title.trim()) {
@@ -120,7 +129,11 @@ export function TaskDrawer({
     fd.set("category", category);
     fd.set("notes", notes);
     fd.set("supplierId", supplierId);
-    fd.set("bookSubsectionId", bookSubsectionId);
+    // v1.30.5: emit one topicKeys entry per selected ID (FormData
+    // supports duplicate keys via append). Server-side parser splits
+    // by `bookSection:` / `navTag:` prefix.
+    for (const id of bookSectionIds) fd.append("topicKeys", `bookSection:${id}`);
+    for (const id of navTagIds) fd.append("topicKeys", `navTag:${id}`);
     startTransition(async () => {
       try {
         await updateTask(task.id, fd);
@@ -376,33 +389,25 @@ export function TaskDrawer({
             </div>
           )}
 
-          {/* v1.30.0: optional Wedding Book subsection link. */}
-          {bookSubsections.length > 0 && (
+          {/* v1.30.5: combined Topics multi-select (Wedding Book
+              sections + Nav tags). Replaces v1.30.0's single-select
+              subsection picker. */}
+          {(bookSections.length > 0 || navTags.length > 0) && (
             <div>
               <strong className="block text-[10px] uppercase tracking-wider text-ink-tertiary font-bold mb-1.5">
-                Wedding Book card
+                Topics
               </strong>
-              {canEdit ? (
-                <select
-                  value={bookSubsectionId}
-                  onChange={(e) => setBookSubsectionId(e.target.value)}
-                  className="w-full text-sm bg-surface text-ink-primary border border-border-soft rounded-sm px-2 py-1 outline-none focus:border-moss-500"
-                >
-                  <option value="">— none —</option>
-                  {bookSubsections.map((b) => (
-                    <option key={b.id} value={b.id}>
-                      {b.sectionTitle} · {b.title}
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <span className="text-sm text-ink-primary">
-                  {(() => {
-                    const b = bookSubsections.find((x) => x.id === task.bookSubsectionId);
-                    return b ? `${b.sectionTitle} · ${b.title}` : <span className="text-ink-tertiary italic">—</span>;
-                  })()}
-                </span>
-              )}
+              <TopicPicker
+                bookSections={bookSections}
+                navTags={navTags}
+                initialBookSectionIds={initialBookSectionIds}
+                initialNavTagIds={initialNavTagIds}
+                canEdit={canEdit}
+                onChange={(next) => {
+                  setBookSectionIds(next.bookSectionIds);
+                  setNavTagIds(next.navTagIds);
+                }}
+              />
             </div>
           )}
 

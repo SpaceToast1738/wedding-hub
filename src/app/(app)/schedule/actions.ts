@@ -10,11 +10,8 @@ const eventSchema = z.object({
   startTime: z.string().min(1),
   endTime: z.string().optional().nullable(),
   location: z.string().max(200).optional().nullable(),
-  // v1.27.1: legacy persona-based audience read still kept on the
-  // schema (column remains for back-compat) but new events leave
-  // it empty. UI no longer surfaces it.
-  audience: z.array(z.string()).default([]),
-  // v1.27.1: replaces audience.
+  // v1.27.1: replaces the persona-based legacy `audience` (dropped in
+  // v1.30.5). User IDs of who needs to know about / attend this event.
   attendeeIds: z.array(z.string()).default([]),
   allDay: z.boolean().default(false),
   notes: z.string().max(2000).optional().nullable(),
@@ -36,6 +33,24 @@ function combineDateTime(date: string, time: string, allDay: boolean): string {
   return `${date}T${time && time.length >= 4 ? time : "00:00"}`;
 }
 
+// v1.30.5: per the audit-aware-feature-design standing rule, schedule
+// audit metadata is now enriched with the event title + key snapshot
+// fields so audit log readers get useful info without rejoining the
+// originating row. Helper builds the snapshot once.
+function eventAuditSnapshot(parsed: {
+  title: string;
+  startTime: string;
+  allDay: boolean;
+  attendeeIds: string[];
+}) {
+  return {
+    title: parsed.title,
+    startTime: parsed.startTime,
+    allDay: parsed.allDay,
+    attendeeCount: parsed.attendeeIds.length,
+  };
+}
+
 export async function createScheduleEvent(formData: FormData) {
   const user = await requireEdit("schedule");
   const allDay = formData.get("allDay") === "on" || formData.get("allDay") === "true";
@@ -50,7 +65,6 @@ export async function createScheduleEvent(formData: FormData) {
     startTime: startISO,
     endTime: endISO || null,
     location: formData.get("location") || null,
-    audience: readArray(formData, "audience"),
     attendeeIds: readArray(formData, "attendeeIds"),
     allDay,
     notes: formData.get("notes") || null,
@@ -61,13 +75,17 @@ export async function createScheduleEvent(formData: FormData) {
       startTime: new Date(parsed.startTime),
       endTime: parsed.endTime ? new Date(parsed.endTime) : null,
       location: parsed.location ?? null,
-      audience: parsed.audience,
       attendeeIds: parsed.attendeeIds,
       allDay: parsed.allDay,
       notes: parsed.notes ?? null,
     },
   });
-  await audit(user, { action: "create", entity: "ScheduleEvent", entityId: created.id });
+  await audit(user, {
+    action: "create",
+    entity: "ScheduleEvent",
+    entityId: created.id,
+    metadata: eventAuditSnapshot(parsed),
+  });
   revalidatePath("/schedule");
   revalidatePath("/");
 }
@@ -86,11 +104,12 @@ export async function updateScheduleEvent(id: string, formData: FormData) {
     startTime: startISO,
     endTime: endISO || null,
     location: formData.get("location") || null,
-    audience: readArray(formData, "audience"),
     attendeeIds: readArray(formData, "attendeeIds"),
     allDay,
     notes: formData.get("notes") || null,
   });
+  // v1.30.5: read pre-update so the audit can record changedFields.
+  const before = await db.scheduleEvent.findUnique({ where: { id } });
   await db.scheduleEvent.update({
     where: { id },
     data: {
@@ -98,21 +117,50 @@ export async function updateScheduleEvent(id: string, formData: FormData) {
       startTime: new Date(parsed.startTime),
       endTime: parsed.endTime ? new Date(parsed.endTime) : null,
       location: parsed.location ?? null,
-      audience: parsed.audience,
       attendeeIds: parsed.attendeeIds,
       allDay: parsed.allDay,
       notes: parsed.notes ?? null,
     },
   });
-  await audit(user, { action: "update", entity: "ScheduleEvent", entityId: id });
+  // v1.30.5: changedFields diff. Compare each parsed field to the pre-
+  // update row. Arrays compare on JSON to avoid order false-positives —
+  // attendees rarely reorder so this is a fine proxy for "different".
+  const changedFields: string[] = [];
+  if (before) {
+    if (parsed.title !== before.title) changedFields.push("title");
+    if (new Date(parsed.startTime).getTime() !== before.startTime.getTime()) changedFields.push("startTime");
+    const newEnd = parsed.endTime ? new Date(parsed.endTime).getTime() : null;
+    const oldEnd = before.endTime ? before.endTime.getTime() : null;
+    if (newEnd !== oldEnd) changedFields.push("endTime");
+    if ((parsed.location ?? null) !== (before.location ?? null)) changedFields.push("location");
+    if (parsed.allDay !== before.allDay) changedFields.push("allDay");
+    if ((parsed.notes ?? null) !== (before.notes ?? null)) changedFields.push("notes");
+    if (JSON.stringify(parsed.attendeeIds) !== JSON.stringify(before.attendeeIds)) changedFields.push("attendeeIds");
+  }
+  await audit(user, {
+    action: "update",
+    entity: "ScheduleEvent",
+    entityId: id,
+    metadata: { ...eventAuditSnapshot(parsed), changedFields },
+  });
   revalidatePath("/schedule");
   revalidatePath("/");
 }
 
 export async function deleteScheduleEvent(id: string) {
   const user = await requireEdit("schedule");
+  // v1.30.5: snapshot pre-delete so the audit row is meaningful after
+  // the source row is gone.
+  const before = await db.scheduleEvent.findUnique({ where: { id } });
   await db.scheduleEvent.delete({ where: { id } });
-  await audit(user, { action: "delete", entity: "ScheduleEvent", entityId: id });
+  await audit(user, {
+    action: "delete",
+    entity: "ScheduleEvent",
+    entityId: id,
+    metadata: before
+      ? { title: before.title, startTime: before.startTime.toISOString() }
+      : undefined,
+  });
   revalidatePath("/schedule");
   revalidatePath("/");
 }
