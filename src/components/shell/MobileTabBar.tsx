@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { MOBILE_TABS, NAV_GROUPS } from "@/components/shell/nav-config";
@@ -55,20 +56,37 @@ export function MobileTabBar({
               </button>
             );
           }
+          // v1.25.2: probe revert — the Today tab goes back to
+          // <Link> first because it's the lowest-blast-radius
+          // (it's where users land anyway). The rest stay as
+          // plain <a> until this proves green on a real device.
+          // The ServiceWorkerCleanup mounted at root strips any
+          // stale SW that was the most-likely cause of the v1.22.x
+          // breakage. If Today nav works on a real (non-incognito)
+          // device after this ships, the next commit reverts the
+          // remaining tabs.
+          const useLink = tab.href === "/";
+          if (useLink) {
+            return (
+              <Link
+                key={tab.href}
+                href={tab.href}
+                className={[
+                  "flex-1 flex flex-col items-center justify-center gap-0.5 h-full",
+                  active ? "text-moss-500 font-semibold" : "text-ink-tertiary",
+                ].join(" ")}
+              >
+                <span className="text-lg">{tab.icon}</span>
+                <span className="text-[10px]">{tab.label}</span>
+              </Link>
+            );
+          }
           return (
             <a
               key={tab.href}
               href={tab.href}
-              // v1.25.0 mobile nav fix: plain <a href> instead of
-              // <Link>. v1.24.0 tried imperative `router.push` to
-              // bypass whatever was eating Link clicks; user reports
-              // it still didn't work. Going to the most defensive
-              // possible nav primitive: a native browser anchor with
-              // no client-side router involvement. Triggers a full
-              // page reload (slower than client routing, fine on
-              // mobile where transitions are perceptible anyway). If
-              // this still doesn't navigate the issue is below the
-              // app layer (CDN / service worker / device).
+              // Plain anchor — see v1.25.0 commit. Reverting to <Link>
+              // tab-by-tab in v1.25.2+ as confirmation rolls in.
               className={[
                 "flex-1 flex flex-col items-center justify-center gap-0.5 h-full",
                 active ? "text-moss-500 font-semibold" : "text-ink-tertiary",

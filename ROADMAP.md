@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.25.1** | 2026-04-29 | [Seating: ghost-drag perf (refs not state) · mobile canvas height boost · mobile-only "drag is desktop-only" hint](#2026-04-29--v1251--seating-ghost-drag-perf--mobile-size--desktop-only-hint) |
+| **v1.25.2** | 2026-04-29 | [Mobile nav: service-worker cleanup + Today tab probe-revert to `<Link>` + roadmap "view as"](#2026-04-29--v1252--mobile-nav-sw-cleanup--today-tab-link-probe) |
+| v1.25.1 | 2026-04-29 | [Seating: ghost-drag perf (refs not state) · mobile canvas height boost · mobile-only "drag is desktop-only" hint](#2026-04-29--v1251--seating-ghost-drag-perf--mobile-size--desktop-only-hint) |
 | v1.25.0 | 2026-04-29 | [Email nudge digests (RSVPs + tasks) · seat-drag grab-offset · mobile navbar plain anchor](#2026-04-29--v1250--email-nudge-digests--seat-drag-offset--mobile-anchor) |
 | v1.24.0 | 2026-04-29 | [Print stylesheets for /budget + /payments · BookSection couple-only audience · mobile navbar imperative-routing fix](#2026-04-29--v1240--print-stylesheets--booksection-visibility--mobile-navbar-fix) |
 | v1.23.3 | 2026-04-29 | [Seating bugfix: freeze auto-crop viewBox during drag (drift fix)](#2026-04-29--v1233--seating-freeze-viewbox-during-drag) |
@@ -323,6 +324,18 @@ When the open questions are answered, this section gets replaced with a concrete
   *Recommendation:* (a) Email OTP — least new infra, biggest UX
   win on touch devices where copy-pasting a long URL from a mail
   app is fiddly. ~2 hrs to implement once the design pass picks one.
+- **"View as another role" preview** — admin impersonation, read-only.
+  Lets the couple (or a planner) preview the app *as if* they were
+  another user, to verify per-section visibility + role gates without
+  signing out. Likely shape: a header dropdown ("Viewing as: Couple ▾")
+  that swaps the session's effective role + isCouple in a wrapping
+  React context; server components read the override before applying
+  any permission gate. Preview state is non-persistent (cookie that
+  expires on close) and audit-logged on every flip so it can't be
+  used to silently exfiltrate. Doesn't actually grant new powers —
+  the underlying user must already have view-everything rights to
+  toggle previews. ~2 hrs once design sketched.
+  *Asked by user, 29 Apr 2026.*
 - **Group-based user permissions** — replace the per-user role enum
   (COUPLE / WEDDING_PARTY / PLANNER / VIEWER) with a more flexible
   group model where the planner can define groups (e.g. "Aimee's
@@ -476,6 +489,26 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-29 · v1.25.2 — Mobile nav: SW cleanup + Today Link probe
+
+User confirmed (29 Apr 2026) that v1.25.0's plain `<a href>` navbar **works in incognito mode** but stays broken in normal browsing. Classic stale-service-worker fingerprint — incognito starts with a clean SW slate. The app has never registered a service worker, so any active one on the user's domain came from a previous deployment of *something* (the prototype maybe) and was happily intercepting fetches with stale chunks.
+
+**1. Service-worker cleanup.** New `<ServiceWorkerCleanup />` client component mounted in the root layout. On first paint it calls `navigator.serviceWorker.getRegistrations()` and unregisters every entry, then drops every Cache Storage entry. Idempotent — once cleared, subsequent loads find nothing. Safe to leave in place permanently as defensive infrastructure.
+
+**2. Today tab probe-revert to `<Link>`.** Now that the SW cause is being cleared, start graduating back to client-side navigation. The Today tab is the lowest-blast-radius candidate because it's where users land anyway — even if the revert breaks something users won't be stranded somewhere unfamiliar. Per the plan: revert one tab at a time, deploy, verify on a real (non-incognito) device. If Today nav works, the next commit reverts the rest.
+
+The remaining tabs (Tasks, Guests) and More-sheet items stay as plain `<a href>` for now. The MobileTabBar code branches on `tab.href === "/"` to pick `<Link>` for Today and `<a>` for the rest.
+
+**3. Roadmap addition: "View as another role" preview.** User-asked (29 Apr 2026). Admin impersonation, read-only — lets the couple or planner preview the app as if they were another user, to verify per-section visibility + role gates without signing out. Logged in the backlog with a sketched implementation: header dropdown sets a non-persistent cookie, server components read the override before applying gates, every flip audit-logged.
+
+**Files:**
+- New: `src/components/shell/ServiceWorkerCleanup.tsx`.
+- Modified: `src/app/layout.tsx` — mount the cleanup.
+- Modified: `src/components/shell/MobileTabBar.tsx` — Today branches to `<Link>`.
+- Modified: `ROADMAP.md` — "View as" backlog entry.
+
+**Verification:** typecheck/lint clean, all 207 unit tests pass, build green. Manual (post-deploy): hard-reload prod on a real (non-incognito) device → DevTools Application → Service Workers tab → none registered. Tap Today tab from another page → navigates client-side (no flash of white). If green, ship v1.25.3 reverting Tasks + Guests + sheet items.
 
 ### 2026-04-29 · v1.25.1 — Seating: ghost-drag perf · mobile size · desktop-only hint
 

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Inter, Fraunces } from "next/font/google";
 import { DarkModeScript } from "@/components/shell/DarkModeScript";
+import { ServiceWorkerCleanup } from "@/components/shell/ServiceWorkerCleanup";
 import { getWeddingSettings, formatWeddingDateShort } from "@/lib/wedding-settings";
 import "./globals.css";
 
@@ -47,7 +48,13 @@ export default function RootLayout({
       <head>
         <DarkModeScript />
       </head>
-      <body className="bg-canvas text-ink-primary">{children}</body>
+      <body className="bg-canvas text-ink-primary">
+        {/* v1.25.2: clears any inherited service worker. We never
+            registered one, but stale SWs from prior deployments at
+            this domain were serving old MobileTabBar chunks. */}
+        <ServiceWorkerCleanup />
+        {children}
+      </body>
     </html>
   );
 }
