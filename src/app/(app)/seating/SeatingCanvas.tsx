@@ -5,6 +5,12 @@ import type { TableShape } from "@prisma/client";
 import { Button } from "@/components/ui/Button";
 import { notify } from "@/lib/notify";
 import { assignGuestToSeat, deleteTable, updateTableCapacity, updateTablePosition } from "./actions";
+import { CollapsiblePanel } from "./CollapsiblePanel";
+import {
+  ChecklistContent,
+  NotesContent,
+  checklistRightSlot,
+} from "./SeatingPlanPanel";
 import type { AllGuest } from "./SeatingClient";
 
 type Rsvp = "PENDING" | "ATTENDING" | "DECLINED" | "MAYBE";
@@ -78,6 +84,9 @@ function guestOptionLabel(g: GuestOpt): string {
 
 const CANVAS_W = 1400;
 const CANVAS_H = 900;
+// v1.23.2: padding around the auto-cropped viewBox so seat dots and
+// labels don't bump into the canvas edge.
+const CROP_PADDING = 80;
 // v1.22.7: grid is now user-resizable. Default M=20 matches the
 // pre-v1.22.7 fixed value. Both the visual pattern and the snap
 // math read off this value at render time.
@@ -216,14 +225,35 @@ export function SeatingCanvas({
   unseatedGuests,
   allGuests,
   canEdit,
+  seatingNotes,
+  seatingChecklist,
 }: {
   tables: Table[];
   unseatedGuests: GuestOpt[];
   allGuests: AllGuest[];
   canEdit: boolean;
+  // v1.23.2: notes + checklist render in the right sidebar wrapped
+  // in CollapsiblePanel.
+  seatingNotes: string;
+  seatingChecklist: { id: string; label: string; done: boolean }[];
 }) {
   const svgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  // v1.23.2: detect coarse-pointer (touch) devices so we can disable
+  // table drag on mobile. The canvas is fundamentally desktop-first;
+  // on a phone the user wants to view + tap-to-focus, not wrestle
+  // with hit-targets and accidental drags. List view is the touch-
+  // friendly mode.
+  const [isCoarsePointer, setIsCoarsePointer] = useState(false);
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    const mq = window.matchMedia("(pointer: coarse)");
+    setIsCoarsePointer(mq.matches);
+    const onChange = (e: MediaQueryListEvent) => setIsCoarsePointer(e.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+  const dragEnabled = canEdit && !isCoarsePointer;
 
   // Local positions are the source of truth during a drag. We seed from
   // the server tables, mirror prop changes via useEffect, and write back
@@ -401,15 +431,49 @@ export function SeatingCanvas({
   const [focusedId, setFocusedId] = useState<string | null>(null);
   const [, startTransition] = useTransition();
 
+  // v1.23.2: auto-crop viewBox to fit the actual tables — declared
+  // before clientToSvg below because the helper closes over it for
+  // pointer→userspace conversions. See longer comment further down.
+  const viewBox = useMemo(() => {
+    if (initialTables.length === 0) {
+      return { x: 0, y: 0, w: CANVAS_W, h: CANVAS_H };
+    }
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const t of initialTables) {
+      const pos = positions[t.id] ?? { x: t.posX, y: t.posY };
+      const size = tableSize(t.shape, t.capacity);
+      const halfW = size.r > 0 ? size.r : size.w / 2;
+      const halfH = size.r > 0 ? size.r : size.h / 2;
+      const seatExtent = 8 * dotScale + 3.5 * dotScale + 14 * labelScale;
+      const reach = Math.max(halfW, halfH) + seatExtent;
+      minX = Math.min(minX, pos.x - reach);
+      minY = Math.min(minY, pos.y - reach);
+      maxX = Math.max(maxX, pos.x + reach);
+      maxY = Math.max(maxY, pos.y + reach);
+    }
+    const pad = CROP_PADDING;
+    const x = Math.max(0, minX - pad);
+    const y = Math.max(0, minY - pad);
+    const w = Math.min(CANVAS_W, maxX + pad) - x;
+    const h = Math.min(CANVAS_H, maxY + pad) - y;
+    return { x, y, w: Math.max(200, w), h: Math.max(200, h) };
+  }, [initialTables, positions, dotScale, labelScale]);
+
   // Convert client coords (mouse) to SVG userspace coords.
-  const clientToSvg = useCallback((clientX: number, clientY: number) => {
-    const svg = svgRef.current;
-    if (!svg) return { x: 0, y: 0 };
-    const rect = svg.getBoundingClientRect();
-    const x = ((clientX - rect.left) / rect.width) * CANVAS_W;
-    const y = ((clientY - rect.top) / rect.height) * CANVAS_H;
-    return { x, y };
-  }, []);
+  // v1.23.2: honours the dynamic viewBox — pre-fix this assumed the
+  // viewBox was always 0,0,1400,900, so cropped layouts had drag math
+  // that drifted by the crop offset.
+  const clientToSvg = useCallback(
+    (clientX: number, clientY: number) => {
+      const svg = svgRef.current;
+      if (!svg) return { x: 0, y: 0 };
+      const rect = svg.getBoundingClientRect();
+      const x = viewBox.x + ((clientX - rect.left) / rect.width) * viewBox.w;
+      const y = viewBox.y + ((clientY - rect.top) / rect.height) * viewBox.h;
+      return { x, y };
+    },
+    [viewBox.x, viewBox.y, viewBox.w, viewBox.h],
+  );
 
   // v1.22.9: hit-test which seat (if any) is under a given SVG-userspace
   // point. Walks tables, applies their rotation to compute world-space
@@ -439,7 +503,10 @@ export function SeatingCanvas({
   );
 
   function startDrag(e: React.PointerEvent<SVGGElement>, t: Table) {
-    if (!canEdit) {
+    // v1.23.2: drag disabled on coarse-pointer (touch) devices —
+    // tap focuses the table instead. Read-only roles keep the same
+    // tap-to-focus behaviour they always had.
+    if (!dragEnabled) {
       setFocusedId(t.id);
       return;
     }
@@ -549,12 +616,15 @@ export function SeatingCanvas({
     [initialTables, focusedId],
   );
 
+  // viewBox auto-crop is declared earlier (above clientToSvg) so the
+  // pointer-conversion helper can close over it.
+
   return (
     <div className="flex-1 flex flex-col lg:flex-row gap-4 p-4 overflow-hidden min-h-0" ref={containerRef}>
       <div className="flex-1 bg-surface border border-border-soft rounded-md shadow-sm overflow-hidden min-h-[400px]">
         <svg
           ref={svgRef}
-          viewBox={`0 0 ${CANVAS_W} ${CANVAS_H}`}
+          viewBox={`${viewBox.x} ${viewBox.y} ${viewBox.w} ${viewBox.h}`}
           preserveAspectRatio="xMidYMid meet"
           className="w-full h-full block touch-none select-none"
           style={{ background: "var(--color-canvas)" }}
@@ -581,7 +651,7 @@ export function SeatingCanvas({
                 onPointerMove={onMove}
                 onPointerUp={onUp}
                 onPointerCancel={onUp}
-                style={{ cursor: canEdit ? (isDragging ? "grabbing" : "grab") : "pointer" }}
+                style={{ cursor: dragEnabled ? (isDragging ? "grabbing" : "grab") : "pointer" }}
                 tabIndex={0}
                 onFocus={() => setFocusedId(t.id)}
                 aria-label={`Table ${t.name}, ${filled} of ${t.capacity} seated`}
@@ -910,42 +980,97 @@ export function SeatingCanvas({
       </div>
 
       <aside className="lg:w-80 flex-shrink-0 flex flex-col gap-3 lg:max-h-full overflow-auto">
-        {focusedTable ? (
-          <FocusPanel
-            table={focusedTable}
-            unseatedGuests={unseatedGuests}
+        {/* v1.23.2: every sidebar section wrapped in CollapsiblePanel
+            with state persisted to localStorage. Selected table only
+            renders when a table is focused; all the others always
+            render but start collapsed where listed below. */}
+        {focusedTable && (
+          <CollapsiblePanel
+            storageKey="wh_seating_panel_focus"
+            title={`Selected: ${focusedTable.name}`}
+            defaultOpen
+            rightSlot={
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setFocusedId(null);
+                }}
+                aria-label="Close focus"
+                className="text-ink-tertiary hover:text-ink-primary text-base leading-none px-1"
+              >
+                ×
+              </button>
+            }
+          >
+            <FocusPanelBody
+              table={focusedTable}
+              unseatedGuests={unseatedGuests}
+              canEdit={canEdit}
+              onClose={() => setFocusedId(null)}
+            />
+          </CollapsiblePanel>
+        )}
+        <CollapsiblePanel
+          storageKey="wh_seating_panel_notes"
+          title="Notes"
+          defaultOpen
+        >
+          <NotesContent initial={seatingNotes} canEdit={canEdit} />
+        </CollapsiblePanel>
+        <CollapsiblePanel
+          storageKey="wh_seating_panel_checklist"
+          title="Day-of checklist"
+          defaultOpen
+          rightSlot={checklistRightSlot(seatingChecklist)}
+        >
+          <ChecklistContent initial={seatingChecklist} canEdit={canEdit} />
+        </CollapsiblePanel>
+        <CollapsiblePanel
+          storageKey="wh_seating_panel_guests"
+          title="Guests"
+          defaultOpen
+        >
+          <AllGuestsPanelBody
+            guests={allGuests}
             canEdit={canEdit}
-            onClose={() => setFocusedId(null)}
+            draggingGuestId={draggingGuestId}
+            onDragStart={(id) => setDraggingGuestId(id)}
+            onDragEnd={() => {
+              setDraggingGuestId(null);
+              setDragOverSeatId(null);
+            }}
+            onDropToUnseat={(id) => {
+              dropOnPanel(id);
+              setDraggingGuestId(null);
+              setDragOverSeatId(null);
+            }}
           />
-        ) : (
-          <div className="bg-surface border border-border-soft rounded-md p-4 shadow-sm text-xs text-ink-tertiary space-y-3">
-            <div>
-              <strong className="block text-ink-secondary text-[11px] uppercase tracking-wider mb-1.5">
-                Canvas
-              </strong>
+        </CollapsiblePanel>
+        <CollapsiblePanel
+          storageKey="wh_seating_panel_settings"
+          title="Canvas settings"
+          defaultOpen={false}
+        >
+          <div className="p-3 text-xs text-ink-tertiary space-y-3">
+            <p>
               {canEdit
-                ? "Drag tables to reposition. Click to focus and assign seats. Arrow keys nudge the focused table; hold ⇧ for bigger steps."
+                ? "Drag tables to reposition. Click a table to focus. Arrow keys nudge the focused table; hold ⇧ for bigger steps."
                 : "Click a table to view its seating. Editing is read-only for your role."}
-            </div>
+            </p>
             {/* v1.22.6: snap-to-grid toggle. Persists via localStorage. */}
             {canEdit && (
-              <div className="pt-3 border-t border-border-soft">
-                <label className="flex items-center gap-2 cursor-pointer text-[11px] text-ink-secondary">
-                  <input
-                    type="checkbox"
-                    checked={snapToGrid}
-                    onChange={(e) => setSnapToGrid(e.target.checked)}
-                    className="accent-moss-500"
-                  />
-                  <span className="uppercase tracking-wider font-bold">Snap to grid on drop</span>
-                </label>
-              </div>
+              <label className="flex items-center gap-2 cursor-pointer text-[11px] text-ink-secondary">
+                <input
+                  type="checkbox"
+                  checked={snapToGrid}
+                  onChange={(e) => setSnapToGrid(e.target.checked)}
+                  className="accent-moss-500"
+                />
+                <span className="uppercase tracking-wider font-bold">Snap to grid on drop</span>
+              </label>
             )}
-            {/* v1.22.7: scale toggles unified to S/M/L/XL across all
-                three sizing dimensions (dot, label, grid). M values
-                were bumped relative to v1.22.5/6 — the old M was too
-                cramped per user feedback. */}
-            <div className="pt-3 border-t border-border-soft space-y-2.5">
+            {/* v1.22.7: scale toggles unified to S/M/L/XL. */}
+            <div className="space-y-2.5 pt-2 border-t border-border-soft">
               <ScaleToggle
                 label="Seat dot size"
                 value={dotScale}
@@ -966,22 +1091,7 @@ export function SeatingCanvas({
               />
             </div>
           </div>
-        )}
-        <AllGuestsPanel
-          guests={allGuests}
-          canEdit={canEdit}
-          draggingGuestId={draggingGuestId}
-          onDragStart={(id) => setDraggingGuestId(id)}
-          onDragEnd={() => {
-            setDraggingGuestId(null);
-            setDragOverSeatId(null);
-          }}
-          onDropToUnseat={(id) => {
-            dropOnPanel(id);
-            setDraggingGuestId(null);
-            setDragOverSeatId(null);
-          }}
-        />
+        </CollapsiblePanel>
       </aside>
     </div>
   );
@@ -1028,7 +1138,11 @@ function ScaleToggle<T extends number>({
   );
 }
 
-function FocusPanel({
+// v1.23.2: renamed FocusPanel → FocusPanelBody. Outer card chrome
+// + close button now live on the wrapping CollapsiblePanel; this
+// component only emits the inner content (capacity row, seat list,
+// delete action).
+function FocusPanelBody({
   table,
   unseatedGuests,
   canEdit,
@@ -1087,29 +1201,17 @@ function FocusPanel({
   }
 
   return (
-    <section className="bg-surface border border-border-soft rounded-md shadow-sm">
-      <header className="px-4 py-3 border-b border-border-soft">
-        <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0">
-            <h2 className="text-sm font-semibold text-ink-primary truncate">{table.name}</h2>
-            <div className="text-[11px] text-ink-tertiary">
-              {table.shape.toLowerCase()} · {filled}/{table.capacity} seated
-            </div>
-          </div>
-          <button
-            onClick={onClose}
-            aria-label="Close focus panel"
-            className="text-ink-tertiary hover:text-ink-primary text-xl leading-none px-1"
-          >
-            ×
-          </button>
+    <>
+      <div className="px-4 pt-3 pb-2 border-b border-border-soft">
+        <div className="text-[11px] text-ink-tertiary">
+          {table.shape.toLowerCase()} · {filled}/{table.capacity} seated
         </div>
         {/* v1.22.7: capacity edit row — pre-fix the +/- were 16px
             inline buttons that were almost invisible. Now a clearly
             labelled row with proper hit targets. Shrink fails server-
             side if any trailing seats are occupied (notify-on-error). */}
         {canEdit && (
-          <div className="mt-3 flex items-center justify-between gap-2 bg-canvas/60 rounded-md px-3 py-2">
+          <div className="mt-2 flex items-center justify-between gap-2 bg-canvas/60 rounded-md px-3 py-2">
             <span className="text-[11px] uppercase tracking-wider font-bold text-ink-secondary">
               Seats
             </span>
@@ -1140,8 +1242,8 @@ function FocusPanel({
             </div>
           </div>
         )}
-      </header>
-      <ul className="divide-y divide-border-soft max-h-[420px] overflow-auto">
+      </div>
+      <ul className="divide-y divide-border-soft max-h-[360px] overflow-auto">
         {table.seats.map((seat) => (
           <li key={seat.id} className="flex items-center gap-3 px-4 py-2">
             <span className="text-[10px] text-ink-tertiary w-6 flex-shrink-0">#{seat.index + 1}</span>
@@ -1186,7 +1288,7 @@ function FocusPanel({
           </Button>
         </div>
       )}
-    </section>
+    </>
   );
 }
 
@@ -1196,7 +1298,9 @@ function FocusPanel({
 // drop target for unseating. Declined guests are hidden by default —
 // they don't get seats, but the toggle exists so the user can scan
 // for "did anyone I know declined?" if needed.
-function AllGuestsPanel({
+// v1.23.2: renamed AllGuestsPanel → AllGuestsPanelBody. Outer card
+// chrome is now provided by the wrapping CollapsiblePanel.
+function AllGuestsPanelBody({
   guests,
   canEdit,
   draggingGuestId,
@@ -1243,8 +1347,8 @@ function AllGuestsPanel({
   );
 
   return (
-    <section
-      className="bg-surface border border-border-soft rounded-md p-3 shadow-sm"
+    <div
+      className="p-3"
       onDragOver={
         canEdit && draggingGuestId
           ? (e) => {
@@ -1263,10 +1367,7 @@ function AllGuestsPanel({
           : undefined
       }
     >
-      <header className="flex items-baseline justify-between mb-2 gap-2">
-        <strong className="text-[11px] uppercase tracking-wider text-ink-tertiary font-bold">
-          Guests
-        </strong>
+      <div className="flex items-baseline justify-end mb-2 gap-2">
         <span className="text-[11px] text-ink-tertiary tabular-nums">
           {counts.ATTENDING ?? 0} ✓ · {counts.PENDING ?? 0} ?
           {(counts.DECLINED ?? 0) > 0 && (
@@ -1282,7 +1383,7 @@ function AllGuestsPanel({
             </>
           )}
         </span>
-      </header>
+      </div>
       {canEdit && (
         <p className="text-[10px] text-ink-tertiary mb-2 italic">
           Drag a guest onto a seat to assign · drag back here to unseat.
@@ -1309,7 +1410,7 @@ function AllGuestsPanel({
           {showAll ? `Show first 18` : `Show all ${ordered.length}`}
         </button>
       )}
-    </section>
+    </div>
   );
 }
 

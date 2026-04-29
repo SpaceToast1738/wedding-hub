@@ -5,42 +5,23 @@ import { Button } from "@/components/ui/Button";
 import { notify } from "@/lib/notify";
 import { updateSeatingChecklist, updateSeatingNotes } from "./actions";
 
-// v1.23.1: plan-level notes + day-of checklist, always visible at the
-// top of /seating. Replaces v1.23.0's collapsible PlanNotesPanel and
-// per-table TableNotesAndChecklist — the user wanted one shared list
-// for the whole plan, not one per table, and always-on visibility so
-// it's not buried behind a click.
-//
-// Layout: two-column on lg+ screens (notes left, checklist right);
-// stacked on mobile. Notes save explicitly via Save button; checklist
-// toggles save optimistically with rollback on action failure (same
-// pattern v1.23.0's per-table version used).
+// v1.23.2: notes + checklist content cards. v1.23.1 rendered them at
+// the top of /seating wrapped in their own card chrome; this version
+// moves them into the canvas sidebar wrapped in CollapsiblePanel. The
+// cards themselves no longer own their card chrome (border / shadow /
+// title) — that lives on the CollapsiblePanel wrapper now. Returning
+// bare body markup keeps nesting clean and matches the visual rhythm
+// of the rest of the sidebar.
 
 export type ChecklistItem = { id: string; label: string; done: boolean };
 
-export function SeatingPlanPanel({
-  initialNotes,
-  initialChecklist,
+export function NotesContent({
+  initial,
   canEdit,
 }: {
-  initialNotes: string;
-  initialChecklist: ChecklistItem[];
+  initial: string;
   canEdit: boolean;
 }) {
-  // Read-only viewers with nothing filled in see no panel — saves
-  // vertical space above the canvas. Editors always see it (so they
-  // can populate).
-  if (!canEdit && initialNotes === "" && initialChecklist.length === 0) return null;
-
-  return (
-    <div className="px-4 sm:px-6 pt-3 grid gap-3 lg:grid-cols-2">
-      <NotesCard initial={initialNotes} canEdit={canEdit} />
-      <ChecklistCard initial={initialChecklist} canEdit={canEdit} />
-    </div>
-  );
-}
-
-function NotesCard({ initial, canEdit }: { initial: string; canEdit: boolean }) {
   const [value, setValue] = useState(initial);
   const [saved, setSaved] = useState(initial);
   const [pending, startTransition] = useTransition();
@@ -58,17 +39,14 @@ function NotesCard({ initial, canEdit }: { initial: string; canEdit: boolean }) 
   }
 
   return (
-    <section className="bg-surface border border-border-soft rounded-md shadow-sm p-3">
-      <strong className="block text-[11px] uppercase tracking-wider text-ink-tertiary font-bold mb-1.5">
-        Notes
-      </strong>
+    <div className="p-3">
       {canEdit ? (
         <>
           <textarea
             value={value}
             onChange={(e) => setValue(e.target.value)}
             rows={4}
-            placeholder="Table-size policy (min 6, max 10), board-game allocation, day-of staffing reminders, layout constraints…"
+            placeholder="Table-size policy (min 6, max 10), board-game allocation, day-of staffing, layout constraints…"
             className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2 py-1.5 text-ink-primary outline-none focus:border-moss-500 resize-y"
           />
           {value !== saved && (
@@ -94,11 +72,11 @@ function NotesCard({ initial, canEdit }: { initial: string; canEdit: boolean }) 
       ) : (
         <p className="text-xs text-ink-tertiary italic">No notes yet.</p>
       )}
-    </section>
+    </div>
   );
 }
 
-function ChecklistCard({
+export function ChecklistContent({
   initial,
   canEdit,
 }: {
@@ -138,27 +116,15 @@ function ChecklistCard({
     setNewItem("");
   }
 
-  const doneCount = items.filter((i) => i.done).length;
-
   return (
-    <section className="bg-surface border border-border-soft rounded-md shadow-sm p-3">
-      <div className="flex items-baseline justify-between mb-1.5">
-        <strong className="text-[11px] uppercase tracking-wider text-ink-tertiary font-bold">
-          Day-of checklist
-        </strong>
-        {items.length > 0 && (
-          <span className="text-[11px] text-ink-tertiary tabular-nums">
-            {doneCount} / {items.length}
-          </span>
-        )}
-      </div>
+    <div className="p-3">
       {!canEdit && items.length === 0 ? (
         <p className="text-xs text-ink-tertiary italic">No checklist yet.</p>
       ) : (
-        <ul className="space-y-1 mb-2 max-h-44 overflow-y-auto">
+        <ul className="space-y-1 mb-2 max-h-56 overflow-y-auto">
           {items.length === 0 && canEdit && (
             <li className="text-xs text-ink-tertiary italic">
-              Place cards · menu cards · table number stands · centrepieces · favours · seating chart…
+              Place cards · menu cards · table-number stands · centrepieces · favours…
             </li>
           )}
           {items.map((it) => (
@@ -221,6 +187,19 @@ function ChecklistCard({
           </Button>
         </div>
       )}
-    </section>
+    </div>
+  );
+}
+
+// Helper to expose the done/total badge for the CollapsiblePanel
+// `rightSlot` — visible even when the panel is collapsed so the user
+// always sees their day-of progress at a glance.
+export function checklistRightSlot(items: ChecklistItem[]): React.ReactNode {
+  if (items.length === 0) return null;
+  const done = items.filter((i) => i.done).length;
+  return (
+    <span className="text-[10px] text-ink-tertiary tabular-nums">
+      {done} / {items.length}
+    </span>
   );
 }

@@ -45,9 +45,17 @@ export function CeremonyClient({
     fd.set("notes", config.notes);
     startTransition(async () => {
       try {
-        await updateCeremonySeating(fd);
-        setSavedConfig(config);
-        notify("success", "Ceremony layout saved");
+        // v1.23.2: action returns a result. Pre-fix any throw was
+        // redacted in Next production mode and surfaced as a generic
+        // overlay rather than the friendly toast — the user reported
+        // ceremony settings "not persisting" because of this.
+        const res = await updateCeremonySeating(fd);
+        if (res.ok) {
+          setSavedConfig(config);
+          notify("success", "Ceremony layout saved");
+        } else {
+          notify("error", res.error);
+        }
       } catch (err) {
         notify("error", err instanceof Error ? err.message : "Couldn't save");
       }

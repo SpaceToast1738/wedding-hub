@@ -5,7 +5,6 @@ import { requireUser } from "@/lib/actions";
 import { getWeddingSettings } from "@/lib/wedding-settings";
 import { AddTableToggle } from "./AddTableToggle";
 import { SeatingClient } from "./SeatingClient";
-import { SeatingPlanPanel } from "./SeatingPlanPanel";
 import { SeatingTabs } from "./SeatingTabs";
 
 export default async function SeatingPage() {
@@ -67,30 +66,22 @@ export default async function SeatingPage() {
         subtitle={`${tables.length} tables · ${seatedCount}/${totalCapacity} seats filled · ${attendingUnseated} attending unseated`}
         actions={editable ? <AddTableToggle /> : undefined}
       />
-      {/* v1.23.1: tab bar for Reception ↔ Ceremony — pre-fix the
-          only path to ceremony was a small text link in the header
-          actions. */}
+      {/* v1.23.1: tab bar for Reception ↔ Ceremony. */}
       <SeatingTabs />
-      {/* v1.23.1: always-visible plan-level notes + day-of checklist.
-          Replaces v1.23.0's collapsible plan-notes-only panel and
-          per-table notes/checklist. User wanted one shared list for
-          the whole plan, on screen at all times. */}
-      <SeatingPlanPanel
-        initialNotes={settings.seatingNotes ?? ""}
-        initialChecklist={settings.seatingChecklist ?? []}
-        canEdit={editable}
-      />
+      {/* v1.23.2: notes + checklist relocated into the canvas
+          right-hand sidebar (and a top strip in list view) — see
+          SeatingClient + SeatingCanvas. */}
       <SeatingClient
         tables={tables.map((t) => ({
           ...t,
-          // v1.23.0 columns retained server-side (no data drop) but
-          // the UI mounts were removed in v1.23.1. Pass null/empty so
-          // the type matches without surfacing legacy values.
+          // v1.23.0 schema columns retained but UI mounts dropped.
           notes: null,
           checklist: null,
         }))}
         allGuests={allGuestsForClient}
         canEdit={editable}
+        seatingNotes={settings.seatingNotes ?? ""}
+        seatingChecklist={settings.seatingChecklist ?? []}
       />
     </>
   );

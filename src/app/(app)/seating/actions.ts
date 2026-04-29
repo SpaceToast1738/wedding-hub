@@ -325,34 +325,55 @@ const ceremonySchema = z.object({
   rightSeatsRow: z.coerce.number().int().min(1).max(20),
   notes: z.string().max(5000).optional(),
 });
-export async function updateCeremonySeating(formData: FormData) {
+// v1.23.2: returns a result instead of throwing — same reasoning as
+// updateTableCapacity (v1.22.9). Pre-fix any throw from the upsert
+// (validation error, missing migration, FK issue) was redacted by
+// Next.js production mode and surfaced as the generic
+// "Server Components render" overlay rather than a clean toast. The
+// user reported "Seating settings didn't persist for ceremony" —
+// that's exactly the symptom this pattern fixes.
+export type SaveResult = { ok: true } | { ok: false; error: string };
+
+export async function updateCeremonySeating(formData: FormData): Promise<SaveResult> {
   const user = await requireEdit("seating");
-  const parsed = ceremonySchema.parse({
-    leftRows: formData.get("leftRows"),
-    leftSeatsRow: formData.get("leftSeatsRow"),
-    rightRows: formData.get("rightRows"),
-    rightSeatsRow: formData.get("rightSeatsRow"),
-    notes: formData.get("notes") ?? "",
-  });
-  const notes = parsed.notes && parsed.notes !== "" ? parsed.notes : null;
-  await db.ceremonySeating.upsert({
-    where: { id: 1 },
-    update: {
-      leftRows: parsed.leftRows,
-      leftSeatsRow: parsed.leftSeatsRow,
-      rightRows: parsed.rightRows,
-      rightSeatsRow: parsed.rightSeatsRow,
-      notes,
-    },
-    create: {
-      id: 1,
-      leftRows: parsed.leftRows,
-      leftSeatsRow: parsed.leftSeatsRow,
-      rightRows: parsed.rightRows,
-      rightSeatsRow: parsed.rightSeatsRow,
-      notes,
-    },
-  });
-  await audit(user, { action: "update", entity: "CeremonySeating", entityId: "1" });
-  revalidatePath("/seating/ceremony");
+  try {
+    const parsed = ceremonySchema.parse({
+      leftRows: formData.get("leftRows"),
+      leftSeatsRow: formData.get("leftSeatsRow"),
+      rightRows: formData.get("rightRows"),
+      rightSeatsRow: formData.get("rightSeatsRow"),
+      notes: formData.get("notes") ?? "",
+    });
+    const notes = parsed.notes && parsed.notes !== "" ? parsed.notes : null;
+    await db.ceremonySeating.upsert({
+      where: { id: 1 },
+      update: {
+        leftRows: parsed.leftRows,
+        leftSeatsRow: parsed.leftSeatsRow,
+        rightRows: parsed.rightRows,
+        rightSeatsRow: parsed.rightSeatsRow,
+        notes,
+      },
+      create: {
+        id: 1,
+        leftRows: parsed.leftRows,
+        leftSeatsRow: parsed.leftSeatsRow,
+        rightRows: parsed.rightRows,
+        rightSeatsRow: parsed.rightSeatsRow,
+        notes,
+      },
+    });
+    await audit(user, { action: "update", entity: "CeremonySeating", entityId: "1" });
+    revalidatePath("/seating/ceremony");
+    return { ok: true };
+  } catch (err) {
+    // Surface a real message instead of letting Next's production
+    // redactor swallow it — most likely culprit is the
+    // CeremonySeating migration not having been applied yet (table
+    // doesn't exist on prod). Logging server-side too so the operator
+    // can see the underlying Prisma message in container logs.
+    console.error("updateCeremonySeating failed", err);
+    const msg = err instanceof Error ? err.message : "Unknown error";
+    return { ok: false, error: msg };
+  }
 }

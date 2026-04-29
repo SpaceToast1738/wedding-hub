@@ -3,6 +3,12 @@
 import { useEffect, useMemo, useState } from "react";
 import type { TableShape } from "@prisma/client";
 import { EmptySeating, EmptyState } from "@/components/ui/Illustrations";
+import { CollapsiblePanel } from "./CollapsiblePanel";
+import {
+  ChecklistContent,
+  NotesContent,
+  checklistRightSlot,
+} from "./SeatingPlanPanel";
 import { SeatingCanvas } from "./SeatingCanvas";
 import { TableCard } from "./TableCard";
 
@@ -66,10 +72,16 @@ export function SeatingClient({
   tables,
   allGuests,
   canEdit,
+  seatingNotes,
+  seatingChecklist,
 }: {
   tables: Table[];
   allGuests: AllGuest[];
   canEdit: boolean;
+  // v1.23.2: notes + checklist now thread through to the canvas
+  // sidebar (replaces v1.23.1's top-of-page panel).
+  seatingNotes: string;
+  seatingChecklist: ChecklistItem[];
 }) {
   // Sub-components that only need {id, firstName, lastName, rsvp} (the
   // seat picker dropdown for the FocusPanel + TableCard) get a slimmed-
@@ -120,9 +132,17 @@ export function SeatingClient({
           unseatedGuests={unseatedGuests}
           allGuests={allGuests}
           canEdit={canEdit}
+          seatingNotes={seatingNotes}
+          seatingChecklist={seatingChecklist}
         />
       ) : (
-        <ListView tables={tables} unseatedGuests={unseatedGuests} canEdit={canEdit} />
+        <ListView
+          tables={tables}
+          unseatedGuests={unseatedGuests}
+          canEdit={canEdit}
+          seatingNotes={seatingNotes}
+          seatingChecklist={seatingChecklist}
+        />
       )}
     </div>
   );
@@ -157,14 +177,41 @@ function ListView({
   tables,
   unseatedGuests,
   canEdit,
+  seatingNotes,
+  seatingChecklist,
 }: {
   tables: Table[];
   unseatedGuests: GuestOpt[];
   canEdit: boolean;
+  // v1.23.2: List view also gets a collapsible notes + checklist
+  // strip at the top so editors can manage them without switching
+  // to canvas. Same content cards as the canvas sidebar uses.
+  seatingNotes: string;
+  seatingChecklist: ChecklistItem[];
 }) {
   return (
     <div className="flex-1 overflow-auto">
       <div className="max-w-6xl mx-auto p-6 space-y-4">
+        {/* v1.23.2: collapsible notes + checklist at the top of list
+            view. Canvas view mounts the same content in the right
+            sidebar instead. */}
+        <div className="grid gap-3 lg:grid-cols-2">
+          <CollapsiblePanel
+            storageKey="wh_seating_panel_notes"
+            title="Notes"
+            defaultOpen
+          >
+            <NotesContent initial={seatingNotes} canEdit={canEdit} />
+          </CollapsiblePanel>
+          <CollapsiblePanel
+            storageKey="wh_seating_panel_checklist"
+            title="Day-of checklist"
+            defaultOpen
+            rightSlot={checklistRightSlot(seatingChecklist)}
+          >
+            <ChecklistContent initial={seatingChecklist} canEdit={canEdit} />
+          </CollapsiblePanel>
+        </div>
         {tables.length === 0 ? (
           <EmptyState
             illustration={EmptySeating}

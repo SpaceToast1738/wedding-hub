@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.23.1** | 2026-04-29 | [Seating: notes + checklist global & always visible · obvious Reception/Ceremony tabs](#2026-04-29--v1231--seating-globalize-notes--checklist--obvious-tabs) |
+| **v1.23.2** | 2026-04-29 | [Seating: notes/checklist into collapsible sidebar · auto-crop canvas · disable table-drag on mobile · ceremony save returns result](#2026-04-29--v1232--seating-collapsible-sidebar--canvas-auto-crop--mobile-drag-disable--ceremony-save-result) |
+| v1.23.1 | 2026-04-29 | [Seating: notes + checklist global & always visible · obvious Reception/Ceremony tabs](#2026-04-29--v1231--seating-globalize-notes--checklist--obvious-tabs) |
 | v1.23.0 | 2026-04-29 | [Seating notes + day-of checklists + ceremony placeholder page + bigger top table](#2026-04-29--v1230--seating-notes--day-of-checklists--ceremony-placeholder) |
 | v1.22.10 | 2026-04-29 | [Seating polish: repack-on-shrink, glyph centering, HEAD label spacing, ghost dot during seat-drag, alignment guides during table-drag](#2026-04-29--v12210--seating-polish-repack-glyph-center-label-space-ghost-dot-alignment-guides) |
 | v1.22.9 | 2026-04-29 | [Seating bugfix: capacity-shrink server-error overlay, HEAD dots flipped to top edge, dynamic name truncation, pointer-based seat drag](#2026-04-29--v1229--seating-bugfix-capacity-error-head-orientation-name-overlap-canvas-drag) |
@@ -304,6 +305,28 @@ When the open questions are answered, this section gets replaced with a concrete
 
 ### Older / lower-priority backlog
 
+- **Group-based user permissions** — replace the per-user role enum
+  (COUPLE / WEDDING_PARTY / PLANNER / VIEWER) with a more flexible
+  group model where the planner can define groups (e.g. "Aimee's
+  team", "Ushers", "Couple") and assign per-page permissions to each
+  group. Likely shape: new `PermissionGroup` model with
+  `{ name, description, permissions Json }` (Json maps page slug →
+  `view` / `edit` / `none`), plus `User.permissionGroupId String?`
+  that overrides the role-derived defaults when set. Falls back to
+  the existing role gates when null so the migration is non-breaking.
+  Includes a Settings UI for the couple to manage groups + assign
+  users. ~3 hrs once design is signed off.
+  *Asked by user, 29 Apr 2026.*
+- **Investigate mobile navbar redirect-to-Today** — user reports
+  (29 Apr 2026): clicking any item in the mobile tab bar takes you
+  to `/`. Inspected `MobileTabBar.tsx` + `nav-config.ts` + middleware;
+  hrefs and matchers look correct on the current `dev` HEAD
+  (v1.23.2). Two leading hypotheses: (a) deployment lag — the user
+  may have been hitting the prod image mid-rebuild after the
+  v1.20.0–v1.23.1 bulk promote, before the new image rolled out;
+  (b) a prefetched or service-worker-cached older build. Re-check
+  after the next deploy completes; if it persists, instrument the
+  Link onClick to log the resolved href and inspect.
 - **Guest detail side panel on seating canvas** — when a planner
   *clicks* (no drag movement) a seated guest dot, open a right-hand
   side panel showing the guest's full record: full name + RSVP +
@@ -435,6 +458,34 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-29 · v1.23.2 — Seating: collapsible sidebar · canvas auto-crop · mobile drag disable · ceremony save result
+
+Four follow-ups from same-day v1.23.1 dogfood.
+
+**1. Notes + checklist moved into the canvas right-hand sidebar; every sidebar section is now collapsible with persisted state.** The user wanted the day-of checklist + notes alongside the Selected-table / Guests / Settings panels rather than at the top of the page. New `CollapsiblePanel` component wraps each section with a clickable header, ▾/▸ arrow, and per-key localStorage persistence (race-safe `loaded` gate, same pattern as the dot/label scale toggles). Five panels in the sidebar: **Selected table** (only when one's focused) · **Notes** · **Day-of checklist** (with done/total badge in the header right-slot) · **Guests** · **Canvas settings** (collapsed by default — most users don't tweak snap/scale/grid often).
+
+`FocusPanel` and `AllGuestsPanel` were renamed to `*Body` variants that emit only their inner content; the outer card chrome is now the CollapsiblePanel's responsibility, so we don't double up borders.
+
+**2. List view also gets the panels, at the top.** Same content cards (Notes + Day-of checklist) render as a two-column collapsible strip above the list, since list view doesn't have a sidebar. Persistence keys are shared with the canvas-side render so a planner's open/closed picks carry across views.
+
+**3. Auto-crop the canvas to the actual tables.** Pre-fix the SVG always rendered 1400×900 even when only the top-left corner was occupied — tables were tiny on tablets and phones. Now compute a bounding box around all tables (including their seat dots' radial extent for ROUND, edge-attached extent for HEAD/RECTANGLE) plus a `CROP_PADDING` of 80px, and use that as the SVG's `viewBox`. Empty canvas falls back to the full 1400×900. `clientToSvg` updated to honour the cropped viewBox so drag math doesn't drift.
+
+**4. Disable table drag on coarse-pointer (touch) devices.** Pre-fix mobile users would accidentally drag tables when trying to scroll or tap. Now `window.matchMedia("(pointer: coarse)").matches` gates `dragEnabled`; touch devices get tap-to-focus only. Cursor style follows. Seat-to-seat drag inside a table is unchanged (still works on touch via the v1.22.9 pointer-event handler) — that's the assignment workflow, which is genuinely useful on mobile.
+
+**5. Ceremony save action returns a result instead of throwing.** User reported "Seating settings didn't persist for ceremony" after v1.23.0/1. Same root cause as v1.22.9's capacity bug: in production Next.js redacts thrown server-action errors and surfaces them as the generic "Server Components render" overlay rather than reaching the client's `try/catch`. Refactored `updateCeremonySeating` to return `{ ok: true } | { ok: false; error: string }`; client checks `res.ok` and shows the real error toast. Also added a server-side `console.error` so the underlying Prisma message lands in container logs (most likely culprit if persistence still fails: the v1.23.0 migration hasn't applied to that environment yet).
+
+**Files:**
+
+- New: `src/app/(app)/seating/CollapsiblePanel.tsx`.
+- Modified: `src/app/(app)/seating/SeatingPlanPanel.tsx` — exports `NotesContent`, `ChecklistContent`, `checklistRightSlot` instead of the v1.23.1 wrapper component.
+- Modified: `src/app/(app)/seating/SeatingClient.tsx` — accepts `seatingNotes` + `seatingChecklist` props, renders panels in list view, passes through to canvas.
+- Modified: `src/app/(app)/seating/SeatingCanvas.tsx` — new sidebar layout (5 collapsibles), coarse-pointer detection, viewBox auto-crop, `clientToSvg` fix, renamed `FocusPanel`/`AllGuestsPanel` → `*Body`.
+- Modified: `src/app/(app)/seating/page.tsx` — drops the top-of-page `SeatingPlanPanel` mount, threads notes/checklist data through `SeatingClient`.
+- Modified: `src/app/(app)/seating/actions.ts` — `updateCeremonySeating` now returns `SaveResult`; result-shape exported as `SaveResult`.
+- Modified: `src/app/(app)/seating/ceremony/CeremonyClient.tsx` — handles the new result shape.
+
+**Verification:** typecheck/lint clean, all 188 unit tests pass, clean `.next` build green. Manual: open `/seating` → sidebar shows 4–5 collapsible panels → click a header → state persists across reload. Open with 2 tables in the top-left → canvas auto-crops to fit them. Open on a phone → cursor stays as pointer, dragging a table doesn't move it.
 
 ### 2026-04-29 · v1.23.1 — Seating: globalise notes + checklist · obvious tabs
 
