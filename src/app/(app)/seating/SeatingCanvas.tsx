@@ -324,6 +324,15 @@ export function SeatingCanvas({
         // the ghost-dot render.
         cursorX: number;
         cursorY: number;
+        // v1.25.0: cursor's offset from the source seat's centre at
+        // drag start, in SVG-userspace coords. Pre-fix the ghost dot
+        // rendered at the raw cursor position which made it "jump"
+        // to cursor-centre on first move (and felt off if the user
+        // grabbed the seat off-centre). Subtracting offsetX/Y from
+        // cursorX/Y on render keeps the ghost wherever the user
+        // first grabbed it — same primitive as the table-drag.
+        offsetX: number;
+        offsetY: number;
       }
     | null
   >(null);
@@ -761,6 +770,18 @@ export function SeatingCanvas({
                               e.stopPropagation();
                               (e.currentTarget as Element).setPointerCapture(e.pointerId);
                               const p = clientToSvg(e.clientX, e.clientY);
+                              // v1.25.0: compute the seat's world-
+                              // space (SVG-userspace) position from its
+                              // table-local layout + table position +
+                              // table rotation. The offset between
+                              // cursor and seat centre at grab time is
+                              // preserved across the drag so the ghost
+                              // doesn't "jump" to cursor-centre.
+                              const tablePos = positions[t.id] ?? { x: t.posX, y: t.posY };
+                              const cosR = Math.cos((t.rotation * Math.PI) / 180);
+                              const sinR = Math.sin((t.rotation * Math.PI) / 180);
+                              const seatWorldX = tablePos.x + layout.cx * cosR - layout.cy * sinR;
+                              const seatWorldY = tablePos.y + layout.cx * sinR + layout.cy * cosR;
                               setSeatDrag({
                                 guestId: seat.guest!.id,
                                 fromSeatId: seat.id,
@@ -772,6 +793,8 @@ export function SeatingCanvas({
                                 moved: false,
                                 cursorX: p.x,
                                 cursorY: p.y,
+                                offsetX: p.x - seatWorldX,
+                                offsetY: p.y - seatWorldY,
                               });
                             }}
                             onPointerMove={(e) => {
@@ -955,15 +978,18 @@ export function SeatingCanvas({
               />
             ));
           })()}
-          {/* v1.22.10: ghost dot for canvas seat-drag. Mirrors the
-              source seat's RSVP color/glyph at the cursor position so
-              the user gets the same visual feedback the table-drag
-              has. Reduced opacity so it reads as "in flight". */}
-          {seatDrag?.moved && (
+          {/* v1.22.10: ghost dot for canvas seat-drag.
+              v1.25.0: anchored to (cursor − offset) so it stays
+              wherever the user first grabbed the seat, instead of
+              jumping to cursor-centre. Same primitive table-drag uses. */}
+          {seatDrag?.moved && (() => {
+            const ghostX = seatDrag.cursorX - seatDrag.offsetX;
+            const ghostY = seatDrag.cursorY - seatDrag.offsetY;
+            return (
             <g pointerEvents="none" opacity={0.7}>
               <circle
-                cx={seatDrag.cursorX}
-                cy={seatDrag.cursorY}
+                cx={ghostX}
+                cy={ghostY}
                 r={3.5 * dotScale}
                 fill={dotFillForRsvp(seatDrag.rsvp)}
                 stroke={dotStrokeForRsvp(seatDrag.rsvp)}
@@ -971,8 +997,8 @@ export function SeatingCanvas({
               />
               {dotScale >= 1.4 && (
                 <text
-                  x={seatDrag.cursorX}
-                  y={seatDrag.cursorY}
+                  x={ghostX}
+                  y={ghostY}
                   textAnchor="middle"
                   dominantBaseline="central"
                   fontSize={4.8 * dotScale}
@@ -983,8 +1009,8 @@ export function SeatingCanvas({
                 </text>
               )}
               <text
-                x={seatDrag.cursorX}
-                y={seatDrag.cursorY + 3.5 * dotScale + 4 + 0.8 * 9 * labelScale}
+                x={ghostX}
+                y={ghostY + 3.5 * dotScale + 4 + 0.8 * 9 * labelScale}
                 textAnchor="middle"
                 fontSize={9 * labelScale}
                 fill="var(--color-ink-secondary)"
@@ -994,7 +1020,8 @@ export function SeatingCanvas({
                   : seatDrag.firstName}
               </text>
             </g>
-          )}
+            );
+          })()}
         </svg>
       </div>
 

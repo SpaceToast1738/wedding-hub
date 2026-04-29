@@ -223,6 +223,11 @@ model Task {
   // (C10 v1.15.0). Keyed by CustomField.id; values typed per the field's
   // `type` column. Null when no custom fields are populated.
   customFieldValues Json?
+  // v1.25.0: per-task last-nudged-at, mirrors Guest.lastNudgedAt
+  // (already in schema). Read by the overdue-task digest decision
+  // module to rate-limit which tasks land in each digest send (>7
+  // days since last include, or never).
+  lastNudgedAt DateTime?
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
 

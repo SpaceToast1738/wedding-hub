@@ -10,6 +10,7 @@ import { SpotifySettingsPanel } from "./SpotifySettingsPanel";
 import { CustomFieldsPanel } from "./CustomFieldsPanel";
 import { WeddingSettingsPanel } from "./WeddingSettingsPanel";
 import { AuditLogPanel } from "./AuditLogPanel";
+import { NudgesPanel } from "./NudgesPanel";
 
 export default async function SettingsPage({
   searchParams,
@@ -103,6 +104,9 @@ export default async function SettingsPage({
             currentUserIsCouple={user.isCouple}
             canEdit={editable}
           />
+
+          {/* v1.25.0: nudges digest, couple-only. */}
+          {user.isCouple && <NudgesPanel />}
 
           <AuditLogPanel isCouple={user.isCouple} before={audit_before} />
         </div>

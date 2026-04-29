@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.24.0** | 2026-04-29 | [Print stylesheets for /budget + /payments · BookSection couple-only audience · mobile navbar imperative-routing fix](#2026-04-29--v1240--print-stylesheets--booksection-visibility--mobile-navbar-fix) |
+| **v1.25.0** | 2026-04-29 | [Email nudge digests (RSVPs + tasks) · seat-drag grab-offset · mobile navbar plain anchor](#2026-04-29--v1250--email-nudge-digests--seat-drag-offset--mobile-anchor) |
+| v1.24.0 | 2026-04-29 | [Print stylesheets for /budget + /payments · BookSection couple-only audience · mobile navbar imperative-routing fix](#2026-04-29--v1240--print-stylesheets--booksection-visibility--mobile-navbar-fix) |
 | v1.23.3 | 2026-04-29 | [Seating bugfix: freeze auto-crop viewBox during drag (drift fix)](#2026-04-29--v1233--seating-freeze-viewbox-during-drag) |
 | v1.23.2 | 2026-04-29 | [Seating: notes/checklist into collapsible sidebar · auto-crop canvas · disable table-drag on mobile · ceremony save returns result](#2026-04-29--v1232--seating-collapsible-sidebar--canvas-auto-crop--mobile-drag-disable--ceremony-save-result) |
 | v1.23.1 | 2026-04-29 | [Seating: notes + checklist global & always visible · obvious Reception/Ceremony tabs](#2026-04-29--v1231--seating-globalize-notes--checklist--obvious-tabs) |
@@ -192,10 +193,7 @@ items renumbered down the queue. Current state:
   shipped v1.23.0.
 - ~~**Print stylesheet for /budget + /payments**~~ — shipped v1.24.0.
 - ~~**BookSection audience overrides**~~ — shipped v1.24.0.
-- **Email reminders / nudges** — bumped to v1.25.0. `Guest.lastNudgedAt`
-  is already in the schema. Build "nudge unconfirmed RSVPs" + "follow-
-  up task due tomorrow" digests. Sends to the planner / couple, not to
-  guests (admin-only rule). ~3 hrs.
+- ~~**Email reminders / nudges**~~ — shipped v1.25.0.
 - **Modular page cards** (text / field / recipe / shot list) — design
   pass first, then build. Bumped to v1.26.0+. ~10 hrs estimated.
 - **Group-coloured ceremony seating** — design pass first. Bumped to
@@ -305,6 +303,25 @@ When the open questions are answered, this section gets replaced with a concrete
 
 ### Older / lower-priority backlog
 
+- **Numeric auth code at sign-in (OTP / TOTP / SMS)** — currently
+  Auth.js sends a clickable magic-link to the user's email; clicking
+  the link signs them in. User asked (29 Apr 2026) for an "auth
+  number for login" — an alternative or supplementary code-entry
+  flow. Three plausible reads, each design-distinct:
+  (a) **Email OTP** — replace the magic-link with a 6-digit code
+      typed into the sign-in page. Lower phishing risk than long
+      pre-tokenised URLs that some email clients prefetch and burn.
+      Auth.js EmailProvider supports this via the `generateVerificationToken`
+      callback returning a short numeric code instead of UUID.
+  (b) **TOTP / authenticator-app MFA** — second factor on top of the
+      magic-link. Couple + planners enrol once via QR code; sign-in
+      asks for the 6-digit rotating code from Authy / Google
+      Authenticator. Adds `User.totpSecret` (encrypted at rest).
+  (c) **SMS code** — twilio / Resend SMS adds a phone-number step.
+      More setup, more cost, weakest of the three security-wise.
+  *Recommendation:* (a) Email OTP — least new infra, biggest UX
+  win on touch devices where copy-pasting a long URL from a mail
+  app is fiddly. ~2 hrs to implement once the design pass picks one.
 - **Group-based user permissions** — replace the per-user role enum
   (COUPLE / WEDDING_PARTY / PLANNER / VIEWER) with a more flexible
   group model where the planner can define groups (e.g. "Aimee's
@@ -458,6 +475,38 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-29 · v1.25.0 — Email nudge digests · seat-drag offset · mobile anchor
+
+Three things, with the first being the v1.25.0 main feature.
+
+**1. Email nudge digests.** Manually-triggered "RSVPs to chase" + "Overdue tasks" digest emails sent to the couple + planners. Pure decision module + per-row 7-day cooldown, mirrors the v1.11.0 csv-merge pattern (decisions and tests live independently of the action layer):
+
+- New `src/lib/nudge-digest.ts` — pure functions: `decideUnconfirmedRsvpDigest(guests, now)`, `decideOverdueTaskDigest(tasks, now)`, `sortOverdueTasksForEmail`, plus the 7-day `nudgeEligible` predicate. Filters out plus-ones (the host carries the nudge), archived guests, DONE/ARCHIVED tasks, future-dated tasks, and anything nudged within the cooldown window.
+- New `src/app/(app)/settings/nudge-actions.ts` — `getDigestPreview()` + `sendDigestEmail(kind)`. Returns a typed `SendResult` object instead of throwing (production-redaction pattern). Uses the same Nodemailer transport as `auth.ts`'s magic-link sender. Stamps `lastNudgedAt` on every included row in the same transaction so they don't reappear in the next 7 days. Audit-logged. Couple-only.
+- New `src/app/(app)/settings/NudgesPanel.tsx` — couple-only Settings panel. Two cards (RSVPs / Tasks) with eligibility count, the first 5 names/titles, and a "Send digest" button. Uses `getDigestPreview` to keep the count fresh on mount.
+- New schema column: `Task.lastNudgedAt DateTime?` (mirrors the existing `Guest.lastNudgedAt`). Migration `20260429030000_task_last_nudged_at` is additive.
+- 19 new unit tests in `tests/unit/nudge-digest.test.ts` covering: eligibility-window math, RSVP filter (PENDING + MAYBE included, ATTENDING/DECLINED excluded, archived excluded, plus-ones excluded), overdue-task filter (only TASK type, only past-due, only OPEN/IN_PROGRESS/BLOCKED), priority-then-due-date sort. **Total test count: 188 → 207.**
+
+Cron-triggered nudges deferred per the original plan; manual-trigger is honest about who's chasing what.
+
+**2. Seat-drag grab-offset preserved.** v1.22.10 ghost dot rendered at the raw cursor position regardless of where the user actually clicked the seat. If they grabbed the dot off-centre, the ghost "jumped" to cursor-centre on first move. Fix: at pointerdown, compute the cursor's offset from the seat's world-space centre (applying the table's rotation), store on `seatDrag`, and render the ghost at `cursor − offset`. Same primitive the table-drag has used since the start — the ghost stays exactly where the user grabbed it.
+
+**3. Mobile navbar — plain `<a href>` anchors.** v1.24.0 tried `router.push` to bypass whatever was eating the `<Link>` clicks; user reports it still didn't navigate. Going to the most defensive possible primitive: native browser anchors with no client-side routing involvement. Triggers a full page reload (slower than client routing — fine on mobile where transitions are perceptible anyway). If even this fails, the issue is below the app layer (CDN cache / service worker / device-specific) and the next investigation step shifts off-code. ([MobileTabBar.tsx](src/components/shell/MobileTabBar.tsx))
+
+**Files:**
+
+- New: `src/lib/nudge-digest.ts`, `tests/unit/nudge-digest.test.ts`.
+- New: `src/app/(app)/settings/nudge-actions.ts`, `src/app/(app)/settings/NudgesPanel.tsx`.
+- New: `prisma/migrations/20260429030000_task_last_nudged_at/migration.sql`.
+- Modified: `prisma/schema.prisma` — `Task.lastNudgedAt`.
+- Modified: `src/app/(app)/settings/page.tsx` — mount `NudgesPanel` couple-only.
+- Modified: `src/app/(app)/seating/SeatingCanvas.tsx` — `seatDrag` carries `offsetX/offsetY`; ghost render uses `cursor − offset`.
+- Modified: `src/components/shell/MobileTabBar.tsx` — plain anchors throughout.
+
+**Roadmap additions:** numeric auth code at sign-in (OTP / TOTP / SMS) — design pass needed first, three plausible interpretations enumerated.
+
+**Verification:** typecheck/lint clean, all 207 unit tests pass, clean `.next` build green. Manual: open `/settings` as couple → "Nudges" panel shows N eligible RSVPs / tasks → click Send → toast confirms send + recipient count → reload → counts decrease (those rows now have `lastNudgedAt` stamped). Drag a seat off-centre on the canvas → ghost stays anchored to the grab point. Tap a tab on mobile → navigates (full page reload).
 
 ### 2026-04-29 · v1.24.0 — Print stylesheets · BookSection visibility · mobile navbar fix
 
