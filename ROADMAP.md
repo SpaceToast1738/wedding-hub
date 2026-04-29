@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.22.8** | 2026-04-29 | [Seating: RSVP glyphs inside seat dots (✓ ? ~ ✗) for colour-blind accessibility](#2026-04-29--v1228--seating-rsvp-glyphs-inside-seat-dots) |
+| **v1.22.9** | 2026-04-29 | [Seating bugfix: capacity-shrink server-error overlay, HEAD dots flipped to top edge, dynamic name truncation, pointer-based seat drag](#2026-04-29--v1229--seating-bugfix-capacity-error-head-orientation-name-overlap-canvas-drag) |
+| v1.22.8 | 2026-04-29 | [Seating: RSVP glyphs inside seat dots (✓ ? ~ ✗) for colour-blind accessibility](#2026-04-29--v1228--seating-rsvp-glyphs-inside-seat-dots) |
 | v1.22.7 | 2026-04-29 | [Seating: RSVP-colored dots, HEAD/RECTANGLE seats, drag-between-seats, resizable grid, uniform S/M/L/XL, visible capacity buttons, click-once focus](#2026-04-29--v1227--seating-rsvp-dots-all-shape-seats-canvas-drag-resizable-grid-uniform-toggles) |
 | v1.22.6 | 2026-04-29 | [Seating: snap-to-grid toggle + modify table capacity + pending guests in seat-picker](#2026-04-29--v1226--seating-snap-to-grid-toggle--modify-capacity--pending-in-picker) |
 | v1.22.5 | 2026-04-29 | [Bugfix: hydration mismatch (#418/#482) on Today page + persistence race on seating canvas + decoupled dot/label scales](#2026-04-29--v1225--bugfix-hydration-persistence-race-decoupled-seating-scales) |
@@ -310,6 +311,34 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-29 · v1.22.9 — Seating bugfix: capacity error, HEAD orientation, name overlap, canvas drag
+
+Four fixes from v1.22.7/8 dogfood:
+
+**1. Server-error overlay when shrinking a table.** Pre-fix `updateTableCapacity` threw an `Error` when the user tried to shrink a table with occupied trailing seats. In Next.js production mode, thrown server-action errors are *redacted* and surface as the generic "An error occurred in the Server Components render" overlay rather than reaching the client's `try/catch` for the intended `notify("error", ...)` toast. Fix: action now returns a typed `{ ok: true } | { ok: false; error: string }` result. The client checks `res.ok` and shows the friendly notify-error toast as designed. Both the canvas FocusPanel and the list-view TableCard updated to use the new shape. ([actions.ts](src/app/(app)/seating/actions.ts), [SeatingCanvas.tsx](src/app/(app)/seating/SeatingCanvas.tsx), [TableCard.tsx](src/app/(app)/seating/TableCard.tsx))
+
+**2. HEAD top-table dots flipped to top edge.** Pre-fix the v1.22.7 HEAD layout placed seats along the bottom edge of the rectangle. By convention the head table sits at the head of the room with guests *facing* the room — so seats render more naturally on the back side (top edge). Adjusted the layout helper accordingly. ([SeatingCanvas.tsx](src/app/(app)/seating/SeatingCanvas.tsx) — `computeSeatLayouts`)
+
+Per-table orientation toggle (so HEAD can flip back to bottom-edge for unusual layouts) deferred — the user mentioned it as a "should be able to" follow-up.
+
+**3. Dynamic name truncation.** Pre-fix names were truncated at a fixed 10-char cap, which left "Jamie" and "Bryony-Ol…" overlapping when seated next to each other on a 2-seat HEAD table (per-seat horizontal budget was ~58px but each label rendered ~80px wide). Fix: truncation now reads per-seat horizontal budget per shape:
+
+- ROUND keeps the 14-char cap (radial labels have generous space).
+- HEAD: `floor(width / capacity / glyphWidth)`.
+- RECTANGLE: same but split top/bottom so `perSide = ceil(capacity/2)`.
+
+Floor is 4 chars + ellipsis so labels stay distinguishable. ([SeatingCanvas.tsx](src/app/(app)/seating/SeatingCanvas.tsx))
+
+**4. Canvas seat-to-seat drag now works.** Pre-fix v1.22.7 added an HTML5 `draggable={true}` source on each occupied seat's overlay `<circle>`. SVG element draggability is unreliable across browsers — Chrome/Firefox/Safari each handle it differently and several users couldn't drag a seat at all. Replaced with pointer-event-based drag (same primitive the table-drag already uses). Implementation:
+
+- `onPointerDown` on the seat overlay captures the pointer + records start position. `e.stopPropagation()` so the table-drag handler never fires.
+- `onPointerMove` tracks distance; once it exceeds 4px the drag is "official" and `draggingGuestId` flips on (unlocks the existing visual drag-over highlights on other seats).
+- `onPointerUp` hit-tests against all seat positions in SVG userspace via a new `findSeatAt(x, y)` helper that also accounts for table rotation. Drop on another seat → `assignGuestToSeat`. Drop outside any seat → unseat (same as dropping on the panel).
+
+The HTML5 drag still works for `AllGuestsPanel → seat` because the source there is a regular HTML `<li>`, which has rock-solid `draggable` support. Only the SVG-source case switched to pointer events. ([SeatingCanvas.tsx](src/app/(app)/seating/SeatingCanvas.tsx))
+
+**Verification:** typecheck/lint clean, 188 unit tests pass, build green. Manual: shrink an occupied table → friendly toast (no overlay). Top-table dots are above the rectangle. Names on a 2-seat HEAD don't overlap. Drag a guest from one canvas seat to another → reseats live.
 
 ### 2026-04-29 · v1.22.8 — Seating: RSVP glyphs inside seat dots
 

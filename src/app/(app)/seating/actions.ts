@@ -110,17 +110,28 @@ const capacitySchema = z.object({
   newCapacity: z.coerce.number().int().min(1).max(40),
 });
 
-export async function updateTableCapacity(id: string, newCapacity: number) {
+// v1.22.9: returns a result object instead of throwing. Pre-fix the
+// "Can't shrink to N: M seats still assigned" Error was being thrown,
+// which Next.js production mode redacts and surfaces as the scary
+// "An error occurred in the Server Components render" overlay rather
+// than the intended notify-error toast. Returning a typed result gives
+// the client a clean error path that survives the redaction layer.
+export type CapacityResult = { ok: true } | { ok: false; error: string };
+
+export async function updateTableCapacity(
+  id: string,
+  newCapacity: number,
+): Promise<CapacityResult> {
   const user = await requireEdit("seating");
   const parsed = capacitySchema.parse({ newCapacity });
   const table = await db.table.findUnique({
     where: { id },
     include: { seats: { include: { guest: { select: { id: true } } } } },
   });
-  if (!table) throw new Error("Table not found");
+  if (!table) return { ok: false, error: "Table not found" };
   const current = table.capacity;
   const target = parsed.newCapacity;
-  if (target === current) return;
+  if (target === current) return { ok: true };
 
   if (target > current) {
     // Append seats with indices [current..target-1].
@@ -136,9 +147,10 @@ export async function updateTableCapacity(id: string, newCapacity: number) {
     const toRemove = table.seats.filter((s) => s.index >= target);
     const occupied = toRemove.filter((s) => s.guest).length;
     if (occupied > 0) {
-      throw new Error(
-        `Can't shrink to ${target}: ${occupied} seat${occupied === 1 ? "" : "s"} above #${target} ${occupied === 1 ? "is" : "are"} still assigned. Unseat first.`,
-      );
+      return {
+        ok: false,
+        error: `Can't shrink to ${target}: ${occupied} seat${occupied === 1 ? "" : "s"} above #${target} ${occupied === 1 ? "is" : "are"} still assigned. Unseat first.`,
+      };
     }
     await db.seat.deleteMany({
       where: { tableId: id, index: { gte: target } },
@@ -152,6 +164,7 @@ export async function updateTableCapacity(id: string, newCapacity: number) {
     metadata: { from: current, to: target },
   });
   revalidatePath("/seating");
+  return { ok: true };
 }
 
 export async function assignGuestToSeat(seatId: string, guestId: string | null) {

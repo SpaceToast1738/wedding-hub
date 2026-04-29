@@ -157,11 +157,14 @@ function computeSeatLayouts(
     });
   }
   if (shape === "HEAD") {
-    // All seats along bottom edge — head table faces the room.
+    // v1.22.9: flipped from bottom→top edge. The "head" table by
+    // convention sits behind the couple at the head of the room with
+    // guests *facing* the room — so seats on the back side (top of
+    // the rendered rect) reads more naturally on the floorplan.
     return Array.from({ length: capacity }, (_, i) => {
       const cx = -size.w / 2 + ((i + 0.5) * size.w) / capacity;
-      const cy = size.h / 2 + 8 * dotScale;
-      const labelY = cy + 12 * labelScale + 3 * labelScale;
+      const cy = -size.h / 2 - 8 * dotScale;
+      const labelY = cy - 6 * labelScale;
       return { cx, cy, labelX: cx, labelY, labelAnchor: "middle" };
     });
   }
@@ -244,6 +247,25 @@ export function SeatingCanvas({
   // race + unique-constraint case atomically.
   const [draggingGuestId, setDraggingGuestId] = useState<string | null>(null);
   const [dragOverSeatId, setDragOverSeatId] = useState<string | null>(null);
+  // v1.22.9: pointer-event-based drag for canvas seat-to-seat re-seating.
+  // v1.22.7's `draggable={true}` on SVG <circle> turned out to be flaky
+  // across browsers — Chrome/Firefox/Safari each handle it differently
+  // and several users couldn't drag a seat at all. Pointer events work
+  // identically everywhere (same primitive the table-drag uses). Drops
+  // from the AllGuestsPanel still use HTML5 drag (works because the
+  // source there is a regular HTML <li>); only the canvas-source drag
+  // is pointer-based.
+  const [seatDrag, setSeatDrag] = useState<
+    | {
+        guestId: string;
+        fromSeatId: string;
+        pointerId: number;
+        startX: number;
+        startY: number;
+        moved: boolean;
+      }
+    | null
+  >(null);
 
   function dropOnSeat(seatId: string, guestId: string) {
     startTransitionDrop(async () => {
@@ -357,6 +379,33 @@ export function SeatingCanvas({
     const y = ((clientY - rect.top) / rect.height) * CANVAS_H;
     return { x, y };
   }, []);
+
+  // v1.22.9: hit-test which seat (if any) is under a given SVG-userspace
+  // point. Walks tables, applies their rotation to compute world-space
+  // seat centres, then checks distance against a generous drop radius.
+  const findSeatAt = useCallback(
+    (x: number, y: number): string | null => {
+      const dropR = Math.max(14, 8 * dotScale);
+      for (const t of initialTables) {
+        const pos = positions[t.id] ?? { x: t.posX, y: t.posY };
+        const size = tableSize(t.shape, t.capacity);
+        const layouts = computeSeatLayouts(t.shape, t.capacity, size, dotScale, labelScale);
+        const cosR = Math.cos((t.rotation * Math.PI) / 180);
+        const sinR = Math.sin((t.rotation * Math.PI) / 180);
+        for (let i = 0; i < t.seats.length; i++) {
+          const layout = layouts[i]!;
+          // Apply table rotation to seat-local coords.
+          const seatX = pos.x + layout.cx * cosR - layout.cy * sinR;
+          const seatY = pos.y + layout.cx * sinR + layout.cy * cosR;
+          if (Math.hypot(x - seatX, y - seatY) <= dropR) {
+            return t.seats[i]!.id;
+          }
+        }
+      }
+      return null;
+    },
+    [initialTables, positions, dotScale, labelScale],
+  );
 
   function startDrag(e: React.PointerEvent<SVGGElement>, t: Table) {
     if (!canEdit) {
@@ -535,6 +584,24 @@ export function SeatingCanvas({
                     seat-to-seat reseating. */}
                 {(() => {
                   const layouts = computeSeatLayouts(t.shape, t.capacity, size, dotScale, labelScale);
+                  // v1.22.9: dynamic truncation. For HEAD/RECTANGLE the
+                  // labels sit above/below dots and would overlap when
+                  // capacity is small + names are long. ROUND labels
+                  // are radial so the per-seat horizontal budget is
+                  // generous; we only cap at 14 chars there. Approx
+                  // glyph width ~5.5 * labelScale.
+                  const charPx = 5.5 * labelScale;
+                  let maxChars: number;
+                  if (t.shape === "ROUND") {
+                    maxChars = 14;
+                  } else if (t.shape === "HEAD") {
+                    maxChars = Math.max(4, Math.floor(size.w / t.capacity / charPx));
+                  } else {
+                    // RECTANGLE: budget is split top/bottom (each side
+                    // has roughly capacity/2 seats sharing size.w).
+                    const perSide = Math.ceil(t.capacity / 2);
+                    maxChars = Math.max(4, Math.floor(size.w / perSide / charPx));
+                  }
                   return t.seats.map((seat, i) => {
                     const layout = layouts[i]!;
                     const occupied = !!seat.guest;
@@ -551,36 +618,74 @@ export function SeatingCanvas({
                         ? dotStrokeForRsvp(guestRsvp!)
                         : "var(--color-border-strong)";
                     const firstName = seat.guest?.firstName ?? "";
-                    const label = firstName.length > 10
-                      ? `${firstName.slice(0, 9)}…`
+                    const label = firstName.length > maxChars
+                      ? `${firstName.slice(0, maxChars - 1)}…`
                       : firstName;
                     return (
                       <g key={seat.id}>
-                        {/* v1.22.7: drag-source layer — occupied seats
-                            become an HTML5 drag source, so the user
-                            can drag a guest from one seat to another
-                            (or back to the panel for unseating). The
-                            table-drag's onPointerDown checks for a
-                            draggable target and bails, so the seat
-                            click never starts a table-drag. */}
+                        {/* v1.22.9: pointer-event drag-source. Replaces
+                            v1.22.7's HTML5 `draggable` attribute, which
+                            was unreliable on SVG <circle>. PointerDown
+                            captures the pointer, pointerMove tracks
+                            position + sets state when threshold passed,
+                            pointerUp commits to nearest seat (or unseats
+                            if dropped outside). Stops propagation so the
+                            table-drag handler never fires. */}
                         {canEdit && occupied && (
                           <circle
                             cx={layout.cx}
                             cy={layout.cy}
                             r={Math.max(12, 8 * dotScale)}
                             fill="transparent"
-                            {...{ draggable: true } /* draggable not in React's SVG types but works in all evergreen browsers */}
-                            onDragStart={(e) => {
+                            onPointerDown={(e) => {
                               e.stopPropagation();
-                              e.dataTransfer.setData("guestId", seat.guest!.id);
-                              e.dataTransfer.effectAllowed = "move";
-                              setDraggingGuestId(seat.guest!.id);
+                              (e.currentTarget as Element).setPointerCapture(e.pointerId);
+                              setSeatDrag({
+                                guestId: seat.guest!.id,
+                                fromSeatId: seat.id,
+                                pointerId: e.pointerId,
+                                startX: e.clientX,
+                                startY: e.clientY,
+                                moved: false,
+                              });
                             }}
-                            onDragEnd={() => {
+                            onPointerMove={(e) => {
+                              if (!seatDrag) return;
+                              if (e.pointerId !== seatDrag.pointerId) return;
+                              const dx = e.clientX - seatDrag.startX;
+                              const dy = e.clientY - seatDrag.startY;
+                              if (!seatDrag.moved && Math.hypot(dx, dy) > 4) {
+                                setSeatDrag({ ...seatDrag, moved: true });
+                                setDraggingGuestId(seatDrag.guestId);
+                              }
+                              if (seatDrag.moved) {
+                                const p = clientToSvg(e.clientX, e.clientY);
+                                setDragOverSeatId(findSeatAt(p.x, p.y));
+                              }
+                            }}
+                            onPointerUp={(e) => {
+                              if (!seatDrag) return;
+                              if (e.pointerId !== seatDrag.pointerId) return;
+                              const ds = seatDrag;
+                              setSeatDrag(null);
+                              setDraggingGuestId(null);
+                              setDragOverSeatId(null);
+                              if (!ds.moved) return; // plain click — ignore
+                              const p = clientToSvg(e.clientX, e.clientY);
+                              const overId = findSeatAt(p.x, p.y);
+                              if (overId && overId !== ds.fromSeatId) {
+                                dropOnSeat(overId, ds.guestId);
+                              } else if (overId === null) {
+                                // Dropped outside any seat — unseat.
+                                dropOnPanel(ds.guestId);
+                              }
+                            }}
+                            onPointerCancel={() => {
+                              setSeatDrag(null);
                               setDraggingGuestId(null);
                               setDragOverSeatId(null);
                             }}
-                            style={{ cursor: "grab" }}
+                            style={{ cursor: seatDrag?.fromSeatId === seat.id ? "grabbing" : "grab" }}
                           />
                         )}
                         {/* v1.20.6: drop-zone — only renders during a
@@ -839,15 +944,20 @@ function FocusPanel({
   }
 
   // v1.22.6: capacity +/- buttons. Shrink fails server-side if any of
-  // the trailing seats are still assigned (the action throws with a
-  // clear message); grow always succeeds within 1..40.
+  // the trailing seats are still assigned. v1.22.9: action returns a
+  // result object instead of throwing — Next.js production mode
+  // redacts thrown server-action errors and surfaces them as the
+  // generic "Server Components render" overlay rather than reaching
+  // the catch block. Returning a typed result avoids the redaction.
   function onCapacity(delta: 1 | -1) {
     const next = table.capacity + delta;
     if (next < 1 || next > 40) return;
     startTransition(async () => {
       try {
-        await updateTableCapacity(table.id, next);
+        const res = await updateTableCapacity(table.id, next);
+        if (!res.ok) notify("error", res.error);
       } catch (err) {
+        // Unexpected errors only — validation lives in the result.
         notify(
           "error",
           err instanceof Error ? err.message : "Couldn't change capacity",

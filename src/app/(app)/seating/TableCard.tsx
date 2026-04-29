@@ -68,14 +68,16 @@ export function TableCard({
     });
   }
 
-  // v1.22.6: capacity +/- buttons. Server-side action enforces "must be
-  // empty to remove" — we surface the error via notify if it throws.
+  // v1.22.6: capacity +/- buttons. v1.22.9: action returns a result
+  // object instead of throwing (see SeatingCanvas onCapacity for the
+  // "why").
   function onCapacity(delta: 1 | -1) {
     const next = table.capacity + delta;
     if (next < 1 || next > 40) return;
     startTransition(async () => {
       try {
-        await updateTableCapacity(table.id, next);
+        const res = await updateTableCapacity(table.id, next);
+        if (!res.ok) notify("error", res.error);
       } catch (err) {
         notify("error", err instanceof Error ? err.message : "Couldn't change capacity");
       }
