@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.25.0** | 2026-04-29 | [Email nudge digests (RSVPs + tasks) · seat-drag grab-offset · mobile navbar plain anchor](#2026-04-29--v1250--email-nudge-digests--seat-drag-offset--mobile-anchor) |
+| **v1.25.1** | 2026-04-29 | [Seating: ghost-drag perf (refs not state) · mobile canvas height boost · mobile-only "drag is desktop-only" hint](#2026-04-29--v1251--seating-ghost-drag-perf--mobile-size--desktop-only-hint) |
+| v1.25.0 | 2026-04-29 | [Email nudge digests (RSVPs + tasks) · seat-drag grab-offset · mobile navbar plain anchor](#2026-04-29--v1250--email-nudge-digests--seat-drag-offset--mobile-anchor) |
 | v1.24.0 | 2026-04-29 | [Print stylesheets for /budget + /payments · BookSection couple-only audience · mobile navbar imperative-routing fix](#2026-04-29--v1240--print-stylesheets--booksection-visibility--mobile-navbar-fix) |
 | v1.23.3 | 2026-04-29 | [Seating bugfix: freeze auto-crop viewBox during drag (drift fix)](#2026-04-29--v1233--seating-freeze-viewbox-during-drag) |
 | v1.23.2 | 2026-04-29 | [Seating: notes/checklist into collapsible sidebar · auto-crop canvas · disable table-drag on mobile · ceremony save returns result](#2026-04-29--v1232--seating-collapsible-sidebar--canvas-auto-crop--mobile-drag-disable--ceremony-save-result) |
@@ -475,6 +476,22 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-29 · v1.25.1 — Seating: ghost-drag perf · mobile size · desktop-only hint
+
+Three same-day follow-ups from v1.25.0 dogfood.
+
+**1. Ghost-drag tracks the cursor at native rate.** v1.25.0's grab-offset preservation made an existing perf bug obvious: the ghost dot during a seat drag lagged behind the cursor on canvases with multiple tables. Root cause: `setSeatDrag({ ...seatDrag, cursorX, cursorY })` on every pointermove triggered a full re-render of `SeatingCanvas` (every table, every seat dot, every drop-zone, every alignment guide). On a 10×8 layout that's ~80 reconciliation cycles per move; at 120 Hz pointer rate, React couldn't keep up.
+
+Fix: render the ghost via **imperative DOM updates against refs** instead of state-driven re-renders. The ghost is purely visual — its position can be updated by setting SVG attributes directly. Three new refs (`ghostCircleRef`, `ghostGlyphRef`, `ghostLabelRef`) are written to in `onPointerMove`. State only updates for the one-shot `moved` transition (when drag exceeds the 4px threshold) and for `dragOverSeatId` (which highlights the destination seat) — that's also throttled to once-per-RAF so `findSeatAt`'s O(n*m) walk doesn't dominate either. A `cursorPosRef` holds the latest cursor in SVG userspace; a small `useLayoutEffect` runs on the `moved` transition to seed the ghost's first paint at the live cursor (no flash of (0,0) before the next pointermove writes refs). Ghost now tracks the cursor 1:1.
+
+**2. Mobile canvas size boost.** Pre-fix `min-h-[400px]` left the canvas tiny on tall phones with lots of empty viewport below. Bumped to `min-h-[60vh] lg:min-h-[400px]` — on mobile the canvas takes 60% of the viewport, on lg+ it stays at 400px since the flex-row layout means width is the constraint. Also wrapped the canvas + new banner in a `flex-col` parent so they share the area cleanly.
+
+**3. Mobile-only "drag is desktop-only" hint.** v1.23.2 disabled table drag on coarse-pointer devices but the explanation was buried inside the canvas-settings panel (collapsed by default). Now a small marigold-tinted banner sits above the canvas on mobile (`lg:hidden` + `isCoarsePointer` gate) saying *"Tap a table to focus. Drag-to-reposition is desktop-only."* The canvas-settings panel's body text also branches on `isCoarsePointer` so a user opening it gets the same instruction in long-form.
+
+**Files:** [SeatingCanvas.tsx](src/app/(app)/seating/SeatingCanvas.tsx) — refs + useLayoutEffect for ghost, RAF throttle for findSeatAt, canvas wrapper restructure, banner.
+
+**Verification:** typecheck/lint clean, all 207 unit tests pass, build green. Manual: open `/seating` with 5+ tables, grab a seat dot, move the cursor in fast circles → ghost tracks 1:1. Drop on another seat → assignment fires. Resize browser to phone width → banner appears, canvas takes ~60% of viewport.
 
 ### 2026-04-29 · v1.25.0 — Email nudge digests · seat-drag offset · mobile anchor
 

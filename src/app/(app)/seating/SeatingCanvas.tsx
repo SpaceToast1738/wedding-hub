@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition } from "react";
 import type { TableShape } from "@prisma/client";
 import { Button } from "@/components/ui/Button";
 import { notify } from "@/lib/notify";
@@ -320,22 +320,69 @@ export function SeatingCanvas({
         startX: number;
         startY: number;
         moved: boolean;
-        // SVG-userspace cursor position, updated on pointermove. Drives
-        // the ghost-dot render.
-        cursorX: number;
-        cursorY: number;
+        // v1.25.1: cursorX / cursorY removed from state — the ghost
+        // now updates via refs (see ghostCircleRef etc) so we don't
+        // re-render the entire SeatingCanvas tree on every pointermove.
         // v1.25.0: cursor's offset from the source seat's centre at
-        // drag start, in SVG-userspace coords. Pre-fix the ghost dot
-        // rendered at the raw cursor position which made it "jump"
-        // to cursor-centre on first move (and felt off if the user
-        // grabbed the seat off-centre). Subtracting offsetX/Y from
-        // cursorX/Y on render keeps the ghost wherever the user
-        // first grabbed it — same primitive as the table-drag.
+        // drag start, in SVG-userspace coords. Subtracting offsetX/Y
+        // from the live cursor on render keeps the ghost wherever the
+        // user first grabbed it.
         offsetX: number;
         offsetY: number;
       }
     | null
   >(null);
+
+  // v1.25.1: ghost-render refs. Pre-fix `setSeatDrag({ cursorX, cursorY,
+  // ... })` on every pointermove caused a full re-render of the canvas
+  // (every table + seat dot + drop-zone), which lagged behind the
+  // cursor on real layouts. Imperatively setting SVG attributes via
+  // refs sidesteps React reconciliation entirely — the ghost tracks
+  // the cursor at native rate.
+  const ghostCircleRef = useRef<SVGCircleElement>(null);
+  const ghostGlyphRef = useRef<SVGTextElement>(null);
+  const ghostLabelRef = useRef<SVGTextElement>(null);
+  // RAF guard for the dragOverSeatId update — findSeatAt is O(n*m),
+  // throttled to once per animation frame so it doesn't dominate the
+  // pointermove cost.
+  const findSeatAtRafRef = useRef<number | null>(null);
+  // Last known cursor in SVG-userspace coords. Populated on every
+  // pointer event during a seat drag. The useLayoutEffect below uses
+  // this to position the ghost on its first render (the moment
+  // `seatDrag.moved` flips true, before any subsequent pointermove
+  // can write the refs).
+  const cursorPosRef = useRef<{ x: number; y: number } | null>(null);
+
+  // v1.25.1: when the ghost group first mounts (moved → true), seed
+  // its position from the live cursor. Prevents a single-frame paint
+  // at (0, 0) before pointermove writes the real values. Subsequent
+  // pointermoves bypass React entirely (see onPointerMove handler).
+  const ghostMounted = !!seatDrag?.moved;
+  useLayoutEffect(() => {
+    if (!ghostMounted) return;
+    const cursor = cursorPosRef.current;
+    const offset = seatDrag ? { x: seatDrag.offsetX, y: seatDrag.offsetY } : null;
+    if (!cursor || !offset) return;
+    const gx = cursor.x - offset.x;
+    const gy = cursor.y - offset.y;
+    if (ghostCircleRef.current) {
+      ghostCircleRef.current.setAttribute("cx", String(gx));
+      ghostCircleRef.current.setAttribute("cy", String(gy));
+    }
+    if (ghostGlyphRef.current) {
+      ghostGlyphRef.current.setAttribute("x", String(gx));
+      ghostGlyphRef.current.setAttribute("y", String(gy));
+    }
+    if (ghostLabelRef.current) {
+      ghostLabelRef.current.setAttribute("x", String(gx));
+      ghostLabelRef.current.setAttribute(
+        "y",
+        String(gy + 3.5 * dotScale + 4 + 0.8 * 9 * labelScale),
+      );
+    }
+    // Only depend on `ghostMounted`; offset+cursor read from refs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ghostMounted]);
 
   function dropOnSeat(seatId: string, guestId: string) {
     startTransitionDrop(async () => {
@@ -649,7 +696,22 @@ export function SeatingCanvas({
 
   return (
     <div className="flex-1 flex flex-col lg:flex-row gap-4 p-4 overflow-hidden min-h-0" ref={containerRef}>
-      <div className="flex-1 bg-surface border border-border-soft rounded-md shadow-sm overflow-hidden min-h-[400px]">
+      <div className="flex-1 flex flex-col gap-2 min-w-0">
+        {/* v1.25.1: mobile-only hint that table dragging is desktop-
+            only. The canvas-settings panel says the same in its body
+            but starts collapsed; this banner makes the limit obvious
+            without the user having to dig. */}
+        {canEdit && isCoarsePointer && (
+          <div className="lg:hidden bg-marigold-100/40 border border-marigold-700/20 text-marigold-700 rounded-md px-3 py-1.5 text-[11px]">
+            ⓘ Tap a table to focus. Drag-to-reposition is desktop-only.
+          </div>
+        )}
+        {/* v1.25.1: bumped mobile canvas height. Pre-fix
+            `min-h-[400px]` left the canvas tiny on tall phones with
+            lots of vertical space below it. 60vh on mobile gives the
+            canvas the dominant share of the viewport; lg+ flips back
+            to 400px since the canvas takes flex-row width there. */}
+        <div className="flex-1 bg-surface border border-border-soft rounded-md shadow-sm overflow-hidden min-h-[60vh] lg:min-h-[400px]">
         <svg
           ref={svgRef}
           viewBox={`${viewBox.x} ${viewBox.y} ${viewBox.w} ${viewBox.h}`}
@@ -782,6 +844,7 @@ export function SeatingCanvas({
                               const sinR = Math.sin((t.rotation * Math.PI) / 180);
                               const seatWorldX = tablePos.x + layout.cx * cosR - layout.cy * sinR;
                               const seatWorldY = tablePos.y + layout.cx * sinR + layout.cy * cosR;
+                              cursorPosRef.current = { x: p.x, y: p.y };
                               setSeatDrag({
                                 guestId: seat.guest!.id,
                                 fromSeatId: seat.id,
@@ -791,8 +854,6 @@ export function SeatingCanvas({
                                 startX: e.clientX,
                                 startY: e.clientY,
                                 moved: false,
-                                cursorX: p.x,
-                                cursorY: p.y,
                                 offsetX: p.x - seatWorldX,
                                 offsetY: p.y - seatWorldY,
                               });
@@ -803,22 +864,55 @@ export function SeatingCanvas({
                               const dx = e.clientX - seatDrag.startX;
                               const dy = e.clientY - seatDrag.startY;
                               const p = clientToSvg(e.clientX, e.clientY);
+                              cursorPosRef.current = { x: p.x, y: p.y };
                               const becameMoved = !seatDrag.moved && Math.hypot(dx, dy) > 4;
-                              if (becameMoved) setDraggingGuestId(seatDrag.guestId);
-                              setSeatDrag({
-                                ...seatDrag,
-                                moved: seatDrag.moved || becameMoved,
-                                cursorX: p.x,
-                                cursorY: p.y,
-                              });
+                              // v1.25.1: ghost position via direct DOM
+                              // attribute writes — no React state, no
+                              // re-render. The ghost tracks the cursor
+                              // at native rate even on canvases with
+                              // many tables.
                               if (seatDrag.moved || becameMoved) {
-                                setDragOverSeatId(findSeatAt(p.x, p.y));
+                                const gx = p.x - seatDrag.offsetX;
+                                const gy = p.y - seatDrag.offsetY;
+                                if (ghostCircleRef.current) {
+                                  ghostCircleRef.current.setAttribute("cx", String(gx));
+                                  ghostCircleRef.current.setAttribute("cy", String(gy));
+                                }
+                                if (ghostGlyphRef.current) {
+                                  ghostGlyphRef.current.setAttribute("x", String(gx));
+                                  ghostGlyphRef.current.setAttribute("y", String(gy));
+                                }
+                                if (ghostLabelRef.current) {
+                                  ghostLabelRef.current.setAttribute("x", String(gx));
+                                  ghostLabelRef.current.setAttribute(
+                                    "y",
+                                    String(gy + 3.5 * dotScale + 4 + 0.8 * 9 * labelScale),
+                                  );
+                                }
+                                // v1.25.1: throttle the O(n*m) seat hit-
+                                // test to once per animation frame.
+                                if (findSeatAtRafRef.current === null) {
+                                  findSeatAtRafRef.current = requestAnimationFrame(() => {
+                                    findSeatAtRafRef.current = null;
+                                    setDragOverSeatId(findSeatAt(p.x, p.y));
+                                  });
+                                }
+                              }
+                              if (becameMoved) {
+                                setDraggingGuestId(seatDrag.guestId);
+                                setSeatDrag({ ...seatDrag, moved: true });
                               }
                             }}
                             onPointerUp={(e) => {
                               if (!seatDrag) return;
                               if (e.pointerId !== seatDrag.pointerId) return;
                               const ds = seatDrag;
+                              // v1.25.1: cancel any pending RAF hit-test
+                              // so it doesn't fire after seatDrag is null.
+                              if (findSeatAtRafRef.current !== null) {
+                                cancelAnimationFrame(findSeatAtRafRef.current);
+                                findSeatAtRafRef.current = null;
+                              }
                               setSeatDrag(null);
                               setDraggingGuestId(null);
                               setDragOverSeatId(null);
@@ -833,6 +927,10 @@ export function SeatingCanvas({
                               }
                             }}
                             onPointerCancel={() => {
+                              if (findSeatAtRafRef.current !== null) {
+                                cancelAnimationFrame(findSeatAtRafRef.current);
+                                findSeatAtRafRef.current = null;
+                              }
                               setSeatDrag(null);
                               setDraggingGuestId(null);
                               setDragOverSeatId(null);
@@ -979,17 +1077,19 @@ export function SeatingCanvas({
             ));
           })()}
           {/* v1.22.10: ghost dot for canvas seat-drag.
-              v1.25.0: anchored to (cursor − offset) so it stays
-              wherever the user first grabbed the seat, instead of
-              jumping to cursor-centre. Same primitive table-drag uses. */}
-          {seatDrag?.moved && (() => {
-            const ghostX = seatDrag.cursorX - seatDrag.offsetX;
-            const ghostY = seatDrag.cursorY - seatDrag.offsetY;
-            return (
+              v1.25.0: anchored to (cursor − offset) so the ghost
+              stays wherever the user first grabbed the seat.
+              v1.25.1: position updated imperatively via refs in
+              onPointerMove instead of state. The cx/cy attributes
+              below are placeholders (0,0) — first pointermove writes
+              the real values. The ghost only paints when moved=true,
+              so the user never sees the placeholder. */}
+          {seatDrag?.moved && (
             <g pointerEvents="none" opacity={0.7}>
               <circle
-                cx={ghostX}
-                cy={ghostY}
+                ref={ghostCircleRef}
+                cx={0}
+                cy={0}
                 r={3.5 * dotScale}
                 fill={dotFillForRsvp(seatDrag.rsvp)}
                 stroke={dotStrokeForRsvp(seatDrag.rsvp)}
@@ -997,8 +1097,9 @@ export function SeatingCanvas({
               />
               {dotScale >= 1.4 && (
                 <text
-                  x={ghostX}
-                  y={ghostY}
+                  ref={ghostGlyphRef}
+                  x={0}
+                  y={0}
                   textAnchor="middle"
                   dominantBaseline="central"
                   fontSize={4.8 * dotScale}
@@ -1009,8 +1110,9 @@ export function SeatingCanvas({
                 </text>
               )}
               <text
-                x={ghostX}
-                y={ghostY + 3.5 * dotScale + 4 + 0.8 * 9 * labelScale}
+                ref={ghostLabelRef}
+                x={0}
+                y={0}
                 textAnchor="middle"
                 fontSize={9 * labelScale}
                 fill="var(--color-ink-secondary)"
@@ -1020,9 +1122,9 @@ export function SeatingCanvas({
                   : seatDrag.firstName}
               </text>
             </g>
-            );
-          })()}
+          )}
         </svg>
+        </div>
       </div>
 
       <aside className="lg:w-80 flex-shrink-0 flex flex-col gap-3 lg:max-h-full overflow-auto">
@@ -1100,7 +1202,9 @@ export function SeatingCanvas({
           <div className="p-3 text-xs text-ink-tertiary space-y-3">
             <p>
               {canEdit
-                ? "Drag tables to reposition. Click a table to focus. Arrow keys nudge the focused table; hold ⇧ for bigger steps."
+                ? isCoarsePointer
+                  ? "Tap a table to focus. Drag-to-reposition is desktop-only — switch to a desktop browser to rearrange tables."
+                  : "Drag tables to reposition. Click a table to focus. Arrow keys nudge the focused table; hold ⇧ for bigger steps."
                 : "Click a table to view its seating. Editing is read-only for your role."}
             </p>
             {/* v1.22.6: snap-to-grid toggle. Persists via localStorage. */}
