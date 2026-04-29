@@ -77,8 +77,21 @@ export function CountdownCard({
   coupleLabel: string;
 }) {
   const [unit, setUnit] = useState<Unit>("days");
+  // v1.22.5 hydration fix: `new Date()` at render time gave different
+  // values on SSR vs client mount, which made `buildBreakdown` produce
+  // a different first segment between the two. React's strict
+  // hydration check threw #418 / #482 on navigation. Compute `now`
+  // only after mount; render a stable placeholder before then.
+  const [now, setNow] = useState<Date | null>(null);
+  // v1.22.5 persistence fix: pre-fix, the save effect ran on mount
+  // with the default state value and overwrote whatever the user had
+  // saved before the load effect could swap it in. Gate the save on
+  // `loaded` so it only fires after the initial read completes.
+  const [loaded, setLoaded] = useState(false);
 
-  // Load saved preference on mount; SSR renders 'days' so the markup is stable.
+  // Load saved preference on mount + seed `now` for the first client
+  // render. The interval keeps the countdown live (one tick a minute is
+  // enough — the displayed unit is days/weeks/months).
   useEffect(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
@@ -86,19 +99,26 @@ export function CountdownCard({
     } catch {
       // ignore — non-critical preference
     }
+    setLoaded(true);
+    setNow(new Date());
+    const id = setInterval(() => setNow(new Date()), 60_000);
+    return () => clearInterval(id);
   }, []);
 
   useEffect(() => {
+    if (!loaded) return;
     try {
       localStorage.setItem(STORAGE_KEY, unit);
     } catch {
       // ignore
     }
-  }, [unit]);
+  }, [unit, loaded]);
 
   const target = new Date(targetIso);
-  const now = new Date();
-  const breakdown = buildBreakdown(unit, now, target);
+  // `breakdown` is null until `now` is set. The render below treats
+  // null as "loading" — same markup on SSR + first client paint, no
+  // hydration mismatch.
+  const breakdown = now ? buildBreakdown(unit, now, target) : null;
   const targetLabel = target.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
 
   return (
@@ -138,7 +158,21 @@ export function CountdownCard({
               gets full prominence (matches the mockup); when there's a
               breakdown (W/M units), the smaller segments wrap below
               with consistent label sizing. */}
-          {breakdown.length > 0 && (
+          {breakdown === null ? (
+            // Pre-mount placeholder — same markup on SSR and first
+            // client render, so React's hydration check passes. Swaps
+            // in the real number once `now` lands.
+            <>
+              <div className="flex items-baseline gap-3 flex-wrap">
+                <span className="font-display text-6xl font-semibold text-moss-700/40 leading-none tabular-nums">
+                  —
+                </span>
+              </div>
+              <div className="font-display text-xl text-moss-700/40 capitalize mb-3">
+                {unit}
+              </div>
+            </>
+          ) : breakdown.length > 0 ? (
             <>
               <div className="flex items-baseline gap-3 flex-wrap">
                 <span className="font-display text-6xl font-semibold text-moss-700 leading-none tabular-nums">
@@ -160,7 +194,7 @@ export function CountdownCard({
                 </div>
               )}
             </>
-          )}
+          ) : null}
         </div>
         <div className="mt-auto">
           <div className="font-display text-base font-semibold text-marigold-700">

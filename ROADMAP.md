@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.22.0** | 2026-04-28 | [Custom fields for Supplier + Task](#2026-04-28--v1220--custom-fields-for-supplier--task) |
+| **v1.22.5** | 2026-04-29 | [Bugfix: hydration mismatch (#418/#482) on Today page + persistence race on seating canvas + decoupled dot/label scales](#2026-04-29--v1225--bugfix-hydration-persistence-race-decoupled-seating-scales) |
+| v1.22.0 | 2026-04-28 | [Custom fields for Supplier + Task](#2026-04-28--v1220--custom-fields-for-supplier--task) |
 | v1.21.0 | 2026-04-28 | [Audit log viewer + sticky search on /suppliers + /tasks](#2026-04-28--v1210--audit-log-viewer--sticky-search-on-suppliers--tasks) |
 | v1.20.6 | 2026-04-28 | [Seating: drag-all-guests + RSVP tag in panel](#2026-04-28--v1206--seating-drag-all-guests--rsvp-tag-in-panel) |
 | v1.20.5 | 2026-04-28 | [Seating canvas: bigger labels + S/M/L size selector](#2026-04-28--v1205--seating-canvas-bigger-labels--sml-size-selector) |
@@ -306,6 +307,24 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-29 · v1.22.5 — Bugfix: hydration / persistence race / decoupled seating scales
+
+Three small fixes in one release. All client-state issues, no schema or migrations. User-reported during the v1.22.0 dogfood.
+
+**1. React #418 / #482 on Today page.** `CountdownCard` is a client component that called `new Date()` at render time and passed it to `buildBreakdown(unit, now, target)`. Server-render and first client-paint produced different millisecond values, so React's hydration check threw #418 (text mismatch) followed by #482 (server render error during recovery). The crash was visible whenever the user navigated back to `/` from another page.
+
+Fix: defer `now` to a `useState<Date | null>(null)` populated inside `useEffect` on mount. Render a muted "—" placeholder before `now` lands, so SSR markup matches the first client paint exactly. The 60-second tick interval continues to work as before. ([CountdownCard.tsx](src/app/(app)/CountdownCard.tsx))
+
+**2. "Doesn't save my seat label size settings."** Same race in two places — `CountdownCard.unit` and `SeatingCanvas.labelScale`. On mount, the load `useEffect` and the save `useEffect` both fired in the same paint cycle. The save fired first with the default state value, overwriting whatever the user had previously saved, before the load could read and `setState` the saved value.
+
+Fix: introduce a `loaded` boolean flag. The load effect sets `loaded = true` after reading. The save effect early-returns `if (!loaded)`. Net effect: the first save only happens after the user has actually changed the value, never on mount. Applied to both files. ([CountdownCard.tsx](src/app/(app)/CountdownCard.tsx), [SeatingCanvas.tsx](src/app/(app)/seating/SeatingCanvas.tsx))
+
+**3. "Bigger seats but not bigger labels."** v1.20.5's S/M/L scale toggle on the seating canvas controlled dot radius, dot offset, label offset, and font size all together. The user wanted to scale the seat dots up (so occupied/empty status reads from across the room) without making the names so big they crash into adjacent seats.
+
+Fix: split into two independent toggles persisted under separate localStorage keys (`wh_seating_dot_scale` + `wh_seating_label_scale`). Dot scale gains an XL=2.4 step for chunky dots; label scale stays at S/M/L. The label offset formula now adds dot-scaled clearance + label-scaled breathing room (`labelOffset = dotOffset + 3.5*dotScale + 8*labelScale`), so picking L dots + S labels keeps the names tucked tight against the dots. ([SeatingCanvas.tsx](src/app/(app)/seating/SeatingCanvas.tsx))
+
+**Verification:** typecheck + lint clean, all 188 unit tests pass, clean `.next` build green. Manual: open `/`, navigate to `/tasks`, navigate back — no hydration error in the console. Open `/seating`, set dot=L + label=S, reload — both selections persist.
 
 ### 2026-04-28 · v1.22.0 — Custom fields for Supplier + Task
 

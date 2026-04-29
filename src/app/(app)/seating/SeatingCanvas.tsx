@@ -83,7 +83,17 @@ export function SeatingCanvas({
   //   M = 1.4  (new default; dot 4.9px, font 12.6px)
   //   L = 1.8  (chunky; dot 6.3px, font 16.2px)
   // Persisted to localStorage so the user's pick survives navigation.
+  // v1.22.5: split into independent dot + label scales. The user wanted
+  // "bigger seats but not bigger labels" — pre-fix, both grew together
+  // because they shared one scale. Now each persists separately.
   const [labelScale, setLabelScale] = useState<number>(1.4);
+  const [dotScale, setDotScale] = useState<number>(1.4);
+  // v1.22.5 persistence fix: pre-fix, the save effect ran on mount
+  // with the default state value and overwrote whatever the user had
+  // saved before the load effect could swap it in. Gate the save on
+  // `loaded` so it only fires after the initial read completes. This
+  // was the user-visible "doesn't save my seat label size" bug.
+  const [loaded, setLoaded] = useState(false);
 
   // v1.20.6: HTML5 drag-and-drop wiring for seat assignment.
   // - Panel rows: `draggable`, `onDragStart` sets dataTransfer + state
@@ -122,22 +132,37 @@ export function SeatingCanvas({
   const [, startTransitionDrop] = useTransition();
   useEffect(() => {
     try {
-      const saved = localStorage.getItem("wh_seating_label_scale");
-      if (saved) {
-        const n = Number(saved);
+      const savedLabel = localStorage.getItem("wh_seating_label_scale");
+      if (savedLabel) {
+        const n = Number(savedLabel);
         if (n === 1.0 || n === 1.4 || n === 1.8) setLabelScale(n);
+      }
+      const savedDot = localStorage.getItem("wh_seating_dot_scale");
+      if (savedDot) {
+        const n = Number(savedDot);
+        if (n === 1.0 || n === 1.4 || n === 1.8 || n === 2.4) setDotScale(n);
       }
     } catch {
       // ignore — non-critical preference
     }
+    setLoaded(true);
   }, []);
   useEffect(() => {
+    if (!loaded) return;
     try {
       localStorage.setItem("wh_seating_label_scale", String(labelScale));
     } catch {
       // ignore
     }
-  }, [labelScale]);
+  }, [labelScale, loaded]);
+  useEffect(() => {
+    if (!loaded) return;
+    try {
+      localStorage.setItem("wh_seating_dot_scale", String(dotScale));
+    } catch {
+      // ignore
+    }
+  }, [dotScale, loaded]);
 
   useEffect(() => {
     setPositions((prev) => {
@@ -324,7 +349,7 @@ export function SeatingCanvas({
                   // matching how a host typically reads round-table
                   // seating ("twelve o'clock first").
                   const angle = (i / t.capacity) * 2 * Math.PI - Math.PI / 2;
-                  const dotOffset = size.r + 8 * labelScale;
+                  const dotOffset = size.r + 8 * dotScale;
                   const cx = dotOffset * Math.cos(angle);
                   const cy = dotOffset * Math.sin(angle);
                   const occupied = !!seat.guest;
@@ -332,9 +357,10 @@ export function SeatingCanvas({
                   // is "end" on the left half of the table, "start" on
                   // the right half, so the text always grows away from
                   // the centre rather than crashing into the table.
-                  // v1.20.5: dot/label/offset all scale together so
-                  // S/M/L feels like one cohesive size step.
-                  const labelOffset = size.r + 18 * labelScale;
+                  // v1.22.5: label offset is dot edge + label-scaled
+                  // breathing room. Decouples from dot size so picking
+                  // L dots + S labels keeps the text close to the dot.
+                  const labelOffset = dotOffset + 3.5 * dotScale + 8 * labelScale;
                   const lx = labelOffset * Math.cos(angle);
                   const ly = labelOffset * Math.sin(angle);
                   const textAnchor: "start" | "middle" | "end" =
@@ -357,7 +383,7 @@ export function SeatingCanvas({
                         <circle
                           cx={cx}
                           cy={cy}
-                          r={Math.max(14, 8 * labelScale)}
+                          r={Math.max(14, 8 * dotScale)}
                           fill="transparent"
                           onDragEnter={(e) => {
                             e.preventDefault();
@@ -384,7 +410,7 @@ export function SeatingCanvas({
                       <circle
                         cx={cx}
                         cy={cy}
-                        r={3.5 * labelScale}
+                        r={3.5 * dotScale}
                         fill={
                           isDragOver
                             ? "var(--color-marigold-500)"
@@ -462,33 +488,65 @@ export function SeatingCanvas({
                 ? "Drag tables to reposition. Click to focus and assign seats. Arrow keys nudge the focused table; hold ⇧ for bigger steps."
                 : "Click a table to view its seating. Editing is read-only for your role."}
             </div>
-            {/* v1.20.5: per-seat label/dot scale toggle. The user's
-                pick persists across sessions via localStorage. */}
-            <div className="pt-3 border-t border-border-soft">
-              <strong className="block text-ink-secondary text-[11px] uppercase tracking-wider mb-1.5">
-                Seat label size
-              </strong>
-              <div className="inline-flex gap-px bg-canvas border border-border-soft rounded-full p-0.5">
-                {([
-                  { label: "S", value: 1.0 },
-                  { label: "M", value: 1.4 },
-                  { label: "L", value: 1.8 },
-                ] as const).map((opt) => (
-                  <button
-                    key={opt.label}
-                    type="button"
-                    onClick={() => setLabelScale(opt.value)}
-                    className={[
-                      "text-xs px-3 py-0.5 rounded-full font-semibold transition-colors",
-                      labelScale === opt.value
-                        ? "bg-moss-500 text-white"
-                        : "text-ink-tertiary hover:text-ink-primary",
-                    ].join(" ")}
-                    aria-pressed={labelScale === opt.value}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
+            {/* v1.20.5: per-seat scale toggles. The user's picks
+                persist across sessions via localStorage.
+                v1.22.5: split into dot + label so they can be tuned
+                independently ("bigger seats but not bigger labels"). */}
+            <div className="pt-3 border-t border-border-soft space-y-2.5">
+              <div>
+                <strong className="block text-ink-secondary text-[11px] uppercase tracking-wider mb-1.5">
+                  Seat dot size
+                </strong>
+                <div className="inline-flex gap-px bg-canvas border border-border-soft rounded-full p-0.5">
+                  {([
+                    { label: "S", value: 1.0 },
+                    { label: "M", value: 1.4 },
+                    { label: "L", value: 1.8 },
+                    { label: "XL", value: 2.4 },
+                  ] as const).map((opt) => (
+                    <button
+                      key={opt.label}
+                      type="button"
+                      onClick={() => setDotScale(opt.value)}
+                      className={[
+                        "text-xs px-3 py-0.5 rounded-full font-semibold transition-colors",
+                        dotScale === opt.value
+                          ? "bg-moss-500 text-white"
+                          : "text-ink-tertiary hover:text-ink-primary",
+                      ].join(" ")}
+                      aria-pressed={dotScale === opt.value}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <strong className="block text-ink-secondary text-[11px] uppercase tracking-wider mb-1.5">
+                  Seat label size
+                </strong>
+                <div className="inline-flex gap-px bg-canvas border border-border-soft rounded-full p-0.5">
+                  {([
+                    { label: "S", value: 1.0 },
+                    { label: "M", value: 1.4 },
+                    { label: "L", value: 1.8 },
+                  ] as const).map((opt) => (
+                    <button
+                      key={opt.label}
+                      type="button"
+                      onClick={() => setLabelScale(opt.value)}
+                      className={[
+                        "text-xs px-3 py-0.5 rounded-full font-semibold transition-colors",
+                        labelScale === opt.value
+                          ? "bg-moss-500 text-white"
+                          : "text-ink-tertiary hover:text-ink-primary",
+                      ].join(" ")}
+                      aria-pressed={labelScale === opt.value}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
           </div>
