@@ -96,8 +96,11 @@ export default async function BookHubPage() {
       orderBy: [{ order: "asc" }, { title: "asc" }],
       include: { _count: { select: { subsections: true } } },
     }),
-    // Photography card surfaces shot-list progress instead of subsection count.
-    db.photographyShot.findMany({ select: { captured: true } }),
+    // v1.27.6: shot-count surface migrated from PhotographyShot →
+    // BookShot. Read every BookShot on every shot-list card under
+    // sections (Photography in particular). The hub card uses the
+    // total to show captured/total progress.
+    db.bookShot.findMany({ select: { captured: true } }),
   ]);
   const shotsTotal = shotCounts.length;
   const shotsCaptured = shotCounts.filter((s) => s.captured).length;

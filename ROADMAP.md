@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.27.5** | 2026-04-29 | [Mobile nav full `<Link>` revert (Tasks · Guests · sheet items)](#2026-04-29--v1275--mobile-nav-full-link-revert) |
+| **v1.27.6** | 2026-04-29 | [Photography migration: PhotographyShot rows → BookShot under a SHOT_LIST card · bespoke route deleted](#2026-04-29--v1276--photography-migration) |
+| v1.27.5 | 2026-04-29 | [Mobile nav full `<Link>` revert (Tasks · Guests · sheet items)](#2026-04-29--v1275--mobile-nav-full-link-revert) |
 | v1.27.4 | 2026-04-29 | [Tasks visual style match: text-underline List/Board tabs · dynamic category filter pills · Questions filter · "+ View" stub](#2026-04-29--v1274--tasks-visual-style-match-text-tabs--dynamic-category-pills) |
 | v1.27.3 | 2026-04-29 | [Tasks polish round 2: full-width table with column headers · centred new-task popout · unified search/filter styling](#2026-04-29--v1273--tasks-polish-round-2-full-width-table--centred-popout--unified-styling) |
 | v1.27.2 | 2026-04-29 | [Today page: working task checkbox + broader "My next tasks" priority list](#2026-04-29--v1272--today-page-working-checkbox--broader-task-list) |
@@ -230,12 +231,12 @@ in priority order.
   Tasks / Guests / More-sheet items all back to client-side `<Link>`
   navigation. The SW cleanup from v1.25.2 has been live for a
   release without regressing.
-- **v1.26.5 — photography migration.** Move existing
-  `PhotographyShot` rows → `BookShot` rows under a single SHOT_LIST
-  card on the Photography section, then delete the bespoke
-  `/book/photography` route files. The legacy `PhotographyShot`
-  table stays in place one extra release as a recoverability buffer.
-  ~1 hr.
+- ~~**Photography migration**~~ — shipped v1.27.6. PhotographyShot
+  rows migrated into BookShot under a SHOT_LIST card on the
+  Photography section; bespoke /book/photography route deleted
+  (resolves through /book/[slug] now). Legacy PhotographyShot
+  table retained one release for recoverability — to be dropped
+  in v1.28.0.
 - **Guest detail side panel on seating canvas** — click a seated
   guest dot, get their full record in a right-hand drawer. Same
   primitive as the table FocusPanel (v1.22.x). ~1.5 hrs.
@@ -554,6 +555,30 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-29 · v1.27.6 — Photography migration
+
+The v1.26.0 modular-cards release deferred the photography migration as a separate step (per the original plan, to keep the v1.26.0 commit focused). This release lands it.
+
+**Migration `20260429060000_photography_to_book_shotlist`** (idempotent — bails if the Photography section already has a SHOT_LIST subsection, or there are no PhotographyShot rows to move):
+
+1. Look up the Photography section by `slug = 'photography'`.
+2. Insert one `BookSubsection` with `kind = SHOT_LIST` (slug `shot-list`, title "Shot list") into it, ordered after any existing TEXT subsections.
+3. Insert one `BookShotList` linking that subsection.
+4. Copy every `PhotographyShot` row → `BookShot`, preserving `title / withWhom / location / notes / captured / capturedAt / order`. New cuid-style IDs prefixed `mig_` so they're recognisable as migration-origin without colliding with anything users add later.
+
+The bespoke route at `src/app/(app)/book/photography/` is **deleted** (`page.tsx`, `ShotsClient.tsx`, `actions.ts`, `PrintShotsButton.tsx`). `/book/photography` continues to work — Next.js routes through the dynamic `/book/[slug]` page now, which renders the migrated SHOT_LIST card via the v1.26.0 `CardRouter`.
+
+`db.photographyShot.findMany` reference in `/book/page.tsx`'s shot-count surface swapped to `db.bookShot.findMany` — same shape, same shot-count UX.
+
+**Legacy retention.** The `PhotographyShot` table is **retained** for one release as a recoverability buffer. v1.28.0's schema-cleanup release drops it (along with `ScheduleEvent.audience` from v1.27.1).
+
+**Files:**
+- New: `prisma/migrations/20260429060000_photography_to_book_shotlist/migration.sql`.
+- Deleted: `src/app/(app)/book/photography/page.tsx`, `ShotsClient.tsx`, `actions.ts`, `PrintShotsButton.tsx`.
+- Modified: `src/app/(app)/book/page.tsx` (PhotographyShot → BookShot count source).
+
+**Verification:** typecheck/lint clean, all 232 unit tests pass, clean `.next` build green. Manual (post-deploy): open `/book/photography` → renders the migrated shot-list card with all original shots, captured states preserved.
 
 ### 2026-04-29 · v1.27.5 — Mobile nav full `<Link>` revert
 
