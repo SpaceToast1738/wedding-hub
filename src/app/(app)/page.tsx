@@ -5,27 +5,7 @@ import { redirect } from "next/navigation";
 import { getWeddingSettings } from "@/lib/wedding-settings";
 import { CountdownCard } from "./CountdownCard";
 import { TodayEventsCard } from "./TodayEventsCard";
-
-function formatDue(due: Date | null): string {
-  if (!due) return "no due date";
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const dueDay = new Date(due.getFullYear(), due.getMonth(), due.getDate());
-  const diff = Math.round((dueDay.getTime() - today.getTime()) / 86_400_000);
-  if (diff < 0) return `Overdue · ${due.toLocaleDateString("en-GB", { day: "numeric", month: "short" })}`;
-  if (diff === 0) return "Today";
-  if (diff === 1) return "Tomorrow";
-  if (diff < 7) return due.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
-  return due.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
-}
-
-// Per-priority dot colour — moss for HIGH/URGENT, marigold for MEDIUM,
-// muted for LOW. Matches the StatusPill palette without the box.
-function priorityDotColour(p: string): string {
-  if (p === "URGENT" || p === "HIGH") return "bg-marigold-700";
-  if (p === "MEDIUM") return "bg-marigold-500";
-  return "bg-border-strong";
-}
+import { TodayTaskList } from "./TodayTaskList";
 
 export default async function TodayPage() {
   const session = await auth();
@@ -33,15 +13,20 @@ export default async function TodayPage() {
   const userId = session.user.id;
   const wedding = await getWeddingSettings();
 
-  const [myTasks, totalTaskCount, guestStats, dietaryRows, upcomingEvents] = await Promise.all([
+  const [allOpenTasks, totalTaskCount, guestStats, dietaryRows, upcomingEvents] = await Promise.all([
+    // v1.27.2: fetch all open TASK rows (no take, no assignee filter)
+    // and select the user's tasks client-side. Pre-fix the query was
+    // narrow (assigned-to-me OR unassigned) AND had `take: 5` AND
+    // sorted by dueDate asc (which puts nulls last in Postgres). If
+    // the user had no assigned tasks but plenty of dated ones for
+    // others, the section was empty. Now we broaden the fetch and
+    // apply a smarter sort below.
     db.task.findMany({
       where: {
         status: { in: ["OPEN", "IN_PROGRESS", "WAITING"] },
         type: "TASK",
-        OR: [{ assigneeId: userId }, { assigneeId: null }],
       },
       orderBy: [{ dueDate: "asc" }, { createdAt: "asc" }],
-      take: 5,
     }),
     // v1.19.0: total non-archived task count for the "See all N tasks →"
     // footer link in the column-2 card.
@@ -117,59 +102,58 @@ export default async function TodayPage() {
             coupleLabel={wedding.coupleShort}
           />
 
-          <section className="bg-surface border border-border-soft rounded-lg p-5 shadow-sm h-full flex flex-col">
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="text-sm font-semibold text-ink-primary">My open tasks</h2>
-              <span className="text-xs text-ink-tertiary">
-                {myTasks.length} open
-              </span>
-            </div>
-            {myTasks.length === 0 ? (
-              <p className="text-sm text-ink-tertiary py-6 text-center flex-1">
-                Nothing on your plate. Nice.
-              </p>
-            ) : (
-              <ul className="flex-1 space-y-2.5">
-                {myTasks.map((t) => {
-                  const overdue = t.dueDate && t.dueDate < new Date();
-                  return (
-                    <li key={t.id} className="flex items-center gap-3">
-                      <span
-                        className={[
-                          "w-1 h-7 rounded flex-shrink-0",
-                          priorityDotColour(t.priority),
-                        ].join(" ")}
-                        aria-hidden
-                      />
-                      <input
-                        type="checkbox"
-                        disabled
-                        className="cursor-not-allowed opacity-60 flex-shrink-0"
-                        aria-label={`Mark "${t.title}" done — open Tasks page to toggle`}
-                      />
-                      <span className="text-sm text-ink-primary flex-1 truncate">
-                        {t.title}
-                      </span>
-                      <span
-                        className={[
-                          "text-xs flex-shrink-0 tabular-nums",
-                          overdue ? "text-danger font-medium" : "text-ink-tertiary",
-                        ].join(" ")}
-                      >
-                        {formatDue(t.dueDate)}
-                      </span>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-            <Link
-              href="/tasks"
-              className="block mt-4 pt-3 border-t border-border-soft text-xs text-moss-500 hover:text-moss-700 hover:underline"
-            >
-              See all {totalTaskCount} tasks →
-            </Link>
-          </section>
+          {(() => {
+            // v1.27.2: pick the user's view of "my next tasks" client-
+            // side from the fully-fetched open list. Priority order:
+            //   1. Tasks assigned to me with a due date (soonest first).
+            //   2. Tasks assigned to me without a due date.
+            //   3. Tasks unassigned with a due date.
+            //   4. Tasks unassigned without a due date.
+            // If after all that the list is still empty (user genuinely
+            // has nothing assigned + nothing unassigned), fall through
+            // to the next 5 dated tasks so the section is still useful.
+            const mineDated = allOpenTasks.filter((t) => t.assigneeId === userId && t.dueDate);
+            const mineUndated = allOpenTasks.filter((t) => t.assigneeId === userId && !t.dueDate);
+            const orphanDated = allOpenTasks.filter((t) => !t.assigneeId && t.dueDate);
+            const orphanUndated = allOpenTasks.filter((t) => !t.assigneeId && !t.dueDate);
+            const otherDated = allOpenTasks.filter(
+              (t) => t.assigneeId && t.assigneeId !== userId && t.dueDate,
+            );
+            let myTasks = [
+              ...mineDated,
+              ...mineUndated,
+              ...orphanDated,
+              ...orphanUndated,
+            ].slice(0, 5);
+            if (myTasks.length === 0) myTasks = otherDated.slice(0, 5);
+            return (
+              <section className="bg-surface border border-border-soft rounded-lg p-5 shadow-sm h-full flex flex-col">
+                <div className="flex items-center justify-between mb-3">
+                  <h2 className="text-sm font-semibold text-ink-primary">My next tasks</h2>
+                  <span className="text-xs text-ink-tertiary">
+                    {myTasks.length} of {allOpenTasks.length}
+                  </span>
+                </div>
+                {/* v1.27.2: client island so the checkbox can fire
+                    setTaskStatus directly. Pre-fix the box was disabled
+                    with a "open Tasks page to toggle" hint. */}
+                <TodayTaskList
+                  tasks={myTasks.map((t) => ({
+                    id: t.id,
+                    title: t.title,
+                    priority: t.priority,
+                    dueDate: t.dueDate,
+                  }))}
+                />
+                <Link
+                  href="/tasks"
+                  className="block mt-4 pt-3 border-t border-border-soft text-xs text-moss-500 hover:text-moss-700 hover:underline"
+                >
+                  See all {totalTaskCount} tasks →
+                </Link>
+              </section>
+            );
+          })()}
 
           <TodayEventsCard
             events={upcomingEvents.map((e) => ({

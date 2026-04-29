@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.27.1** | 2026-04-29 | [Schedule polish (split date+time, all-day toggle, attendees instead of audience) · seat-drag transform-only ghost · mobile version footer · table-size baseline ROUND-only](#2026-04-29--v1271--schedule-polish--seat-drag-transform--mobile-version--round-only-baseline) |
+| **v1.27.2** | 2026-04-29 | [Today page: working task checkbox + broader "My next tasks" priority list](#2026-04-29--v1272--today-page-working-checkbox--broader-task-list) |
+| v1.27.1 | 2026-04-29 | [Schedule polish (split date+time, all-day toggle, attendees instead of audience) · seat-drag transform-only ghost · mobile version footer · table-size baseline ROUND-only](#2026-04-29--v1271--schedule-polish--seat-drag-transform--mobile-version--round-only-baseline) |
 | v1.27.0 | 2026-04-29 | [Tasks polish: click-to-open right-side drawer · "+ New task" popout · sort options · cleaner search bar](#2026-04-29--v1270--tasks-polish-drawer--popout--sort--search) |
 | v1.26.0 | 2026-04-29 | [Modular Wedding Book cards: TEXT · FIELD · RECIPE · SHOT_LIST · OUTFIT (kind picker, per-kind editors, shared chrome)](#2026-04-29--v1260--modular-wedding-book-cards) |
 | v1.25.3 | 2026-04-29 | [Seating: table size baseline at 10 seats (capacity tweaks no longer reflow tables)](#2026-04-29--v1253--seating-table-size-baseline-at-10) |
@@ -538,6 +539,27 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-29 · v1.27.2 — Today page: working checkbox · broader task list
+
+User feedback (29 Apr 2026): "Today page doesn't have my next upcoming tasks on it and the boxes can't be checked from the today page."
+
+**1. Working checkbox.** Pre-fix the Today page's "My open tasks" card rendered `<input type="checkbox" disabled>` with the aria hint *"open Tasks page to toggle"* — needless friction. New `TodayTaskList` client island (`src/app/(app)/TodayTaskList.tsx`) renders the same list but with a working checkbox. Click → optimistic hide + `setTaskStatus(id, "DONE")` server action + success/error toast. Revert on failure.
+
+**2. Broader "My next tasks" selection.** Pre-fix the server query was narrow (`{ assigneeId: userId } OR { assigneeId: null }`) AND `take: 5` AND ordered by `dueDate asc` (Postgres puts nulls *last* in ascending). For a user with no assigned tasks but lots of dated tasks for others, the section was empty. Now we fetch all open `TASK` rows server-side and pick the user's slice client-side via this priority order:
+
+1. Mine + dated (soonest first).
+2. Mine + undated.
+3. Unassigned + dated.
+4. Unassigned + undated.
+
+If those four buckets are empty, fall through to the next 5 dated tasks of *anyone's* — the section still adds value as a calendar preview rather than going blank. Title relabelled "My next tasks" + count chip now shows `5 of 47` so the user knows the section is a slice.
+
+**Files:**
+- New: `src/app/(app)/TodayTaskList.tsx`.
+- Modified: `src/app/(app)/page.tsx` (wider fetch, client-side filter, mount the island).
+
+**Verification:** typecheck/lint clean, all 232 unit tests pass, build green. Manual: open `/`, tick a task → row disappears, success toast. Reload → server confirms it's done. Open `/tasks` → same task in DONE filter.
 
 ### 2026-04-29 · v1.27.1 — Schedule polish · seat-drag transform · mobile version · ROUND-only baseline
 
