@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.25.2** | 2026-04-29 | [Mobile nav: service-worker cleanup + Today tab probe-revert to `<Link>` + roadmap "view as"](#2026-04-29--v1252--mobile-nav-sw-cleanup--today-tab-link-probe) |
+| **v1.25.3** | 2026-04-29 | [Seating: table size baseline at 10 seats (capacity tweaks no longer reflow tables)](#2026-04-29--v1253--seating-table-size-baseline-at-10) |
+| v1.25.2 | 2026-04-29 | [Mobile nav: service-worker cleanup + Today tab probe-revert to `<Link>` + roadmap "view as"](#2026-04-29--v1252--mobile-nav-sw-cleanup--today-tab-link-probe) |
 | v1.25.1 | 2026-04-29 | [Seating: ghost-drag perf (refs not state) · mobile canvas height boost · mobile-only "drag is desktop-only" hint](#2026-04-29--v1251--seating-ghost-drag-perf--mobile-size--desktop-only-hint) |
 | v1.25.0 | 2026-04-29 | [Email nudge digests (RSVPs + tasks) · seat-drag grab-offset · mobile navbar plain anchor](#2026-04-29--v1250--email-nudge-digests--seat-drag-offset--mobile-anchor) |
 | v1.24.0 | 2026-04-29 | [Print stylesheets for /budget + /payments · BookSection couple-only audience · mobile navbar imperative-routing fix](#2026-04-29--v1240--print-stylesheets--booksection-visibility--mobile-navbar-fix) |
@@ -489,6 +490,20 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-29 · v1.25.3 — Seating: table size baseline at 10 seats
+
+User feedback (29 Apr 2026): "When resizing the seat numbers, table size should remain the same, size the tables to fit 10 seats but allow for more."
+
+Pre-fix the `tableSize` helper scaled tables linearly with capacity for all sizes, so a tweak from 8 → 10 seats grew the table noticeably and reflowed the surrounding canvas. Annoying when the planner is just adjusting head-counts mid-planning.
+
+Fix: introduce `SIZE_BASELINE_CAP = 10` and clamp the sizing input to `Math.max(capacity, 10)`. Tables with ≤10 seats render at the same size; tables with >10 seats grow linearly so dots don't overlap. ROUND, HEAD, RECTANGLE all share the baseline.
+
+Net effect on real layouts: typical wedding tables (6 / 8 / 10) all render at the same size — the 10-seat size — and changing capacity within that range only repositions the dots around the now-fixed perimeter. A 12-seat table is bigger than a 10-seat one, but the bigger-than-baseline jump only happens once you cross 10.
+
+**Files:** [SeatingCanvas.tsx](src/app/(app)/seating/SeatingCanvas.tsx) — `tableSize()` helper.
+
+**Verification:** typecheck/lint clean, 207 unit tests pass, build green. Manual: open `/seating`, change a table's capacity 8 → 9 → 10 → 11 → 12 → the table stays the same size at 8/9/10, then grows at 11+.
 
 ### 2026-04-29 · v1.25.2 — Mobile nav: SW cleanup + Today Link probe
 

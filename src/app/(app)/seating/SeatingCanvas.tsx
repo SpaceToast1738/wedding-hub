@@ -120,24 +120,29 @@ function snap(value: number, grid: number): number {
   return Math.round(value / grid) * grid;
 }
 
-// Visual sizing — purely cosmetic, scaled by capacity. Tables stay distinct
-// without becoming illegible.
+// Visual sizing — purely cosmetic. v1.25.3: table size is fixed at
+// the 10-seat baseline so changing capacity (e.g. 8→10 or 10→12)
+// doesn't reflow the whole canvas. Tables larger than 10 seats grow
+// linearly to keep dots from overlapping; smaller tables stay at the
+// 10-seat default (just with dots more spread out around the
+// perimeter / along the edge). User feedback: "When resizing the
+// seat numbers, table size should remain the same, size the tables
+// to fit 10 seats but allow for more."
+const SIZE_BASELINE_CAP = 10;
 function tableSize(shape: TableShape, capacity: number): { w: number; h: number; r: number } {
+  const sizingCap = Math.max(capacity, SIZE_BASELINE_CAP);
   if (shape === "ROUND") {
-    const r = 36 + capacity * 4;
+    const r = 36 + sizingCap * 4;
     return { w: r * 2, h: r * 2, r };
   }
   if (shape === "HEAD") {
     // v1.23.0: bumped per-seat width (18→30) + base (80→110) and
-    // height (70→80). Pre-fix the HEAD table was so narrow that
-    // first-name labels had to truncate aggressively — "Jamie" +
-    // "Bryony" on a 2-seat head table fitted in only ~58px each.
-    // The new sizing gives ~80px/seat on small head tables, room
-    // for full first names on most weddings.
-    return { w: 110 + capacity * 30, h: 80, r: 0 };
+    // height (70→80). v1.25.3: sized for 10-seat baseline, grows
+    // for larger HEAD tables (rare — most head tables are 6–10).
+    return { w: 110 + sizingCap * 30, h: 80, r: 0 };
   }
-  // RECTANGLE
-  return { w: 70 + capacity * 14, h: 60, r: 0 };
+  // RECTANGLE — v1.25.3: same 10-seat baseline.
+  return { w: 70 + sizingCap * 14, h: 60, r: 0 };
 }
 
 // v1.22.7: per-seat dot/label layout per shape.
