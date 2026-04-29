@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.25.3** | 2026-04-29 | [Seating: table size baseline at 10 seats (capacity tweaks no longer reflow tables)](#2026-04-29--v1253--seating-table-size-baseline-at-10) |
+| **v1.26.0** | 2026-04-29 | [Modular Wedding Book cards: TEXT · FIELD · RECIPE · SHOT_LIST · OUTFIT (kind picker, per-kind editors, shared chrome)](#2026-04-29--v1260--modular-wedding-book-cards) |
+| v1.25.3 | 2026-04-29 | [Seating: table size baseline at 10 seats (capacity tweaks no longer reflow tables)](#2026-04-29--v1253--seating-table-size-baseline-at-10) |
 | v1.25.2 | 2026-04-29 | [Mobile nav: service-worker cleanup + Today tab probe-revert to `<Link>` + roadmap "view as"](#2026-04-29--v1252--mobile-nav-sw-cleanup--today-tab-link-probe) |
 | v1.25.1 | 2026-04-29 | [Seating: ghost-drag perf (refs not state) · mobile canvas height boost · mobile-only "drag is desktop-only" hint](#2026-04-29--v1251--seating-ghost-drag-perf--mobile-size--desktop-only-hint) |
 | v1.25.0 | 2026-04-29 | [Email nudge digests (RSVPs + tasks) · seat-drag grab-offset · mobile navbar plain anchor](#2026-04-29--v1250--email-nudge-digests--seat-drag-offset--mobile-anchor) |
@@ -325,6 +326,33 @@ When the open questions are answered, this section gets replaced with a concrete
   *Recommendation:* (a) Email OTP — least new infra, biggest UX
   win on touch devices where copy-pasting a long URL from a mail
   app is fiddly. ~2 hrs to implement once the design pass picks one.
+- **Audit-log enrichment** — the existing audit log captures
+  `{ action, entity, entityId, metadata? }` per server action and
+  renders raw rows in `AuditLogPanel.tsx`. There's a lot of missing
+  context that would make it much more useful for "who changed what
+  when". Asks (29 Apr 2026):
+  - **Before/after diffs on update actions** — currently a "guest
+    update" row tells you *that* something changed but not what.
+    Capture the changed-fields snapshot in `metadata` so the panel
+    can render "rsvp: PENDING → ATTENDING".
+  - **Human-readable entity references** — entityId is a cuid which
+    is unhelpful in the panel. Resolve to the entity's display name
+    (e.g. guest name, task title, supplier name) at write time and
+    cache on the row, OR resolve at read time via a per-entity-type
+    join. Latter is cleaner.
+  - **IP + user-agent capture** for sign-in / impersonation actions
+    so a security review can spot anomalous activity.
+  - **Filter UX** beyond the existing date cursor: by user, by entity
+    type, by action verb. Sticky-search pattern works (mirror v1.21.0).
+  - **Group related changes** — a CSV import currently emits dozens
+    of separate "guest create" rows. Roll them into a single
+    "imported 47 guests via CSV" entry with an expandable child list.
+  - **Retention policy** — currently rows accumulate forever. Decide
+    on 12 / 24 month retention, optional purge action, export-before-
+    purge for compliance.
+
+  Substantial enough to warrant a design pass; estimated ~5–8 hrs
+  depending on which sub-asks ship together. *Asked by user, 29 Apr 2026.*
 - **"View as another role" preview** — admin impersonation, read-only.
   Lets the couple (or a planner) preview the app *as if* they were
   another user, to verify per-section visibility + role gates without
@@ -490,6 +518,77 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-29 · v1.26.0 — Modular Wedding Book cards
+
+The largest single feature shipped since the post-audit programme. Wedding Book section pages can now be composed from a library of **typed cards** instead of the pre-v1.26.0 one-shape-fits-all `BookSubsection` (title + freeform body + a vestigial `fields` Json column nothing rendered).
+
+**Five card kinds:**
+
+| Kind | Use case | Storage |
+|---|---|---|
+| **Text** | Free-form notes, the legacy behaviour | `BookSubsection.body` (existing) |
+| **Field** | List of typed fields (text / number / date / select) | `BookFieldDef[]` + `BookSubsection.fields` Json bag |
+| **Recipe** | Ingredients + steps + notes (cocktails, centrepieces, bouquets) | `BookRecipe` (1:1) |
+| **Shot list** | Photo capture list with checkboxes | `BookShotList` + `BookShot[]` |
+| **Outfit** | Per-person outfit rows (items, supplier, status) | `BookOutfitCard` + `BookOutfit[]` |
+
+**Approach: extend not replace.** `BookSubsection` gains a `kind BookSubsectionKind` discriminator (defaults to TEXT). Existing rows behave identically post-migration — no data move needed. Per-kind structured data hangs off new tables via 1:1 / 1:m relations cascaded on subsection delete. The vestigial `fields` Json column is repurposed as the FIELD card's value bag, keyed by `BookFieldDef.id` (mirrors v1.15.0's `Guest.customFieldValues` pattern). No throwaway columns.
+
+**Schema (additive migration `20260429040000_modular_book_cards`):** `BookSubsectionKind` enum, `BookSubsection.kind` column, plus 6 new tables (`BookFieldDef`, `BookRecipe`, `BookShotList`, `BookShot`, `BookOutfitCard`, `BookOutfit`). All standard FK + cascade.
+
+**Pure helpers + tests** at [src/lib/book-cards.ts](src/lib/book-cards.ts):
+
+- `parseBookFieldValue(def, raw)` / `formatBookFieldValue(def, value)` — type-aware parse + display, mirroring v1.15.0's custom-field helpers.
+- `validateRecipe`, `validateShot`, `validateOutfit` — canonical-shape normalisers with hard caps to keep Json columns tidy.
+- `parseWithWhom`, `parseOutfitItems` — comma-separated free-text → trimmed string array.
+- `BOOK_CARD_KIND_META` — display labels + descriptions, single source of truth for the picker UI.
+
+**25 new unit tests** at [tests/unit/book-cards.test.ts](tests/unit/book-cards.test.ts) — every helper + every kind's validator. **Total tests: 207 → 232.**
+
+**Server actions** at [src/app/(app)/book/actions.ts](src/app/(app)/book/actions.ts) — 12 new action exports, all returning a typed `BookActionResult` (`{ ok: true } | { ok: false; error: string }`) so production-redacted throws don't masquerade as silent failures (v1.22.9 / v1.23.2 pattern). `createBookSubsection` now seeds the matching per-kind row at creation time so renderers never see a missing relation.
+
+**UI components:**
+
+- [CardRouter.tsx](src/app/(app)/book/[slug]/CardRouter.tsx) — switches on `subsection.kind` and renders the matching editor. TS exhaustiveness guard so a future schema enum addition fails the build.
+- [CardChrome.tsx](src/app/(app)/book/[slug]/CardChrome.tsx) — shared title-input + visibility-badge + delete row. Used by the four new editors so they don't duplicate the chrome.
+- [BookFieldsCard.tsx](src/app/(app)/book/[slug]/BookFieldsCard.tsx) — type-aware row inputs (text / number / date / select), inline add-field form.
+- [BookRecipeCard.tsx](src/app/(app)/book/[slug]/BookRecipeCard.tsx) — two-column ingredients + steps lists with reorder ↑/↓ + delete, plus notes textarea.
+- [BookShotListCard.tsx](src/app/(app)/book/[slug]/BookShotListCard.tsx) — checkboxes + inline add/edit forms; same UX shape as the bespoke `/book/photography` ShotsClient that's still live.
+- [BookOutfitCard.tsx](src/app/(app)/book/[slug]/BookOutfitCard.tsx) — per-person rows with name + role + items + supplier + status + notes.
+- [AddSubsectionToggle.tsx](src/app/(app)/book/[slug]/AddSubsectionToggle.tsx) — pill-row kind picker. Each pill shows the kind's description on hover; only TEXT exposes a body textarea inline (other kinds start empty and grow via their dedicated editor).
+- TEXT cards keep the existing `SubsectionEditor` unchanged — zero behaviour change for the legacy use.
+
+**Deferred to v1.26.5:** photography route migration. `/book/photography` continues to render via its bespoke `ShotsClient` for now — generic SHOT_LIST cards exist for *other* sections. v1.26.5 will migrate `PhotographyShot` rows → `BookShot` rows under a single shot-list card on the Photography section, then delete the bespoke route. The legacy `PhotographyShot` table stays in place for one extra release as a recoverability buffer.
+
+**Files:**
+
+- New: `prisma/migrations/20260429040000_modular_book_cards/migration.sql`.
+- New: `src/lib/book-cards.ts`, `tests/unit/book-cards.test.ts`.
+- New: 5 card editor components + `CardRouter.tsx` + `CardChrome.tsx` under `src/app/(app)/book/[slug]/`.
+- Modified: `prisma/schema.prisma` (kind enum + 6 tables + 4 relations).
+- Modified: `src/app/(app)/book/actions.ts` (12 new actions, `createBookSubsection` seeds per-kind data).
+- Modified: `src/app/(app)/book/[slug]/page.tsx` (eager-loads per-kind nested data, dispatches to CardRouter).
+- Modified: `src/app/(app)/book/[slug]/AddSubsectionToggle.tsx` (kind picker).
+
+**Reused patterns:**
+
+- C1/v1.14.0 `BookSubsectionVisibility` — every card inherits the existing couple-only gating.
+- C10/v1.15.0 `Guest.customFieldValues` Json bag — same shape for FIELD card values.
+- v0.13.0 `PhotographyShot` UX — ported to SHOT_LIST card editor.
+- v1.22.9 / v1.23.2 result-shape returns — every new action.
+- `Task.type` enum (TASK / QUESTION / DECISION) — kind-discriminator pattern blueprint.
+
+**Verification:** typecheck/lint clean, all 232 unit tests pass, clean `.next` build green.
+
+**Manual smoke (post-deploy):**
+
+- Open `/book/[any-section]` → click "+ New card" → pick "Recipe" → enter title + slug → Create. Recipe card appears with empty ingredients/steps. Add 5 ingredients, 4 steps, save → reload → state persists.
+- Add a Field card → add 3 field defs (text, date, select) → fill values → reload → values persist.
+- Add a Shot list card → add 3 shots → tick the middle one → reload → captured state persists.
+- Add an Outfit card → add Bryony / Jamie / Best man → reload → all three render with their items.
+- Toggle a card to couple-only → non-couple sees no card.
+- Open `/book/photography` → still works as before (bespoke route, legacy data) — pending v1.26.5 migration.
 
 ### 2026-04-29 · v1.25.3 — Seating: table size baseline at 10 seats
 

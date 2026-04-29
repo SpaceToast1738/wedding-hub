@@ -423,17 +423,113 @@ model BookSubsection {
   section    BookSection @relation(fields: [sectionId], references: [id], onDelete: Cascade)
   slug       String
   title      String
-  // Tabbed editable fields stored as structured JSON: { tab: [{ key, label, value }] }
+  // v1.26.0: card-kind discriminator. Existing rows default to TEXT
+  // in the migration so behaviour is unchanged. Per-kind structured
+  // data hangs off the relations below.
+  kind       BookSubsectionKind @default(TEXT)
+  // TEXT cards use `body` for freeform markdown/notes.
+  body       String?     @db.Text
+  // FIELD cards use `fields` as a Json bag keyed by BookFieldDef.id
+  // (Record<string, string|number|null>). Was vestigial pre-v1.26.0;
+  // the column is reused so the FIELD case adds no new column.
   fields     Json?
-  body       String?     @db.Text  // freeform notes
   order      Int         @default(0)
   // C1 (v1.14.0): per-page audience override. Mirrors FileVisibility.
   // Couple-only pages are filtered out for non-couple users at read
   // time. Default EVERYONE so existing rows remain visible.
   visibility BookSubsectionVisibility @default(EVERYONE)
+  // v1.26.0: per-kind 1:1 / 1:m children. Null for kinds that don't
+  // need structured data. All cascade on subsection delete.
+  fieldDefs  BookFieldDef[]
+  recipe     BookRecipe?
+  shotList   BookShotList?
+  outfitCard BookOutfitCard?
   updatedAt  DateTime    @updatedAt
 
   @@unique([sectionId, slug])
+}
+
+// v1.26.0: card-kind discriminator on BookSubsection.
+enum BookSubsectionKind {
+  TEXT
+  FIELD
+  RECIPE
+  SHOT_LIST
+  OUTFIT
+}
+
+// v1.26.0: FIELD card — list of typed fields. Values stored on
+// BookSubsection.fields (Json keyed by id). Mirrors v1.15.0's generic
+// CustomField pattern but scoped to a single subsection so each card
+// can have its own field-set.
+model BookFieldDef {
+  id           String         @id @default(cuid())
+  subsectionId String
+  subsection   BookSubsection @relation(fields: [subsectionId], references: [id], onDelete: Cascade)
+  label        String
+  type         String         // "text" | "number" | "date" | "select"
+  options      String[]       @default([])
+  order        Int            @default(0)
+}
+
+// v1.26.0: RECIPE card — ingredients list + steps list + notes.
+// Wedding use-cases: cocktail menus, table-centrepiece "recipes",
+// bouquet recipes. Both lists kept as Json string[] rather than per-
+// row tables — small, ordered, never queried alone.
+model BookRecipe {
+  id           String         @id @default(cuid())
+  subsectionId String         @unique
+  subsection   BookSubsection @relation(fields: [subsectionId], references: [id], onDelete: Cascade)
+  ingredients  Json           // string[]
+  steps        Json           // string[]
+  notes        String?        @db.Text
+}
+
+// v1.26.0: SHOT_LIST card — replaces the bespoke v0.13.0
+// PhotographyShot model. Shots ported from PhotographyShot via the
+// migration; the legacy table is retained one release as a
+// recoverability buffer.
+model BookShotList {
+  id           String         @id @default(cuid())
+  subsectionId String         @unique
+  subsection   BookSubsection @relation(fields: [subsectionId], references: [id], onDelete: Cascade)
+  shots        BookShot[]
+}
+
+model BookShot {
+  id         String       @id @default(cuid())
+  shotListId String
+  shotList   BookShotList @relation(fields: [shotListId], references: [id], onDelete: Cascade)
+  title      String
+  withWhom   String[]     @default([])
+  location   String?
+  notes      String?      @db.Text
+  captured   Boolean      @default(false)
+  capturedAt DateTime?
+  order      Int          @default(0)
+}
+
+// v1.26.0: OUTFIT card — list of per-person outfit rows. Free-text
+// items + supplier + status to match how planners actually track
+// wedding-party outfits. Photo upload deferred to a later release.
+model BookOutfitCard {
+  id           String         @id @default(cuid())
+  subsectionId String         @unique
+  subsection   BookSubsection @relation(fields: [subsectionId], references: [id], onDelete: Cascade)
+  outfits      BookOutfit[]
+}
+
+model BookOutfit {
+  id          String         @id @default(cuid())
+  cardId      String
+  card        BookOutfitCard @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  personName  String
+  role        String?        // "Bride" / "Groom" / "Best man" — free text
+  items       String[]       @default([])  // ["Charcoal three-piece", "White shirt", "Burgundy tie"]
+  supplier    String?
+  status      String?        // "Ordered" / "Fitted" / "Collected"
+  notes       String?        @db.Text
+  order       Int            @default(0)
 }
 
 enum BookSubsectionVisibility {

@@ -5,8 +5,8 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { canEdit } from "@/lib/permissions";
 import { requireUser } from "@/lib/actions";
 import { AddSubsectionToggle } from "./AddSubsectionToggle";
+import { CardRouter } from "./CardRouter";
 import { SectionVisibilityToggle } from "./SectionVisibilityToggle";
-import { SubsectionEditor } from "./SubsectionEditor";
 
 export default async function BookSectionPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
@@ -21,6 +21,14 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
         // The couple sees everything. Mirrors File.visibility.
         where: user.isCouple ? undefined : { visibility: "EVERYONE" },
         orderBy: [{ order: "asc" }, { title: "asc" }],
+        // v1.26.0: load all per-kind nested data so the CardRouter
+        // can render whichever editor matches the subsection's kind.
+        include: {
+          fieldDefs: { orderBy: { order: "asc" } },
+          recipe: true,
+          shotList: { include: { shots: { orderBy: { order: "asc" } } } },
+          outfitCard: { include: { outfits: { orderBy: { order: "asc" } } } },
+        },
       },
     },
   });
@@ -77,7 +85,7 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
             </p>
           ) : (
             section.subsections.map((s) => (
-              <SubsectionEditor key={s.id} sub={s} canEdit={editable} isCouple={user.isCouple} />
+              <CardRouter key={s.id} sub={s} canEdit={editable} isCouple={user.isCouple} />
             ))
           )}
         </div>

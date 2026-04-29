@@ -1,0 +1,136 @@
+"use client";
+
+import { useState, useTransition, type ReactNode } from "react";
+import { Button } from "@/components/ui/Button";
+import { Input } from "@/components/ui/Input";
+import { notify } from "@/lib/notify";
+import {
+  deleteBookSubsection,
+  setBookSubsectionVisibility,
+  updateBookSubsection,
+} from "../actions";
+
+// v1.26.0: shared chrome for the four new card kinds (FIELD, RECIPE,
+// SHOT_LIST, OUTFIT). Renders an `<article>` with the same anchor /
+// title / visibility-badge / delete affordances every card has — so
+// each per-kind editor only worries about its own body content.
+//
+// TEXT cards still use the older SubsectionEditor unchanged because
+// it has bespoke body-textarea + dirty-tracking that's awkward to
+// generalise.
+
+export function CardChrome({
+  subsectionId,
+  slug,
+  initialTitle,
+  visibility,
+  canEdit,
+  isCouple,
+  kindBadge,
+  children,
+}: {
+  subsectionId: string;
+  slug: string;
+  initialTitle: string;
+  visibility: "EVERYONE" | "COUPLE_ONLY";
+  canEdit: boolean;
+  isCouple: boolean;
+  // Small label shown next to the visibility chip — e.g. "Field",
+  // "Recipe", "Shot list", "Outfit". Lets the user see at a glance
+  // which kind of card this is without opening it.
+  kindBadge: string;
+  children: ReactNode;
+}) {
+  const [title, setTitle] = useState(initialTitle);
+  const [savedTitle, setSavedTitle] = useState(initialTitle);
+  const [vis, setVis] = useState(visibility);
+  const [pending, startTransition] = useTransition();
+
+  function saveTitle() {
+    if (!title.trim()) {
+      setTitle(savedTitle);
+      return;
+    }
+    if (title === savedTitle) return;
+    const fd = new FormData();
+    fd.set("title", title);
+    fd.set("body", ""); // updateBookSubsection currently expects body too
+    startTransition(async () => {
+      try {
+        await updateBookSubsection(subsectionId, fd);
+        setSavedTitle(title);
+      } catch (err) {
+        setTitle(savedTitle);
+        notify("error", err instanceof Error ? err.message : "Couldn't save title");
+      }
+    });
+  }
+
+  function toggleVisibility() {
+    if (!isCouple) return;
+    const next = vis === "COUPLE_ONLY" ? "EVERYONE" : "COUPLE_ONLY";
+    const prev = vis;
+    setVis(next);
+    startTransition(async () => {
+      try {
+        await setBookSubsectionVisibility(subsectionId, next);
+      } catch (err) {
+        setVis(prev);
+        notify("error", err instanceof Error ? err.message : "Couldn't change visibility");
+      }
+    });
+  }
+
+  function onDelete() {
+    if (!confirm(`Delete card "${savedTitle}"?`)) return;
+    startTransition(async () => {
+      try {
+        await deleteBookSubsection(subsectionId);
+      } catch (err) {
+        notify("error", err instanceof Error ? err.message : "Couldn't delete");
+      }
+    });
+  }
+
+  return (
+    <article
+      id={slug}
+      className="bg-surface border border-border-soft rounded-md shadow-sm p-5 scroll-mt-24"
+    >
+      <div className="flex items-start gap-2 mb-3">
+        {canEdit ? (
+          <Input
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            onBlur={saveTitle}
+            disabled={pending}
+            className="!text-base !font-semibold !border-transparent hover:!border-border-soft focus:!border-moss-500 !p-1 flex-1"
+          />
+        ) : (
+          <h3 className="text-base font-semibold text-ink-primary flex-1">{title}</h3>
+        )}
+        <span className="text-[10px] uppercase tracking-wider text-ink-tertiary border border-border-soft rounded-full px-2 py-0.5 flex-shrink-0">
+          {kindBadge}
+        </span>
+        {vis === "COUPLE_ONLY" && (
+          <span className="text-[10px] uppercase tracking-wider text-marigold-700 bg-marigold-100 border border-marigold-700/20 rounded-full px-2 py-0.5 flex-shrink-0">
+            🔒 Couple
+          </span>
+        )}
+      </div>
+      {children}
+      {canEdit && (
+        <div className="flex justify-end gap-1 mt-3 pt-3 border-t border-border-soft">
+          {isCouple && (
+            <Button variant="ghost" size="sm" onClick={toggleVisibility} disabled={pending}>
+              {vis === "COUPLE_ONLY" ? "Make public" : "Make couple-only"}
+            </Button>
+          )}
+          <Button variant="ghost" size="sm" onClick={onDelete} disabled={pending}>
+            Delete
+          </Button>
+        </div>
+      )}
+    </article>
+  );
+}
