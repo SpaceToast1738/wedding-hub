@@ -243,15 +243,16 @@ in priority order.
   GuestDetailPanel in the canvas sidebar with the guest's record
   (RSVP, household, email, dietary, plus-one, notes) and an
   "Open record →" link to the full /guests/[id] page.
-- **"View as another role" preview** — header dropdown to preview
-  the app as if you were another user. Cookie-based override read
-  by every server component's permission gate. Audit-logged on every
-  flip. ~2 hrs once the override layer is decided.
 - **v1.28.0 — schema cleanup.** Drop the legacy
-  `PhotographyShot` table (after v1.26.5 verifies clean for one
+  `PhotographyShot` table (after v1.27.6 verifies clean for one
   release) and the legacy `ScheduleEvent.audience` column (after
   v1.27.1 verifies). ~30 min total. Defer until both predecessors
   have been live one release.
+
+(View-as preview moved to the deferred-backlog block below since it
+threads through every permission gate and the actual scope likely
+runs above the original 2-hr estimate. See "View as another role
+preview (deferred)" further down.)
 
 ### Group-coloured ceremony seating (design needed)
 
@@ -397,18 +398,60 @@ When the open questions are answered, this section gets replaced with a concrete
 
   Substantial enough to warrant a design pass; estimated ~5–8 hrs
   depending on which sub-asks ship together. *Asked by user, 29 Apr 2026.*
-- **"View as another role" preview** — admin impersonation, read-only.
-  Lets the couple (or a planner) preview the app *as if* they were
-  another user, to verify per-section visibility + role gates without
-  signing out. Likely shape: a header dropdown ("Viewing as: Couple ▾")
-  that swaps the session's effective role + isCouple in a wrapping
-  React context; server components read the override before applying
-  any permission gate. Preview state is non-persistent (cookie that
-  expires on close) and audit-logged on every flip so it can't be
-  used to silently exfiltrate. Doesn't actually grant new powers —
-  the underlying user must already have view-everything rights to
-  toggle previews. ~2 hrs once design sketched.
-  *Asked by user, 29 Apr 2026.*
+### "View as another role" preview (deferred)
+
+*Asked by user 29 Apr 2026; deferred from v1.27.x on 29 Apr 2026
+after sizing during the implementation window suggested the original
+~2 hr estimate was optimistic. This block carries the design context
+forward so the next planning pass starts where this one stops.*
+
+**Goal.** Admin impersonation, read-only. Lets the couple (or a
+planner) preview the app *as if* they were another user, to verify
+per-section visibility + role gates without signing out. Doesn't
+actually grant new powers — the underlying user must already have
+view-everything rights to toggle previews.
+
+**Sketched implementation:**
+
+- Header dropdown ("Viewing as: Couple ▾") in `AppShell.tsx`'s top
+  area or the avatar menu. Lists every entry from `AUTH_ALLOWED_EMAILS`
+  alongside the current user's actual identity.
+- Selection writes a non-persistent cookie (`viewAsUserId`, session-
+  scoped, `httpOnly` so it can't be tampered with from JS).
+- Server components read the cookie via `requireUser()` (extended)
+  and return an *effective* user shape — same `id` + `email` so
+  audit-log entries still attribute to the actual signer-in, but
+  with `isCouple` + `role` swapped to the impersonated user's
+  values. The override is preview-only: write actions ignore it
+  and write under the actual user as today.
+- Audit log writes a `view-as` entry on every flip (entity = User,
+  entityId = impersonated id, metadata = `{ from, to }`).
+- A persistent banner bar at the very top of the page (red-tinted,
+  high-contrast) reading "Previewing as Bryony · Switch back" so
+  the impersonator never forgets they're not in their own session.
+
+**Risk + scope notes (why deferred):**
+
+- **Threads through every permission gate.** `canEdit` and `canView`
+  in `src/lib/permissions.ts` are called on essentially every page.
+  Each call needs to honour the override consistently. Missing one
+  page means the preview leaks "real" content for an impersonated
+  role — silent data leak.
+- **Write-action interaction.** Decision needed: do write actions
+  fail noisily (toast: "you can't edit while previewing") or silently
+  fall back to the actual user's permissions? Either is defensible;
+  needs a one-line policy in the design pass.
+- **Settings + AvatarMenu interaction.** The Sidebar avatar shows
+  the actual user. The "view as" banner shows the previewed user.
+  Both need to coexist without confusion.
+- **Realistic scope.** Instrumenting every permission-gate call site
+  + writing the cookie middleware + UI for the dropdown + banner +
+  audit + tests is closer to ~4 hrs than ~2.
+
+**Recommendation when revisited:** start with a single-pass survey
+of every `canEdit`/`canView` call in the repo, decide on a single
+shared override-aware helper to replace them all, then build the
+UI. Don't ship piecemeal.
 - **Group-based user permissions** — replace the per-user role enum
   (COUPLE / WEDDING_PARTY / PLANNER / VIEWER) with a more flexible
   group model where the planner can define groups (e.g. "Aimee's
