@@ -197,6 +197,10 @@ items renumbered down the queue. Current state:
   guests (admin-only rule). ~3 hrs.
 - **Modular page cards** (text / field / recipe / shot list) — design
   pass first, then build. Bumped to v1.26.0+. ~10 hrs estimated.
+- **Group-coloured ceremony seating** — design pass first. Bumped to
+  v1.27.0+. See "Group-coloured ceremony seating (design needed)"
+  below for the full requirements + open design questions. ~9 hrs
+  estimated once the design pass lands.
 
 **Total scope spent on the planner-only shortlist:** ~22 hrs across
 11 releases (vs. the original 15.5-hr estimate). The overshoot is
@@ -205,6 +209,98 @@ for v1.20.5 + v1.20.6; the dogfood loop turned that into ~10 hrs.
 The user feedback was always specific and actionable so each iteration
 was cheap; in hindsight the seating canvas just had more surface area
 than the plan accounted for.
+
+### Group-coloured ceremony seating (design needed)
+
+*Asked by user, 29 Apr 2026. Substantial enough to warrant a planning
+pass before code starts; this section captures the requirements and
+open design questions. Will replace this section with a concrete
+release plan in the same shape as v1.19.0–v1.23.1 once the design
+questions are answered.*
+
+**Goal.** Extend the v1.23.0 ceremony placeholder so seats are
+coloured by group (e.g. groomsmen, bride's family, parents,
+flower-girls), automatically packed to the correct side of the aisle
+(groom or bride), and ordered by priority — priority 1 sits front.
+
+**Requirements (verbatim from the ask):**
+
+- Colour seats by group on the ceremony layout.
+- Split into groom side and bride side — per group.
+- Built-in flexibility with the sides (UK convention: bride left /
+  groom right; US convention: opposite; blended families: rename
+  freely).
+- Groups must match a "group" concept on the guest list — define
+  groups once and tag guests into them.
+- Groups ordered by priority — closer to 1 = closer to front.
+- Edge cases: flowergirl / flowerboy may need non-standard placement
+  (standing at the front, not seated in the audience).
+
+**Schema sketch — not yet decided:**
+
+- New `Group` model: `{ id, name, color, priority Int, side: ENUM(LEFT|RIGHT|EITHER), placement: ENUM(AUDIENCE|ALTAR|PROCESSIONAL|NONE) }`. Side stored as logical LEFT/RIGHT; the `CeremonySeating` singleton holds the visible labels (`leftSideLabel`, `rightSideLabel` — "Bride", "Groom", "Spencer family", whatever).
+- Guest membership: `Guest.groupId String?` (one group per guest) vs. a many-to-many `Guest <-> Group` join. **Recommendation:** one-to-many — a "groomsmen" entry doesn't usually overlap with another group for the same person, and the algorithm gets simpler.
+- Default groups to seed at install: Bride's family · Groom's family · Bridesmaids · Groomsmen · Officiant · Flower attendants · Other. User can rename / delete / re-prioritise.
+
+**Layout algorithm:**
+
+1. Pull groups by side, sorted by `priority` ascending.
+2. For each group, pull its members; respect household boundaries so couples / parties don't get split across rows.
+3. Pack into rows starting at row 0 (front). When a group fills a row, wrap to the next.
+4. Groups with `placement ≠ AUDIENCE` skip seating entirely; render in a "Wedding party" sidebar/legend instead (so flowergirls/officiant are visible but not in the seat grid).
+5. Empty seats at the end of a side render hollow (reserves).
+
+**UI surfaces — open:**
+
+- Group editor lives where? `/guests/groups` (groups are guest metadata) vs. a Settings panel vs. inline on `/seating/ceremony`. **Lean:** `/guests/groups` since the data is guest-scoped.
+- Drag-handle priority reorder + colour picker per group (palette tied to app theme tokens — moss / marigold / info / rose / etc.).
+- Guest assignment: extend the existing `/guests` filter UI with a Group selector dropdown per row + bulk-assign on the existing filter selection.
+- Ceremony layout (`/seating/ceremony`): seat dots fill with their group's colour; click/hover a seat shows the guest name. Side-label config inputs above the SVG. Legend below listing groups + colours + counts.
+
+**Open design questions (must answer before code starts):**
+
+- [ ] One group per guest (m2o) vs. many-to-many. *Recommend:* m2o.
+- [ ] Side stored as LEFT/RIGHT + configurable labels vs. hardcoded
+      bride/groom. *Recommend:* LEFT/RIGHT + labels for flexibility.
+- [ ] Auto-pack only vs. allow manual per-seat overrides (drag a guest
+      to a specific seat to break the algorithm's choice).
+- [ ] Multi-group conflict resolution (bridesmaid AND bride's family
+      — which group wins for the seat?). Probably moot if m2o.
+- [ ] Plus-ones (own Guest rows since v1.7.0): inherit parent's
+      group? *Recommend:* yes by default, override allowed.
+- [ ] Reserve / VIP front-row treatment: special "Reserved" group,
+      or just rely on priority=0 always sitting front?
+- [ ] Aisle-side preference — front-row family typically sits *on the
+      aisle*. Pack from aisle outward, not from outer edge inward.
+- [ ] Non-audience groups (flowergirl, officiant): render where?
+      Sidebar legend, separate altar zone above the seat grid, or
+      just hide and trust the planner to remember?
+- [ ] Default group palette + ability to add custom colours.
+- [ ] Colour-blind accessibility: pair group colour with a small
+      text or icon hint per seat (mirror the v1.22.8 RSVP-glyph
+      pattern — short group code in white inside the dot).
+
+**Sizing (very rough — confirm in design pass):**
+
+| Step                                          | Effort  |
+|-----------------------------------------------|---------|
+| Schema + migration + seed defaults            | ~1 hr   |
+| Group editor page (`/guests/groups`)          | ~2 hrs  |
+| Guest-assignment UI extension on `/guests`    | ~1 hr   |
+| Ceremony layout decision module + tests       | ~2 hrs  |
+| Ceremony SVG render with colours + legend     | ~1.5 hrs|
+| Side-label config + non-audience sidebar      | ~1 hr   |
+| Verification + ROADMAP                        | ~30 min |
+
+**Total estimate: ~9 hrs once design questions are signed off.** Big enough that splitting into v1.27.0 (schema + group editor + guest assignment) and v1.27.5 (ceremony render + colour algorithm) is worth considering.
+
+**What this section deliberately does NOT scope:**
+
+- Per-guest seat assignments / drag-and-drop on the ceremony grid (separate, larger feature — would supersede the auto-pack algorithm).
+- Reception canvas integration (groups don't yet affect reception seating; that stays free-form).
+- Public-facing seat lookup ("guests can see where they're sitting") — admin-only standing rule applies.
+
+When the open questions are answered, this section gets replaced with a concrete release plan in the same shape as v1.19.0–v1.23.1 above.
 
 ### Older / lower-priority backlog
 
