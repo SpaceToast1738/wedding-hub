@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.26.0** | 2026-04-29 | [Modular Wedding Book cards: TEXT · FIELD · RECIPE · SHOT_LIST · OUTFIT (kind picker, per-kind editors, shared chrome)](#2026-04-29--v1260--modular-wedding-book-cards) |
+| **v1.27.0** | 2026-04-29 | [Tasks polish: click-to-open right-side drawer · "+ New task" popout · sort options · cleaner search bar](#2026-04-29--v1270--tasks-polish-drawer--popout--sort--search) |
+| v1.26.0 | 2026-04-29 | [Modular Wedding Book cards: TEXT · FIELD · RECIPE · SHOT_LIST · OUTFIT (kind picker, per-kind editors, shared chrome)](#2026-04-29--v1260--modular-wedding-book-cards) |
 | v1.25.3 | 2026-04-29 | [Seating: table size baseline at 10 seats (capacity tweaks no longer reflow tables)](#2026-04-29--v1253--seating-table-size-baseline-at-10) |
 | v1.25.2 | 2026-04-29 | [Mobile nav: service-worker cleanup + Today tab probe-revert to `<Link>` + roadmap "view as"](#2026-04-29--v1252--mobile-nav-sw-cleanup--today-tab-link-probe) |
 | v1.25.1 | 2026-04-29 | [Seating: ghost-drag perf (refs not state) · mobile canvas height boost · mobile-only "drag is desktop-only" hint](#2026-04-29--v1251--seating-ghost-drag-perf--mobile-size--desktop-only-hint) |
@@ -326,6 +327,24 @@ When the open questions are answered, this section gets replaced with a concrete
   *Recommendation:* (a) Email OTP — least new infra, biggest UX
   win on touch devices where copy-pasting a long URL from a mail
   app is fiddly. ~2 hrs to implement once the design pass picks one.
+- **Schedule page polish (time entry + all-day + audience rethink)** —
+  user feedback (29 Apr 2026):
+  (a) Time picker is awkward, especially on desktop. The current
+      datetime-local input forces the OS picker; on desktop a typed
+      time field (HH:MM with auto-format) reads better. Keep the
+      OS picker as a calendar-icon button next to it.
+  (b) No "all day" toggle. Add a checkbox that strips the time and
+      stores `startTime` as midnight + an `allDay: boolean` flag
+      (additive schema column). Renderers branch on the flag.
+  (c) "Audience" field doesn't fit. Currently a free-text or
+      enum-ish field that doesn't map cleanly to permissions or
+      assignment. Options today don't make sense as either.
+      Decision needed: replace with a multi-assignee picker
+      (Bryony, Jamie, Aimee, etc), with a free-text "notes" if more
+      detail is needed; OR drop entirely and rely on the existing
+      task-assignee pattern. Lean: drop Audience, add a multi-
+      attendee picker.
+  ~2 hrs once design signed off. *Asked by user, 29 Apr 2026.*
 - **Audit-log enrichment** — the existing audit log captures
   `{ action, entity, entityId, metadata? }` per server action and
   renders raw rows in `AuditLogPanel.tsx`. There's a lot of missing
@@ -518,6 +537,42 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-29 · v1.27.0 — Tasks polish: drawer · popout · sort · search
+
+User shared four mockup screenshots (29 Apr 2026) showing the desired Tasks UX. This release brings the page in line with that:
+
+**1. Click-to-open right-side drawer.** Pre-fix clicking a task either did nothing or expanded the row inline (Edit button). Now clicking anywhere on a row opens a 420px right-side drawer with the full task detail + edit form. Status / priority / assignee / due date / category / notes — all editable inline, with `Save changes` / `Cancel` actions and a `Delete` button at the bottom-left. Backdrop click + ESC + × button all dismiss. The list stays visible behind so the user can pivot quickly between tasks. ([TaskDrawer.tsx](src/app/(app)/tasks/TaskDrawer.tsx) — new.)
+
+The done-circle on each row stays a separate click target — it still cycles status without opening the drawer. Avatar + priority chip + status pill + due date + category render inline on desktop (≥sm); the drawer is the only way to edit on touch.
+
+**2. "+ New task" popout instead of inline-expanded form.** Pre-fix the AddTaskToggle rendered the whole new-task form inline in the page-header `actions` slot, which made the header visibly crowded. Now the button stays compact, click → fixed-position popover at top-right (max 640px wide, dimmed backdrop). Same TaskForm inside; backdrop / × / ESC / Cancel all dismiss. ([AddTaskToggle.tsx](src/app/(app)/tasks/AddTaskToggle.tsx))
+
+**3. Sort options.** Pre-fix the page sorted by `status → priority → dueDate` fixed in the server query, with no UI affordance to change. New `Sort` dropdown in the control row offers six choices:
+
+- **Smart** (default — done last, then priority, then due ascending; matches the previous server sort).
+- **Due date** — soonest first; null due dates last.
+- **Priority** — URGENT → HIGH → MEDIUM → LOW.
+- **Title** — alphabetical.
+- **Assignee** — by user name (unassigned last).
+- **Newest** — by creation order, descending.
+
+Persisted via `wh_tasks_sort` localStorage so the planner's pick survives navigation.
+
+**4. Cleaner search bar.** Pre-fix the search bar lived in its own sticky band above the FilterTabs row, taking 50+ vertical pixels and feeling disconnected. Now it's the leading element of a single control row alongside the sort dropdown — bordered input with `⌕` icon prefix and an inline `×` clear button when populated, max 384px wide so it doesn't dominate. The match-count chip (`12/47`) only shows when the user is actively filtering. List view + Board view toggles stay in their FilterTabs row below. ([TaskList.tsx](src/app/(app)/tasks/TaskList.tsx))
+
+**5. TaskRow restructure.** Removed the inline-expand-edit behaviour (drawer now owns editing). Added per-row status pill (`TODO` / `DOING` / `WAITING` / `DONE`) and category chip on the right edge — matching the column layout from the user's mockup. The Edit/Delete hover affordances are gone — both live in the drawer now.
+
+**Files:**
+
+- New: `src/app/(app)/tasks/TaskDrawer.tsx`.
+- Modified: `src/app/(app)/tasks/TaskList.tsx` — sort state, drawer state, control-row layout.
+- Modified: `src/app/(app)/tasks/TaskRow.tsx` — click → drawer, dropped inline-edit, added status pill column.
+- Modified: `src/app/(app)/tasks/AddTaskToggle.tsx` — popover instead of inline form.
+
+**Verification:** typecheck/lint clean, all 232 unit tests pass, clean `.next` build green. Manual: open `/tasks` → click any task → drawer opens with details. Click "+ New task" → popover at top-right; Cancel → dismisses. Change sort to "Due date" → list reorders; reload → sort persists. Type in search → list filters with match-count chip.
+
+**Roadmap addition:** Schedule page polish (time-entry / all-day toggle / Audience rethink). Logged for v1.27.1.
 
 ### 2026-04-29 · v1.26.0 — Modular Wedding Book cards
 
