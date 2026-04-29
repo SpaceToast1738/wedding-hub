@@ -246,11 +246,72 @@ in priority order.
   GuestDetailPanel in the canvas sidebar with the guest's record
   (RSVP, household, email, dietary, plus-one, notes) and an
   "Open record →" link to the full /guests/[id] page.
-- **v1.28.0 — schema cleanup.** Drop the legacy
-  `PhotographyShot` table (after v1.27.6 verifies clean for one
-  release) and the legacy `ScheduleEvent.audience` column (after
-  v1.27.1 verifies). ~30 min total. Defer until both predecessors
-  have been live one release.
+- ~~**Task ↔ Supplier link**~~ — shipped v1.28.0. Tasks /
+  questions / decisions can optionally link a Supplier; surfaces
+  on the supplier detail page (Linked tasks section) and via
+  `?supplier=<id>` deep-link on `/tasks`.
+- ~~**Task grouping**~~ — shipped v1.29.0. Group dropdown beside
+  Sort with None / Assignee / Category / Supplier / Priority /
+  Status options.
+- **Schema cleanup release.** Drop the legacy `PhotographyShot`
+  table (after v1.27.6 verifies clean for one release) and the
+  legacy `ScheduleEvent.audience` column (after v1.27.1 verifies).
+  ~30 min total. Defer until both predecessors have been live one
+  release. Was earmarked v1.28.0 — that slot was used for Task ↔
+  Supplier instead; the cleanup is now next vacant slot.
+
+#### New asks captured 29 Apr 2026 (need design / planning)
+
+These came in the user's bulk-asks message. They each need at least
+a brief design pass before code starts — not size-able from a
+sentence. Captured here so they don't fall off the radar.
+
+- **Tasks ↔ Wedding Book linking.** "Be able to link tasks /
+  questions / decisions with wedding book pages. The tasks will
+  then also display filtered but searchable under each section."
+  - **Schema:** add `Task.bookSubsectionId String?` (nullable, FK to
+    `BookSubsection`, `onDelete: SetNull`) — same shape as v1.28.0's
+    `Task.supplierId`. The page-level link (`bookSection`) is
+    implied by the subsection's parent so we don't need a separate
+    column.
+  - **UI surfaces:** picker on TaskForm + drawer (mirror the
+    Supplier picker shape from v1.28.0). On `/book/[slug]`, render a
+    Linked tasks panel under each subsection's editor showing rows
+    where `bookSubsectionId === subsection.id` plus a search box
+    scoped to that section's tasks.
+  - **Open question:** does the link snap to a *section* (page) or a
+    *subsection* (card)? Lean subsection — tighter scope, can be
+    rolled up to section view. ~3 hrs once decided.
+  - Also add navigational subsections to Wedding Book: music,
+    reception, ceremony, guests. (Likely just seeding `BookSection`
+    rows + slugs — quick once the linking design is set.)
+- **Schedule attendees → permission groups.** "For the schedule
+  these should follow permissions groups when added instead of
+  attendees." Currently v1.27.1's attendee picker is a multi-user
+  free pick. The intent: pick from named permission groups (Couple,
+  Wedding party, Suppliers, Everyone…) instead. Threads into the
+  existing Group-based-permissions backlog item — both probably
+  ship together. ~2 hrs once the permission-group model lands.
+- **Audit log enrichment.** "Review audit log data to ensure
+  capturing is as rich as possible including recent activity."
+  Existing audit() utility logs `{ action, entity, entityId,
+  metadata }`. Likely-missing surfaces:
+  - Diff capture on update events — currently only the entity ID
+    is logged. Adding `metadata.before / after` (filtered to
+    non-PII columns) gives a real changelog.
+  - Recent-activity feed surface (admin sidebar widget?) reading
+    the last N audit rows.
+  - Cross-entity references — when a task is linked to a supplier,
+    log on both sides so the supplier's audit includes the task
+    link event.
+  - Timestamp visibility — `createdAt` is already there; just need
+    a viewer that surfaces it.
+  - Likely a v1.30.0 design pass before code. ~3 hrs once scope is
+    set.
+- **DMARC review (operational, not code).** User received a DMARC
+  report from Microsoft and wants it reviewed. Action item is
+  outside the codebase — needs the report content shared in chat
+  for analysis. Not a code commit.
 
 (View-as preview moved to the deferred-backlog block below since it
 threads through every permission gate and the actual scope likely
