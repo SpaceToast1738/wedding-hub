@@ -236,12 +236,19 @@ model Task {
   // decision).
   supplierId   String?
   supplier     Supplier?   @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  // v1.30.0: optional Wedding Book subsection link. Same pattern as
+  // supplierId — nullable, onDelete SetNull. Lets the user attach a
+  // task / question / decision to a specific card on a book page so
+  // the question lives next to the page where it'll be answered.
+  bookSubsectionId String?
+  bookSubsection   BookSubsection? @relation(fields: [bookSubsectionId], references: [id], onDelete: SetNull)
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
 
   @@index([status])
   @@index([type])
   @@index([supplierId])
+  @@index([bookSubsectionId])
 }
 
 enum TaskType {
@@ -468,6 +475,9 @@ model BookSubsection {
   recipe     BookRecipe?
   shotList   BookShotList?
   outfitCard BookOutfitCard?
+  // v1.30.0: tasks/questions/decisions linked to this subsection.
+  // SetNull cascade — see Task.bookSubsection.
+  tasks      Task[]
   updatedAt  DateTime    @updatedAt
 
   @@unique([sectionId, slug])

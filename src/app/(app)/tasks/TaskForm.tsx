@@ -27,11 +27,22 @@ export type Initial = {
   notes?: string;
   // v1.28.0: optional supplier link.
   supplierId?: string | null;
+  // v1.30.0: optional Wedding Book subsection link.
+  bookSubsectionId?: string | null;
 };
 
 export type UserOpt = { id: string; name: string | null; email: string };
 // v1.28.0: minimal supplier shape for the picker.
 export type SupplierOpt = { id: string; name: string; category: string };
+// v1.30.0: minimal book-subsection shape for the picker. We surface
+// the parent section's title alongside the subsection title so the
+// dropdown is unambiguous when two cards share a name across sections
+// (e.g. "Notes" appearing on both Reception and Ceremony pages).
+export type BookSubsectionOpt = {
+  id: string;
+  title: string;
+  sectionTitle: string;
+};
 
 type Props = {
   initial?: Initial;
@@ -40,6 +51,9 @@ type Props = {
   // Empty array hides the picker entirely (e.g. when no suppliers
   // have been added yet, or on contexts where the link isn't useful).
   suppliers?: SupplierOpt[];
+  // v1.30.0: optional list of Wedding Book subsections for the
+  // book-link picker. Empty array hides the picker.
+  bookSubsections?: BookSubsectionOpt[];
   submitLabel?: string;
   onSubmit: (formData: FormData) => Promise<void>;
   onCancel?: () => void;
@@ -58,6 +72,7 @@ export function TaskForm({
   initial,
   users,
   suppliers = [],
+  bookSubsections = [],
   submitLabel = "Create",
   onSubmit,
   onCancel,
@@ -129,24 +144,46 @@ export function TaskForm({
           </datalist>
         </div>
       </div>
-      {/* v1.28.0: optional supplier link. Hidden when no suppliers are
-          available so the form stays compact in fresh workspaces. */}
-      {suppliers.length > 0 && (
-        <div>
-          <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">Supplier</label>
-          <select
-            name="supplierId"
-            defaultValue={initial?.supplierId ?? ""}
-            className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2 py-1.5 text-ink-primary outline-none"
-          >
-            <option value="">— none —</option>
-            {suppliers.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name}
-                {s.category ? ` · ${s.category}` : ""}
-              </option>
-            ))}
-          </select>
+      {/* v1.28.0 / v1.30.0: optional Supplier + Wedding Book links.
+          Both are independently optional and only render when their
+          respective lists have entries. Side-by-side on wide forms. */}
+      {(suppliers.length > 0 || bookSubsections.length > 0) && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {suppliers.length > 0 && (
+            <div>
+              <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">Supplier</label>
+              <select
+                name="supplierId"
+                defaultValue={initial?.supplierId ?? ""}
+                className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2 py-1.5 text-ink-primary outline-none"
+              >
+                <option value="">— none —</option>
+                {suppliers.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                    {s.category ? ` · ${s.category}` : ""}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+          {bookSubsections.length > 0 && (
+            <div>
+              <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">Wedding Book card</label>
+              <select
+                name="bookSubsectionId"
+                defaultValue={initial?.bookSubsectionId ?? ""}
+                className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2 py-1.5 text-ink-primary outline-none"
+              >
+                <option value="">— none —</option>
+                {bookSubsections.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.sectionTitle} · {b.title}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
       )}
       <div>

@@ -23,7 +23,7 @@ export default async function TasksPage({
   const sp = await searchParams;
   const supplierFilter = typeof sp.supplier === "string" ? sp.supplier : null;
 
-  const [tasks, users, customFieldDefs, suppliers] = await Promise.all([
+  const [tasks, users, customFieldDefs, suppliers, bookSubsectionsRaw] = await Promise.all([
     db.task.findMany({
       where: {
         type: "TASK",
@@ -40,7 +40,28 @@ export default async function TasksPage({
       orderBy: [{ category: "asc" }, { name: "asc" }],
       select: { id: true, name: true, category: true },
     }),
+    // v1.30.0: book subsection picker on task forms. Pull all
+    // sections + their subsections (admin-only app, the dataset is
+    // small) and flatten into the picker shape downstream.
+    db.bookSection.findMany({
+      orderBy: { order: "asc" },
+      select: {
+        id: true,
+        title: true,
+        subsections: {
+          orderBy: { order: "asc" },
+          select: { id: true, title: true },
+        },
+      },
+    }),
   ]);
+  const bookSubsections = bookSubsectionsRaw.flatMap((sec) =>
+    sec.subsections.map((sub) => ({
+      id: sub.id,
+      title: sub.title,
+      sectionTitle: sec.title,
+    })),
+  );
   const customFieldDefsTyped: CustomFieldDef[] = customFieldDefs.map((f) => ({
     id: f.id,
     entity: f.entity,
@@ -75,6 +96,7 @@ export default async function TasksPage({
               <AddTaskToggle
                 users={users.map((u) => ({ id: u.id, name: u.name, email: u.email }))}
                 suppliers={suppliers}
+                bookSubsections={bookSubsections}
               />
             </>
           ) : undefined
@@ -103,6 +125,7 @@ export default async function TasksPage({
         }))}
         users={users.map((u) => ({ id: u.id, name: u.name, email: u.email }))}
         suppliers={suppliers}
+        bookSubsections={bookSubsections}
         currentUserId={user.id}
         canEdit={editable}
         customFieldDefs={customFieldDefsTyped}

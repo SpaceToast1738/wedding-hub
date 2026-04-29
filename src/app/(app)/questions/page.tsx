@@ -12,7 +12,7 @@ export default async function QuestionsPage() {
   if (!(await canView(user, "questions"))) redirect("/");
   const editable = await canEdit(user, "questions");
 
-  const [questions, users, customFieldDefs, suppliers] = await Promise.all([
+  const [questions, users, customFieldDefs, suppliers, bookSubsectionsRaw] = await Promise.all([
     db.task.findMany({
       where: { type: { in: ["QUESTION", "DECISION"] } },
       orderBy: [{ status: "asc" }, { priority: "desc" }, { createdAt: "desc" }],
@@ -28,7 +28,26 @@ export default async function QuestionsPage() {
       orderBy: [{ category: "asc" }, { name: "asc" }],
       select: { id: true, name: true, category: true },
     }),
+    // v1.30.0: book subsection picker mirrors the tasks page.
+    db.bookSection.findMany({
+      orderBy: { order: "asc" },
+      select: {
+        id: true,
+        title: true,
+        subsections: {
+          orderBy: { order: "asc" },
+          select: { id: true, title: true },
+        },
+      },
+    }),
   ]);
+  const bookSubsections = bookSubsectionsRaw.flatMap((sec) =>
+    sec.subsections.map((sub) => ({
+      id: sub.id,
+      title: sub.title,
+      sectionTitle: sec.title,
+    })),
+  );
   const customFieldDefsTyped: CustomFieldDef[] = customFieldDefs.map((f) => ({
     id: f.id,
     entity: f.entity,
@@ -53,6 +72,7 @@ export default async function QuestionsPage() {
             <AddTaskToggle
               users={users.map((u) => ({ id: u.id, name: u.name, email: u.email }))}
               suppliers={suppliers}
+              bookSubsections={bookSubsections}
               defaultType="QUESTION"
               showType={true}
               buttonLabel="+ New"

@@ -39,6 +39,33 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
   // how the hub-page filter hides them from the index.
   if (section.visibility === "COUPLE_ONLY" && !user.isCouple) notFound();
 
+  // v1.30.0: pull all tasks/questions/decisions linked to any
+  // subsection in this section. Grouped client-side per-card by the
+  // CardRouter so each card surfaces its own linked items.
+  const subsectionIds = section.subsections.map((s) => s.id);
+  const linkedTasks = subsectionIds.length
+    ? await db.task.findMany({
+        where: { bookSubsectionId: { in: subsectionIds } },
+        orderBy: [{ status: "asc" }, { priority: "desc" }, { dueDate: "asc" }],
+        select: {
+          id: true,
+          title: true,
+          type: true,
+          status: true,
+          priority: true,
+          dueDate: true,
+          bookSubsectionId: true,
+        },
+      })
+    : [];
+  const tasksBySubsection = new Map<string, typeof linkedTasks>();
+  for (const t of linkedTasks) {
+    if (!t.bookSubsectionId) continue;
+    const arr = tasksBySubsection.get(t.bookSubsectionId) ?? [];
+    arr.push(t);
+    tasksBySubsection.set(t.bookSubsectionId, arr);
+  }
+
   return (
     <>
       <PageHeader
@@ -85,7 +112,13 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
             </p>
           ) : (
             section.subsections.map((s) => (
-              <CardRouter key={s.id} sub={s} canEdit={editable} isCouple={user.isCouple} />
+              <CardRouter
+                key={s.id}
+                sub={s}
+                canEdit={editable}
+                isCouple={user.isCouple}
+                linkedTasks={tasksBySubsection.get(s.id) ?? []}
+              />
             ))
           )}
         </div>

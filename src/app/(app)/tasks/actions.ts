@@ -24,6 +24,8 @@ const baseSchema = z.object({
   notes: z.string().optional().nullable(),
   // v1.28.0: optional supplier link.
   supplierId: z.string().optional().nullable(),
+  // v1.30.0: optional Wedding Book subsection link.
+  bookSubsectionId: z.string().optional().nullable(),
 });
 
 function parseDue(v: FormDataEntryValue | null): Date | null {
@@ -46,6 +48,7 @@ export async function createTask(formData: FormData) {
     category: formData.get("category") || null,
     notes: formData.get("notes") || null,
     supplierId: formData.get("supplierId") || null,
+    bookSubsectionId: formData.get("bookSubsectionId") || null,
   });
   const tags = parsed.category ? [parsed.category] : [];
   const created = await db.task.create({
@@ -59,6 +62,7 @@ export async function createTask(formData: FormData) {
       tags,
       notes: parsed.notes ?? null,
       supplierId: parsed.supplierId || null,
+      bookSubsectionId: parsed.bookSubsectionId || null,
     },
   });
   await audit(user, { action: "create", entity: "Task", entityId: created.id });
@@ -79,6 +83,7 @@ export async function updateTask(id: string, formData: FormData) {
     category: formData.get("category") ?? undefined,
     notes: formData.get("notes") ?? undefined,
     supplierId: formData.get("supplierId") ?? undefined,
+    bookSubsectionId: formData.get("bookSubsectionId") ?? undefined,
   });
   const data: Record<string, unknown> = {};
   if (parsed.title !== undefined) data.title = parsed.title;
@@ -90,6 +95,7 @@ export async function updateTask(id: string, formData: FormData) {
   if (parsed.category !== undefined) data.tags = parsed.category ? [parsed.category] : [];
   if (parsed.notes !== undefined) data.notes = parsed.notes ?? null;
   if (parsed.supplierId !== undefined) data.supplierId = parsed.supplierId || null;
+  if (parsed.bookSubsectionId !== undefined) data.bookSubsectionId = parsed.bookSubsectionId || null;
 
   await db.task.update({ where: { id }, data });
   await audit(user, { action: "update", entity: "Task", entityId: id });

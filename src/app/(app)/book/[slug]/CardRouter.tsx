@@ -1,10 +1,89 @@
 "use client";
 
+import { useMemo, useState } from "react";
+import Link from "next/link";
 import { BookFieldsCard } from "./BookFieldsCard";
 import { BookOutfitCardEditor } from "./BookOutfitCard";
 import { BookRecipeCard } from "./BookRecipeCard";
 import { BookShotListCard } from "./BookShotListCard";
 import { SubsectionEditor } from "./SubsectionEditor";
+
+// v1.30.0: per-card linked tasks panel. Renders below each card so
+// the user can see the open questions / decisions / tasks attached to
+// that specific Wedding Book card. Search box (client-side) scoped to
+// the card's tasks. Empty list collapses the panel entirely so empty
+// cards stay visually clean.
+type LinkedTask = {
+  id: string;
+  title: string;
+  type: string;
+  status: string;
+  priority: string;
+  dueDate: Date | null;
+  bookSubsectionId: string | null;
+};
+
+function LinkedTasksPanel({ tasks }: { tasks: LinkedTask[] }) {
+  const [search, setSearch] = useState("");
+  const filtered = useMemo(() => {
+    if (!search.trim()) return tasks;
+    const t = search.trim().toLowerCase();
+    return tasks.filter((x) => x.title.toLowerCase().includes(t));
+  }, [tasks, search]);
+  if (tasks.length === 0) return null;
+  return (
+    <div className="mt-2 mb-4 bg-canvas/40 border border-border-soft rounded-md">
+      <div className="px-3 py-2 border-b border-border-soft flex items-baseline gap-2">
+        <strong className="text-[10px] uppercase tracking-wider text-ink-tertiary font-bold">
+          Linked tasks
+        </strong>
+        <span className="text-[10px] text-ink-tertiary tabular-nums">
+          {filtered.length}/{tasks.length}
+        </span>
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search…"
+          className="ml-auto text-[11px] bg-surface text-ink-primary border border-border-soft rounded-sm px-1.5 py-0.5 outline-none focus:border-moss-500 max-w-[140px]"
+        />
+        <Link
+          href="/tasks"
+          className="text-[10px] text-info hover:underline"
+        >
+          Manage →
+        </Link>
+      </div>
+      {filtered.length === 0 ? (
+        <p className="px-3 py-2 text-xs text-ink-tertiary italic">No matches.</p>
+      ) : (
+        <ul className="divide-y divide-border-soft">
+          {filtered.map((t) => (
+            <li key={t.id} className="flex items-baseline gap-2 px-3 py-1.5 text-xs">
+              <span className="text-[10px] font-bold text-ink-tertiary uppercase tracking-wider w-14 flex-shrink-0">
+                {t.type === "TASK" ? "Task" : t.type === "QUESTION" ? "Q" : "Decision"}
+              </span>
+              <span className={[
+                "flex-1 min-w-0 truncate",
+                t.status === "DONE" ? "text-ink-tertiary line-through" : "text-ink-primary",
+              ].join(" ")}>
+                {t.title}
+              </span>
+              <span className="text-[10px] uppercase tracking-wider text-ink-tertiary">
+                {t.status.toLowerCase().replace("_", " ")}
+              </span>
+              {t.dueDate && (
+                <span className="text-[10px] text-ink-tertiary tabular-nums">
+                  {t.dueDate.toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
+                </span>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
 
 // v1.26.0: kind discriminator → per-kind editor. Each subsection
 // arrives from the server with all its per-kind data eager-loaded
@@ -69,14 +148,19 @@ export function CardRouter({
   sub,
   canEdit,
   isCouple,
+  linkedTasks = [],
 }: {
   sub: Sub;
   canEdit: boolean;
   isCouple: boolean;
+  // v1.30.0: tasks/questions/decisions linked to this specific
+  // subsection. Surfaced via the LinkedTasksPanel below the card.
+  linkedTasks?: LinkedTask[];
 }) {
+  let card: React.ReactNode;
   switch (sub.kind) {
     case "TEXT":
-      return (
+      card = (
         <SubsectionEditor
           sub={{
             id: sub.id,
@@ -89,8 +173,9 @@ export function CardRouter({
           isCouple={isCouple}
         />
       );
+      break;
     case "FIELD":
-      return (
+      card = (
         <BookFieldsCard
           subsectionId={sub.id}
           slug={sub.slug}
@@ -106,8 +191,9 @@ export function CardRouter({
           isCouple={isCouple}
         />
       );
+      break;
     case "RECIPE":
-      return (
+      card = (
         <BookRecipeCard
           subsectionId={sub.id}
           slug={sub.slug}
@@ -120,8 +206,9 @@ export function CardRouter({
           isCouple={isCouple}
         />
       );
+      break;
     case "SHOT_LIST":
-      return (
+      card = (
         <BookShotListCard
           subsectionId={sub.id}
           slug={sub.slug}
@@ -133,8 +220,9 @@ export function CardRouter({
           isCouple={isCouple}
         />
       );
+      break;
     case "OUTFIT":
-      return (
+      card = (
         <BookOutfitCardEditor
           subsectionId={sub.id}
           slug={sub.slug}
@@ -146,12 +234,19 @@ export function CardRouter({
           isCouple={isCouple}
         />
       );
+      break;
     default: {
       // Exhaustiveness guard. If a new kind is added to the schema
       // without a matching CardRouter branch, TS catches it here.
       const exhaust: never = sub.kind;
       void exhaust;
-      return null;
+      card = null;
     }
   }
+  return (
+    <>
+      {card}
+      <LinkedTasksPanel tasks={linkedTasks} />
+    </>
+  );
 }

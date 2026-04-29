@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { notify } from "@/lib/notify";
 import { isoForInput } from "@/lib/format";
 import { deleteTask, updateTask } from "./actions";
-import type { UserOpt, SupplierOpt } from "./TaskForm";
+import type { UserOpt, SupplierOpt, BookSubsectionOpt } from "./TaskForm";
 
 type Task = {
   id: string;
@@ -20,6 +20,8 @@ type Task = {
   notes: string | null;
   // v1.28.0: optional supplier link.
   supplierId: string | null;
+  // v1.30.0: optional Wedding Book subsection link.
+  bookSubsectionId: string | null;
 };
 
 const STATUS_OPTIONS: { value: string; label: string }[] = [
@@ -55,6 +57,7 @@ export function TaskDrawer({
   task,
   users,
   suppliers = [],
+  bookSubsections = [],
   canEdit,
   onClose,
 }: {
@@ -63,6 +66,9 @@ export function TaskDrawer({
   // v1.28.0: optional list of suppliers for the supplier-link picker.
   // Empty array hides the field entirely.
   suppliers?: SupplierOpt[];
+  // v1.30.0: optional list of Wedding Book subsections for the
+  // book-link picker. Empty array hides the field.
+  bookSubsections?: BookSubsectionOpt[];
   canEdit: boolean;
   onClose: () => void;
 }) {
@@ -75,6 +81,7 @@ export function TaskDrawer({
   const [category, setCategory] = useState(task.tags[0] ?? "");
   const [notes, setNotes] = useState(task.notes ?? "");
   const [supplierId, setSupplierId] = useState(task.supplierId ?? "");
+  const [bookSubsectionId, setBookSubsectionId] = useState(task.bookSubsectionId ?? "");
   const [pending, startTransition] = useTransition();
 
   // ESC key dismisses the drawer.
@@ -95,7 +102,8 @@ export function TaskDrawer({
     dueDate !== (isoForInput(task.dueDate) ?? "") ||
     category !== (task.tags[0] ?? "") ||
     notes !== (task.notes ?? "") ||
-    (supplierId || null) !== (task.supplierId ?? null);
+    (supplierId || null) !== (task.supplierId ?? null) ||
+    (bookSubsectionId || null) !== (task.bookSubsectionId ?? null);
 
   function save() {
     if (!title.trim()) {
@@ -112,6 +120,7 @@ export function TaskDrawer({
     fd.set("category", category);
     fd.set("notes", notes);
     fd.set("supplierId", supplierId);
+    fd.set("bookSubsectionId", bookSubsectionId);
     startTransition(async () => {
       try {
         await updateTask(task.id, fd);
@@ -361,6 +370,36 @@ export function TaskDrawer({
                   {(() => {
                     const s = suppliers.find((x) => x.id === task.supplierId);
                     return s ? s.name : <span className="text-ink-tertiary italic">—</span>;
+                  })()}
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* v1.30.0: optional Wedding Book subsection link. */}
+          {bookSubsections.length > 0 && (
+            <div>
+              <strong className="block text-[10px] uppercase tracking-wider text-ink-tertiary font-bold mb-1.5">
+                Wedding Book card
+              </strong>
+              {canEdit ? (
+                <select
+                  value={bookSubsectionId}
+                  onChange={(e) => setBookSubsectionId(e.target.value)}
+                  className="w-full text-sm bg-surface text-ink-primary border border-border-soft rounded-sm px-2 py-1 outline-none focus:border-moss-500"
+                >
+                  <option value="">— none —</option>
+                  {bookSubsections.map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {b.sectionTitle} · {b.title}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <span className="text-sm text-ink-primary">
+                  {(() => {
+                    const b = bookSubsections.find((x) => x.id === task.bookSubsectionId);
+                    return b ? `${b.sectionTitle} · ${b.title}` : <span className="text-ink-tertiary italic">—</span>;
                   })()}
                 </span>
               )}

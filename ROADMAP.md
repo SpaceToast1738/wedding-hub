@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.29.0** | 2026-04-29 | [Task grouping: None / Assignee / Category / Supplier / Priority / Status · localStorage-persisted dropdown beside Sort · sectioned headers with counts](#2026-04-29--v1290--task-grouping) |
+| **v1.30.0** | 2026-04-29 | [Tasks ↔ Wedding Book subsection link · picker on task forms + drawer · Linked tasks panel under each card on `/book/[slug]` with per-card search](#2026-04-29--v1300--tasks--wedding-book-subsection-link) |
+| v1.29.0 | 2026-04-29 | [Task grouping: None / Assignee / Category / Supplier / Priority / Status · localStorage-persisted dropdown beside Sort · sectioned headers with counts](#2026-04-29--v1290--task-grouping) |
 | v1.28.0 | 2026-04-29 | [Task ↔ Supplier link · supplier picker on Task / Question / Decision forms · Linked tasks section on supplier detail · `?supplier=` deep-link from supplier page](#2026-04-29--v1280--task--supplier-link) |
 | v1.27.9 | 2026-04-29 | [Tasks polish: drop list container · wider rightmost columns · Type changer in the drawer · all-day events render "All day" instead of "01:00"](#2026-04-29--v1279--tasks-polish-round-3--all-day-display-fix) |
 | v1.27.7 | 2026-04-29 | [Guest detail side panel on seating canvas — click a seated guest dot to open](#2026-04-29--v1277--guest-detail-side-panel-on-seating-canvas) |
@@ -655,6 +656,53 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-29 · v1.30.0 — Tasks ↔ Wedding Book subsection link
+
+User-asked (29 Apr 2026, the bulk-asks list): "I want to be able to assign task, decisions and questions to the wedding book sections, the tasks will then also display filtered but searchable under each section". Mirrors the v1.28.0 supplier-link shape, scoped to `BookSubsection` instead of `Supplier` — so a task can attach to a specific *card* on a Wedding Book page, not just the page-level section. (Tighter granularity reads better: "what time do we need the catering recipe?" sits next to the recipe card, not floating on the section.)
+
+**Schema** ([prisma/schema.prisma](prisma/schema.prisma)):
+
+```prisma
+model Task {
+  …
+  bookSubsectionId String?
+  bookSubsection   BookSubsection? @relation(fields: [bookSubsectionId], references: [id], onDelete: SetNull)
+  @@index([bookSubsectionId])
+}
+
+model BookSubsection {
+  …
+  tasks Task[]
+}
+```
+
+`onDelete: SetNull` — deleting a card doesn't cascade-delete linked tasks (matches v1.28.0 supplier link reasoning).
+
+**Migration:** `prisma/migrations/20260429080000_task_book_subsection_link/migration.sql` — additive: column + FK + index.
+
+**Picker:** new `BookSubsectionOpt` shape exported from `TaskForm` (`{ id, title, sectionTitle }`). The picker option label is `${sectionTitle} · ${title}` so two cards with the same name on different pages stay unambiguous. Threaded through `AddTaskToggle` (create form) and `TaskDrawer` (edit) — both pages (`/tasks` + `/questions`) fetch the flattened list and pass it down. Picker hidden when there are no subsections (fresh installs stay tidy).
+
+**Read side — Linked tasks panel.** `/book/[slug]/page.tsx` fetches all tasks where `bookSubsectionId IN (subsection ids)` and groups them by subsection. Each group is passed to the matching `<CardRouter>` and rendered below its card via a new `LinkedTasksPanel` component — uppercase header strip with title + filtered/total count + a small client-side search input (scoped to the card's tasks) + a "Manage →" link to `/tasks`. Cards with no linked tasks render the panel as null so empty cards stay clean.
+
+**Files:**
+- `prisma/schema.prisma` — Task.bookSubsectionId/relation/index, BookSubsection.tasks back-relation.
+- `prisma/migrations/20260429080000_task_book_subsection_link/migration.sql` — new.
+- `src/app/(app)/tasks/actions.ts` — `bookSubsectionId` in baseSchema + create/update.
+- `src/app/(app)/tasks/TaskForm.tsx` — `BookSubsectionOpt` export + side-by-side picker layout (Supplier + Wedding Book card).
+- `src/app/(app)/tasks/TaskDrawer.tsx` — bookSubsectionId state + dirty + picker UI.
+- `src/app/(app)/tasks/AddTaskToggle.tsx` — `bookSubsections` prop + `defaultBookSubsectionId`.
+- `src/app/(app)/tasks/TaskList.tsx` — pass-through to TaskDrawer.
+- `src/app/(app)/tasks/page.tsx` + `src/app/(app)/questions/page.tsx` — fetch sections + flattened subsection list, pass down.
+- `src/app/(app)/book/[slug]/page.tsx` — fetch linked tasks for visible subsections, group by subsection.
+- `src/app/(app)/book/[slug]/CardRouter.tsx` — new `LinkedTasksPanel` component, every kind branch wrapped to render the panel below the card.
+
+**Verification:** typecheck + lint clean, 232 unit tests pass, clean `.next` build green.
+
+**Out of scope for this release** (intentionally — keeps the slice shippable):
+- *Adding "+ New task" affordance directly on each card.* Today the user creates tasks from `/tasks` and links them via the picker. A per-card "+" button is a follow-up — the data path is in place.
+- *Section-level (vs subsection-level) link.* The schema is currently subsection-scoped; aggregating to section is a read-side change if needed.
+- *Navigational subsections (music / reception / ceremony / guests).* Quick seed-only follow-up — defer until the user asks for the specific seed payload.
 
 ### 2026-04-29 · v1.29.0 — Task grouping
 
