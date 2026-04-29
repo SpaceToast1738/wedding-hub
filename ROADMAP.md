@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.22.6** | 2026-04-29 | [Seating: snap-to-grid toggle + modify table capacity + pending guests in seat-picker](#2026-04-29--v1226--seating-snap-to-grid-toggle--modify-capacity--pending-in-picker) |
+| **v1.22.7** | 2026-04-29 | [Seating: RSVP-colored dots, HEAD/RECTANGLE seats, drag-between-seats, resizable grid, uniform S/M/L/XL, visible capacity buttons, click-once focus](#2026-04-29--v1227--seating-rsvp-dots-all-shape-seats-canvas-drag-resizable-grid-uniform-toggles) |
+| v1.22.6 | 2026-04-29 | [Seating: snap-to-grid toggle + modify table capacity + pending guests in seat-picker](#2026-04-29--v1226--seating-snap-to-grid-toggle--modify-capacity--pending-in-picker) |
 | v1.22.5 | 2026-04-29 | [Bugfix: hydration mismatch (#418/#482) on Today page + persistence race on seating canvas + decoupled dot/label scales](#2026-04-29--v1225--bugfix-hydration-persistence-race-decoupled-seating-scales) |
 | v1.22.0 | 2026-04-28 | [Custom fields for Supplier + Task](#2026-04-28--v1220--custom-fields-for-supplier--task) |
 | v1.21.0 | 2026-04-28 | [Audit log viewer + sticky search on /suppliers + /tasks](#2026-04-28--v1210--audit-log-viewer--sticky-search-on-suppliers--tasks) |
@@ -308,6 +309,33 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-29 · v1.22.7 — Seating: RSVP dots, all-shape seats, canvas drag, resizable grid, uniform toggles
+
+Big seating-canvas pass — eight follow-up asks from v1.22.6 dogfood, all UI-only (no schema). Each is small individually; bundled because they touch the same file.
+
+**1. RSVP-colored seat dots ("attendance markers").** Pre-fix all occupied seats were moss green regardless of whether the guest had confirmed. Now colored by `Guest.rsvp`: moss=ATTENDING, marigold=PENDING, info-blue=MAYBE, muted=DECLINED. Mirrors the AllGuestsPanel tag palette so the visual language is consistent. Seat fetch in `page.tsx` extended to include `rsvp`.
+
+**2. Seat dots on HEAD + RECTANGLE tables.** Pre-fix only round tables rendered per-seat dots — head tables and rectangles showed only the table outline + name + count, so the user couldn't see who sat where. New `computeSeatLayouts(shape, capacity, size, dotScale, labelScale)` helper handles all three shapes:
+- ROUND — radial around perimeter (existing layout, refactored).
+- HEAD — single row along the front (bottom) edge — guests face the room.
+- RECTANGLE — split between top/bottom edges, top gets the extra seat when capacity is odd.
+
+Labels position appropriately for each shape (radial outward for round, below dots for head/rectangle-bottom, above dots for rectangle-top).
+
+**3. Drag between seats on canvas.** Pre-fix only the AllGuestsPanel-row → seat drag worked. Now each occupied seat carries an HTML5 drag-source layer (`draggable`) so the planner can drag a guest from one seat to another (or back to the panel for unseating). The table-drag's `onPointerDown` checks for a `draggable` target and bails so the seat-drag never accidentally starts a table-drag. Existing `assignGuestToSeat` action (B12 transaction from v1.12.0) handles the reseat atomically.
+
+**4. Resizable grid (S/M/L/XL).** Pre-fix the canvas grid was a fixed 20px. New `Grid size` toggle in the side panel — S=10/M=20/L=30/XL=40. Both the visible `<pattern>` and the snap-on-drop math read this value at render time. Persisted via `wh_seating_grid_size`. Keyboard nudge step also follows the new grid size.
+
+**5. Uniform S/M/L/XL with bumped label-M.** Pre-fix the label scale toggle was S/M/L (no XL) and `M=1.4` was "too cramped" per user feedback. All three sizing toggles (dot, label, grid) now share the S/M/L/XL shape. Scale values bumped: S=1.0, M=1.6, L=2.0, XL=2.5 — the new M sits between the old M (1.4) and L (1.8). Old saved values (1.4, 1.8, 2.4) silently fall back to default M=1.6 since they're no longer in the validation set; tradeoff vs. a migration path.
+
+**6. Visible capacity +/- buttons.** Pre-fix the v1.22.6 +/- buttons were 16px inline glyphs that were almost invisible (the user couldn't find them). Replaced with a labelled "Seats" row in the FocusPanel + TableCard headers — 28px buttons with proper hit targets, `bg-canvas/60` row container, and the current capacity number tabular-numbered between them. Both views (canvas FocusPanel + list-view TableCard) get the same row.
+
+**7. Click-once focus.** Pre-fix clicking a table sometimes required two clicks before the FocusPanel appeared. Race condition: the `<g>` is `tabIndex=0` so it gains browser focus on `mousedown` (firing `onFocus` → `setFocusedId(id)`); then the pointerup-toggle would *un*set it on the same click (`cur === id ? null : id`). Removed the toggle: clicks always set; deselection happens via the × button. Also: clicking a seat's drag-source still focuses the table even though the table-drag bails.
+
+**8. (incidental) Component refactor.** Three-up scale toggles (dot/label/grid) now share a `<ScaleToggle>` component instead of three near-identical inline blocks; cuts ~50 lines.
+
+**Verification:** typecheck + lint clean, all 188 unit tests pass, clean `.next` build green. Manual: click a HEAD table → dots visible along bottom edge. Open a round table, click +/- → capacity changes. Drag a guest from one seat to another → reseats. Try Grid=XL → grid widens, snap snaps to 40px.
 
 ### 2026-04-29 · v1.22.6 — Seating: snap-to-grid toggle + modify capacity + pending in picker
 

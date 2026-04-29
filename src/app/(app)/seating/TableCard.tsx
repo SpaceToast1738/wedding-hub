@@ -5,7 +5,18 @@ import { Button } from "@/components/ui/Button";
 import { notify } from "@/lib/notify";
 import { assignGuestToSeat, deleteTable, updateTableCapacity } from "./actions";
 
-type Seat = { id: string; index: number; guest: { id: string; firstName: string; lastName: string } | null };
+type Seat = {
+  id: string;
+  index: number;
+  // v1.22.7: rsvp threaded through for canvas dot coloring; not used
+  // here in the list view but the type matches Prisma's select.
+  guest: {
+    id: string;
+    firstName: string;
+    lastName: string;
+    rsvp: "PENDING" | "ATTENDING" | "DECLINED" | "MAYBE";
+  } | null;
+};
 type Table = { id: string; name: string; shape: string; capacity: number; seats: Seat[] };
 type GuestOpt = {
   id: string;
@@ -73,39 +84,50 @@ export function TableCard({
 
   return (
     <section className="bg-surface border border-border-soft rounded-md shadow-sm">
-      <header className="flex items-center justify-between px-4 py-3 border-b border-border-soft">
-        <div>
-          <h2 className="text-sm font-semibold text-ink-primary">{table.name}</h2>
-          <div className="text-[11px] text-ink-tertiary flex items-center gap-1.5">
-            <span>{table.shape.toLowerCase()} · {assigned}/{table.capacity} seated</span>
-            {canEdit && (
-              <span className="inline-flex items-center gap-0.5 ml-1">
-                <button
-                  type="button"
-                  onClick={() => onCapacity(-1)}
-                  disabled={pending || table.capacity <= 1}
-                  className="w-4 h-4 leading-none rounded-sm border border-border-soft bg-canvas hover:border-moss-300 disabled:opacity-40 disabled:cursor-not-allowed text-ink-secondary"
-                  aria-label="Remove a seat"
-                  title="Remove a seat (must be empty)"
-                >
-                  −
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onCapacity(1)}
-                  disabled={pending || table.capacity >= 40}
-                  className="w-4 h-4 leading-none rounded-sm border border-border-soft bg-canvas hover:border-moss-300 disabled:opacity-40 disabled:cursor-not-allowed text-ink-secondary"
-                  aria-label="Add a seat"
-                  title="Add a seat"
-                >
-                  +
-                </button>
-              </span>
-            )}
+      <header className="px-4 py-3 border-b border-border-soft">
+        <div className="flex items-center justify-between gap-2">
+          <div>
+            <h2 className="text-sm font-semibold text-ink-primary">{table.name}</h2>
+            <div className="text-[11px] text-ink-tertiary">
+              {table.shape.toLowerCase()} · {assigned}/{table.capacity} seated
+            </div>
           </div>
+          {canEdit && (
+            <Button variant="ghost" size="sm" onClick={onDelete} disabled={pending}>Delete</Button>
+          )}
         </div>
+        {/* v1.22.7: visible capacity edit row, mirrors FocusPanel. */}
         {canEdit && (
-          <Button variant="ghost" size="sm" onClick={onDelete} disabled={pending}>Delete</Button>
+          <div className="mt-3 flex items-center justify-between gap-2 bg-canvas/60 rounded-md px-3 py-2">
+            <span className="text-[11px] uppercase tracking-wider font-bold text-ink-secondary">
+              Seats
+            </span>
+            <div className="inline-flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => onCapacity(-1)}
+                disabled={pending || table.capacity <= 1}
+                className="w-7 h-7 rounded-md border border-border-soft bg-surface text-ink-primary text-base font-semibold leading-none hover:border-moss-500 hover:bg-moss-50 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-surface flex items-center justify-center"
+                aria-label="Remove a seat"
+                title="Remove a seat (must be empty)"
+              >
+                −
+              </button>
+              <span className="text-sm font-semibold text-ink-primary tabular-nums w-6 text-center">
+                {table.capacity}
+              </span>
+              <button
+                type="button"
+                onClick={() => onCapacity(1)}
+                disabled={pending || table.capacity >= 40}
+                className="w-7 h-7 rounded-md border border-border-soft bg-surface text-ink-primary text-base font-semibold leading-none hover:border-moss-500 hover:bg-moss-50 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-surface flex items-center justify-center"
+                aria-label="Add a seat"
+                title="Add a seat"
+              >
+                +
+              </button>
+            </div>
+          </div>
         )}
       </header>
       <ul className="divide-y divide-border-soft">

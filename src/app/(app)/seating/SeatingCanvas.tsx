@@ -7,11 +7,30 @@ import { notify } from "@/lib/notify";
 import { assignGuestToSeat, deleteTable, updateTableCapacity, updateTablePosition } from "./actions";
 import type { AllGuest } from "./SeatingClient";
 
+type Rsvp = "PENDING" | "ATTENDING" | "DECLINED" | "MAYBE";
+
 type Seat = {
   id: string;
   index: number;
-  guest: { id: string; firstName: string; lastName: string } | null;
+  // v1.22.7: rsvp on the guest so the dot can be colored by
+  // attendance confirmation (moss / marigold / info / muted).
+  guest: { id: string; firstName: string; lastName: string; rsvp: Rsvp } | null;
 };
+
+// Colors for the seat dots by RSVP. Mirrors the AllGuestsPanel tag
+// palette so the visual language is consistent.
+function dotFillForRsvp(rsvp: Rsvp): string {
+  if (rsvp === "ATTENDING") return "var(--color-moss-500)";
+  if (rsvp === "PENDING") return "var(--color-marigold-500)";
+  if (rsvp === "MAYBE") return "var(--color-info)";
+  return "var(--color-ink-tertiary)"; // declined — shouldn't usually have a seat
+}
+function dotStrokeForRsvp(rsvp: Rsvp): string {
+  if (rsvp === "ATTENDING") return "var(--color-moss-700)";
+  if (rsvp === "PENDING") return "var(--color-marigold-700)";
+  if (rsvp === "MAYBE") return "var(--color-info)";
+  return "var(--color-border-strong)";
+}
 
 type Table = {
   id: string;
@@ -43,14 +62,37 @@ function guestOptionLabel(g: GuestOpt): string {
 
 const CANVAS_W = 1400;
 const CANVAS_H = 900;
-const GRID = 20;
+// v1.22.7: grid is now user-resizable. Default M=20 matches the
+// pre-v1.22.7 fixed value. Both the visual pattern and the snap
+// math read off this value at render time.
+const GRID_OPTIONS = [
+  { label: "S", value: 10 },
+  { label: "M", value: 20 },
+  { label: "L", value: 30 },
+  { label: "XL", value: 40 },
+] as const;
+const GRID_VALUES = GRID_OPTIONS.map((o) => o.value);
+
+// v1.22.7: scale toggles unified to S/M/L/XL across all sizing
+// features (dot, label, grid). The pre-v1.22.7 label-M (1.4) was
+// "too cramped" per user feedback — bumped to 1.6, which sits
+// between the old M and L. Dot scale stays 1.0/1.6/2.0/2.5 to
+// match the label spacing visually.
+const SCALE_OPTIONS = [
+  { label: "S", value: 1.0 },
+  { label: "M", value: 1.6 },
+  { label: "L", value: 2.0 },
+  { label: "XL", value: 2.5 },
+] as const;
+const SCALE_VALUES = SCALE_OPTIONS.map((o) => o.value);
+
 // v1.22.6: SNAP_RADIUS removed. Snap behaviour is now an explicit
 // user-controlled toggle (`snapToGrid` state) — either always snap on
 // drop, or never. The pre-v1.22.6 "soft snap within ±10px tolerance"
 // was confusing in practice (rarely fired).
 
-function snap(value: number): number {
-  return Math.round(value / GRID) * GRID;
+function snap(value: number, grid: number): number {
+  return Math.round(value / grid) * grid;
 }
 
 // Visual sizing — purely cosmetic, scaled by capacity. Tables stay distinct
@@ -65,6 +107,65 @@ function tableSize(shape: TableShape, capacity: number): { w: number; h: number;
   }
   // RECTANGLE
   return { w: 70 + capacity * 14, h: 60, r: 0 };
+}
+
+// v1.22.7: per-seat dot/label layout per shape.
+//   ROUND — radial around perimeter, anchor flips left/right by hemisphere.
+//   HEAD  — single row along the front (bottom) edge — guests face the room.
+//   RECTANGLE — split between top and bottom edges, half each (top gets the
+//               extra seat when capacity is odd).
+type SeatLayout = {
+  cx: number;
+  cy: number;
+  labelX: number;
+  labelY: number;
+  labelAnchor: "start" | "middle" | "end";
+};
+
+function computeSeatLayouts(
+  shape: TableShape,
+  capacity: number,
+  size: { w: number; h: number; r: number },
+  dotScale: number,
+  labelScale: number,
+): SeatLayout[] {
+  if (shape === "ROUND") {
+    return Array.from({ length: capacity }, (_, i) => {
+      // -90° offset puts seat 0 at the top of the circle, matching how
+      // a host typically reads round-table seating ("twelve o'clock first").
+      const angle = (i / capacity) * 2 * Math.PI - Math.PI / 2;
+      const dotOffset = size.r + 8 * dotScale;
+      const cx = dotOffset * Math.cos(angle);
+      const cy = dotOffset * Math.sin(angle);
+      const labelOffset = dotOffset + 3.5 * dotScale + 8 * labelScale;
+      const lx = labelOffset * Math.cos(angle);
+      const ly = labelOffset * Math.sin(angle) + 3 * labelScale;
+      const labelAnchor: "start" | "middle" | "end" =
+        lx < -2 ? "end" : lx > 2 ? "start" : "middle";
+      return { cx, cy, labelX: lx, labelY: ly, labelAnchor };
+    });
+  }
+  if (shape === "HEAD") {
+    // All seats along bottom edge — head table faces the room.
+    return Array.from({ length: capacity }, (_, i) => {
+      const cx = -size.w / 2 + ((i + 0.5) * size.w) / capacity;
+      const cy = size.h / 2 + 8 * dotScale;
+      const labelY = cy + 12 * labelScale + 3 * labelScale;
+      return { cx, cy, labelX: cx, labelY, labelAnchor: "middle" };
+    });
+  }
+  // RECTANGLE — split top/bottom edges, top takes the extra when odd.
+  const topCount = Math.ceil(capacity / 2);
+  const bottomCount = capacity - topCount;
+  return Array.from({ length: capacity }, (_, i) => {
+    const onTop = i < topCount;
+    const localIdx = onTop ? i : i - topCount;
+    const localTotal = onTop ? topCount : bottomCount;
+    const cx = -size.w / 2 + ((localIdx + 0.5) * size.w) / localTotal;
+    const cy = onTop ? -size.h / 2 - 8 * dotScale : size.h / 2 + 8 * dotScale;
+    const labelY = onTop ? cy - 6 * labelScale : cy + 12 * labelScale + 3 * labelScale;
+    return { cx, cy, labelX: cx, labelY, labelAnchor: "middle" };
+  });
 }
 
 function FillForShape(shape: TableShape): string {
@@ -104,14 +205,18 @@ export function SeatingCanvas({
   // v1.22.5: split into independent dot + label scales. The user wanted
   // "bigger seats but not bigger labels" — pre-fix, both grew together
   // because they shared one scale. Now each persists separately.
-  const [labelScale, setLabelScale] = useState<number>(1.4);
-  const [dotScale, setDotScale] = useState<number>(1.4);
+  // v1.22.7: defaults bumped to M=1.6 (the new uniform M).
+  const [labelScale, setLabelScale] = useState<number>(1.6);
+  const [dotScale, setDotScale] = useState<number>(1.6);
   // v1.22.6: snap-to-grid toggle. Pre-fix the snap-on-drop only fired
   // when the drop landed within ±10px of a grid point — the rest of
   // the time tables stayed wherever the drag ended (off-grid). User
   // wants alignment, so the new toggle lets them say "always snap on
   // drop". Default on (alignment is the planner's stated goal).
   const [snapToGrid, setSnapToGrid] = useState<boolean>(true);
+  // v1.22.7: user-controlled grid size. The visible <pattern> and the
+  // snap-on-drop both read this. Persisted via localStorage.
+  const [gridSize, setGridSize] = useState<number>(20);
   // v1.22.5 persistence fix: pre-fix, the save effect ran on mount
   // with the default state value and overwrote whatever the user had
   // saved before the load effect could swap it in. Gate the save on
@@ -156,18 +261,27 @@ export function SeatingCanvas({
   const [, startTransitionDrop] = useTransition();
   useEffect(() => {
     try {
+      // v1.22.7: scales now live in SCALE_VALUES (1.0/1.6/2.0/2.5).
+      // Old values (1.4 / 1.8 / 2.4) silently reset to default M=1.6
+      // — minor footgun for users who picked a size in v1.22.5/6, but
+      // the toggle is right there to re-pick.
       const savedLabel = localStorage.getItem("wh_seating_label_scale");
       if (savedLabel) {
         const n = Number(savedLabel);
-        if (n === 1.0 || n === 1.4 || n === 1.8) setLabelScale(n);
+        if ((SCALE_VALUES as readonly number[]).includes(n)) setLabelScale(n);
       }
       const savedDot = localStorage.getItem("wh_seating_dot_scale");
       if (savedDot) {
         const n = Number(savedDot);
-        if (n === 1.0 || n === 1.4 || n === 1.8 || n === 2.4) setDotScale(n);
+        if ((SCALE_VALUES as readonly number[]).includes(n)) setDotScale(n);
       }
       const savedSnap = localStorage.getItem("wh_seating_snap_to_grid");
       if (savedSnap === "true" || savedSnap === "false") setSnapToGrid(savedSnap === "true");
+      const savedGrid = localStorage.getItem("wh_seating_grid_size");
+      if (savedGrid) {
+        const n = Number(savedGrid);
+        if ((GRID_VALUES as readonly number[]).includes(n)) setGridSize(n);
+      }
     } catch {
       // ignore — non-critical preference
     }
@@ -197,6 +311,14 @@ export function SeatingCanvas({
       // ignore
     }
   }, [snapToGrid, loaded]);
+  useEffect(() => {
+    if (!loaded) return;
+    try {
+      localStorage.setItem("wh_seating_grid_size", String(gridSize));
+    } catch {
+      // ignore
+    }
+  }, [gridSize, loaded]);
 
   useEffect(() => {
     setPositions((prev) => {
@@ -230,6 +352,15 @@ export function SeatingCanvas({
       setFocusedId(t.id);
       return;
     }
+    // v1.22.7: if the user clicked a seat's drag-source layer (an
+    // HTML5-draggable circle on top of the dot), don't start a table
+    // drag — let the HTML5 drag handle the seat-to-seat reseat. Still
+    // focus the table so the side panel reflects the click.
+    const target = e.target as Element | null;
+    if (target?.getAttribute?.("draggable") === "true") {
+      setFocusedId(t.id);
+      return;
+    }
     const point = clientToSvg(e.clientX, e.clientY);
     const pos = positions[t.id] ?? { x: t.posX, y: t.posY };
     e.currentTarget.setPointerCapture(e.pointerId);
@@ -260,7 +391,12 @@ export function SeatingCanvas({
     setDrag(null);
 
     if (!moved) {
-      setFocusedId((cur) => (cur === id ? null : id));
+      // v1.22.7: was a toggle (cur === id ? null : id). Race-y because
+      // the table's `<g>` is `tabIndex=0` so it gains browser focus on
+      // mousedown, which fires `onFocus` and sets focusedId mid-flight.
+      // The pointerup toggle then *un*set it on the very same click.
+      // Fix: just set; deselection happens via the × button.
+      setFocusedId(id);
       return;
     }
 
@@ -271,9 +407,10 @@ export function SeatingCanvas({
     // wherever the cursor lands. Pre-v1.22.6 behaviour was a "soft
     // snap" within ±10px tolerance, which almost never fired in
     // practice; replaced with the explicit toggle.
+    // v1.22.7: snap math reads the user-controlled `gridSize`.
     let final: { x: number; y: number };
     if (snapToGrid) {
-      final = { x: snap(live.x), y: snap(live.y) };
+      final = { x: snap(live.x, gridSize), y: snap(live.y, gridSize) };
       setPositions((prev) => ({ ...prev, [id]: final }));
     } else {
       final = { x: live.x, y: live.y };
@@ -295,7 +432,7 @@ export function SeatingCanvas({
       const target = e.target as HTMLElement | null;
       if (target?.tagName === "INPUT" || target?.tagName === "TEXTAREA" || target?.tagName === "SELECT") return;
       e.preventDefault();
-      const step = e.shiftKey ? GRID * 4 : GRID;
+      const step = e.shiftKey ? gridSize * 4 : gridSize;
       const dx = e.key === "ArrowLeft" ? -step : e.key === "ArrowRight" ? step : 0;
       const dy = e.key === "ArrowUp" ? -step : e.key === "ArrowDown" ? step : 0;
       setPositions((prev) => {
@@ -314,7 +451,7 @@ export function SeatingCanvas({
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [canEdit, focusedId]);
+  }, [canEdit, focusedId, gridSize]);
 
   const focusedTable = useMemo(
     () => initialTables.find((t) => t.id === focusedId) ?? null,
@@ -332,7 +469,8 @@ export function SeatingCanvas({
           style={{ background: "var(--color-canvas)" }}
         >
           <defs>
-            <pattern id="grid" width={GRID} height={GRID} patternUnits="userSpaceOnUse">
+            {/* v1.22.7: pattern step is the user-controlled gridSize. */}
+            <pattern id="grid" width={gridSize} height={gridSize} patternUnits="userSpaceOnUse">
               <circle cx={1} cy={1} r={1} fill="var(--color-border-soft)" />
             </pattern>
           </defs>
@@ -379,110 +517,117 @@ export function SeatingCanvas({
                   />
                 )}
                 {/* C7 (v1.14.0): per-seat position dots on round tables.
-                    Filled (moss) = occupied; outlined (canvas) = empty.
-                    v1.16.0: now also renders the occupant's first name
-                    next to each filled dot, anchored away from the
-                    table centre so the text reads outward and doesn't
-                    overlap the table circle. */}
-                {t.shape === "ROUND" && t.seats.map((seat, i) => {
-                  // -90° offset puts seat 0 at the top of the circle,
-                  // matching how a host typically reads round-table
-                  // seating ("twelve o'clock first").
-                  const angle = (i / t.capacity) * 2 * Math.PI - Math.PI / 2;
-                  const dotOffset = size.r + 8 * dotScale;
-                  const cx = dotOffset * Math.cos(angle);
-                  const cy = dotOffset * Math.sin(angle);
-                  const occupied = !!seat.guest;
-                  // Label sits a bit further out than the dot. Anchor
-                  // is "end" on the left half of the table, "start" on
-                  // the right half, so the text always grows away from
-                  // the centre rather than crashing into the table.
-                  // v1.22.5: label offset is dot edge + label-scaled
-                  // breathing room. Decouples from dot size so picking
-                  // L dots + S labels keeps the text close to the dot.
-                  const labelOffset = dotOffset + 3.5 * dotScale + 8 * labelScale;
-                  const lx = labelOffset * Math.cos(angle);
-                  const ly = labelOffset * Math.sin(angle);
-                  const textAnchor: "start" | "middle" | "end" =
-                    lx < -2 ? "end" : lx > 2 ? "start" : "middle";
-                  // Truncate to keep the canvas readable when names
-                  // are long. First-name-only is the convention; a
-                  // 10-char cap catches the rare "Christopher" case.
-                  const firstName = seat.guest?.firstName ?? "";
-                  const label = firstName.length > 10
-                    ? `${firstName.slice(0, 9)}…`
-                    : firstName;
-                  const isDragOver = dragOverSeatId === seat.id;
-                  return (
-                    <g key={seat.id}>
-                      {/* v1.20.6: invisible wider drop-zone behind the
-                          visible dot — only rendered while a guest is
-                          being dragged, so normal pointer events pass
-                          through to the table-drag handler. */}
-                      {canEdit && draggingGuestId && (
+                    v1.16.0 added first-name labels.
+                    v1.22.7 extends to HEAD + RECTANGLE shapes, colors
+                    dots by RSVP status (attendance markers), and adds
+                    a draggable layer per occupied seat for canvas
+                    seat-to-seat reseating. */}
+                {(() => {
+                  const layouts = computeSeatLayouts(t.shape, t.capacity, size, dotScale, labelScale);
+                  return t.seats.map((seat, i) => {
+                    const layout = layouts[i]!;
+                    const occupied = !!seat.guest;
+                    const isDragOver = dragOverSeatId === seat.id;
+                    const guestRsvp = seat.guest?.rsvp;
+                    const fillColor = isDragOver
+                      ? "var(--color-marigold-500)"
+                      : occupied
+                        ? dotFillForRsvp(guestRsvp!)
+                        : "var(--color-canvas)";
+                    const strokeColor = isDragOver
+                      ? "var(--color-marigold-700)"
+                      : occupied
+                        ? dotStrokeForRsvp(guestRsvp!)
+                        : "var(--color-border-strong)";
+                    const firstName = seat.guest?.firstName ?? "";
+                    const label = firstName.length > 10
+                      ? `${firstName.slice(0, 9)}…`
+                      : firstName;
+                    return (
+                      <g key={seat.id}>
+                        {/* v1.22.7: drag-source layer — occupied seats
+                            become an HTML5 drag source, so the user
+                            can drag a guest from one seat to another
+                            (or back to the panel for unseating). The
+                            table-drag's onPointerDown checks for a
+                            draggable target and bails, so the seat
+                            click never starts a table-drag. */}
+                        {canEdit && occupied && (
+                          <circle
+                            cx={layout.cx}
+                            cy={layout.cy}
+                            r={Math.max(12, 8 * dotScale)}
+                            fill="transparent"
+                            {...{ draggable: true } /* draggable not in React's SVG types but works in all evergreen browsers */}
+                            onDragStart={(e) => {
+                              e.stopPropagation();
+                              e.dataTransfer.setData("guestId", seat.guest!.id);
+                              e.dataTransfer.effectAllowed = "move";
+                              setDraggingGuestId(seat.guest!.id);
+                            }}
+                            onDragEnd={() => {
+                              setDraggingGuestId(null);
+                              setDragOverSeatId(null);
+                            }}
+                            style={{ cursor: "grab" }}
+                          />
+                        )}
+                        {/* v1.20.6: drop-zone — only renders during a
+                            drag, sits ABOVE the drag-source so dragOver
+                            events hit it (not the source). */}
+                        {canEdit && draggingGuestId && (
+                          <circle
+                            cx={layout.cx}
+                            cy={layout.cy}
+                            r={Math.max(14, 8 * dotScale)}
+                            fill="transparent"
+                            onDragEnter={(e) => {
+                              e.preventDefault();
+                              setDragOverSeatId(seat.id);
+                            }}
+                            onDragOver={(e) => {
+                              e.preventDefault();
+                              e.dataTransfer.dropEffect = "move";
+                            }}
+                            onDragLeave={() => {
+                              setDragOverSeatId((prev) => (prev === seat.id ? null : prev));
+                            }}
+                            onDrop={(e) => {
+                              e.preventDefault();
+                              const guestId =
+                                e.dataTransfer.getData("guestId") || draggingGuestId;
+                              if (guestId) dropOnSeat(seat.id, guestId);
+                              setDraggingGuestId(null);
+                              setDragOverSeatId(null);
+                            }}
+                            style={{ cursor: "copy" }}
+                          />
+                        )}
                         <circle
-                          cx={cx}
-                          cy={cy}
-                          r={Math.max(14, 8 * dotScale)}
-                          fill="transparent"
-                          onDragEnter={(e) => {
-                            e.preventDefault();
-                            setDragOverSeatId(seat.id);
-                          }}
-                          onDragOver={(e) => {
-                            e.preventDefault();
-                            e.dataTransfer.dropEffect = "move";
-                          }}
-                          onDragLeave={() => {
-                            setDragOverSeatId((prev) => (prev === seat.id ? null : prev));
-                          }}
-                          onDrop={(e) => {
-                            e.preventDefault();
-                            const guestId =
-                              e.dataTransfer.getData("guestId") || draggingGuestId;
-                            if (guestId) dropOnSeat(seat.id, guestId);
-                            setDraggingGuestId(null);
-                            setDragOverSeatId(null);
-                          }}
-                          style={{ cursor: "copy" }}
-                        />
-                      )}
-                      <circle
-                        cx={cx}
-                        cy={cy}
-                        r={3.5 * dotScale}
-                        fill={
-                          isDragOver
-                            ? "var(--color-marigold-500)"
-                            : occupied
-                              ? "var(--color-moss-500)"
-                              : "var(--color-canvas)"
-                        }
-                        stroke={
-                          isDragOver
-                            ? "var(--color-marigold-700)"
-                            : occupied
-                              ? "var(--color-moss-700)"
-                              : "var(--color-border-strong)"
-                        }
-                        strokeWidth={isDragOver ? 2 : 1}
-                        pointerEvents="none"
-                      />
-                      {occupied && (
-                        <text
-                          x={lx}
-                          y={ly + 3 * labelScale}
-                          textAnchor={textAnchor}
-                          fontSize={9 * labelScale}
-                          fill="var(--color-ink-secondary)"
+                          cx={layout.cx}
+                          cy={layout.cy}
+                          r={3.5 * dotScale}
+                          fill={fillColor}
+                          stroke={strokeColor}
+                          strokeWidth={isDragOver ? 2 : 1}
                           pointerEvents="none"
-                        >
-                          {label}
-                        </text>
-                      )}
-                    </g>
-                  );
-                })}
+                        />
+                        {occupied && (
+                          <text
+                            x={layout.labelX}
+                            y={layout.labelY}
+                            textAnchor={layout.labelAnchor}
+                            fontSize={9 * labelScale}
+                            fill="var(--color-ink-secondary)"
+                            pointerEvents="none"
+                          >
+                            {label}
+                          </text>
+                        )}
+                      </g>
+                    );
+                  });
+                })()}
                 <text
                   x={0}
                   y={-4}
@@ -542,66 +687,29 @@ export function SeatingCanvas({
                 </label>
               </div>
             )}
-            {/* v1.20.5: per-seat scale toggles. The user's picks
-                persist across sessions via localStorage.
-                v1.22.5: split into dot + label so they can be tuned
-                independently ("bigger seats but not bigger labels"). */}
+            {/* v1.22.7: scale toggles unified to S/M/L/XL across all
+                three sizing dimensions (dot, label, grid). M values
+                were bumped relative to v1.22.5/6 — the old M was too
+                cramped per user feedback. */}
             <div className="pt-3 border-t border-border-soft space-y-2.5">
-              <div>
-                <strong className="block text-ink-secondary text-[11px] uppercase tracking-wider mb-1.5">
-                  Seat dot size
-                </strong>
-                <div className="inline-flex gap-px bg-canvas border border-border-soft rounded-full p-0.5">
-                  {([
-                    { label: "S", value: 1.0 },
-                    { label: "M", value: 1.4 },
-                    { label: "L", value: 1.8 },
-                    { label: "XL", value: 2.4 },
-                  ] as const).map((opt) => (
-                    <button
-                      key={opt.label}
-                      type="button"
-                      onClick={() => setDotScale(opt.value)}
-                      className={[
-                        "text-xs px-3 py-0.5 rounded-full font-semibold transition-colors",
-                        dotScale === opt.value
-                          ? "bg-moss-500 text-white"
-                          : "text-ink-tertiary hover:text-ink-primary",
-                      ].join(" ")}
-                      aria-pressed={dotScale === opt.value}
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div>
-                <strong className="block text-ink-secondary text-[11px] uppercase tracking-wider mb-1.5">
-                  Seat label size
-                </strong>
-                <div className="inline-flex gap-px bg-canvas border border-border-soft rounded-full p-0.5">
-                  {([
-                    { label: "S", value: 1.0 },
-                    { label: "M", value: 1.4 },
-                    { label: "L", value: 1.8 },
-                  ] as const).map((opt) => (
-                    <button
-                      key={opt.label}
-                      type="button"
-                      onClick={() => setLabelScale(opt.value)}
-                      className={[
-                        "text-xs px-3 py-0.5 rounded-full font-semibold transition-colors",
-                        labelScale === opt.value
-                          ? "bg-moss-500 text-white"
-                          : "text-ink-tertiary hover:text-ink-primary",
-                      ].join(" ")}
-                      aria-pressed={labelScale === opt.value}
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
+              <ScaleToggle
+                label="Seat dot size"
+                value={dotScale}
+                options={SCALE_OPTIONS}
+                onChange={setDotScale}
+              />
+              <ScaleToggle
+                label="Seat label size"
+                value={labelScale}
+                options={SCALE_OPTIONS}
+                onChange={setLabelScale}
+              />
+              <ScaleToggle
+                label="Grid size"
+                value={gridSize}
+                options={GRID_OPTIONS}
+                onChange={setGridSize}
+              />
             </div>
           </div>
         )}
@@ -621,6 +729,47 @@ export function SeatingCanvas({
           }}
         />
       </aside>
+    </div>
+  );
+}
+
+// v1.22.7: shared S/M/L(/XL) toggle for the side panel sizing
+// controls. Same visual shape as the M/W/D toggle in CountdownCard
+// so the design language is consistent.
+function ScaleToggle<T extends number>({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: T;
+  options: ReadonlyArray<{ label: string; value: T }>;
+  onChange: (v: T) => void;
+}) {
+  return (
+    <div>
+      <strong className="block text-ink-secondary text-[11px] uppercase tracking-wider mb-1.5">
+        {label}
+      </strong>
+      <div className="inline-flex gap-px bg-canvas border border-border-soft rounded-full p-0.5">
+        {options.map((opt) => (
+          <button
+            key={opt.label}
+            type="button"
+            onClick={() => onChange(opt.value)}
+            className={[
+              "text-xs px-3 py-0.5 rounded-full font-semibold transition-colors",
+              value === opt.value
+                ? "bg-moss-500 text-white"
+                : "text-ink-tertiary hover:text-ink-primary",
+            ].join(" ")}
+            aria-pressed={value === opt.value}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
@@ -680,44 +829,58 @@ function FocusPanel({
 
   return (
     <section className="bg-surface border border-border-soft rounded-md shadow-sm">
-      <header className="flex items-start justify-between gap-2 px-4 py-3 border-b border-border-soft">
-        <div className="min-w-0">
-          <h2 className="text-sm font-semibold text-ink-primary truncate">{table.name}</h2>
-          <div className="text-[11px] text-ink-tertiary flex items-center gap-1.5">
-            <span>{table.shape.toLowerCase()} · {filled}/{table.capacity} seated</span>
-            {canEdit && (
-              <span className="inline-flex items-center gap-0.5 ml-1">
-                <button
-                  type="button"
-                  onClick={() => onCapacity(-1)}
-                  disabled={pending || table.capacity <= 1}
-                  className="w-4 h-4 leading-none rounded-sm border border-border-soft bg-canvas hover:border-moss-300 disabled:opacity-40 disabled:cursor-not-allowed text-ink-secondary"
-                  aria-label="Remove a seat"
-                  title="Remove a seat (must be empty)"
-                >
-                  −
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onCapacity(1)}
-                  disabled={pending || table.capacity >= 40}
-                  className="w-4 h-4 leading-none rounded-sm border border-border-soft bg-canvas hover:border-moss-300 disabled:opacity-40 disabled:cursor-not-allowed text-ink-secondary"
-                  aria-label="Add a seat"
-                  title="Add a seat"
-                >
-                  +
-                </button>
-              </span>
-            )}
+      <header className="px-4 py-3 border-b border-border-soft">
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <h2 className="text-sm font-semibold text-ink-primary truncate">{table.name}</h2>
+            <div className="text-[11px] text-ink-tertiary">
+              {table.shape.toLowerCase()} · {filled}/{table.capacity} seated
+            </div>
           </div>
+          <button
+            onClick={onClose}
+            aria-label="Close focus panel"
+            className="text-ink-tertiary hover:text-ink-primary text-xl leading-none px-1"
+          >
+            ×
+          </button>
         </div>
-        <button
-          onClick={onClose}
-          aria-label="Close focus panel"
-          className="text-ink-tertiary hover:text-ink-primary text-xl leading-none px-1"
-        >
-          ×
-        </button>
+        {/* v1.22.7: capacity edit row — pre-fix the +/- were 16px
+            inline buttons that were almost invisible. Now a clearly
+            labelled row with proper hit targets. Shrink fails server-
+            side if any trailing seats are occupied (notify-on-error). */}
+        {canEdit && (
+          <div className="mt-3 flex items-center justify-between gap-2 bg-canvas/60 rounded-md px-3 py-2">
+            <span className="text-[11px] uppercase tracking-wider font-bold text-ink-secondary">
+              Seats
+            </span>
+            <div className="inline-flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => onCapacity(-1)}
+                disabled={pending || table.capacity <= 1}
+                className="w-7 h-7 rounded-md border border-border-soft bg-surface text-ink-primary text-base font-semibold leading-none hover:border-moss-500 hover:bg-moss-50 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-surface flex items-center justify-center"
+                aria-label="Remove a seat"
+                title="Remove a seat (must be empty)"
+              >
+                −
+              </button>
+              <span className="text-sm font-semibold text-ink-primary tabular-nums w-6 text-center">
+                {table.capacity}
+              </span>
+              <button
+                type="button"
+                onClick={() => onCapacity(1)}
+                disabled={pending || table.capacity >= 40}
+                className="w-7 h-7 rounded-md border border-border-soft bg-surface text-ink-primary text-base font-semibold leading-none hover:border-moss-500 hover:bg-moss-50 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-surface flex items-center justify-center"
+                aria-label="Add a seat"
+                title="Add a seat"
+              >
+                +
+              </button>
+            </div>
+          </div>
+        )}
       </header>
       <ul className="divide-y divide-border-soft max-h-[420px] overflow-auto">
         {table.seats.map((seat) => (

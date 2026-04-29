@@ -16,7 +16,10 @@ export default async function SeatingPage() {
         seats: {
           orderBy: { index: "asc" },
           include: {
-            guest: { select: { id: true, firstName: true, lastName: true } },
+            // v1.22.7: include rsvp so the canvas can color seat dots
+            // by confirmation status (moss=attending, marigold=pending,
+            // info=maybe, muted=declined).
+            guest: { select: { id: true, firstName: true, lastName: true, rsvp: true } },
           },
         },
       },

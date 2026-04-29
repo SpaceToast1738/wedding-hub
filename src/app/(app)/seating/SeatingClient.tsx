@@ -9,7 +9,13 @@ import { TableCard } from "./TableCard";
 type Seat = {
   id: string;
   index: number;
-  guest: { id: string; firstName: string; lastName: string } | null;
+  guest: {
+    id: string;
+    firstName: string;
+    lastName: string;
+    // v1.22.7: piped through to color seat dots on the canvas.
+    rsvp: "PENDING" | "ATTENDING" | "DECLINED" | "MAYBE";
+  } | null;
 };
 
 type Table = {
