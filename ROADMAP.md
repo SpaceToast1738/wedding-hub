@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.23.2** | 2026-04-29 | [Seating: notes/checklist into collapsible sidebar · auto-crop canvas · disable table-drag on mobile · ceremony save returns result](#2026-04-29--v1232--seating-collapsible-sidebar--canvas-auto-crop--mobile-drag-disable--ceremony-save-result) |
+| **v1.23.3** | 2026-04-29 | [Seating bugfix: freeze auto-crop viewBox during drag (drift fix)](#2026-04-29--v1233--seating-freeze-viewbox-during-drag) |
+| v1.23.2 | 2026-04-29 | [Seating: notes/checklist into collapsible sidebar · auto-crop canvas · disable table-drag on mobile · ceremony save returns result](#2026-04-29--v1232--seating-collapsible-sidebar--canvas-auto-crop--mobile-drag-disable--ceremony-save-result) |
 | v1.23.1 | 2026-04-29 | [Seating: notes + checklist global & always visible · obvious Reception/Ceremony tabs](#2026-04-29--v1231--seating-globalize-notes--checklist--obvious-tabs) |
 | v1.23.0 | 2026-04-29 | [Seating notes + day-of checklists + ceremony placeholder page + bigger top table](#2026-04-29--v1230--seating-notes--day-of-checklists--ceremony-placeholder) |
 | v1.22.10 | 2026-04-29 | [Seating polish: repack-on-shrink, glyph centering, HEAD label spacing, ghost dot during seat-drag, alignment guides during table-drag](#2026-04-29--v12210--seating-polish-repack-glyph-center-label-space-ghost-dot-alignment-guides) |
@@ -458,6 +459,19 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-29 · v1.23.3 — Seating: freeze viewBox during drag
+
+Tiny bugfix to v1.23.2's auto-crop. Pre-fix the cropped viewBox was a `useMemo` that depended on `positions`, which updates on every pointermove during a drag. Two consequences:
+
+1. **Visual jitter** — the canvas zoomed/shifted on every cursor tick.
+2. **Drift** — `clientToSvg` reads the live viewBox to map screen coords to SVG userspace; when the viewBox grew because the dragged table approached an edge, the mapping shifted and the table accelerated away from the cursor (positive feedback loop: bigger viewBox → bigger SVG-coord delta per cursor pixel → table moves further → viewBox grows again).
+
+Fix: compute the bounds via `useMemo` as before (`computedViewBox`), but mirror them into a `stableViewBox` state that only updates when **no drag is active**. Effect runs whenever `computedViewBox` or `drag`/`seatDrag` change — the drag-end transition fires the update so the post-drop layout settles into a freshly cropped viewBox without an extra render. Adding/deleting tables and revalidations from the server still update the viewBox immediately because they happen outside any drag.
+
+Net effect: the user's stated intent ("canvas resizes when more tables are added or moved") is preserved — the resize just defers to drag-release.
+
+**Verification:** typecheck/lint clean, 188 tests pass, build green. ([SeatingCanvas.tsx](src/app/(app)/seating/SeatingCanvas.tsx))
 
 ### 2026-04-29 · v1.23.2 — Seating: collapsible sidebar · canvas auto-crop · mobile drag disable · ceremony save result
 

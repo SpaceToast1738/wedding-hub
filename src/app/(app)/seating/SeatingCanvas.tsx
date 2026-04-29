@@ -434,7 +434,15 @@ export function SeatingCanvas({
   // v1.23.2: auto-crop viewBox to fit the actual tables — declared
   // before clientToSvg below because the helper closes over it for
   // pointer→userspace conversions. See longer comment further down.
-  const viewBox = useMemo(() => {
+  // v1.23.3: the viewBox is *frozen* while a table or seat drag is
+  // in progress. Pre-fix the bounds recomputed on every pointermove
+  // (because they depend on `positions`), which (a) made the canvas
+  // shimmer/zoom on every cursor tick and (b) drifted the dragged
+  // table off the cursor — `clientToSvg` reads the live viewBox to
+  // convert pointer coords, so changing it mid-drag shifted the
+  // mapping. Freezing during a drag, then recomputing on release,
+  // gives a stable drag and a clean re-fit when the drag settles.
+  const computedViewBox = useMemo(() => {
     if (initialTables.length === 0) {
       return { x: 0, y: 0, w: CANVAS_W, h: CANVAS_H };
     }
@@ -458,6 +466,17 @@ export function SeatingCanvas({
     const h = Math.min(CANVAS_H, maxY + pad) - y;
     return { x, y, w: Math.max(200, w), h: Math.max(200, h) };
   }, [initialTables, positions, dotScale, labelScale]);
+  const [stableViewBox, setStableViewBox] = useState(computedViewBox);
+  // `drag` (table) declared at line ~427 above; `seatDrag` at ~311.
+  // Both are read here — when neither is active, mirror the latest
+  // computed bounds. Effect runs on every drag-end transition so the
+  // post-drop layout settles into a freshly cropped viewBox without
+  // an extra render.
+  useEffect(() => {
+    if (drag || seatDrag) return;
+    setStableViewBox(computedViewBox);
+  }, [computedViewBox, drag, seatDrag]);
+  const viewBox = stableViewBox;
 
   // Convert client coords (mouse) to SVG userspace coords.
   // v1.23.2: honours the dynamic viewBox — pre-fix this assumed the
