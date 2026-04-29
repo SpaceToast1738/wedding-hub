@@ -141,22 +141,50 @@ export async function updateTableCapacity(
         index: current + i,
       })),
     });
+    await db.table.update({ where: { id }, data: { capacity: target } });
   } else {
-    // Shrink. Bail if any trailing seat is occupied — the planner needs
-    // to unseat first so the action is never destructive of assignments.
-    const toRemove = table.seats.filter((s) => s.index >= target);
-    const occupied = toRemove.filter((s) => s.guest).length;
-    if (occupied > 0) {
+    // v1.22.10 shrink — REPACK behavior.
+    // Pre-fix the action complained "seats above #N are still assigned"
+    // when the trailing indices happened to be occupied. The user's
+    // mental model is total occupancy: "I have 4 guests, I want a
+    // 4-seat table — fine, regardless of which slots they currently
+    // sit in." So before deleting trailing seats, move any guests
+    // sitting there into leading empty slots. Only error when the
+    // TOTAL guest count exceeds the new capacity.
+    const occupiedCount = table.seats.filter((s) => s.guest).length;
+    if (occupiedCount > target) {
       return {
         ok: false,
-        error: `Can't shrink to ${target}: ${occupied} seat${occupied === 1 ? "" : "s"} above #${target} ${occupied === 1 ? "is" : "are"} still assigned. Unseat first.`,
+        error: `Can't shrink to ${target}: ${occupiedCount} guests assigned to this table. Unseat ${occupiedCount - target} first.`,
       };
     }
-    await db.seat.deleteMany({
-      where: { tableId: id, index: { gte: target } },
-    });
+    const trailingOccupied = table.seats
+      .filter((s) => s.index >= target && s.guest)
+      .sort((a, b) => a.index - b.index);
+    const leadingEmpty = table.seats
+      .filter((s) => s.index < target && !s.guest)
+      .sort((a, b) => a.index - b.index);
+    // Pair each trailing-occupied seat with a leading empty slot.
+    // Length invariant: leadingEmpty.length >= trailingOccupied.length
+    // because total occupied <= target < seats-below-target + seats-
+    // above-target, and we've already counted enough empties.
+    const moves = trailingOccupied.map((src, i) => ({
+      guestId: src.guest!.id,
+      toSeatId: leadingEmpty[i]!.id,
+    }));
+    // Atomic: move guests, drop trailing seats, set capacity. If any
+    // step fails the whole shrink rolls back.
+    await db.$transaction([
+      ...moves.map((m) =>
+        db.guest.update({
+          where: { id: m.guestId },
+          data: { tableSeatId: m.toSeatId },
+        }),
+      ),
+      db.seat.deleteMany({ where: { tableId: id, index: { gte: target } } }),
+      db.table.update({ where: { id }, data: { capacity: target } }),
+    ]);
   }
-  await db.table.update({ where: { id }, data: { capacity: target } });
   await audit(user, {
     action: "capacity",
     entity: "Table",

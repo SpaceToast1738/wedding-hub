@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.22.9** | 2026-04-29 | [Seating bugfix: capacity-shrink server-error overlay, HEAD dots flipped to top edge, dynamic name truncation, pointer-based seat drag](#2026-04-29--v1229--seating-bugfix-capacity-error-head-orientation-name-overlap-canvas-drag) |
+| **v1.22.10** | 2026-04-29 | [Seating polish: repack-on-shrink, glyph centering, HEAD label spacing, ghost dot during seat-drag, alignment guides during table-drag](#2026-04-29--v12210--seating-polish-repack-glyph-center-label-space-ghost-dot-alignment-guides) |
+| v1.22.9 | 2026-04-29 | [Seating bugfix: capacity-shrink server-error overlay, HEAD dots flipped to top edge, dynamic name truncation, pointer-based seat drag](#2026-04-29--v1229--seating-bugfix-capacity-error-head-orientation-name-overlap-canvas-drag) |
 | v1.22.8 | 2026-04-29 | [Seating: RSVP glyphs inside seat dots (✓ ? ~ ✗) for colour-blind accessibility](#2026-04-29--v1228--seating-rsvp-glyphs-inside-seat-dots) |
 | v1.22.7 | 2026-04-29 | [Seating: RSVP-colored dots, HEAD/RECTANGLE seats, drag-between-seats, resizable grid, uniform S/M/L/XL, visible capacity buttons, click-once focus](#2026-04-29--v1227--seating-rsvp-dots-all-shape-seats-canvas-drag-resizable-grid-uniform-toggles) |
 | v1.22.6 | 2026-04-29 | [Seating: snap-to-grid toggle + modify table capacity + pending guests in seat-picker](#2026-04-29--v1226--seating-snap-to-grid-toggle--modify-capacity--pending-in-picker) |
@@ -311,6 +312,22 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-29 · v1.22.10 — Seating polish: repack, glyph center, label space, ghost dot, alignment guides
+
+Five seating-canvas fixes from the v1.22.9 dogfood:
+
+**1. Repack-on-shrink.** Pre-fix the action complained "seats above #N still assigned" if the trailing indices happened to be occupied — even when the table had plenty of leading empties. The user's mental model is *total* occupancy ("4 guests + 8 seats → I should be able to shrink to 4"). Fix: action now repacks. If `occupiedCount <= target`, move every guest currently at a trailing seat into a leading empty slot, then delete trailing seats. Atomic via `db.$transaction`. Only errors when `occupiedCount > target`. ([actions.ts](src/app/(app)/seating/actions.ts))
+
+**2. RSVP glyph centering.** Pre-fix glyphs (✓ ? ~ ✗) were positioned via a fudge offset (`y = cy + 1.4 * dotScale`) that drifted off-center across S/M/L/XL font sizes. Fix: use `dominantBaseline="central"` so the glyph centers vertically regardless of fontSize. ([SeatingCanvas.tsx](src/app/(app)/seating/SeatingCanvas.tsx))
+
+**3. HEAD/RECTANGLE label spacing.** Pre-fix HEAD labels sat too close to the dots (4-5px between dot edge and label baseline at default M scale). Now uses an explicit dot-edge + GAP + font-baseline-correction formula — labels above use `cy - dotR - 4 - 0.2*fontSize`, labels below use `cy + dotR + 4 + 0.8*fontSize`. The 0.2/0.8 factors account for SVG text baseline (visible glyphs extend ~0.8 above and ~0.2 below the baseline). 4px constant pad gives consistent breathing room across scales.
+
+**4. Ghost dot during canvas seat-drag.** Pre-fix the v1.22.9 pointer-event seat-drag had no visual feedback — only the destination seat highlighted; the source seat stayed put. The user couldn't tell if they were actually dragging. Fix: track cursor position in `seatDrag` state, render a ghost `<circle>` at the cursor with the source's RSVP color/glyph + first-name label, opacity 0.7 so it reads as "in flight". Same visual primitive the table-drag has via the `isDragging` check.
+
+**5. Alignment guides during table-drag.** New ask. When the dragged table's centre lines up with another table's centre on either axis (within 4px tolerance), draws a faint dashed marigold line all the way across the canvas. Helps the planner snap rows/columns of tables into formation. Only the matching neighbours render guides — keeps the canvas uncluttered when many tables are in play.
+
+**Verification:** typecheck/lint clean, 188 unit tests pass, build green. Manual: 4-of-8 round table → click - → table shrinks to 4, all guests still seated. Drag a guest → ghost dot follows cursor. Drag a table over an aligned neighbour → dashed line appears.
 
 ### 2026-04-29 · v1.22.9 — Seating bugfix: capacity error, HEAD orientation, name overlap, canvas drag
 

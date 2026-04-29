@@ -156,6 +156,19 @@ function computeSeatLayouts(
       return { cx, cy, labelX: lx, labelY: ly, labelAnchor };
     });
   }
+  // v1.22.10: explicit dot-edge + padding label spacing for HEAD +
+  // RECTANGLE so labels don't crowd the dots. SVG <text> y is the
+  // *baseline*; visible glyphs extend ~0.8*fontSize above and
+  // ~0.2*fontSize below that. fontSize = 9 * labelScale, so:
+  //   - label ABOVE dot: baseline at dot.top - GAP - 0.2*fontSize
+  //   - label BELOW dot: baseline at dot.bottom + GAP + 0.8*fontSize
+  // GAP keeps a constant pixel breathing room independent of scale.
+  const dotR = 3.5 * dotScale;
+  const fontSize = 9 * labelScale;
+  const GAP = 4;
+  const labelYAbove = (cy: number) => cy - dotR - GAP - 0.2 * fontSize;
+  const labelYBelow = (cy: number) => cy + dotR + GAP + 0.8 * fontSize;
+
   if (shape === "HEAD") {
     // v1.22.9: flipped from bottom→top edge. The "head" table by
     // convention sits behind the couple at the head of the room with
@@ -164,8 +177,7 @@ function computeSeatLayouts(
     return Array.from({ length: capacity }, (_, i) => {
       const cx = -size.w / 2 + ((i + 0.5) * size.w) / capacity;
       const cy = -size.h / 2 - 8 * dotScale;
-      const labelY = cy - 6 * labelScale;
-      return { cx, cy, labelX: cx, labelY, labelAnchor: "middle" };
+      return { cx, cy, labelX: cx, labelY: labelYAbove(cy), labelAnchor: "middle" };
     });
   }
   // RECTANGLE — split top/bottom edges, top takes the extra when odd.
@@ -177,7 +189,7 @@ function computeSeatLayouts(
     const localTotal = onTop ? topCount : bottomCount;
     const cx = -size.w / 2 + ((localIdx + 0.5) * size.w) / localTotal;
     const cy = onTop ? -size.h / 2 - 8 * dotScale : size.h / 2 + 8 * dotScale;
-    const labelY = onTop ? cy - 6 * labelScale : cy + 12 * labelScale + 3 * labelScale;
+    const labelY = onTop ? labelYAbove(cy) : labelYBelow(cy);
     return { cx, cy, labelX: cx, labelY, labelAnchor: "middle" };
   });
 }
@@ -259,10 +271,18 @@ export function SeatingCanvas({
     | {
         guestId: string;
         fromSeatId: string;
+        // v1.22.10: track the source's RSVP + first name so the ghost
+        // dot rendered at the cursor matches the source visually.
+        rsvp: Rsvp;
+        firstName: string;
         pointerId: number;
         startX: number;
         startY: number;
         moved: boolean;
+        // SVG-userspace cursor position, updated on pointermove. Drives
+        // the ghost-dot render.
+        cursorX: number;
+        cursorY: number;
       }
     | null
   >(null);
@@ -640,13 +660,18 @@ export function SeatingCanvas({
                             onPointerDown={(e) => {
                               e.stopPropagation();
                               (e.currentTarget as Element).setPointerCapture(e.pointerId);
+                              const p = clientToSvg(e.clientX, e.clientY);
                               setSeatDrag({
                                 guestId: seat.guest!.id,
                                 fromSeatId: seat.id,
+                                rsvp: seat.guest!.rsvp,
+                                firstName: seat.guest!.firstName,
                                 pointerId: e.pointerId,
                                 startX: e.clientX,
                                 startY: e.clientY,
                                 moved: false,
+                                cursorX: p.x,
+                                cursorY: p.y,
                               });
                             }}
                             onPointerMove={(e) => {
@@ -654,12 +679,16 @@ export function SeatingCanvas({
                               if (e.pointerId !== seatDrag.pointerId) return;
                               const dx = e.clientX - seatDrag.startX;
                               const dy = e.clientY - seatDrag.startY;
-                              if (!seatDrag.moved && Math.hypot(dx, dy) > 4) {
-                                setSeatDrag({ ...seatDrag, moved: true });
-                                setDraggingGuestId(seatDrag.guestId);
-                              }
-                              if (seatDrag.moved) {
-                                const p = clientToSvg(e.clientX, e.clientY);
+                              const p = clientToSvg(e.clientX, e.clientY);
+                              const becameMoved = !seatDrag.moved && Math.hypot(dx, dy) > 4;
+                              if (becameMoved) setDraggingGuestId(seatDrag.guestId);
+                              setSeatDrag({
+                                ...seatDrag,
+                                moved: seatDrag.moved || becameMoved,
+                                cursorX: p.x,
+                                cursorY: p.y,
+                              });
+                              if (seatDrag.moved || becameMoved) {
                                 setDragOverSeatId(findSeatAt(p.x, p.y));
                               }
                             }}
@@ -729,14 +758,17 @@ export function SeatingCanvas({
                           pointerEvents="none"
                         />
                         {/* v1.22.8: white RSVP glyph inside the dot
-                            (✓ / ? / ~ / ✗). Below dotScale=1.4 the
-                            glyph is too small to read so it's hidden;
-                            colour alone carries the meaning at S. */}
+                            (✓ / ? / ~ / ✗). v1.22.10: use
+                            dominantBaseline="central" for proper
+                            vertical centering across font sizes —
+                            pre-fix the fudge offset (cy + 1.4*dotScale)
+                            was inconsistent across S/M/L/XL. */}
                         {occupied && dotScale >= 1.4 && (
                           <text
                             x={layout.cx}
-                            y={layout.cy + 1.4 * dotScale}
+                            y={layout.cy}
                             textAnchor="middle"
+                            dominantBaseline="central"
                             fontSize={4.8 * dotScale}
                             fontWeight={700}
                             fill="white"
@@ -786,6 +818,83 @@ export function SeatingCanvas({
               </g>
             );
           })}
+          {/* v1.22.10: alignment guides during table-drag. When the
+              dragged table's centre lines up with another table's
+              centre on either axis (within 4px), draw a faint dashed
+              line all the way across the canvas to help the user
+              snap rows/columns of tables into formation. Only the
+              tables being lined up against the dragged one are
+              considered — keeps the lines uncluttered. */}
+          {drag?.id && (() => {
+            const draggedPos = positions[drag.id];
+            if (!draggedPos) return null;
+            const TOLERANCE = 4;
+            const lines: Array<{ key: string; x1: number; y1: number; x2: number; y2: number }> = [];
+            for (const t of initialTables) {
+              if (t.id === drag.id) continue;
+              const otherPos = positions[t.id] ?? { x: t.posX, y: t.posY };
+              if (Math.abs(otherPos.x - draggedPos.x) <= TOLERANCE) {
+                lines.push({ key: `vx-${t.id}`, x1: otherPos.x, y1: 0, x2: otherPos.x, y2: CANVAS_H });
+              }
+              if (Math.abs(otherPos.y - draggedPos.y) <= TOLERANCE) {
+                lines.push({ key: `vy-${t.id}`, x1: 0, y1: otherPos.y, x2: CANVAS_W, y2: otherPos.y });
+              }
+            }
+            return lines.map((l) => (
+              <line
+                key={l.key}
+                x1={l.x1}
+                y1={l.y1}
+                x2={l.x2}
+                y2={l.y2}
+                stroke="var(--color-marigold-500)"
+                strokeWidth={1}
+                strokeDasharray="6 6"
+                opacity={0.7}
+                pointerEvents="none"
+              />
+            ));
+          })()}
+          {/* v1.22.10: ghost dot for canvas seat-drag. Mirrors the
+              source seat's RSVP color/glyph at the cursor position so
+              the user gets the same visual feedback the table-drag
+              has. Reduced opacity so it reads as "in flight". */}
+          {seatDrag?.moved && (
+            <g pointerEvents="none" opacity={0.7}>
+              <circle
+                cx={seatDrag.cursorX}
+                cy={seatDrag.cursorY}
+                r={3.5 * dotScale}
+                fill={dotFillForRsvp(seatDrag.rsvp)}
+                stroke={dotStrokeForRsvp(seatDrag.rsvp)}
+                strokeWidth={1.5}
+              />
+              {dotScale >= 1.4 && (
+                <text
+                  x={seatDrag.cursorX}
+                  y={seatDrag.cursorY}
+                  textAnchor="middle"
+                  dominantBaseline="central"
+                  fontSize={4.8 * dotScale}
+                  fontWeight={700}
+                  fill="white"
+                >
+                  {seatGlyphForRsvp(seatDrag.rsvp)}
+                </text>
+              )}
+              <text
+                x={seatDrag.cursorX}
+                y={seatDrag.cursorY + 3.5 * dotScale + 4 + 0.8 * 9 * labelScale}
+                textAnchor="middle"
+                fontSize={9 * labelScale}
+                fill="var(--color-ink-secondary)"
+              >
+                {seatDrag.firstName.length > 14
+                  ? `${seatDrag.firstName.slice(0, 13)}…`
+                  : seatDrag.firstName}
+              </text>
+            </g>
+          )}
         </svg>
       </div>
 
