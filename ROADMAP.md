@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.22.10** | 2026-04-29 | [Seating polish: repack-on-shrink, glyph centering, HEAD label spacing, ghost dot during seat-drag, alignment guides during table-drag](#2026-04-29--v12210--seating-polish-repack-glyph-center-label-space-ghost-dot-alignment-guides) |
+| **v1.23.0** | 2026-04-29 | [Seating notes + day-of checklists + ceremony placeholder page + bigger top table](#2026-04-29--v1230--seating-notes--day-of-checklists--ceremony-placeholder) |
+| v1.22.10 | 2026-04-29 | [Seating polish: repack-on-shrink, glyph centering, HEAD label spacing, ghost dot during seat-drag, alignment guides during table-drag](#2026-04-29--v12210--seating-polish-repack-glyph-center-label-space-ghost-dot-alignment-guides) |
 | v1.22.9 | 2026-04-29 | [Seating bugfix: capacity-shrink server-error overlay, HEAD dots flipped to top edge, dynamic name truncation, pointer-based seat drag](#2026-04-29--v1229--seating-bugfix-capacity-error-head-orientation-name-overlap-canvas-drag) |
 | v1.22.8 | 2026-04-29 | [Seating: RSVP glyphs inside seat dots (✓ ? ~ ✗) for colour-blind accessibility](#2026-04-29--v1228--seating-rsvp-glyphs-inside-seat-dots) |
 | v1.22.7 | 2026-04-29 | [Seating: RSVP-colored dots, HEAD/RECTANGLE seats, drag-between-seats, resizable grid, uniform S/M/L/XL, visible capacity buttons, click-once focus](#2026-04-29--v1227--seating-rsvp-dots-all-shape-seats-canvas-drag-resizable-grid-uniform-toggles) |
@@ -164,32 +165,45 @@ feature flag.
 ### Planner-only feature shortlist (post-v1.17.0)
 
 The user picked these from a wider menu on 28 Apr 2026. Items 5 (public
-RSVP form) and 7 (guest portal) from the original menu were explicitly
-dropped because they violate the admin-only rule above.
+RSVP form) and 7 (guest portal) were explicitly dropped because they
+violate the admin-only rule above.
 
-- **Audit log viewer in Settings** — data already exists (every server
-  action writes an `AuditLog` row); just no UI. Useful when "who changed
-  Bryony's RSVP" comes up. ~1 hr.
-- **Search beyond /guests** — extend the v1.12.0 sticky-search pattern
-  ([GuestList.tsx](src/app/(app)/guests/GuestList.tsx)) to `/suppliers`
-  and `/tasks`. Aimee asked for it on guests; the same pattern fits
-  both other surfaces. ~1.5 hrs.
-- **Custom fields for Supplier + Task** — extends v1.15.0's Guest-only
-  registry. The `CustomField.entity` field already supports it; just
-  unlock the entity dropdown in the Settings panel + wire two more
-  rendering surfaces (`/suppliers/[id]`, `/tasks/[id]` if it exists, or
-  the inline TaskRow edit form). ~2 hrs.
-- **Print stylesheet for /budget + /payments** — couple-only sheets
-  the venue or planner might want as paper. The pattern is already in
-  use on `/schedule` and `/guests/catering`. ~1 hr.
-- **Email reminders / nudges** — `Guest.lastNudgedAt` is already in the
-  schema. Build the "nudge unconfirmed RSVPs" + "follow-up task due
-  tomorrow" surfaces. Sends to the planner / couple, not to guests
-  (per the standing rule). ~3 hrs.
-- **BookSection audience overrides** — currently only BookSubsection
-  has `visibility EVERYONE|COUPLE_ONLY` (C1, v1.14.0). Extend to the
-  parent BookSection so the couple can hide a whole section, not just
-  individual pages. ~1 hr.
+**Status check (29 Apr 2026):** the planner-only shortlist is mostly
+shipped. The seating-canvas pass ballooned into seven follow-up
+releases (v1.22.5–v1.22.10 + v1.23.0) as the user dogfooded each
+version and surfaced bugs/asks; the print + nudges + Book section
+items renumbered down the queue. Current state:
+
+- ~~**Audit log viewer in Settings**~~ — shipped v1.21.0.
+- ~~**Search beyond /guests**~~ (Suppliers + Tasks sticky search) —
+  shipped v1.21.0.
+- ~~**Custom fields for Supplier + Task**~~ — shipped v1.22.0.
+- ~~**Seating polish pass**~~ — shipped across v1.22.5–v1.22.10
+  (snap-to-grid · capacity edit · pending-in-picker · RSVP-coloured
+  dots · HEAD/RECTANGLE seats · canvas drag · resizable grid ·
+  uniform S/M/L/XL · RSVP glyphs · repack-on-shrink · ghost dot ·
+  alignment guides · click-once focus · hydration fix · bigger top
+  table).
+- ~~**Seating notes + day-of checklist + ceremony placeholder**~~ —
+  shipped v1.23.0.
+- **Print stylesheet for /budget + /payments** — bumped to v1.24.0.
+  Pattern already in use on `/schedule` and `/guests/catering`. ~1 hr.
+- **BookSection audience overrides** — bundled with the v1.24.0
+  print pass (both small additive schema changes). ~1 hr.
+- **Email reminders / nudges** — bumped to v1.25.0. `Guest.lastNudgedAt`
+  is already in the schema. Build "nudge unconfirmed RSVPs" + "follow-
+  up task due tomorrow" digests. Sends to the planner / couple, not to
+  guests (admin-only rule). ~3 hrs.
+- **Modular page cards** (text / field / recipe / shot list) — design
+  pass first, then build. Bumped to v1.26.0+. ~10 hrs estimated.
+
+**Total scope spent on the planner-only shortlist:** ~22 hrs across
+11 releases (vs. the original 15.5-hr estimate). The overshoot is
+entirely the seating polish pass — the original plan budgeted ~3 hrs
+for v1.20.5 + v1.20.6; the dogfood loop turned that into ~10 hrs.
+The user feedback was always specific and actionable so each iteration
+was cheap; in hindsight the seating canvas just had more surface area
+than the plan accounted for.
 
 ### Older / lower-priority backlog
 
@@ -312,6 +326,53 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-29 · v1.23.0 — Seating notes + day-of checklists + ceremony placeholder
+
+Two new seating features asked for during the v1.22.x dogfood. First substantial seating release that isn't a bugfix or polish since v1.22.6.
+
+**Per-table notes + day-of checklist.** Each Table row now carries a `notes` text column and a `checklist Json?` column. Notes are free-form (table-size constraints, board-game pairing, dietary clusters, position cues — "this table near the dance floor"). Checklist is an array of `{ id, label, done }` items so the planner can tick off "place cards / menu cards / table number stand / centrepiece / Polaroid camera / board game" on the day. Same UI shape in both the canvas FocusPanel and the list-view TableCard via a shared `TableNotesAndChecklist` component (~200 LOC). Notes save explicitly via a Save button; checklist toggles are optimistic with rollback on action failure.
+
+**Plan-level seating notes.** The user wanted a place for room-wide policy ("min 6 / max 10 per table", board-game allocation across all tables, day-of staffing reminders) that doesn't belong to one specific table. Stored on `WeddingSettings.seatingNotes` (extended the existing singleton — no new model). Renders at the top of `/seating` as a collapsible "Plan notes" disclosure; first line shows in the collapsed state so it's scannable. Empty + read-only viewers see no panel at all.
+
+**Ceremony seating placeholder.** New page at `/seating/ceremony`. Singleton `CeremonySeating` model: `leftRows`, `leftSeatsRow`, `rightRows`, `rightSeatsRow`, `notes`. Form lets the planner configure the dimensions; SVG renders the resulting layout — altar at the top, dashed aisle line down the middle, two grids of moss-green dots either side. Per-seat guest assignments deliberately deferred (the user said "doesn't have to be drag and drop"). Cross-link from the main `/seating` page header. Permission-gated identically to reception seating.
+
+**Bigger top table.** Same release because it shipped alongside the rest. HEAD shape's per-seat width bumped 18→30 + base 80→110, height 70→80. Pre-fix labels on a 2-seat HEAD had only ~58px each; now ~80px/seat — full first names on most weddings without aggressive truncation.
+
+**Schema changes (additive migration `20260429000000_seating_notes_ceremony`):**
+
+```prisma
+model Table {
+  // ...existing
+  notes     String?
+  checklist Json?
+}
+model WeddingSettings {
+  // ...existing
+  seatingNotes String?
+}
+model CeremonySeating {
+  id            Int @id @default(1)
+  leftRows      Int @default(8)
+  leftSeatsRow  Int @default(8)
+  rightRows     Int @default(8)
+  rightSeatsRow Int @default(8)
+  notes         String?
+  updatedAt     DateTime @updatedAt
+}
+```
+
+**Files:**
+
+- New: `src/app/(app)/seating/PlanNotesPanel.tsx` (collapsible plan notes).
+- New: `src/app/(app)/seating/TableNotesAndChecklist.tsx` (shared notes + checklist component).
+- New: `src/app/(app)/seating/ceremony/page.tsx` + `CeremonyClient.tsx`.
+- Modified: `src/app/(app)/seating/actions.ts` (4 new server actions).
+- Modified: `src/app/(app)/seating/page.tsx` (fetch settings, mount PlanNotesPanel, link to ceremony).
+- Modified: `src/app/(app)/seating/SeatingCanvas.tsx`, `SeatingClient.tsx`, `TableCard.tsx` (thread notes/checklist + mount the shared component, plus the bigger HEAD sizing).
+- Modified: `src/lib/wedding-settings.ts` (add `seatingNotes` to type + loader).
+
+**Verification:** typecheck/lint clean, all 188 unit tests pass, clean `.next` build green. Manual: open a table → fill in a note + add a checklist item → toggle done → reload → both persist. Open `/seating/ceremony` → adjust rows → save → SVG redraws.
 
 ### 2026-04-29 · v1.22.10 — Seating polish: repack, glyph center, label space, ghost dot, alignment guides
 

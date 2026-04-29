@@ -18,6 +18,9 @@ type Seat = {
   } | null;
 };
 
+// v1.23.0: notes + checklist threaded through. Both nullable; UI
+// renders an empty state / "Add a note" stub when null.
+export type ChecklistItem = { id: string; label: string; done: boolean };
 type Table = {
   id: string;
   name: string;
@@ -27,6 +30,8 @@ type Table = {
   posY: number;
   rotation: number;
   seats: Seat[];
+  notes: string | null;
+  checklist: ChecklistItem[] | null;
 };
 
 // v1.20.6: panel now shows ALL non-archived guests with RSVP tag, not

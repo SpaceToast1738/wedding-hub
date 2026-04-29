@@ -1,14 +1,18 @@
+import Link from "next/link";
 import { db } from "@/lib/db";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { canEdit } from "@/lib/permissions";
 import { requireUser } from "@/lib/actions";
+import { getWeddingSettings } from "@/lib/wedding-settings";
 import { AddTableToggle } from "./AddTableToggle";
 import { SeatingClient } from "./SeatingClient";
+import { PlanNotesPanel } from "./PlanNotesPanel";
 
 export default async function SeatingPage() {
   const user = await requireUser();
   const editable = await canEdit(user, "seating");
 
+  const settings = await getWeddingSettings();
   const [tables, allGuests] = await Promise.all([
     db.table.findMany({
       orderBy: { name: "asc" },
@@ -61,9 +65,34 @@ export default async function SeatingPage() {
       <PageHeader
         title="Seating"
         subtitle={`${tables.length} tables · ${seatedCount}/${totalCapacity} seats filled · ${attendingUnseated} attending unseated`}
-        actions={editable ? <AddTableToggle /> : undefined}
+        actions={
+          <div className="flex items-center gap-2">
+            <Link
+              href="/seating/ceremony"
+              className="text-xs px-2.5 py-1.5 rounded-sm border border-border-soft bg-canvas text-ink-secondary hover:border-moss-300 hover:text-ink-primary transition-colors"
+            >
+              Ceremony →
+            </Link>
+            {editable && <AddTableToggle />}
+          </div>
+        }
       />
-      <SeatingClient tables={tables} allGuests={allGuestsForClient} canEdit={editable} />
+      {/* v1.23.0: plan-level notes (table-size policy, board-game
+          allocation, day-of staffing). Collapsed by default to keep
+          the canvas focused. */}
+      <PlanNotesPanel
+        initial={settings.seatingNotes ?? ""}
+        canEdit={editable}
+      />
+      <SeatingClient
+        tables={tables.map((t) => ({
+          ...t,
+          notes: t.notes ?? null,
+          checklist: (t.checklist as { id: string; label: string; done: boolean }[] | null) ?? null,
+        }))}
+        allGuests={allGuestsForClient}
+        canEdit={editable}
+      />
     </>
   );
 }

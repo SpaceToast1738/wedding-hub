@@ -463,6 +463,15 @@ model Table {
   posY      Float    @default(0)
   rotation  Float    @default(0)
   seats     Seat[]
+  // v1.23.0: free-form notes per table (table size constraints, board
+  // game plan for the table, dietary clusters, "this table near the
+  // dance floor", etc.). Surfaced in FocusPanel + TableCard.
+  notes     String?
+  // v1.23.0: day-of checklist per table. Json array of
+  // { id: string, label: string, done: boolean } so the planner can
+  // tick off "place cards / menu cards / table number stand /
+  // centrepiece / Polaroid camera / board game" on the day.
+  checklist Json?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
@@ -634,5 +643,24 @@ model WeddingSettings {
   coupleShort  String   @default("Jamie & Bryony's Wedding")
   brideFirst   String   @default("Bryony")
   groomFirst   String   @default("Jamie")
+  // v1.23.0: plan-level seating notes — table-size constraints
+  // ("min 6 / max 10 per table"), board game allocation across the
+  // room, day-of staffing reminders. Renders at the top of /seating.
+  seatingNotes String?
   updatedAt    DateTime @updatedAt
+}
+
+// v1.23.0: ceremony seating layout — placeholder for now (no per-seat
+// guest assignments yet). Singleton, same pattern as WeddingSettings.
+// Configures the visible aisle layout: how many rows on each side and
+// how many seats per row, plus free-form notes (front-row family,
+// reserved seating policy, etc.).
+model CeremonySeating {
+  id            Int      @id @default(1)
+  leftRows      Int      @default(8)
+  leftSeatsRow  Int      @default(8)
+  rightRows    Int      @default(8)
+  rightSeatsRow Int      @default(8)
+  notes         String?
+  updatedAt     DateTime @updatedAt
 }

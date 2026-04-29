@@ -5,6 +5,7 @@ import type { TableShape } from "@prisma/client";
 import { Button } from "@/components/ui/Button";
 import { notify } from "@/lib/notify";
 import { assignGuestToSeat, deleteTable, updateTableCapacity, updateTablePosition } from "./actions";
+import { TableNotesAndChecklist } from "./TableNotesAndChecklist";
 import type { AllGuest } from "./SeatingClient";
 
 type Rsvp = "PENDING" | "ATTENDING" | "DECLINED" | "MAYBE";
@@ -43,6 +44,9 @@ function seatGlyphForRsvp(rsvp: Rsvp): string {
   return "✗";
 }
 
+// v1.23.0: notes + checklist threaded through. UI in FocusPanel +
+// TableCard surfaces edit controls; canvas dot rendering ignores them.
+export type ChecklistItem = { id: string; label: string; done: boolean };
 type Table = {
   id: string;
   name: string;
@@ -52,6 +56,8 @@ type Table = {
   posY: number;
   rotation: number;
   seats: Seat[];
+  notes: string | null;
+  checklist: ChecklistItem[] | null;
 };
 
 type GuestOpt = {
@@ -114,7 +120,13 @@ function tableSize(shape: TableShape, capacity: number): { w: number; h: number;
     return { w: r * 2, h: r * 2, r };
   }
   if (shape === "HEAD") {
-    return { w: 80 + capacity * 18, h: 70, r: 0 };
+    // v1.23.0: bumped per-seat width (18→30) + base (80→110) and
+    // height (70→80). Pre-fix the HEAD table was so narrow that
+    // first-name labels had to truncate aggressively — "Jamie" +
+    // "Bryony" on a 2-seat head table fitted in only ~58px each.
+    // The new sizing gives ~80px/seat on small head tables, room
+    // for full first names on most weddings.
+    return { w: 110 + capacity * 30, h: 80, r: 0 };
   }
   // RECTANGLE
   return { w: 70 + capacity * 14, h: 60, r: 0 };
@@ -1165,6 +1177,14 @@ function FocusPanel({
           </li>
         ))}
       </ul>
+      {/* v1.23.0: per-table notes + day-of checklist. Renders for all
+          users; non-editors see saved values only. */}
+      <TableNotesAndChecklist
+        tableId={table.id}
+        initialNotes={table.notes}
+        initialChecklist={table.checklist}
+        canEdit={canEdit}
+      />
       {canEdit && (
         <div className="flex justify-end px-4 py-2.5 border-t border-border-soft">
           <Button variant="ghost" size="sm" onClick={onDeleteTable} disabled={pending}>

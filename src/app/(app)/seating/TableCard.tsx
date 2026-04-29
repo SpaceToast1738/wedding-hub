@@ -4,6 +4,7 @@ import { useTransition } from "react";
 import { Button } from "@/components/ui/Button";
 import { notify } from "@/lib/notify";
 import { assignGuestToSeat, deleteTable, updateTableCapacity } from "./actions";
+import { TableNotesAndChecklist } from "./TableNotesAndChecklist";
 
 type Seat = {
   id: string;
@@ -17,7 +18,16 @@ type Seat = {
     rsvp: "PENDING" | "ATTENDING" | "DECLINED" | "MAYBE";
   } | null;
 };
-type Table = { id: string; name: string; shape: string; capacity: number; seats: Seat[] };
+type ChecklistItem = { id: string; label: string; done: boolean };
+type Table = {
+  id: string;
+  name: string;
+  shape: string;
+  capacity: number;
+  seats: Seat[];
+  notes: string | null;
+  checklist: ChecklistItem[] | null;
+};
 type GuestOpt = {
   id: string;
   firstName: string;
@@ -161,6 +171,14 @@ export function TableCard({
           </li>
         ))}
       </ul>
+      {/* v1.23.0: per-table notes + day-of checklist (same component
+          used in the canvas FocusPanel). */}
+      <TableNotesAndChecklist
+        tableId={table.id}
+        initialNotes={table.notes}
+        initialChecklist={table.checklist}
+        canEdit={canEdit}
+      />
     </section>
   );
 }

@@ -25,6 +25,8 @@ export type WeddingSettings = {
   coupleShort: string;
   brideFirst: string;
   groomFirst: string;
+  // v1.23.0: plan-level seating notes (renders at the top of /seating).
+  seatingNotes: string | null;
 };
 
 function envDefaults(): WeddingSettings {
@@ -38,6 +40,7 @@ function envDefaults(): WeddingSettings {
     coupleShort: process.env.WEDDING_COUPLE_SHORT ?? "Jamie & Bryony's Wedding",
     brideFirst: process.env.WEDDING_BRIDE_FIRST ?? "Bryony",
     groomFirst: process.env.WEDDING_GROOM_FIRST ?? "Jamie",
+    seatingNotes: null,
   };
 }
 
@@ -56,6 +59,7 @@ export const getWeddingSettings = cache(async (): Promise<WeddingSettings> => {
       coupleShort: row.coupleShort,
       brideFirst: row.brideFirst,
       groomFirst: row.groomFirst,
+      seatingNotes: row.seatingNotes,
     };
   } catch {
     // The fallback covers the rare case of a DB hiccup mid-render —

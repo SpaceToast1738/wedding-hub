@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { TableShape } from "@prisma/client";
+import { TableShape, Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { audit, requireEdit } from "@/lib/actions";
 
@@ -216,4 +216,110 @@ export async function assignGuestToSeat(seatId: string, guestId: string | null) 
   }
   await audit(user, { action: "assign", entity: "Seat", entityId: seatId, metadata: { guestId } });
   revalidatePath("/seating");
+}
+
+// v1.23.0: per-table notes — free-form text. Empty string clears.
+const notesSchema = z.string().max(2000);
+export async function updateTableNotes(id: string, notes: string) {
+  const user = await requireEdit("seating");
+  const parsed = notesSchema.parse(notes);
+  await db.table.update({ where: { id }, data: { notes: parsed === "" ? null : parsed } });
+  await audit(user, { action: "notes", entity: "Table", entityId: id });
+  revalidatePath("/seating");
+}
+
+// v1.23.0: per-table day-of checklist. Stored as Json array of items.
+// The action accepts the whole array each time (overwrites) — simpler
+// than diffing client-side with add/remove/toggle endpoints.
+export type ChecklistItem = { id: string; label: string; done: boolean };
+const checklistSchema = z
+  .array(
+    z.object({
+      id: z.string().min(1).max(50),
+      label: z.string().min(1).max(200),
+      done: z.boolean(),
+    }),
+  )
+  .max(50); // soft cap; keeps the JSON column small + UI scrollable
+export async function updateTableChecklist(id: string, items: ChecklistItem[]) {
+  const user = await requireEdit("seating");
+  const parsed = checklistSchema.parse(items);
+  // Prisma's Nullable Json input wants the explicit `JsonNull` token
+  // when clearing — passing JS `null` is a TS error since v5.
+  await db.table.update({
+    where: { id },
+    data: {
+      checklist:
+        parsed.length === 0 ? Prisma.JsonNull : (parsed as Prisma.InputJsonValue),
+    },
+  });
+  await audit(user, { action: "checklist", entity: "Table", entityId: id });
+  revalidatePath("/seating");
+}
+
+// v1.23.0: plan-level seating notes — stored on the WeddingSettings
+// singleton so the bootstrap row always exists (loader has defaults
+// fallback). Couple-edit + planner-edit both allowed via seating gate.
+const seatingNotesSchema = z.string().max(5000);
+export async function updateSeatingNotes(notes: string) {
+  const user = await requireEdit("seating");
+  const parsed = seatingNotesSchema.parse(notes);
+  await db.weddingSettings.upsert({
+    where: { id: 1 },
+    update: { seatingNotes: parsed === "" ? null : parsed },
+    // Defensive: in the unlikely case the singleton row doesn't yet
+    // exist, create a minimal one. Other fields fall back to defaults
+    // already declared in the schema. weddingDate is required and has
+    // no default — pull it from env if absent (matches the seed).
+    create: {
+      id: 1,
+      weddingDate: new Date(process.env.WEDDING_DATE ?? "2026-09-26T14:00:00Z"),
+      venue: process.env.WEDDING_VENUE ?? "Alveston Manor",
+      seatingNotes: parsed === "" ? null : parsed,
+    },
+  });
+  await audit(user, { action: "seating-notes", entity: "WeddingSettings", entityId: "1" });
+  revalidatePath("/seating");
+}
+
+// v1.23.0: ceremony seating layout — singleton row, configures rows
+// and seats-per-row for left + right sides of the aisle. No per-seat
+// guest assignments yet (deferred). The page lives at /seating/ceremony.
+const ceremonySchema = z.object({
+  leftRows: z.coerce.number().int().min(1).max(40),
+  leftSeatsRow: z.coerce.number().int().min(1).max(20),
+  rightRows: z.coerce.number().int().min(1).max(40),
+  rightSeatsRow: z.coerce.number().int().min(1).max(20),
+  notes: z.string().max(5000).optional(),
+});
+export async function updateCeremonySeating(formData: FormData) {
+  const user = await requireEdit("seating");
+  const parsed = ceremonySchema.parse({
+    leftRows: formData.get("leftRows"),
+    leftSeatsRow: formData.get("leftSeatsRow"),
+    rightRows: formData.get("rightRows"),
+    rightSeatsRow: formData.get("rightSeatsRow"),
+    notes: formData.get("notes") ?? "",
+  });
+  const notes = parsed.notes && parsed.notes !== "" ? parsed.notes : null;
+  await db.ceremonySeating.upsert({
+    where: { id: 1 },
+    update: {
+      leftRows: parsed.leftRows,
+      leftSeatsRow: parsed.leftSeatsRow,
+      rightRows: parsed.rightRows,
+      rightSeatsRow: parsed.rightSeatsRow,
+      notes,
+    },
+    create: {
+      id: 1,
+      leftRows: parsed.leftRows,
+      leftSeatsRow: parsed.leftSeatsRow,
+      rightRows: parsed.rightRows,
+      rightSeatsRow: parsed.rightSeatsRow,
+      notes,
+    },
+  });
+  await audit(user, { action: "update", entity: "CeremonySeating", entityId: "1" });
+  revalidatePath("/seating/ceremony");
 }
