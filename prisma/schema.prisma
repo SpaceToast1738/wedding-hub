@@ -265,7 +265,19 @@ model ScheduleEvent {
   endTime     DateTime?
   location    String?
   notes       String?   @db.Text
-  audience    String[]  @default([])  // personas: couple, party, guests, suppliers
+  // v1.27.1: legacy persona audience, kept for backward compat read
+  // path. New events write to attendeeIds instead. A future schema
+  // cleanup release will drop this once all rows are migrated.
+  audience    String[]  @default([])
+  // v1.27.1: replaces the persona-based `audience`. User IDs of who
+  // needs to know about / attend this event. The form renders a
+  // multi-user picker; renderers show user names (resolved client-
+  // side via the users prop).
+  attendeeIds String[]  @default([])
+  // v1.27.1: all-day events. When true the time component of
+  // startTime/endTime is ignored — renderers display the date only.
+  // Stored as midnight UTC + null endTime by convention.
+  allDay      Boolean   @default(false)
   motif       String?   // illustration key
   printable   Boolean   @default(true)
   order       Int       @default(0)

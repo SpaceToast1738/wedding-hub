@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { ScheduleTimeline } from "./ScheduleTimeline";
 import { ScheduleTable } from "./ScheduleTable";
+import type { UserOpt } from "./EventForm";
 
 type Event = {
   id: string;
@@ -11,6 +12,8 @@ type Event = {
   endTime: Date | null;
   location: string | null;
   audience: string[];
+  attendeeIds: string[];
+  allDay: boolean;
   notes: string | null;
 };
 
@@ -26,9 +29,11 @@ const VIEW_KEY = "wh_schedule_view";
 // switch flicker-free for return visits.
 export function ScheduleClient({
   events,
+  users = [],
   canEdit,
 }: {
   events: Event[];
+  users?: UserOpt[];
   canEdit: boolean;
 }) {
   const [view, setView] = useState<View>("timeline");
@@ -74,9 +79,9 @@ export function ScheduleClient({
       </div>
 
       {view === "table" ? (
-        <ScheduleTable events={events} canEdit={canEdit} />
+        <ScheduleTable events={events} users={users} canEdit={canEdit} />
       ) : (
-        <ScheduleTimeline events={events} canEdit={canEdit} />
+        <ScheduleTimeline events={events} users={users} canEdit={canEdit} />
       )}
     </>
   );

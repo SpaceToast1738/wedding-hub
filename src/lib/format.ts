@@ -41,3 +41,15 @@ export function isoDateTimeForInput(d: Date | null | undefined): string {
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
+
+// v1.27.1: split a Date into the date (YYYY-MM-DD) and time (HH:MM)
+// strings the new EventForm expects. Local time, matching the
+// isoDateTimeForInput helper above.
+export function splitDateTime(d: Date | null | undefined): { date: string; time: string } {
+  if (!d) return { date: "", time: "" };
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return {
+    date: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`,
+    time: `${pad(d.getHours())}:${pad(d.getMinutes())}`,
+  };
+}

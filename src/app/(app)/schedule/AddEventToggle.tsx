@@ -1,31 +1,66 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/Button";
-import { EventForm } from "./EventForm";
+import { EventForm, type UserOpt } from "./EventForm";
 import { createScheduleEvent } from "./actions";
 
-export function AddEventToggle() {
+// v1.27.1: opens a fixed-position popover (mirrors v1.27.0's
+// AddTaskToggle pattern) instead of an inline-expanded form. Same
+// keep-the-header-uncrowded reasoning. ESC + backdrop dismiss.
+export function AddEventToggle({ users = [] }: { users?: UserOpt[] }) {
   const [open, setOpen] = useState(false);
 
-  if (!open) {
-    return (
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open]);
+
+  return (
+    <>
       <Button variant="primary" size="sm" onClick={() => setOpen(true)}>
         + New event
       </Button>
-    );
-  }
-  return (
-    <div className="bg-surface border border-moss-100 rounded-md p-4 mb-4 shadow-sm">
-      <h3 className="text-sm font-semibold text-ink-primary mb-3">New event</h3>
-      <EventForm
-        submitLabel="Create"
-        onSubmit={async (fd) => {
-          await createScheduleEvent(fd);
-          setOpen(false);
-        }}
-        onCancel={() => setOpen(false)}
-      />
-    </div>
+      {open && (
+        <>
+          <div
+            className="fixed inset-0 z-[400] bg-black/15"
+            onClick={() => setOpen(false)}
+            aria-hidden="true"
+          />
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="New event"
+            className="fixed right-4 top-16 z-[401] w-[calc(100vw-2rem)] max-w-[640px] bg-surface border border-border-soft rounded-md p-4 shadow-lg max-h-[calc(100vh-6rem)] overflow-auto"
+          >
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold text-ink-primary">New event</h3>
+              <button
+                type="button"
+                onClick={() => setOpen(false)}
+                aria-label="Close"
+                className="text-ink-tertiary hover:text-ink-primary text-lg leading-none px-1"
+              >
+                ×
+              </button>
+            </div>
+            <EventForm
+              users={users}
+              submitLabel="Create"
+              onSubmit={async (fd) => {
+                await createScheduleEvent(fd);
+                setOpen(false);
+              }}
+              onCancel={() => setOpen(false)}
+            />
+          </div>
+        </>
+      )}
+    </>
   );
 }

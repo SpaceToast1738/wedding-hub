@@ -2,9 +2,9 @@
 
 import { useState, useTransition } from "react";
 import { Button } from "@/components/ui/Button";
-import { EventForm } from "./EventForm";
+import { EventForm, type UserOpt } from "./EventForm";
 import { deleteScheduleEvent, updateScheduleEvent } from "./actions";
-import { isoDateTimeForInput } from "@/lib/format";
+import { splitDateTime } from "@/lib/format";
 import { EventMotifIcon, classifyEventMotif } from "@/components/ui/EventMotifIcon";
 
 type Event = {
@@ -14,6 +14,8 @@ type Event = {
   endTime: Date | null;
   location: string | null;
   audience: string[];
+  attendeeIds: string[];
+  allDay: boolean;
   notes: string | null;
 };
 
@@ -42,9 +44,11 @@ function fmtDay(d: Date): string {
 
 export function ScheduleTable({
   events,
+  users = [],
   canEdit,
 }: {
   events: Event[];
+  users?: UserOpt[];
   canEdit: boolean;
 }) {
   return (
@@ -58,13 +62,13 @@ export function ScheduleTable({
                 event cell already includes a notes line, so the screen
                 isn't useless without these — they reappear at md+. */}
             <th className="px-3 py-2 text-left hidden md:table-cell">Where</th>
-            <th className="px-3 py-2 text-left hidden md:table-cell">Audience</th>
+            <th className="px-3 py-2 text-left hidden md:table-cell">Attendees</th>
             {canEdit && <th className="px-3 py-2 w-24" aria-label="Actions" />}
           </tr>
         </thead>
         <tbody>
           {events.map((e) => (
-            <Row key={e.id} event={e} canEdit={canEdit} />
+            <Row key={e.id} event={e} users={users} canEdit={canEdit} />
           ))}
         </tbody>
       </table>
@@ -72,7 +76,15 @@ export function ScheduleTable({
   );
 }
 
-function Row({ event, canEdit }: { event: Event; canEdit: boolean }) {
+function Row({
+  event,
+  users = [],
+  canEdit,
+}: {
+  event: Event;
+  users?: UserOpt[];
+  canEdit: boolean;
+}) {
   const [editing, setEditing] = useState(false);
   const [pending, startTransition] = useTransition();
 
@@ -84,17 +96,23 @@ function Row({ event, canEdit }: { event: Event; canEdit: boolean }) {
   }
 
   if (editing) {
+    const { date: startDate, time: startTimeStr } = splitDateTime(event.startTime);
+    const { date: endDate, time: endTimeStr } = splitDateTime(event.endTime);
     return (
       <tr className="border-b border-border-soft last:border-b-0">
         <td colSpan={canEdit ? 5 : 4} className="p-4 bg-moss-50/30">
           <EventForm
+            users={users}
             submitLabel="Save"
             initial={{
               title: event.title,
-              startTime: isoDateTimeForInput(event.startTime),
-              endTime: isoDateTimeForInput(event.endTime),
+              startDate,
+              startTime: startTimeStr,
+              endDate,
+              endTime: endTimeStr,
+              allDay: event.allDay,
               location: event.location ?? "",
-              audience: event.audience,
+              attendeeIds: event.attendeeIds,
               notes: event.notes ?? "",
             }}
             onSubmit={async (fd) => {
@@ -114,8 +132,14 @@ function Row({ event, canEdit }: { event: Event; canEdit: boolean }) {
     <tr className="border-b border-border-soft last:border-b-0 hover:bg-muted/30 group align-top">
       <td className="px-3 py-2.5 whitespace-nowrap">
         <div className="text-sm font-semibold text-moss-700 tabular-nums">
-          {fmtTime(event.startTime)}
-          {end && <span className="text-ink-tertiary font-normal"> – {end}</span>}
+          {event.allDay ? (
+            <span>All day</span>
+          ) : (
+            <>
+              {fmtTime(event.startTime)}
+              {end && <span className="text-ink-tertiary font-normal"> – {end}</span>}
+            </>
+          )}
         </div>
         <div className="text-[10px] text-ink-tertiary mt-0.5">
           {fmtDay(event.startTime)}
@@ -143,7 +167,24 @@ function Row({ event, canEdit }: { event: Event; canEdit: boolean }) {
         {event.location ?? "—"}
       </td>
       <td className="px-3 py-2.5 hidden md:table-cell">
-        {event.audience.length === 0 ? (
+        {/* v1.27.1: prefer attendee names; fall back to legacy
+            persona audience for old rows that pre-date the migration. */}
+        {event.attendeeIds.length > 0 ? (
+          <div className="flex gap-1 flex-wrap">
+            {event.attendeeIds.map((id) => {
+              const u = users.find((x) => x.id === id);
+              const label = u?.name ?? u?.email.split("@")[0] ?? id.slice(0, 6);
+              return (
+                <span
+                  key={id}
+                  className="text-[10px] px-1.5 py-px rounded-md bg-canvas text-ink-secondary border border-border-soft"
+                >
+                  {label}
+                </span>
+              );
+            })}
+          </div>
+        ) : event.audience.length === 0 ? (
           <span className="text-xs text-ink-tertiary">—</span>
         ) : (
           <div className="flex gap-1 flex-wrap">

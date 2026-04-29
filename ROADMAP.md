@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.27.0** | 2026-04-29 | [Tasks polish: click-to-open right-side drawer · "+ New task" popout · sort options · cleaner search bar](#2026-04-29--v1270--tasks-polish-drawer--popout--sort--search) |
+| **v1.27.1** | 2026-04-29 | [Schedule polish (split date+time, all-day toggle, attendees instead of audience) · seat-drag transform-only ghost · mobile version footer · table-size baseline ROUND-only](#2026-04-29--v1271--schedule-polish--seat-drag-transform--mobile-version--round-only-baseline) |
+| v1.27.0 | 2026-04-29 | [Tasks polish: click-to-open right-side drawer · "+ New task" popout · sort options · cleaner search bar](#2026-04-29--v1270--tasks-polish-drawer--popout--sort--search) |
 | v1.26.0 | 2026-04-29 | [Modular Wedding Book cards: TEXT · FIELD · RECIPE · SHOT_LIST · OUTFIT (kind picker, per-kind editors, shared chrome)](#2026-04-29--v1260--modular-wedding-book-cards) |
 | v1.25.3 | 2026-04-29 | [Seating: table size baseline at 10 seats (capacity tweaks no longer reflow tables)](#2026-04-29--v1253--seating-table-size-baseline-at-10) |
 | v1.25.2 | 2026-04-29 | [Mobile nav: service-worker cleanup + Today tab probe-revert to `<Link>` + roadmap "view as"](#2026-04-29--v1252--mobile-nav-sw-cleanup--today-tab-link-probe) |
@@ -537,6 +538,30 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-29 · v1.27.1 — Schedule polish · seat-drag transform · mobile version · ROUND-only baseline
+
+Four user-asked tweaks, bundled because each is small.
+
+**1. Schedule polish.** User feedback (29 Apr 2026): time picker awkward, no all-day option, "Audience" doesn't fit.
+
+- **Split date + time inputs.** Pre-fix events used a single `<input type="datetime-local">` per side, which on desktop forced a clunky combined picker. Now date + time are separate (`<input type="date">` + `<input type="time">`) — both natively typeable on desktop, both render OS-native pickers on mobile.
+- **All-day toggle.** New `allDay Boolean` column on `ScheduleEvent`. When checked, the time inputs hide and renderers display "All day" instead of a time range. Stored as midnight-local on `startTime` with `endTime` empty by convention.
+- **Attendees replace Audience.** New `attendeeIds String[]` column on `ScheduleEvent`. Pre-fix the persona-based audience pills (couple / party / guests / suppliers) didn't map to anything — neither permissions nor real assignment. New picker reads from the actual User table (couple + planners + wedding party). Renderers fall back to the legacy persona audience for old rows that pre-date the migration. Legacy `audience` column kept on the schema for back-compat read; a future cleanup will drop it.
+
+Migration `20260429050000_schedule_attendees_allday` is additive only. Files touched: `EventForm.tsx`, `EventNode.tsx`, `ScheduleTable.tsx`, `ScheduleTimeline.tsx`, `ScheduleClient.tsx`, `AddEventToggle.tsx` (popover pattern same as v1.27.0's AddTaskToggle), `actions.ts`, `page.tsx` (now fetches users), `prisma/schema.prisma`.
+
+New helper `splitDateTime(d)` in `lib/format.ts` returns `{ date: "YYYY-MM-DD", time: "HH:MM" }` for the new form.
+
+**2. Seat-drag ghost: single transform write per move.** v1.25.1 wrote 5 separate SVG attributes per pointermove (circle.cx/cy + glyph.x/y + label.x/y), each invalidating SVG layout. Even at 60 Hz the cumulative cost showed up as drag lag on dense canvases. Fix: wrap the ghost in a single `<g>` with children at (0, 0); per-move work is now one `transform="translate(x y)"` write. Combined with `style="will-change: transform"` the browser composites the translation cheaply, often GPU-accelerated. Ghost now tracks the cursor 1:1 even on layouts with many tables.
+
+**3. Mobile version footer.** Pre-fix the version chip (`v1.27.1`) lived only in the desktop sidebar — mobile users had no way to read it when reporting bugs. Now also renders in the More-sheet footer below the Sign out button. Same `APP_VERSION` constant; just no longer hidden by `display: none` on mobile.
+
+**4. Table-size baseline ROUND-only.** v1.25.3 introduced a 10-seat baseline so capacity tweaks didn't reflow tables, but the user pointed out (29 Apr 2026) that HEAD and RECTANGLE shouldn't have it — their seats sit along edges, where unused capacity creates obvious empty stretches that look odd on a fixed-size table. Fix: scope the baseline to ROUND only; HEAD + RECTANGLE go back to capacity-driven sizing.
+
+**Files:** `src/lib/format.ts`, all `src/app/(app)/schedule/**`, `src/components/shell/MobileTabBar.tsx`, `src/app/(app)/seating/SeatingCanvas.tsx`, `prisma/schema.prisma`, `prisma/migrations/20260429050000_schedule_attendees_allday/`.
+
+**Verification:** typecheck/lint clean, all 232 unit tests pass, clean `.next` build green.
 
 ### 2026-04-29 · v1.27.0 — Tasks polish: drawer · popout · sort · search
 

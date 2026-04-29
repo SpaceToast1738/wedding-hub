@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { MOBILE_TABS, NAV_GROUPS } from "@/components/shell/nav-config";
+import { APP_VERSION } from "@/lib/version";
 
 export function MobileTabBar({
   isCouple,
@@ -136,6 +137,13 @@ export function MobileTabBar({
                   Sign out
                 </button>
               </form>
+            </div>
+            {/* v1.27.1: app version footer. Mobile users couldn't see
+                the version (Sidebar's `v…` chip is display:none at
+                ≤720px). Useful when the user reports a bug — they
+                can read the version off the More sheet. */}
+            <div className="px-5 pt-1 pb-2 text-[10px] text-ink-tertiary tracking-wider font-mono select-none text-center">
+              v{APP_VERSION}
             </div>
           </div>
         </div>

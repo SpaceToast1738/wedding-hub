@@ -2,6 +2,7 @@
 
 import { Fragment } from "react";
 import { EventNode } from "./EventNode";
+import type { UserOpt } from "./EventForm";
 
 type Event = {
   id: string;
@@ -10,6 +11,8 @@ type Event = {
   endTime: Date | null;
   location: string | null;
   audience: string[];
+  attendeeIds: string[];
+  allDay: boolean;
   notes: string | null;
 };
 
@@ -39,9 +42,11 @@ function groupByDay(events: Event[]): Array<{ key: string; label: string; events
 
 export function ScheduleTimeline({
   events,
+  users = [],
   canEdit,
 }: {
   events: Event[];
+  users?: UserOpt[];
   canEdit: boolean;
 }) {
   const groups = groupByDay(events);
@@ -63,7 +68,7 @@ export function ScheduleTimeline({
           <ol className="relative pl-3 ml-6 border-l border-border-soft">
             {g.events.map((e, i) => (
               <Fragment key={e.id}>
-                <EventNode event={e} canEdit={canEdit} isLast={i === g.events.length - 1} />
+                <EventNode event={e} users={users} canEdit={canEdit} isLast={i === g.events.length - 1} />
               </Fragment>
             ))}
           </ol>

@@ -2,9 +2,9 @@
 
 import { useState, useTransition } from "react";
 import { Button } from "@/components/ui/Button";
-import { EventForm } from "./EventForm";
+import { EventForm, type UserOpt } from "./EventForm";
 import { updateScheduleEvent, deleteScheduleEvent } from "./actions";
-import { isoDateTimeForInput } from "@/lib/format";
+import { splitDateTime } from "@/lib/format";
 import { EventMotifIcon, classifyEventMotif } from "@/components/ui/EventMotifIcon";
 
 type Event = {
@@ -13,16 +13,24 @@ type Event = {
   startTime: Date;
   endTime: Date | null;
   location: string | null;
+  // Legacy persona audience — kept for back-compat read on rows
+  // created before v1.27.1 that still have values here.
   audience: string[];
+  // v1.27.1: User-IDs of who should attend / be aware of this event.
+  attendeeIds: string[];
+  // v1.27.1: when true the time component is ignored on render.
+  allDay: boolean;
   notes: string | null;
 };
 
 export function EventNode({
   event,
+  users = [],
   canEdit,
   isLast,
 }: {
   event: Event;
+  users?: UserOpt[];
   canEdit: boolean;
   isLast: boolean;
 }) {
@@ -50,16 +58,22 @@ export function EventNode({
     : null;
 
   if (editing) {
+    const { date: startDate, time: startTimeStr } = splitDateTime(event.startTime);
+    const { date: endDate, time: endTimeStr } = splitDateTime(event.endTime);
     return (
       <li className={`relative bg-surface border border-moss-100 rounded-md p-4 mb-3 ${isLast ? "" : ""}`}>
         <EventForm
+          users={users}
           submitLabel="Save"
           initial={{
             title: event.title,
-            startTime: isoDateTimeForInput(event.startTime),
-            endTime: isoDateTimeForInput(event.endTime),
+            startDate,
+            startTime: startTimeStr,
+            endDate,
+            endTime: endTimeStr,
+            allDay: event.allDay,
             location: event.location ?? "",
-            audience: event.audience,
+            attendeeIds: event.attendeeIds,
             notes: event.notes ?? "",
           }}
           onSubmit={async (fd) => {
@@ -81,8 +95,14 @@ export function EventNode({
       />
       <div className="flex items-baseline justify-between gap-3 flex-wrap">
         <div className="text-sm font-semibold text-moss-700 tabular-nums">
-          {start}
-          {end && <span className="text-ink-tertiary font-normal"> – {end}</span>}
+          {event.allDay ? (
+            <span>All day</span>
+          ) : (
+            <>
+              {start}
+              {end && <span className="text-ink-tertiary font-normal"> – {end}</span>}
+            </>
+          )}
         </div>
         {canEdit && (
           <div className="flex gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity no-print">
@@ -104,7 +124,24 @@ export function EventNode({
       {event.location && (
         <div className="text-xs text-ink-tertiary mt-0.5">📍 {event.location}</div>
       )}
-      {event.audience.length > 0 && (
+      {/* v1.27.1: prefer attendee names; fall back to legacy persona
+          audience for old rows that pre-date the migration. */}
+      {event.attendeeIds.length > 0 ? (
+        <div className="flex gap-1 mt-1.5 flex-wrap">
+          {event.attendeeIds.map((id) => {
+            const u = users.find((x) => x.id === id);
+            const label = u?.name ?? u?.email.split("@")[0] ?? id.slice(0, 6);
+            return (
+              <span
+                key={id}
+                className="text-[10px] px-1.5 py-px rounded-md bg-canvas text-ink-secondary border border-border-soft"
+              >
+                {label}
+              </span>
+            );
+          })}
+        </div>
+      ) : event.audience.length > 0 ? (
         <div className="flex gap-1 mt-1.5 flex-wrap">
           {event.audience.map((a) => (
             <span
@@ -115,7 +152,7 @@ export function EventNode({
             </span>
           ))}
         </div>
-      )}
+      ) : null}
       {event.notes && (
         <p className="text-xs text-ink-secondary mt-2 whitespace-pre-wrap">{event.notes}</p>
       )}

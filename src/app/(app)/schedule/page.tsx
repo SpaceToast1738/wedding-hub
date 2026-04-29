@@ -13,9 +13,17 @@ export default async function SchedulePage() {
   const editable = await canEdit(user, "schedule");
   const wedding = await getWeddingSettings();
 
-  const events = await db.scheduleEvent.findMany({
-    orderBy: [{ startTime: "asc" }, { order: "asc" }],
-  });
+  const [events, users] = await Promise.all([
+    db.scheduleEvent.findMany({
+      orderBy: [{ startTime: "asc" }, { order: "asc" }],
+    }),
+    // v1.27.1: attendee picker reads from the User table (admin
+    // accounts only — guests are managed via Say I Do, not here).
+    db.user.findMany({
+      orderBy: [{ isCouple: "desc" }, { name: "asc" }],
+      select: { id: true, name: true, email: true },
+    }),
+  ]);
 
   const total = events.length;
   const upcoming = events.filter((e) => e.startTime >= new Date()).length;
@@ -28,7 +36,7 @@ export default async function SchedulePage() {
         actions={
           <>
             <PrintScheduleButton />
-            {editable && <AddEventToggle />}
+            {editable && <AddEventToggle users={users} />}
           </>
         }
       />
@@ -57,8 +65,11 @@ export default async function SchedulePage() {
                 endTime: e.endTime,
                 location: e.location,
                 audience: e.audience,
+                attendeeIds: e.attendeeIds,
+                allDay: e.allDay,
                 notes: e.notes,
               }))}
+              users={users}
               canEdit={editable}
             />
           )}

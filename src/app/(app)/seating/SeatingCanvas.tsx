@@ -120,29 +120,29 @@ function snap(value: number, grid: number): number {
   return Math.round(value / grid) * grid;
 }
 
-// Visual sizing — purely cosmetic. v1.25.3: table size is fixed at
-// the 10-seat baseline so changing capacity (e.g. 8→10 or 10→12)
-// doesn't reflow the whole canvas. Tables larger than 10 seats grow
-// linearly to keep dots from overlapping; smaller tables stay at the
-// 10-seat default (just with dots more spread out around the
-// perimeter / along the edge). User feedback: "When resizing the
-// seat numbers, table size should remain the same, size the tables
-// to fit 10 seats but allow for more."
+// Visual sizing — purely cosmetic. v1.25.3 introduced the 10-seat
+// baseline (capacity tweaks 8↔10 don't reflow the table). v1.27.1
+// scopes that baseline to ROUND only — HEAD and RECTANGLE go back
+// to capacity-driven sizing because their seats sit along edges,
+// where unused capacity creates obvious empty stretches that look
+// odd on a fixed-size table.
 const SIZE_BASELINE_CAP = 10;
 function tableSize(shape: TableShape, capacity: number): { w: number; h: number; r: number } {
-  const sizingCap = Math.max(capacity, SIZE_BASELINE_CAP);
   if (shape === "ROUND") {
+    // ROUND: fixed at 10-seat baseline, grows beyond that.
+    const sizingCap = Math.max(capacity, SIZE_BASELINE_CAP);
     const r = 36 + sizingCap * 4;
     return { w: r * 2, h: r * 2, r };
   }
   if (shape === "HEAD") {
     // v1.23.0: bumped per-seat width (18→30) + base (80→110) and
-    // height (70→80). v1.25.3: sized for 10-seat baseline, grows
-    // for larger HEAD tables (rare — most head tables are 6–10).
-    return { w: 110 + sizingCap * 30, h: 80, r: 0 };
+    // height (70→80). v1.27.1: capacity-driven again — HEAD seats
+    // sit along the front edge, fixed-width with sparse seats
+    // looked off.
+    return { w: 110 + capacity * 30, h: 80, r: 0 };
   }
-  // RECTANGLE — v1.25.3: same 10-seat baseline.
-  return { w: 70 + sizingCap * 14, h: 60, r: 0 };
+  // RECTANGLE — capacity-driven.
+  return { w: 70 + capacity * 14, h: 60, r: 0 };
 }
 
 // v1.22.7: per-seat dot/label layout per shape.
@@ -344,9 +344,13 @@ export function SeatingCanvas({
   // cursor on real layouts. Imperatively setting SVG attributes via
   // refs sidesteps React reconciliation entirely — the ghost tracks
   // the cursor at native rate.
-  const ghostCircleRef = useRef<SVGCircleElement>(null);
-  const ghostGlyphRef = useRef<SVGTextElement>(null);
-  const ghostLabelRef = useRef<SVGTextElement>(null);
+  // v1.27.1: single <g transform> ref instead of three child refs.
+  // Pre-fix every pointermove wrote 5 SVG attributes (circle.cx/cy,
+  // glyph.x/y, label.x/y) — each invalidates SVG layout. Browsers
+  // composite a single `transform` change much more cheaply, often
+  // GPU-accelerated when paired with `will-change: transform`. The
+  // ghost children stay anchored at (0, 0) inside the group.
+  const ghostGroupRef = useRef<SVGGElement>(null);
   // RAF guard for the dragOverSeatId update — findSeatAt is O(n*m),
   // throttled to once per animation frame so it doesn't dominate the
   // pointermove cost.
@@ -362,6 +366,8 @@ export function SeatingCanvas({
   // its position from the live cursor. Prevents a single-frame paint
   // at (0, 0) before pointermove writes the real values. Subsequent
   // pointermoves bypass React entirely (see onPointerMove handler).
+  // v1.27.1: single transform write on the group instead of 5
+  // separate attributes — composite-friendly + cheaper.
   const ghostMounted = !!seatDrag?.moved;
   useLayoutEffect(() => {
     if (!ghostMounted) return;
@@ -370,20 +376,8 @@ export function SeatingCanvas({
     if (!cursor || !offset) return;
     const gx = cursor.x - offset.x;
     const gy = cursor.y - offset.y;
-    if (ghostCircleRef.current) {
-      ghostCircleRef.current.setAttribute("cx", String(gx));
-      ghostCircleRef.current.setAttribute("cy", String(gy));
-    }
-    if (ghostGlyphRef.current) {
-      ghostGlyphRef.current.setAttribute("x", String(gx));
-      ghostGlyphRef.current.setAttribute("y", String(gy));
-    }
-    if (ghostLabelRef.current) {
-      ghostLabelRef.current.setAttribute("x", String(gx));
-      ghostLabelRef.current.setAttribute(
-        "y",
-        String(gy + 3.5 * dotScale + 4 + 0.8 * 9 * labelScale),
-      );
+    if (ghostGroupRef.current) {
+      ghostGroupRef.current.setAttribute("transform", `translate(${gx} ${gy})`);
     }
     // Only depend on `ghostMounted`; offset+cursor read from refs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -879,19 +873,14 @@ export function SeatingCanvas({
                               if (seatDrag.moved || becameMoved) {
                                 const gx = p.x - seatDrag.offsetX;
                                 const gy = p.y - seatDrag.offsetY;
-                                if (ghostCircleRef.current) {
-                                  ghostCircleRef.current.setAttribute("cx", String(gx));
-                                  ghostCircleRef.current.setAttribute("cy", String(gy));
-                                }
-                                if (ghostGlyphRef.current) {
-                                  ghostGlyphRef.current.setAttribute("x", String(gx));
-                                  ghostGlyphRef.current.setAttribute("y", String(gy));
-                                }
-                                if (ghostLabelRef.current) {
-                                  ghostLabelRef.current.setAttribute("x", String(gx));
-                                  ghostLabelRef.current.setAttribute(
-                                    "y",
-                                    String(gy + 3.5 * dotScale + 4 + 0.8 * 9 * labelScale),
+                                // v1.27.1: single transform attribute on
+                                // the ghost group — much cheaper than
+                                // five separate cx/cy/x/y writes (each
+                                // of which invalidates SVG layout).
+                                if (ghostGroupRef.current) {
+                                  ghostGroupRef.current.setAttribute(
+                                    "transform",
+                                    `translate(${gx} ${gy})`,
                                   );
                                 }
                                 // v1.25.1: throttle the O(n*m) seat hit-
@@ -1082,17 +1071,19 @@ export function SeatingCanvas({
             ));
           })()}
           {/* v1.22.10: ghost dot for canvas seat-drag.
-              v1.25.0: anchored to (cursor − offset) so the ghost
-              stays wherever the user first grabbed the seat.
-              v1.25.1: position updated imperatively via refs in
-              onPointerMove instead of state. The cx/cy attributes
-              below are placeholders (0,0) — first pointermove writes
-              the real values. The ghost only paints when moved=true,
-              so the user never sees the placeholder. */}
+              v1.27.1: single <g transform> with children at (0, 0).
+              Per-move work shrinks to one attribute write; the
+              browser composites the translation cheaply, often on
+              the GPU when paired with `will-change: transform`. */}
           {seatDrag?.moved && (
-            <g pointerEvents="none" opacity={0.7}>
+            <g
+              ref={ghostGroupRef}
+              pointerEvents="none"
+              opacity={0.7}
+              transform="translate(0 0)"
+              style={{ willChange: "transform" }}
+            >
               <circle
-                ref={ghostCircleRef}
                 cx={0}
                 cy={0}
                 r={3.5 * dotScale}
@@ -1102,7 +1093,6 @@ export function SeatingCanvas({
               />
               {dotScale >= 1.4 && (
                 <text
-                  ref={ghostGlyphRef}
                   x={0}
                   y={0}
                   textAnchor="middle"
@@ -1115,9 +1105,8 @@ export function SeatingCanvas({
                 </text>
               )}
               <text
-                ref={ghostLabelRef}
                 x={0}
-                y={0}
+                y={3.5 * dotScale + 4 + 0.8 * 9 * labelScale}
                 textAnchor="middle"
                 fontSize={9 * labelScale}
                 fill="var(--color-ink-secondary)"
