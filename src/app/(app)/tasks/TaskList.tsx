@@ -26,11 +26,6 @@ type Task = {
   customFieldValues?: Record<string, string | number | null> | null;
 };
 
-// v1.27.0: explicit sort options. Pre-fix the page sorted by
-// status → priority → dueDate fixed in the server query, with no UI
-// affordance to change. Now the user can pick from five common
-// sorts. Default: smart-default (status DONE last, then priority,
-// then dueDate ascending).
 type SortKey = "smart" | "due" | "priority" | "title" | "assignee" | "created";
 const SORT_LABELS: Record<SortKey, string> = {
   smart: "Smart",
@@ -48,6 +43,18 @@ function priorityRank(p: string): number {
   return 3;
 }
 
+// v1.27.4: redesign visually to match the user-supplied mockup. Style
+// changes only — features kept intact:
+//   - List/Board moved from a pill toggle on FilterTabs to text-
+//     underline tabs above the filter pill row (matches mockup).
+//   - Filter pills become dynamic — predefined (All / Mine /
+//     Questions / Done) plus one pill per distinct category tag from
+//     the current task set + a "+ View" stub for saved-views (TODO).
+//   - Search input + sort dropdown KEPT (the user said "anything
+//     added can stay, I just want the same style"). They live in
+//     the existing unified bg-surface band above the FilterTabs row.
+//   - Per-row done-circle KEPT in TaskRow.
+//   - Category column KEPT in TaskRow + header.
 export function TaskList({
   tasks,
   users,
@@ -61,16 +68,13 @@ export function TaskList({
   canEdit: boolean;
   customFieldDefs?: CustomFieldDef[];
 }) {
-  void customFieldDefs; // v1.27.0: drawer doesn't render custom fields yet
+  void customFieldDefs;
   const [filter, setFilter] = useState<Filter>("all");
   const [view, setView] = useState<View>("list");
   const [sortKey, setSortKey] = useState<SortKey>("smart");
   const [search, setSearch] = useState("");
-  // v1.27.0: drawer holds the id of the focused task — null when
-  // nothing's open. Click any row to open; ESC / × / backdrop close.
   const [openTaskId, setOpenTaskId] = useState<string | null>(null);
 
-  // Restore preferences. SSR renders defaults so the markup stays stable.
   useEffect(() => {
     try {
       const savedView = localStorage.getItem(VIEW_KEY);
@@ -107,15 +111,35 @@ export function TaskList({
     return m;
   }, [users]);
 
+  // v1.27.4: distinct categories from `tags[0]` (the convention the
+  // rest of the app uses for "primary category"). Sorted alphabetically
+  // so the pill order is stable across renders.
+  const categories = useMemo(() => {
+    const set = new Set<string>();
+    for (const t of tasks) {
+      const cat = t.tags[0];
+      if (cat) set.add(cat);
+    }
+    return [...set].sort((a, b) => a.localeCompare(b));
+  }, [tasks]);
+
   const filtered = useMemo(() => {
     const term = search.trim().toLowerCase();
     return tasks.filter((t) => {
-      if (filter === "mine") {
-        if (t.assigneeId !== currentUserId || t.status === "DONE") return false;
-      } else if (filter === "open") {
+      // v1.27.4: filter is now a string, not an enum.
+      if (filter === "all") {
+        if (t.status === "ARCHIVED") return false;
+      } else if (filter === "mine") {
+        if (t.assigneeId !== currentUserId) return false;
         if (t.status === "DONE" || t.status === "ARCHIVED") return false;
+      } else if (filter === "questions") {
+        if (t.type !== "QUESTION" && t.type !== "DECISION") return false;
       } else if (filter === "done") {
         if (t.status !== "DONE") return false;
+      } else if (filter.startsWith("cat:")) {
+        const cat = filter.slice(4);
+        if (t.tags[0] !== cat) return false;
+        if (t.status === "ARCHIVED") return false;
       }
       if (term) {
         const hay = `${t.title} ${t.tags.join(" ")} ${t.notes ?? ""}`.toLowerCase();
@@ -149,15 +173,11 @@ export function TaskList({
         });
         break;
       case "created":
-        // Tasks list comes from the server already in createdAt-desc
-        // when status ties. Fall back to id (cuid is roughly time-
-        // ordered) for client-side determinism.
         list.sort((a, b) => b.id.localeCompare(a.id));
         break;
       case "smart":
       default:
         list.sort((a, b) => {
-          // Done last, then priority, then due ascending.
           const ad = a.status === "DONE" ? 1 : 0;
           const bd = b.status === "DONE" ? 1 : 0;
           if (ad !== bd) return ad - bd;
@@ -175,10 +195,34 @@ export function TaskList({
 
   return (
     <>
-      {/* v1.27.0 → v1.27.3: control row + filter pills now share one
-          unified bg-surface band. Pre-v1.27.3 the search input lived
-          on the page background while FilterTabs was on bg-surface,
-          giving a two-tone look the user disliked. */}
+      {/* v1.27.4: text-underline List/Board tabs directly below the
+          page title. Active tab gets the moss accent + thicker bottom
+          border. Mirrors the user-supplied mockup. Sits just outside
+          the search/filter band below. */}
+      <div className="px-4 sm:px-6 pt-1 flex gap-5 border-b border-border-soft bg-surface">
+        {(["list", "board"] as View[]).map((v) => {
+          const active = view === v;
+          return (
+            <button
+              key={v}
+              type="button"
+              onClick={() => setView(v)}
+              className={[
+                "text-sm font-medium pb-2 -mb-px border-b-2 transition-colors",
+                active
+                  ? "border-ink-primary text-ink-primary font-semibold"
+                  : "border-transparent text-ink-tertiary hover:text-ink-primary",
+              ].join(" ")}
+              aria-pressed={active}
+            >
+              {v === "list" ? "List" : "Board"}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* v1.27.0 → v1.27.4: search + sort row stays — user clarified
+          "anything added can stay, I just want the same style". */}
       <div className="bg-surface border-b border-border-soft">
         <div className="px-4 sm:px-6 pt-3 pb-2 flex items-center gap-2 flex-wrap">
           <div className="relative flex-1 min-w-[200px] max-w-md">
@@ -229,17 +273,13 @@ export function TaskList({
             </select>
           </div>
         </div>
-        <FilterTabs value={filter} onChange={setFilter} view={view} onViewChange={setView} />
+        <FilterTabs value={filter} onChange={setFilter} categories={categories} />
       </div>
+
       {view === "board" ? (
         <TaskBoard tasks={sorted} users={users} canEdit={canEdit} />
       ) : (
         <div className="flex-1 overflow-auto">
-          {/* v1.27.3: full-width table layout matching the user's
-              mockup. Pre-v1.27.3 the list lived inside a max-w-4xl
-              column with no headers — the new wide table puts column
-              labels (Title / Assignee / Priority / Status / Due / …)
-              at the top so each row's data is column-aligned. */}
           <div className="px-4 sm:px-6 py-4">
             {sorted.length === 0 ? (
               <EmptyState
@@ -249,13 +289,16 @@ export function TaskList({
               />
             ) : (
               <div className="bg-surface border border-border-soft rounded-md shadow-sm overflow-x-auto">
-                {/* Header row — sticky-ish at the top of the table. */}
+                {/* v1.27.3: column headers. Category column kept (it
+                    duplicates the filter-pill semantic but the user
+                    asked for it to stay). Hidden on mobile — rows
+                    collapse to title-only there. */}
                 <div className="hidden sm:flex items-center gap-3 px-4 py-2 border-b border-border-soft bg-canvas/40 text-[10px] uppercase tracking-wider font-bold text-ink-tertiary">
                   <span className="w-4 flex-shrink-0" aria-hidden />
                   <span className="w-1.5 flex-shrink-0" aria-hidden />
                   <span className="flex-1 min-w-0">Title</span>
                   <span className="w-32">Assignee</span>
-                  <span className="w-12 text-center">Priority</span>
+                  <span className="w-14 text-center">Priority</span>
                   <span className="w-20 text-center">Status</span>
                   <span className="w-20 text-right">Due</span>
                   <span className="w-20 text-center">Category</span>

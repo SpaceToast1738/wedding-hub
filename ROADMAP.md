@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.27.3** | 2026-04-29 | [Tasks polish round 2: full-width table with column headers · centred new-task popout · unified search/filter styling](#2026-04-29--v1273--tasks-polish-round-2-full-width-table--centred-popout--unified-styling) |
+| **v1.27.4** | 2026-04-29 | [Tasks visual style match: text-underline List/Board tabs · dynamic category filter pills · Questions filter · "+ View" stub](#2026-04-29--v1274--tasks-visual-style-match-text-tabs--dynamic-category-pills) |
+| v1.27.3 | 2026-04-29 | [Tasks polish round 2: full-width table with column headers · centred new-task popout · unified search/filter styling](#2026-04-29--v1273--tasks-polish-round-2-full-width-table--centred-popout--unified-styling) |
 | v1.27.2 | 2026-04-29 | [Today page: working task checkbox + broader "My next tasks" priority list](#2026-04-29--v1272--today-page-working-checkbox--broader-task-list) |
 | v1.27.1 | 2026-04-29 | [Schedule polish (split date+time, all-day toggle, attendees instead of audience) · seat-drag transform-only ghost · mobile version footer · table-size baseline ROUND-only](#2026-04-29--v1271--schedule-polish--seat-drag-transform--mobile-version--round-only-baseline) |
 | v1.27.0 | 2026-04-29 | [Tasks polish: click-to-open right-side drawer · "+ New task" popout · sort options · cleaner search bar](#2026-04-29--v1270--tasks-polish-drawer--popout--sort--search) |
@@ -202,20 +203,51 @@ items renumbered down the queue. Current state:
 - ~~**Print stylesheet for /budget + /payments**~~ — shipped v1.24.0.
 - ~~**BookSection audience overrides**~~ — shipped v1.24.0.
 - ~~**Email reminders / nudges**~~ — shipped v1.25.0.
-- **Modular page cards** (text / field / recipe / shot list) — design
-  pass first, then build. Bumped to v1.26.0+. ~10 hrs estimated.
+- ~~**Modular page cards**~~ — shipped v1.26.0 (TEXT · FIELD · RECIPE
+  · SHOT_LIST · OUTFIT, photography migration deferred to v1.26.5).
 - **Group-coloured ceremony seating** — design pass first. Bumped to
-  v1.27.0+. See "Group-coloured ceremony seating (design needed)"
+  v1.28.0+. See "Group-coloured ceremony seating (design needed)"
   below for the full requirements + open design questions. ~9 hrs
   estimated once the design pass lands.
 
-**Total scope spent on the planner-only shortlist:** ~22 hrs across
-11 releases (vs. the original 15.5-hr estimate). The overshoot is
-entirely the seating polish pass — the original plan budgeted ~3 hrs
-for v1.20.5 + v1.20.6; the dogfood loop turned that into ~10 hrs.
-The user feedback was always specific and actionable so each iteration
-was cheap; in hindsight the seating canvas just had more surface area
-than the plan accounted for.
+**Total scope spent on the planner-only shortlist:** ~36 hrs across
+~25 releases (vs. the original 15.5-hr estimate). Two overshoots:
+the seating polish pass that ran v1.22.5–v1.23.3 (originally budgeted
+~3 hrs for v1.20.5 + v1.20.6, became ~14 hrs through dogfood
+iteration) and the modular-cards feature itself which was bigger
+than the original Phase F1 plan accounted for once OUTFIT was added.
+The user feedback was always specific and actionable so each
+iteration was cheap; in hindsight the seating canvas + the Wedding
+Book just had more surface area than the original plan modelled.
+
+### Shovel-ready next (no design pass needed)
+
+These don't need a design pass — just the time to execute. Roughly
+in priority order.
+
+- **v1.25.4 — mobile-nav graduated `<Link>` revert.** v1.25.2
+  reverted the Today tab to `<Link>` as a probe; the rest (Tasks,
+  Guests, More-sheet items) still ship as plain `<a href>` from
+  v1.25.0. Now that the SW cleanup + Today probe deployed and
+  worked, finish the revert. ~30 min.
+- **v1.26.5 — photography migration.** Move existing
+  `PhotographyShot` rows → `BookShot` rows under a single SHOT_LIST
+  card on the Photography section, then delete the bespoke
+  `/book/photography` route files. The legacy `PhotographyShot`
+  table stays in place one extra release as a recoverability buffer.
+  ~1 hr.
+- **Guest detail side panel on seating canvas** — click a seated
+  guest dot, get their full record in a right-hand drawer. Same
+  primitive as the table FocusPanel (v1.22.x). ~1.5 hrs.
+- **"View as another role" preview** — header dropdown to preview
+  the app as if you were another user. Cookie-based override read
+  by every server component's permission gate. Audit-logged on every
+  flip. ~2 hrs once the override layer is decided.
+- **v1.28.0 — schema cleanup.** Drop the legacy
+  `PhotographyShot` table (after v1.26.5 verifies clean for one
+  release) and the legacy `ScheduleEvent.audience` column (after
+  v1.27.1 verifies). ~30 min total. Defer until both predecessors
+  have been live one release.
 
 ### Group-coloured ceremony seating (design needed)
 
@@ -330,24 +362,10 @@ When the open questions are answered, this section gets replaced with a concrete
   *Recommendation:* (a) Email OTP — least new infra, biggest UX
   win on touch devices where copy-pasting a long URL from a mail
   app is fiddly. ~2 hrs to implement once the design pass picks one.
-- **Schedule page polish (time entry + all-day + audience rethink)** —
-  user feedback (29 Apr 2026):
-  (a) Time picker is awkward, especially on desktop. The current
-      datetime-local input forces the OS picker; on desktop a typed
-      time field (HH:MM with auto-format) reads better. Keep the
-      OS picker as a calendar-icon button next to it.
-  (b) No "all day" toggle. Add a checkbox that strips the time and
-      stores `startTime` as midnight + an `allDay: boolean` flag
-      (additive schema column). Renderers branch on the flag.
-  (c) "Audience" field doesn't fit. Currently a free-text or
-      enum-ish field that doesn't map cleanly to permissions or
-      assignment. Options today don't make sense as either.
-      Decision needed: replace with a multi-assignee picker
-      (Bryony, Jamie, Aimee, etc), with a free-text "notes" if more
-      detail is needed; OR drop entirely and rely on the existing
-      task-assignee pattern. Lean: drop Audience, add a multi-
-      attendee picker.
-  ~2 hrs once design signed off. *Asked by user, 29 Apr 2026.*
+- ~~**Schedule page polish (time entry + all-day + audience rethink)**~~
+  — shipped v1.27.1. Split date+time inputs (typeable on desktop),
+  `allDay` boolean toggle, attendee multi-picker replaced the persona
+  audience.
 - **Audit-log enrichment** — the existing audit log captures
   `{ action, entity, entityId, metadata? }` per server action and
   renders raw rows in `AuditLogPanel.tsx`. There's a lot of missing
@@ -399,16 +417,12 @@ When the open questions are answered, this section gets replaced with a concrete
   Includes a Settings UI for the couple to manage groups + assign
   users. ~3 hrs once design is signed off.
   *Asked by user, 29 Apr 2026.*
-- **Investigate mobile navbar redirect-to-Today** — user reports
-  (29 Apr 2026): clicking any item in the mobile tab bar takes you
-  to `/`. Inspected `MobileTabBar.tsx` + `nav-config.ts` + middleware;
-  hrefs and matchers look correct on the current `dev` HEAD
-  (v1.23.2). Two leading hypotheses: (a) deployment lag — the user
-  may have been hitting the prod image mid-rebuild after the
-  v1.20.0–v1.23.1 bulk promote, before the new image rolled out;
-  (b) a prefetched or service-worker-cached older build. Re-check
-  after the next deploy completes; if it persists, instrument the
-  Link onClick to log the resolved href and inspect.
+- ~~**Investigate mobile navbar redirect-to-Today**~~ — root cause was
+  a stale service worker from a prior deployment at the same domain.
+  v1.25.2 mounts a `ServiceWorkerCleanup` component at root that
+  unregisters every SW on first paint; v1.25.0 swapped Link → plain
+  anchor as a defensive fallback. v1.25.4 plans the graceful Link
+  revert now that the SW is cleared.
 - **Guest detail side panel on seating canvas** — when a planner
   *clicks* (no drag movement) a seated guest dot, open a right-hand
   side panel showing the guest's full record: full name + RSVP +
@@ -540,6 +554,24 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-29 · v1.27.4 — Tasks visual style match: text tabs · dynamic category pills
+
+User shared a side-by-side screenshot comparison — the v1.27.3 layout still didn't match the target mockup. User clarified: *"Anything added can stay, I just want the same style."* So this release keeps every feature from v1.27.0–v1.27.3 (search input, sort dropdown, done-circle, category column) and adjusts only the *visual* style:
+
+**1. List/Board → text-underline tabs.** Pre-fix the toggle was a pill pair on the right of the FilterTabs row. Now it sits at the top of the page just below the title, two text labels with active-tab bottom-border accent — matches the mockup exactly. Sits in its own bg-surface band above the search/filter band.
+
+**2. Filter pills become dynamic.** Pre-fix only four hardcoded pills (All / Mine / Open / Done). Now: predefined four (All / Mine / Questions / Done) plus one pill per distinct category tag computed from the current task set's `tags[0]` (alphabetical order, stable across renders), plus a "+ View" placeholder pill for the saved-views feature on the wider backlog. Filters that target a category use a `cat:<name>` value internally so the predefined and category strings can't collide.
+
+**3. New Questions filter.** Replaces "Open" — toggles to QUESTION + DECISION rows so the planner can chase open answers from the Tasks page (the existing Questions page surfaces them too, but having the filter inline is convenient when you're already filtering by category).
+
+**4. "+ View" stub.** Saved-views are a future feature (open-question on whether they should be per-user or shared). The pill is a no-op visual stub so the layout matches the mockup.
+
+**Files:** `src/app/(app)/tasks/FilterTabs.tsx` (dynamic pills + View stub + dropped List/Board pill toggle), `TaskList.tsx` (text List/Board tabs at top, dynamic-category state, `cat:` filter handling), `TaskRow.tsx` (added explicit Category cell to align with the kept column header).
+
+**Verification:** typecheck/lint clean, all 232 unit tests pass, build green. Manual: open `/tasks` → List/Board are now text tabs at the top. Filter row shows dynamic categories ("Budget", "Groom Prep", etc) computed from your real task tags. Click a category pill → list filters. Click "Questions" → switches to questions/decisions.
+
+**Roadmap cleanup landed in this release:** marked Modular page cards (v1.26.0), Schedule polish (v1.27.1), Mobile navbar redirect-to-Today (v1.25.2 SW cleanup) as shipped/resolved in their backlog entries; added a "Shovel-ready next" section listing v1.25.4, v1.26.5, Guest detail seating panel, View-as preview, v1.28.0 schema cleanup with rough sizings.
 
 ### 2026-04-29 · v1.27.3 — Tasks polish round 2: full-width table · centred popout · unified styling
 

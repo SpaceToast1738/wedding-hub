@@ -49,10 +49,10 @@ const NEXT_STATUS: Record<string, string> = {
   ARCHIVED: "OPEN",
 };
 
-// v1.27.0: row is now a click target for the TaskDrawer instead of
-// expanding inline. Done-circle and the row itself are separate
-// click zones — the circle still toggles status, the rest opens the
-// drawer. Mirrors the screenshot mockup the user shared.
+// v1.27.0: row click opens the TaskDrawer for editing. v1.27.4: row
+// keeps the done-circle (per the user's "anything added can stay")
+// and the category cell on the right. The done-circle stops
+// propagation so it can cycle status without opening the drawer.
 export function TaskRow({
   task,
   canEdit,
@@ -99,6 +99,7 @@ export function TaskRow({
       </button>
       <span
         className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${PRIORITY_DOT[task.priority] ?? "bg-moss-300"}`}
+        aria-hidden
       />
       <div className="flex-1 min-w-0">
         <div className="flex items-baseline gap-2">
@@ -136,18 +137,22 @@ export function TaskRow({
         ) : (
           <span className="w-32" />
         )}
-        <StatusPill status={PRIORITY_LABEL[task.priority] ?? "LOW"} size="sm" />
+        <span className="w-14 flex justify-center">
+          <StatusPill status={PRIORITY_LABEL[task.priority] ?? "LOW"} size="sm" />
+        </span>
         <span className="text-[10px] uppercase tracking-wider text-ink-tertiary bg-canvas border border-border-soft rounded-md px-2 py-0.5 w-20 text-center">
           {STATUS_LABEL[task.status] ?? task.status}
         </span>
         <span className="text-xs text-ink-tertiary w-20 text-right">
           {formatRelativeDue(task.dueDate)}
         </span>
-        {category && (
-          <span className="text-[10px] text-ink-tertiary bg-canvas border border-border-soft px-1.5 py-px rounded-md w-20 text-center truncate">
-            {category}
-          </span>
-        )}
+        <span className="w-20 text-center">
+          {category ? (
+            <span className="text-[10px] text-ink-tertiary bg-canvas border border-border-soft px-1.5 py-px rounded-md inline-block max-w-full truncate">
+              {category}
+            </span>
+          ) : null}
+        </span>
       </div>
     </li>
   );
