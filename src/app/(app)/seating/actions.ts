@@ -98,6 +98,62 @@ export async function updateTablePosition(
   revalidatePath("/seating");
 }
 
+// v1.22.6: modify capacity of an existing table.
+// - Grow: append new Seat rows for the missing indices. The round-table
+//   layout in SeatingCanvas spreads seats by `i/capacity * 2π`, so all
+//   existing seats reposition visually — that's expected, every seat
+//   shifts a bit when you add one.
+// - Shrink: only allowed if the trailing seats (index >= newCapacity)
+//   are all empty. If any trailing seat has a guest, throw — the
+//   planner needs to unseat them first. Avoids silent re-shuffles.
+const capacitySchema = z.object({
+  newCapacity: z.coerce.number().int().min(1).max(40),
+});
+
+export async function updateTableCapacity(id: string, newCapacity: number) {
+  const user = await requireEdit("seating");
+  const parsed = capacitySchema.parse({ newCapacity });
+  const table = await db.table.findUnique({
+    where: { id },
+    include: { seats: { include: { guest: { select: { id: true } } } } },
+  });
+  if (!table) throw new Error("Table not found");
+  const current = table.capacity;
+  const target = parsed.newCapacity;
+  if (target === current) return;
+
+  if (target > current) {
+    // Append seats with indices [current..target-1].
+    await db.seat.createMany({
+      data: Array.from({ length: target - current }, (_, i) => ({
+        tableId: id,
+        index: current + i,
+      })),
+    });
+  } else {
+    // Shrink. Bail if any trailing seat is occupied — the planner needs
+    // to unseat first so the action is never destructive of assignments.
+    const toRemove = table.seats.filter((s) => s.index >= target);
+    const occupied = toRemove.filter((s) => s.guest).length;
+    if (occupied > 0) {
+      throw new Error(
+        `Can't shrink to ${target}: ${occupied} seat${occupied === 1 ? "" : "s"} above #${target} ${occupied === 1 ? "is" : "are"} still assigned. Unseat first.`,
+      );
+    }
+    await db.seat.deleteMany({
+      where: { tableId: id, index: { gte: target } },
+    });
+  }
+  await db.table.update({ where: { id }, data: { capacity: target } });
+  await audit(user, {
+    action: "capacity",
+    entity: "Table",
+    entityId: id,
+    metadata: { from: current, to: target },
+  });
+  revalidatePath("/seating");
+}
+
 export async function assignGuestToSeat(seatId: string, guestId: string | null) {
   const user = await requireEdit("seating");
   // B12 (v1.12.0): wrap clear-and-assign in a single transaction so two

@@ -3,11 +3,26 @@
 import { useTransition } from "react";
 import { Button } from "@/components/ui/Button";
 import { notify } from "@/lib/notify";
-import { assignGuestToSeat, deleteTable } from "./actions";
+import { assignGuestToSeat, deleteTable, updateTableCapacity } from "./actions";
 
 type Seat = { id: string; index: number; guest: { id: string; firstName: string; lastName: string } | null };
 type Table = { id: string; name: string; shape: string; capacity: number; seats: Seat[] };
-type GuestOpt = { id: string; firstName: string; lastName: string };
+type GuestOpt = {
+  id: string;
+  firstName: string;
+  lastName: string;
+  rsvp?: "PENDING" | "ATTENDING" | "DECLINED" | "MAYBE";
+};
+
+// v1.22.6: prefix pending/maybe entries with their tag so the planner
+// can see at-a-glance which dropdown picks haven't RSVP'd. Attending
+// stays clean (no prefix — most rows).
+function guestOptionLabel(g: GuestOpt): string {
+  const name = `${g.firstName} ${g.lastName}`;
+  if (g.rsvp === "PENDING") return `? ${name}`;
+  if (g.rsvp === "MAYBE") return `~ ${name}`;
+  return name;
+}
 
 export function TableCard({
   table,
@@ -42,13 +57,51 @@ export function TableCard({
     });
   }
 
+  // v1.22.6: capacity +/- buttons. Server-side action enforces "must be
+  // empty to remove" — we surface the error via notify if it throws.
+  function onCapacity(delta: 1 | -1) {
+    const next = table.capacity + delta;
+    if (next < 1 || next > 40) return;
+    startTransition(async () => {
+      try {
+        await updateTableCapacity(table.id, next);
+      } catch (err) {
+        notify("error", err instanceof Error ? err.message : "Couldn't change capacity");
+      }
+    });
+  }
+
   return (
     <section className="bg-surface border border-border-soft rounded-md shadow-sm">
       <header className="flex items-center justify-between px-4 py-3 border-b border-border-soft">
         <div>
           <h2 className="text-sm font-semibold text-ink-primary">{table.name}</h2>
-          <div className="text-[11px] text-ink-tertiary">
-            {table.shape.toLowerCase()} · {assigned}/{table.capacity} seated
+          <div className="text-[11px] text-ink-tertiary flex items-center gap-1.5">
+            <span>{table.shape.toLowerCase()} · {assigned}/{table.capacity} seated</span>
+            {canEdit && (
+              <span className="inline-flex items-center gap-0.5 ml-1">
+                <button
+                  type="button"
+                  onClick={() => onCapacity(-1)}
+                  disabled={pending || table.capacity <= 1}
+                  className="w-4 h-4 leading-none rounded-sm border border-border-soft bg-canvas hover:border-moss-300 disabled:opacity-40 disabled:cursor-not-allowed text-ink-secondary"
+                  aria-label="Remove a seat"
+                  title="Remove a seat (must be empty)"
+                >
+                  −
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onCapacity(1)}
+                  disabled={pending || table.capacity >= 40}
+                  className="w-4 h-4 leading-none rounded-sm border border-border-soft bg-canvas hover:border-moss-300 disabled:opacity-40 disabled:cursor-not-allowed text-ink-secondary"
+                  aria-label="Add a seat"
+                  title="Add a seat"
+                >
+                  +
+                </button>
+              </span>
+            )}
           </div>
         </div>
         {canEdit && (
@@ -73,7 +126,7 @@ export function TableCard({
                   </option>
                 )}
                 {unseatedGuests.map((g) => (
-                  <option key={g.id} value={g.id}>{g.firstName} {g.lastName}</option>
+                  <option key={g.id} value={g.id}>{guestOptionLabel(g)}</option>
                 ))}
               </select>
             ) : (

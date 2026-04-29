@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.22.5** | 2026-04-29 | [Bugfix: hydration mismatch (#418/#482) on Today page + persistence race on seating canvas + decoupled dot/label scales](#2026-04-29--v1225--bugfix-hydration-persistence-race-decoupled-seating-scales) |
+| **v1.22.6** | 2026-04-29 | [Seating: snap-to-grid toggle + modify table capacity + pending guests in seat-picker](#2026-04-29--v1226--seating-snap-to-grid-toggle--modify-capacity--pending-in-picker) |
+| v1.22.5 | 2026-04-29 | [Bugfix: hydration mismatch (#418/#482) on Today page + persistence race on seating canvas + decoupled dot/label scales](#2026-04-29--v1225--bugfix-hydration-persistence-race-decoupled-seating-scales) |
 | v1.22.0 | 2026-04-28 | [Custom fields for Supplier + Task](#2026-04-28--v1220--custom-fields-for-supplier--task) |
 | v1.21.0 | 2026-04-28 | [Audit log viewer + sticky search on /suppliers + /tasks](#2026-04-28--v1210--audit-log-viewer--sticky-search-on-suppliers--tasks) |
 | v1.20.6 | 2026-04-28 | [Seating: drag-all-guests + RSVP tag in panel](#2026-04-28--v1206--seating-drag-all-guests--rsvp-tag-in-panel) |
@@ -307,6 +308,22 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-29 · v1.22.6 — Seating: snap-to-grid toggle + modify capacity + pending in picker
+
+Three small seating-canvas asks from the v1.22.0 dogfood. All UI/UX continuations of v1.20.5 / v1.20.6 — no schema changes.
+
+**1. Snap-to-grid toggle.** Pre-fix the canvas had a "soft snap" that only fired when the drop landed within ±10px of a grid point — almost never in practice. Replaced with an explicit `Snap to grid on drop` checkbox in the canvas side panel, persisted to localStorage (`wh_seating_snap_to_grid`), default on. When on, every drop snaps to the nearest 20px grid intersection — easy alignment of multiple tables. When off, drops land wherever the cursor was. ([SeatingCanvas.tsx](src/app/(app)/seating/SeatingCanvas.tsx))
+
+**2. Modify table capacity on existing tables.** Pre-fix the only way to change capacity was to delete and recreate the table (losing assignments). New `updateTableCapacity(tableId, newCapacity)` server action ([actions.ts](src/app/(app)/seating/actions.ts)) handles both directions:
+- **Grow:** appends new Seat rows for the missing indices. Round-table layout reflows because seat angles depend on capacity — that's expected.
+- **Shrink:** only allowed if all trailing seats (index ≥ newCapacity) are empty. If any are still assigned, the action throws with `"Can't shrink to N: M seats above #N are still assigned. Unseat first."` so the planner knows to unseat before shrinking. Never destructive of assignments.
+
+UI: small +/- buttons next to the seated/capacity count in both the canvas FocusPanel and the list-view TableCard header. Bounds at 1..40 (matches the existing `createTable` schema).
+
+**3. Pending guests in the seat-picker dropdown.** Pre-fix the FocusPanel + TableCard dropdowns only listed `ATTENDING` guests (the AllGuestsPanel from v1.20.6 included pending, but only via drag — most users picked through the dropdown). Filter relaxed to `rsvp !== "DECLINED"`, so PENDING and MAYBE now appear. Options are prefixed with `?` (pending) or `~` (maybe) to distinguish from confirmed picks. Attending stays unprefixed (the common case). ([SeatingClient.tsx](src/app/(app)/seating/SeatingClient.tsx), [SeatingCanvas.tsx](src/app/(app)/seating/SeatingCanvas.tsx), [TableCard.tsx](src/app/(app)/seating/TableCard.tsx))
+
+**Verification:** typecheck + lint clean, all 188 unit tests pass, clean `.next` build green. Manual: open `/seating`, click a table, hit `+` — new seat appears immediately. Hit `−` on an occupied trailing seat — error toast. Toggle snap off, drop a table mid-grid — stays put. Dropdown lists PENDING entries with `?` prefix.
 
 ### 2026-04-29 · v1.22.5 — Bugfix: hydration / persistence race / decoupled seating scales
 

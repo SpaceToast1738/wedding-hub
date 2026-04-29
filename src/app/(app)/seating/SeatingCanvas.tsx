@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from
 import type { TableShape } from "@prisma/client";
 import { Button } from "@/components/ui/Button";
 import { notify } from "@/lib/notify";
-import { assignGuestToSeat, deleteTable, updateTablePosition } from "./actions";
+import { assignGuestToSeat, deleteTable, updateTableCapacity, updateTablePosition } from "./actions";
 import type { AllGuest } from "./SeatingClient";
 
 type Seat = {
@@ -24,12 +24,30 @@ type Table = {
   seats: Seat[];
 };
 
-type GuestOpt = { id: string; firstName: string; lastName: string };
+type GuestOpt = {
+  id: string;
+  firstName: string;
+  lastName: string;
+  rsvp?: "PENDING" | "ATTENDING" | "DECLINED" | "MAYBE";
+};
+
+// v1.22.6: prefix pending/maybe entries in dropdowns with their RSVP
+// tag, so planners can spot un-confirmed picks at a glance. Attending
+// is unprefixed (it's the common case).
+function guestOptionLabel(g: GuestOpt): string {
+  const name = `${g.firstName} ${g.lastName}`;
+  if (g.rsvp === "PENDING") return `? ${name}`;
+  if (g.rsvp === "MAYBE") return `~ ${name}`;
+  return name;
+}
 
 const CANVAS_W = 1400;
 const CANVAS_H = 900;
 const GRID = 20;
-const SNAP_RADIUS = 10; // px tolerance — never snap "wrong" by more than this
+// v1.22.6: SNAP_RADIUS removed. Snap behaviour is now an explicit
+// user-controlled toggle (`snapToGrid` state) — either always snap on
+// drop, or never. The pre-v1.22.6 "soft snap within ±10px tolerance"
+// was confusing in practice (rarely fired).
 
 function snap(value: number): number {
   return Math.round(value / GRID) * GRID;
@@ -88,6 +106,12 @@ export function SeatingCanvas({
   // because they shared one scale. Now each persists separately.
   const [labelScale, setLabelScale] = useState<number>(1.4);
   const [dotScale, setDotScale] = useState<number>(1.4);
+  // v1.22.6: snap-to-grid toggle. Pre-fix the snap-on-drop only fired
+  // when the drop landed within ±10px of a grid point — the rest of
+  // the time tables stayed wherever the drag ended (off-grid). User
+  // wants alignment, so the new toggle lets them say "always snap on
+  // drop". Default on (alignment is the planner's stated goal).
+  const [snapToGrid, setSnapToGrid] = useState<boolean>(true);
   // v1.22.5 persistence fix: pre-fix, the save effect ran on mount
   // with the default state value and overwrote whatever the user had
   // saved before the load effect could swap it in. Gate the save on
@@ -142,6 +166,8 @@ export function SeatingCanvas({
         const n = Number(savedDot);
         if (n === 1.0 || n === 1.4 || n === 1.8 || n === 2.4) setDotScale(n);
       }
+      const savedSnap = localStorage.getItem("wh_seating_snap_to_grid");
+      if (savedSnap === "true" || savedSnap === "false") setSnapToGrid(savedSnap === "true");
     } catch {
       // ignore — non-critical preference
     }
@@ -163,6 +189,14 @@ export function SeatingCanvas({
       // ignore
     }
   }, [dotScale, loaded]);
+  useEffect(() => {
+    if (!loaded) return;
+    try {
+      localStorage.setItem("wh_seating_snap_to_grid", String(snapToGrid));
+    } catch {
+      // ignore
+    }
+  }, [snapToGrid, loaded]);
 
   useEffect(() => {
     setPositions((prev) => {
@@ -232,12 +266,18 @@ export function SeatingCanvas({
 
     const live = positions[id];
     if (!live) return;
-    const snapped = { x: snap(live.x), y: snap(live.y) };
-    if (Math.abs(snapped.x - live.x) <= SNAP_RADIUS && Math.abs(snapped.y - live.y) <= SNAP_RADIUS) {
-      setPositions((prev) => ({ ...prev, [id]: snapped }));
+    // v1.22.6: snap toggle. When on, every drop snaps to the nearest
+    // grid point — easy alignment of multiple tables. When off, drop
+    // wherever the cursor lands. Pre-v1.22.6 behaviour was a "soft
+    // snap" within ±10px tolerance, which almost never fired in
+    // practice; replaced with the explicit toggle.
+    let final: { x: number; y: number };
+    if (snapToGrid) {
+      final = { x: snap(live.x), y: snap(live.y) };
+      setPositions((prev) => ({ ...prev, [id]: final }));
+    } else {
+      final = { x: live.x, y: live.y };
     }
-    const final = positions[id] ? { x: snap(positions[id].x), y: snap(positions[id].y) } : null;
-    if (!final) return;
     startTransition(async () => {
       try {
         await updateTablePosition(id, final.x, final.y);
@@ -488,6 +528,20 @@ export function SeatingCanvas({
                 ? "Drag tables to reposition. Click to focus and assign seats. Arrow keys nudge the focused table; hold ⇧ for bigger steps."
                 : "Click a table to view its seating. Editing is read-only for your role."}
             </div>
+            {/* v1.22.6: snap-to-grid toggle. Persists via localStorage. */}
+            {canEdit && (
+              <div className="pt-3 border-t border-border-soft">
+                <label className="flex items-center gap-2 cursor-pointer text-[11px] text-ink-secondary">
+                  <input
+                    type="checkbox"
+                    checked={snapToGrid}
+                    onChange={(e) => setSnapToGrid(e.target.checked)}
+                    className="accent-moss-500"
+                  />
+                  <span className="uppercase tracking-wider font-bold">Snap to grid on drop</span>
+                </label>
+              </div>
+            )}
             {/* v1.20.5: per-seat scale toggles. The user's picks
                 persist across sessions via localStorage.
                 v1.22.5: split into dot + label so they can be tuned
@@ -606,13 +660,55 @@ function FocusPanel({
     });
   }
 
+  // v1.22.6: capacity +/- buttons. Shrink fails server-side if any of
+  // the trailing seats are still assigned (the action throws with a
+  // clear message); grow always succeeds within 1..40.
+  function onCapacity(delta: 1 | -1) {
+    const next = table.capacity + delta;
+    if (next < 1 || next > 40) return;
+    startTransition(async () => {
+      try {
+        await updateTableCapacity(table.id, next);
+      } catch (err) {
+        notify(
+          "error",
+          err instanceof Error ? err.message : "Couldn't change capacity",
+        );
+      }
+    });
+  }
+
   return (
     <section className="bg-surface border border-border-soft rounded-md shadow-sm">
       <header className="flex items-start justify-between gap-2 px-4 py-3 border-b border-border-soft">
         <div className="min-w-0">
           <h2 className="text-sm font-semibold text-ink-primary truncate">{table.name}</h2>
-          <div className="text-[11px] text-ink-tertiary">
-            {table.shape.toLowerCase()} · {filled}/{table.capacity} seated
+          <div className="text-[11px] text-ink-tertiary flex items-center gap-1.5">
+            <span>{table.shape.toLowerCase()} · {filled}/{table.capacity} seated</span>
+            {canEdit && (
+              <span className="inline-flex items-center gap-0.5 ml-1">
+                <button
+                  type="button"
+                  onClick={() => onCapacity(-1)}
+                  disabled={pending || table.capacity <= 1}
+                  className="w-4 h-4 leading-none rounded-sm border border-border-soft bg-canvas hover:border-moss-300 disabled:opacity-40 disabled:cursor-not-allowed text-ink-secondary"
+                  aria-label="Remove a seat"
+                  title="Remove a seat (must be empty)"
+                >
+                  −
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onCapacity(1)}
+                  disabled={pending || table.capacity >= 40}
+                  className="w-4 h-4 leading-none rounded-sm border border-border-soft bg-canvas hover:border-moss-300 disabled:opacity-40 disabled:cursor-not-allowed text-ink-secondary"
+                  aria-label="Add a seat"
+                  title="Add a seat"
+                >
+                  +
+                </button>
+              </span>
+            )}
           </div>
         </div>
         <button
@@ -642,7 +738,7 @@ function FocusPanel({
                 )}
                 {unseatedGuests.map((g) => (
                   <option key={g.id} value={g.id}>
-                    {g.firstName} {g.lastName}
+                    {guestOptionLabel(g)}
                   </option>
                 ))}
               </select>

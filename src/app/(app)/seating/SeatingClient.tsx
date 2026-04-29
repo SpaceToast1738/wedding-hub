@@ -35,7 +35,17 @@ export type AllGuest = {
   currentTableName: string | null;
 };
 
-type GuestOpt = { id: string; firstName: string; lastName: string };
+// v1.22.6: dropdown options now carry RSVP so the picker can prefix
+// pending/maybe with their tag — pre-fix the picker only listed
+// attending guests, so the planner couldn't provisionally seat someone
+// who hadn't RSVP'd yet (only drag-from-panel worked, which they
+// missed). The label is just decoration; assignment ignores RSVP.
+type GuestOpt = {
+  id: string;
+  firstName: string;
+  lastName: string;
+  rsvp?: "PENDING" | "ATTENDING" | "DECLINED" | "MAYBE";
+};
 
 type View = "canvas" | "list";
 
@@ -50,14 +60,23 @@ export function SeatingClient({
   allGuests: AllGuest[];
   canEdit: boolean;
 }) {
-  // Sub-components that only need {id, firstName, lastName} (the seat
-  // picker dropdown for the FocusPanel) get a slimmed-down list of
-  // unseated attending guests — same semantics as pre-v1.20.6.
+  // Sub-components that only need {id, firstName, lastName, rsvp} (the
+  // seat picker dropdown for the FocusPanel + TableCard) get a slimmed-
+  // down list of unseated guests.
+  // v1.22.6: include PENDING and MAYBE alongside ATTENDING — planners
+  // want to provisionally seat people who haven't confirmed yet (esp.
+  // family members on stalled invites). DECLINED stays out — they
+  // won't get a seat. The dropdown labels mark non-attending entries.
   const unseatedGuests = useMemo<GuestOpt[]>(
     () =>
       allGuests
-        .filter((g) => g.rsvp === "ATTENDING" && !g.currentSeatId)
-        .map((g) => ({ id: g.id, firstName: g.firstName, lastName: g.lastName })),
+        .filter((g) => g.rsvp !== "DECLINED" && !g.currentSeatId)
+        .map((g) => ({
+          id: g.id,
+          firstName: g.firstName,
+          lastName: g.lastName,
+          rsvp: g.rsvp,
+        })),
     [allGuests],
   );
   const [view, setView] = useState<View>("canvas");
