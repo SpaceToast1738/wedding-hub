@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.27.2** | 2026-04-29 | [Today page: working task checkbox + broader "My next tasks" priority list](#2026-04-29--v1272--today-page-working-checkbox--broader-task-list) |
+| **v1.27.3** | 2026-04-29 | [Tasks polish round 2: full-width table with column headers · centred new-task popout · unified search/filter styling](#2026-04-29--v1273--tasks-polish-round-2-full-width-table--centred-popout--unified-styling) |
+| v1.27.2 | 2026-04-29 | [Today page: working task checkbox + broader "My next tasks" priority list](#2026-04-29--v1272--today-page-working-checkbox--broader-task-list) |
 | v1.27.1 | 2026-04-29 | [Schedule polish (split date+time, all-day toggle, attendees instead of audience) · seat-drag transform-only ghost · mobile version footer · table-size baseline ROUND-only](#2026-04-29--v1271--schedule-polish--seat-drag-transform--mobile-version--round-only-baseline) |
 | v1.27.0 | 2026-04-29 | [Tasks polish: click-to-open right-side drawer · "+ New task" popout · sort options · cleaner search bar](#2026-04-29--v1270--tasks-polish-drawer--popout--sort--search) |
 | v1.26.0 | 2026-04-29 | [Modular Wedding Book cards: TEXT · FIELD · RECIPE · SHOT_LIST · OUTFIT (kind picker, per-kind editors, shared chrome)](#2026-04-29--v1260--modular-wedding-book-cards) |
@@ -539,6 +540,22 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-29 · v1.27.3 — Tasks polish round 2: full-width table · centred popout · unified styling
+
+Four follow-ups from same-day v1.27.0 dogfood:
+
+**1. Full-width table with column headers.** Pre-fix the list lived inside a `max-w-4xl` column with no header row — so the per-row data (assignee / priority / status / due / category) felt floating. Now the list spans the full page width and gains a hidden-on-mobile header strip with column labels (`Title · Assignee · Priority · Status · Due · Category`) at the top. Column widths align with `TaskRow`'s existing data cells so the row is genuinely table-like.
+
+**2. Centred new-task popout.** v1.27.0's popout was pinned to `right-4 top-16` — fine but felt like an alert dropdown. New layout: full-screen flex centre with backdrop, max-width 680px, dialog content with click-stopPropagation so backdrop click outside dismisses but click inside doesn't. The TaskForm's existing `Type / Priority / Status / Due` row is now visually obvious — addresses the user's "I still want to be able to set between task, decision and question" complaint (the type picker was always there but the right-pinned popout buried it).
+
+**3. Unified search + filter band.** Pre-fix the search input lived on the page background while `FilterTabs` was on `bg-surface` with its own border — two-tone strip the user disliked. Now both share one `bg-surface` parent with a single `border-b` at the bottom; the search input itself sits on `bg-canvas` for input-affordance contrast. The whole band reads as one block.
+
+**4. Unchanged: type picker visibility.** TaskForm's Type select always rendered behind `showType={true}` (default). The user's "I still want to be able to set between task, decision and question" was a visibility complaint — fixed by item #2 (centred popout reveals the form's full layout).
+
+**Files:** `src/app/(app)/tasks/TaskList.tsx` (full-width + header row + unified band), `AddTaskToggle.tsx` (centred popout), `FilterTabs.tsx` (drop the redundant background + border, share parent's).
+
+**Verification:** typecheck/lint clean, all 232 unit tests pass, clean `.next` build green. Manual: open `/tasks` → list now spans page width with column headers. Click "+ New task" → centred popover with all form fields visible including Type. Search + filter pills share the same off-white band.
 
 ### 2026-04-29 · v1.27.2 — Today page: working checkbox · broader task list
 

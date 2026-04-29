@@ -38,20 +38,20 @@ export function AddTaskToggle({
         {buttonLabel}
       </Button>
       {open && (
-        <>
-          <div
-            className="fixed inset-0 z-[400] bg-black/15"
-            onClick={() => setOpen(false)}
-            aria-hidden="true"
-          />
+        <div
+          className="fixed inset-0 z-[400] bg-black/30 flex items-start sm:items-center justify-center pt-6 sm:pt-0 px-4 overflow-y-auto"
+          onClick={() => setOpen(false)}
+          aria-hidden="true"
+        >
           <div
             role="dialog"
             aria-modal="true"
             aria-label={buttonLabel.replace("+ ", "")}
-            className="fixed right-4 top-16 z-[401] w-[calc(100vw-2rem)] max-w-[640px] bg-surface border border-border-soft rounded-md p-4 shadow-lg"
+            onClick={(e) => e.stopPropagation()}
+            className="relative bg-surface border border-border-soft rounded-md p-4 shadow-lg w-full max-w-[680px] my-8"
           >
             <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-semibold text-ink-primary">
+              <h3 className="text-base font-semibold text-ink-primary">
                 {buttonLabel.replace("+ ", "")}
               </h3>
               <button
@@ -75,7 +75,7 @@ export function AddTaskToggle({
               onCancel={() => setOpen(false)}
             />
           </div>
-        </>
+        </div>
       )}
     </>
   );

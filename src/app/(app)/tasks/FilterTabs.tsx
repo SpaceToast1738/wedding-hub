@@ -24,7 +24,7 @@ export function FilterTabs({
   onViewChange: (v: View) => void;
 }) {
   return (
-    <div className="px-6 py-2.5 border-b border-border-soft bg-surface flex gap-1.5 overflow-auto flex-shrink-0 items-center">
+    <div className="px-4 sm:px-6 py-2 flex gap-1.5 overflow-auto flex-shrink-0 items-center">
       {FILTERS.map((f) => (
         <Tag key={f.value} label={f.label} active={value === f.value} onClick={() => onChange(f.value)} />
       ))}

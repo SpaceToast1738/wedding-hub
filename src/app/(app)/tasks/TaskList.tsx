@@ -175,12 +175,12 @@ export function TaskList({
 
   return (
     <>
-      {/* v1.27.0: control row — search · filter pills · sort · view.
-          Pre-fix the search bar floated alone at the top in its own
-          sticky band, with the FilterTabs row separate. Now they
-          live together in one tidier strip. */}
-      <div className="px-6 pt-3 pb-1 flex flex-col gap-2">
-        <div className="flex items-center gap-2 flex-wrap">
+      {/* v1.27.0 → v1.27.3: control row + filter pills now share one
+          unified bg-surface band. Pre-v1.27.3 the search input lived
+          on the page background while FilterTabs was on bg-surface,
+          giving a two-tone look the user disliked. */}
+      <div className="bg-surface border-b border-border-soft">
+        <div className="px-4 sm:px-6 pt-3 pb-2 flex items-center gap-2 flex-wrap">
           <div className="relative flex-1 min-w-[200px] max-w-md">
             <input
               type="text"
@@ -188,7 +188,7 @@ export function TaskList({
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search tasks…"
               aria-label="Search tasks"
-              className="w-full text-sm bg-surface text-ink-primary border border-border-soft rounded-md pl-8 pr-7 py-1.5 outline-none focus:border-moss-500"
+              className="w-full text-sm bg-canvas text-ink-primary border border-border-soft rounded-md pl-8 pr-7 py-1.5 outline-none focus:border-moss-500"
             />
             <span
               aria-hidden="true"
@@ -219,7 +219,7 @@ export function TaskList({
             <select
               value={sortKey}
               onChange={(e) => setSortKey(e.target.value as SortKey)}
-              className="text-xs bg-surface text-ink-primary border border-border-soft rounded-sm px-2 py-1 outline-none focus:border-moss-500"
+              className="text-xs bg-canvas text-ink-primary border border-border-soft rounded-sm px-2 py-1 outline-none focus:border-moss-500"
             >
               {(Object.keys(SORT_LABELS) as SortKey[]).map((k) => (
                 <option key={k} value={k}>
@@ -229,13 +229,18 @@ export function TaskList({
             </select>
           </div>
         </div>
+        <FilterTabs value={filter} onChange={setFilter} view={view} onViewChange={setView} />
       </div>
-      <FilterTabs value={filter} onChange={setFilter} view={view} onViewChange={setView} />
       {view === "board" ? (
         <TaskBoard tasks={sorted} users={users} canEdit={canEdit} />
       ) : (
         <div className="flex-1 overflow-auto">
-          <div className="max-w-4xl mx-auto p-6">
+          {/* v1.27.3: full-width table layout matching the user's
+              mockup. Pre-v1.27.3 the list lived inside a max-w-4xl
+              column with no headers — the new wide table puts column
+              labels (Title / Assignee / Priority / Status / Due / …)
+              at the top so each row's data is column-aligned. */}
+          <div className="px-4 sm:px-6 py-4">
             {sorted.length === 0 ? (
               <EmptyState
                 illustration={EmptyTasks}
@@ -243,20 +248,33 @@ export function TaskList({
                 body="Try a different filter, or add a task with the C shortcut anywhere in the app."
               />
             ) : (
-              <ol className="bg-surface border border-border-soft rounded-md shadow-sm">
-                {sorted.map((t) => {
-                  const assignee = t.assigneeId ? usersById.get(t.assigneeId) : null;
-                  return (
-                    <TaskRow
-                      key={t.id}
-                      task={t}
-                      canEdit={canEdit}
-                      assigneeName={assignee?.name ?? assignee?.email ?? null}
-                      onOpen={() => setOpenTaskId(t.id)}
-                    />
-                  );
-                })}
-              </ol>
+              <div className="bg-surface border border-border-soft rounded-md shadow-sm overflow-x-auto">
+                {/* Header row — sticky-ish at the top of the table. */}
+                <div className="hidden sm:flex items-center gap-3 px-4 py-2 border-b border-border-soft bg-canvas/40 text-[10px] uppercase tracking-wider font-bold text-ink-tertiary">
+                  <span className="w-4 flex-shrink-0" aria-hidden />
+                  <span className="w-1.5 flex-shrink-0" aria-hidden />
+                  <span className="flex-1 min-w-0">Title</span>
+                  <span className="w-32">Assignee</span>
+                  <span className="w-12 text-center">Priority</span>
+                  <span className="w-20 text-center">Status</span>
+                  <span className="w-20 text-right">Due</span>
+                  <span className="w-20 text-center">Category</span>
+                </div>
+                <ol>
+                  {sorted.map((t) => {
+                    const assignee = t.assigneeId ? usersById.get(t.assigneeId) : null;
+                    return (
+                      <TaskRow
+                        key={t.id}
+                        task={t}
+                        canEdit={canEdit}
+                        assigneeName={assignee?.name ?? assignee?.email ?? null}
+                        onOpen={() => setOpenTaskId(t.id)}
+                      />
+                    );
+                  })}
+                </ol>
+              </div>
             )}
           </div>
         </div>
