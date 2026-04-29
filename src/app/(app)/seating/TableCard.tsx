@@ -4,7 +4,6 @@ import { useTransition } from "react";
 import { Button } from "@/components/ui/Button";
 import { notify } from "@/lib/notify";
 import { assignGuestToSeat, deleteTable, updateTableCapacity } from "./actions";
-import { TableNotesAndChecklist } from "./TableNotesAndChecklist";
 
 type Seat = {
   id: string;
@@ -171,14 +170,8 @@ export function TableCard({
           </li>
         ))}
       </ul>
-      {/* v1.23.0: per-table notes + day-of checklist (same component
-          used in the canvas FocusPanel). */}
-      <TableNotesAndChecklist
-        tableId={table.id}
-        initialNotes={table.notes}
-        initialChecklist={table.checklist}
-        canEdit={canEdit}
-      />
+      {/* v1.23.0 mounted per-table notes + checklist here. v1.23.1
+          moved both to a global panel above the canvas. */}
     </section>
   );
 }

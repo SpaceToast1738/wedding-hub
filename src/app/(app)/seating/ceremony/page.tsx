@@ -1,8 +1,8 @@
-import Link from "next/link";
 import { db } from "@/lib/db";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { canEdit } from "@/lib/permissions";
 import { requireUser } from "@/lib/actions";
+import { SeatingTabs } from "../SeatingTabs";
 import { CeremonyClient } from "./CeremonyClient";
 
 // v1.23.0: ceremony seating placeholder. No per-seat assignments yet —
@@ -31,15 +31,10 @@ export default async function CeremonySeatingPage() {
       <PageHeader
         title="Ceremony seating"
         subtitle={`${totalSeats} seats · ${seating.leftRows}×${seating.leftSeatsRow} left / ${seating.rightRows}×${seating.rightSeatsRow} right`}
-        actions={
-          <Link
-            href="/seating"
-            className="text-xs px-2.5 py-1.5 rounded-sm border border-border-soft bg-canvas text-ink-secondary hover:border-moss-300 hover:text-ink-primary transition-colors"
-          >
-            ← Reception
-          </Link>
-        }
       />
+      {/* v1.23.1: same Reception/Ceremony tab bar as the main
+          /seating page so the IA is consistent across both views. */}
+      <SeatingTabs />
       <CeremonyClient
         initial={{
           leftRows: seating.leftRows,

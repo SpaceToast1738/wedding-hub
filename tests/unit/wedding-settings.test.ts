@@ -11,6 +11,7 @@ const sample: WeddingSettings = {
   brideFirst: "Bryony",
   groomFirst: "Jamie",
   seatingNotes: null,
+  seatingChecklist: null,
 };
 
 describe("formatWeddingDate — v1.20.0", () => {

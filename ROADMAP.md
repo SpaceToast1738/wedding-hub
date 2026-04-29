@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.23.0** | 2026-04-29 | [Seating notes + day-of checklists + ceremony placeholder page + bigger top table](#2026-04-29--v1230--seating-notes--day-of-checklists--ceremony-placeholder) |
+| **v1.23.1** | 2026-04-29 | [Seating: notes + checklist global & always visible · obvious Reception/Ceremony tabs](#2026-04-29--v1231--seating-globalize-notes--checklist--obvious-tabs) |
+| v1.23.0 | 2026-04-29 | [Seating notes + day-of checklists + ceremony placeholder page + bigger top table](#2026-04-29--v1230--seating-notes--day-of-checklists--ceremony-placeholder) |
 | v1.22.10 | 2026-04-29 | [Seating polish: repack-on-shrink, glyph centering, HEAD label spacing, ghost dot during seat-drag, alignment guides during table-drag](#2026-04-29--v12210--seating-polish-repack-glyph-center-label-space-ghost-dot-alignment-guides) |
 | v1.22.9 | 2026-04-29 | [Seating bugfix: capacity-shrink server-error overlay, HEAD dots flipped to top edge, dynamic name truncation, pointer-based seat drag](#2026-04-29--v1229--seating-bugfix-capacity-error-head-orientation-name-overlap-canvas-drag) |
 | v1.22.8 | 2026-04-29 | [Seating: RSVP glyphs inside seat dots (✓ ? ~ ✗) for colour-blind accessibility](#2026-04-29--v1228--seating-rsvp-glyphs-inside-seat-dots) |
@@ -338,6 +339,37 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-29 · v1.23.1 — Seating: globalise notes + checklist · obvious tabs
+
+Two follow-ups from v1.23.0 same-day dogfood. Both UX corrections — the v1.23.0 design got the data model right but the placement wrong.
+
+**1. Notes + checklist are now global to the seating plan, always visible.** Pre-fix v1.23.0 attached notes + checklist to each individual Table row (per-table) AND made the plan-level notes-only panel collapsible. User feedback: one shared list for the whole plan, on screen at all times, not per table.
+
+Changes:
+
+- New `WeddingSettings.seatingChecklist Json?` (additive migration `20260429010000_seating_checklist_global`). Pairs with the existing `seatingNotes` from v1.23.0.
+- New `updateSeatingChecklist` server action (mirrors `updateSeatingNotes`).
+- New `SeatingPlanPanel` component renders both notes and checklist side-by-side at the top of `/seating`, always visible. Two-column on lg+ screens, stacked on mobile. Notes save explicitly via Save button; checklist toggles save optimistically with rollback on failure (same pattern v1.23.0 used).
+- Removed `PlanNotesPanel` (the old collapsible notes-only) and `TableNotesAndChecklist` (the per-table mount). Both files deleted; corresponding mount points in `SeatingCanvas.FocusPanel` and `TableCard` removed.
+- `Table.notes` + `Table.checklist` schema columns kept (no data drop); the v1.23.0 server actions `updateTableNotes` / `updateTableChecklist` are now dormant — no UI calls them but they're harmless if called.
+
+**2. Reception ↔ Ceremony tabs.** Pre-fix the only path between `/seating` (reception canvas) and `/seating/ceremony` was a small "Ceremony →" text link tucked in the header actions. Easy to miss. New `SeatingTabs` component renders a clear two-pill tab bar below the page header on both pages — moss-active style same as the Mine/Everyone toggle on `TodayEventsCard`. Tab respects current pathname so the right pill highlights without prop drilling.
+
+**Files:**
+
+- New: `src/app/(app)/seating/SeatingPlanPanel.tsx` (~180 LOC).
+- New: `src/app/(app)/seating/SeatingTabs.tsx`.
+- Removed: `src/app/(app)/seating/PlanNotesPanel.tsx`.
+- Removed: `src/app/(app)/seating/TableNotesAndChecklist.tsx`.
+- Modified: `src/app/(app)/seating/page.tsx` (mount new panel + tabs, drop old link).
+- Modified: `src/app/(app)/seating/ceremony/page.tsx` (mount tabs, drop old link).
+- Modified: `src/app/(app)/seating/SeatingCanvas.tsx`, `TableCard.tsx` (drop dead per-table mount).
+- Modified: `src/app/(app)/seating/actions.ts` (+ `updateSeatingChecklist`).
+- Modified: `src/lib/wedding-settings.ts` (+ `seatingChecklist` to type/loader).
+- Modified: `prisma/schema.prisma` + new migration `20260429010000_seating_checklist_global`.
+
+**Verification:** typecheck + lint clean, all 188 unit tests pass, clean `.next` build green. Manual: open `/seating` → notes + checklist visible at top without clicking anything → toggle a checklist item → reload → state persists. Click Ceremony tab → navigates → tab pill swaps. Click Reception tab → back.
 
 ### 2026-04-29 · v1.23.0 — Seating notes + day-of checklists + ceremony placeholder
 

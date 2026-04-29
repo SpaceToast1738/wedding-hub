@@ -257,6 +257,39 @@ export async function updateTableChecklist(id: string, items: ChecklistItem[]) {
   revalidatePath("/seating");
 }
 
+// v1.23.1: plan-level day-of checklist (replaces v1.23.0 per-table
+// checklist after user feedback "should be global, always visible").
+// Stored on the WeddingSettings singleton alongside seatingNotes.
+const seatingChecklistSchema = z
+  .array(
+    z.object({
+      id: z.string().min(1).max(50),
+      label: z.string().min(1).max(200),
+      done: z.boolean(),
+    }),
+  )
+  .max(100); // generous cap — global checklist may be longer than per-table.
+export async function updateSeatingChecklist(items: ChecklistItem[]) {
+  const user = await requireEdit("seating");
+  const parsed = seatingChecklistSchema.parse(items);
+  await db.weddingSettings.upsert({
+    where: { id: 1 },
+    update: {
+      seatingChecklist:
+        parsed.length === 0 ? Prisma.JsonNull : (parsed as Prisma.InputJsonValue),
+    },
+    create: {
+      id: 1,
+      weddingDate: new Date(process.env.WEDDING_DATE ?? "2026-09-26T14:00:00Z"),
+      venue: process.env.WEDDING_VENUE ?? "Alveston Manor",
+      seatingChecklist:
+        parsed.length === 0 ? Prisma.JsonNull : (parsed as Prisma.InputJsonValue),
+    },
+  });
+  await audit(user, { action: "seating-checklist", entity: "WeddingSettings", entityId: "1" });
+  revalidatePath("/seating");
+}
+
 // v1.23.0: plan-level seating notes — stored on the WeddingSettings
 // singleton so the bootstrap row always exists (loader has defaults
 // fallback). Couple-edit + planner-edit both allowed via seating gate.

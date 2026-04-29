@@ -5,7 +5,6 @@ import type { TableShape } from "@prisma/client";
 import { Button } from "@/components/ui/Button";
 import { notify } from "@/lib/notify";
 import { assignGuestToSeat, deleteTable, updateTableCapacity, updateTablePosition } from "./actions";
-import { TableNotesAndChecklist } from "./TableNotesAndChecklist";
 import type { AllGuest } from "./SeatingClient";
 
 type Rsvp = "PENDING" | "ATTENDING" | "DECLINED" | "MAYBE";
@@ -1177,14 +1176,9 @@ function FocusPanel({
           </li>
         ))}
       </ul>
-      {/* v1.23.0: per-table notes + day-of checklist. Renders for all
-          users; non-editors see saved values only. */}
-      <TableNotesAndChecklist
-        tableId={table.id}
-        initialNotes={table.notes}
-        initialChecklist={table.checklist}
-        canEdit={canEdit}
-      />
+      {/* v1.23.0 mounted per-table notes + checklist here. v1.23.1
+          moved both to a global panel above the canvas (user feedback:
+          "should be global, always visible, not per table"). */}
       {canEdit && (
         <div className="flex justify-end px-4 py-2.5 border-t border-border-soft">
           <Button variant="ghost" size="sm" onClick={onDeleteTable} disabled={pending}>

@@ -646,8 +646,12 @@ model WeddingSettings {
   // v1.23.0: plan-level seating notes — table-size constraints
   // ("min 6 / max 10 per table"), board game allocation across the
   // room, day-of staffing reminders. Renders at the top of /seating.
-  seatingNotes String?
-  updatedAt    DateTime @updatedAt
+  seatingNotes     String?
+  // v1.23.1: plan-level day-of checklist (replaces the v1.23.0
+  // per-table checklist — user wanted one shared list for the whole
+  // plan, not one per table). Json array of {id, label, done}.
+  seatingChecklist Json?
+  updatedAt        DateTime @updatedAt
 }
 
 // v1.23.0: ceremony seating layout — placeholder for now (no per-seat
