@@ -207,6 +207,18 @@ than the plan accounted for.
 
 ### Older / lower-priority backlog
 
+- **Guest detail side panel on seating canvas** — when a planner
+  *clicks* (no drag movement) a seated guest dot, open a right-hand
+  side panel showing the guest's full record: full name + RSVP +
+  household + dietary + plus-one status + note + custom-field
+  values. Same panel shape as the existing FocusPanel (which docks
+  on table click) — probably swap between table-focus and guest-
+  focus depending on what was clicked. Uses the same `<g>` click
+  semantics that v1.22.7 introduced for the table click-to-focus
+  fix; the seat drag-source already swallows pointer-down via
+  `stopPropagation`, so distinguishing click vs drag is the
+  pointer-distance threshold (already 4px). ~1.5 hrs.
+  *Asked by user, 29 Apr 2026.*
 - **Seating constraint rules** — must-sit-together / must-not-sit /
   prefer-group hints, plus violation indicators on the canvas. The
   prototype had a richer rules panel; we shipped the canvas without it
