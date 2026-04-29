@@ -310,10 +310,39 @@ sentence. Captured here so they don't fall off the radar.
     a viewer that surfaces it.
   - Likely a v1.30.0 design pass before code. ~3 hrs once scope is
     set.
-- **DMARC review (operational, not code).** User received a DMARC
-  report from Microsoft and wants it reviewed. Action item is
-  outside the codebase — needs the report content shared in chat
-  for analysis. Not a code commit.
+- ~~**DMARC review (operational, not code).**~~ Reviewed 29 Apr 2026
+  on the Outlook 26-Apr-2026 report (3 messages, all DKIM+SPF aligned
+  pass via Resend → AWS SES `54.240.3.x`). Current policy is
+  `p=none; sp=none; adkim=r; aspf=r; pct=100; fo=0` — monitor-mode
+  with relaxed alignment. Mail flow is healthy; no spoofing
+  observed. Follow-up actions queued below.
+
+#### DMARC follow-up actions (post-29-Apr-2026 review)
+
+  Operational items, not code. Logged here so they don't fall off
+  the radar.
+
+  - [ ] **Verify multi-provider DMARC reporting.** This review only
+    saw Outlook's view. Confirm Google / Yahoo / Apple are also
+    sending DMARC reports to the `rua=` mailbox — otherwise visibility
+    is partial. Wait 1–2 weeks, scan the inbox for reports from
+    `noreply-dmarc-support@google.com`, `dmarchelp@yahoo.com`,
+    `dmarc-noreply@apple.com`, etc. If a major provider is missing,
+    re-check the DMARC record's `rua=` address syntax.
+  - [ ] **Add `ruf=` for per-message failure reports** before
+    starting the policy ramp. Richer signal during the canary phase.
+    DNS update only — same mailbox as `rua=` is fine.
+  - [ ] **Begin the `p=none → quarantine → reject` ramp** *after the
+    wedding* (post-Sep 2026). Sequence:
+    1. `p=quarantine; pct=10` — canary 10% of failing mail.
+    2. After 1–2 weeks of clean reports, `pct=25` → `pct=50` → `pct=100`.
+    3. After 2–4 weeks at `quarantine; pct=100`, move to `p=reject`.
+    4. (Optional) Tighten `adkim=s; aspf=s` only if a specific
+       sender lookalike concern emerges — relaxed currently passes
+       100% for legitimate senders, so the marginal gain is small.
+    5. Hold the ramp at any step if a legitimate sender starts failing.
+       Pre-wedding the cost of an invitation email getting quarantined
+       is far higher than the marginal anti-spoof gain.
 
 (View-as preview moved to the deferred-backlog block below since it
 threads through every permission gate and the actual scope likely
