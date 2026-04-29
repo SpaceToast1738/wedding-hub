@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.27.4** | 2026-04-29 | [Tasks visual style match: text-underline List/Board tabs · dynamic category filter pills · Questions filter · "+ View" stub](#2026-04-29--v1274--tasks-visual-style-match-text-tabs--dynamic-category-pills) |
+| **v1.27.5** | 2026-04-29 | [Mobile nav full `<Link>` revert (Tasks · Guests · sheet items)](#2026-04-29--v1275--mobile-nav-full-link-revert) |
+| v1.27.4 | 2026-04-29 | [Tasks visual style match: text-underline List/Board tabs · dynamic category filter pills · Questions filter · "+ View" stub](#2026-04-29--v1274--tasks-visual-style-match-text-tabs--dynamic-category-pills) |
 | v1.27.3 | 2026-04-29 | [Tasks polish round 2: full-width table with column headers · centred new-task popout · unified search/filter styling](#2026-04-29--v1273--tasks-polish-round-2-full-width-table--centred-popout--unified-styling) |
 | v1.27.2 | 2026-04-29 | [Today page: working task checkbox + broader "My next tasks" priority list](#2026-04-29--v1272--today-page-working-checkbox--broader-task-list) |
 | v1.27.1 | 2026-04-29 | [Schedule polish (split date+time, all-day toggle, attendees instead of audience) · seat-drag transform-only ghost · mobile version footer · table-size baseline ROUND-only](#2026-04-29--v1271--schedule-polish--seat-drag-transform--mobile-version--round-only-baseline) |
@@ -225,11 +226,10 @@ Book just had more surface area than the original plan modelled.
 These don't need a design pass — just the time to execute. Roughly
 in priority order.
 
-- **v1.25.4 — mobile-nav graduated `<Link>` revert.** v1.25.2
-  reverted the Today tab to `<Link>` as a probe; the rest (Tasks,
-  Guests, More-sheet items) still ship as plain `<a href>` from
-  v1.25.0. Now that the SW cleanup + Today probe deployed and
-  worked, finish the revert. ~30 min.
+- ~~**Mobile-nav full `<Link>` revert**~~ — shipped v1.27.5.
+  Tasks / Guests / More-sheet items all back to client-side `<Link>`
+  navigation. The SW cleanup from v1.25.2 has been live for a
+  release without regressing.
 - **v1.26.5 — photography migration.** Move existing
   `PhotographyShot` rows → `BookShot` rows under a single SHOT_LIST
   card on the Photography section, then delete the bespoke
@@ -554,6 +554,12 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-29 · v1.27.5 — Mobile nav full `<Link>` revert
+
+v1.25.2 probed the mobile-nav `<Link>` revert with the Today tab only — Tasks / Guests / More-sheet items stayed as plain `<a href>` from v1.25.0 as a fallback. The `ServiceWorkerCleanup` mounted at root in v1.25.2 unregisters any inherited stale SW on first paint, so the original cache trap that broke `<Link>` navigation can't re-occur. With v1.25.2 + v1.25.3 + v1.26.0 + v1.27.0–v1.27.4 all having shipped without regression, it's safe to graduate the rest of the tabs back to client-side navigation.
+
+Result: faster perceptual nav (no full page reload), `<Link>` prefetch on hover, and the per-tab branching from v1.25.2 collapses back into one happy path. ([MobileTabBar.tsx](src/components/shell/MobileTabBar.tsx))
 
 ### 2026-04-29 · v1.27.4 — Tasks visual style match: text tabs · dynamic category pills
 

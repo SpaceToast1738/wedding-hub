@@ -57,37 +57,16 @@ export function MobileTabBar({
               </button>
             );
           }
-          // v1.25.2: probe revert — the Today tab goes back to
-          // <Link> first because it's the lowest-blast-radius
-          // (it's where users land anyway). The rest stay as
-          // plain <a> until this proves green on a real device.
-          // The ServiceWorkerCleanup mounted at root strips any
-          // stale SW that was the most-likely cause of the v1.22.x
-          // breakage. If Today nav works on a real (non-incognito)
-          // device after this ships, the next commit reverts the
-          // remaining tabs.
-          const useLink = tab.href === "/";
-          if (useLink) {
-            return (
-              <Link
-                key={tab.href}
-                href={tab.href}
-                className={[
-                  "flex-1 flex flex-col items-center justify-center gap-0.5 h-full",
-                  active ? "text-moss-500 font-semibold" : "text-ink-tertiary",
-                ].join(" ")}
-              >
-                <span className="text-lg">{tab.icon}</span>
-                <span className="text-[10px]">{tab.label}</span>
-              </Link>
-            );
-          }
+          // v1.25.4: full <Link> revert. v1.25.2 probed Today only;
+          // the SW cleanup mounted at root has now been live for a
+          // release without regressing, so it's safe to graduate
+          // the rest of the tabs (Tasks, Guests) back to client-side
+          // navigation. The probe-revert + per-tab branching from
+          // v1.25.2 collapses back into one happy path.
           return (
-            <a
+            <Link
               key={tab.href}
               href={tab.href}
-              // Plain anchor — see v1.25.0 commit. Reverting to <Link>
-              // tab-by-tab in v1.25.2+ as confirmation rolls in.
               className={[
                 "flex-1 flex flex-col items-center justify-center gap-0.5 h-full",
                 active ? "text-moss-500 font-semibold" : "text-ink-tertiary",
@@ -95,7 +74,7 @@ export function MobileTabBar({
             >
               <span className="text-lg">{tab.icon}</span>
               <span className="text-[10px]">{tab.label}</span>
-            </a>
+            </Link>
           );
         })}
       </nav>
@@ -112,15 +91,15 @@ export function MobileTabBar({
           >
             <div className="w-9 h-1 rounded bg-border-strong mx-auto mb-4" />
             {moreItems.map((item) => (
-              <a
+              <Link
                 key={item.href}
                 href={item.href}
-                // v1.25.0 mobile nav fix — plain <a href>; see tabs above.
+                onClick={() => setMoreOpen(false)}
                 className="flex items-center gap-3.5 w-full px-5 py-3 text-[15px] text-ink-primary"
               >
                 <span className="w-5 text-center opacity-70">{item.icon}</span>
                 {item.label}
-              </a>
+              </Link>
             ))}
             {/* Sign out — mobile users have no other path to it (the
                 AvatarMenu lives in the Sidebar, which is display:none
