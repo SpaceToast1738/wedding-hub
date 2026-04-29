@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.28.0** | 2026-04-29 | [Task ↔ Supplier link · supplier picker on Task / Question / Decision forms · Linked tasks section on supplier detail · `?supplier=` deep-link from supplier page](#2026-04-29--v1280--task--supplier-link) |
+| **v1.29.0** | 2026-04-29 | [Task grouping: None / Assignee / Category / Supplier / Priority / Status · localStorage-persisted dropdown beside Sort · sectioned headers with counts](#2026-04-29--v1290--task-grouping) |
+| v1.28.0 | 2026-04-29 | [Task ↔ Supplier link · supplier picker on Task / Question / Decision forms · Linked tasks section on supplier detail · `?supplier=` deep-link from supplier page](#2026-04-29--v1280--task--supplier-link) |
 | v1.27.9 | 2026-04-29 | [Tasks polish: drop list container · wider rightmost columns · Type changer in the drawer · all-day events render "All day" instead of "01:00"](#2026-04-29--v1279--tasks-polish-round-3--all-day-display-fix) |
 | v1.27.7 | 2026-04-29 | [Guest detail side panel on seating canvas — click a seated guest dot to open](#2026-04-29--v1277--guest-detail-side-panel-on-seating-canvas) |
 | v1.27.6 | 2026-04-29 | [Photography migration: PhotographyShot rows → BookShot under a SHOT_LIST card · bespoke route deleted](#2026-04-29--v1276--photography-migration) |
@@ -593,6 +594,27 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-29 · v1.29.0 — Task grouping
+
+User-asked (29 Apr 2026, the bulk-asks list): "Allow task grouping, by assignee, category, supplier, priority, status".
+
+**UI:** new `Group` dropdown on the Tasks page, sitting next to the existing `Sort` dropdown. Six options: **None / Assignee / Category / Supplier / Priority / Status**. Defaults to None (renders the v1.28.x flat list unchanged), persists per-browser via `localStorage[wh_tasks_group]`.
+
+**Render:** when grouping is active, rows split into ordered sections — each with a small uppercase header strip showing the bucket label + a count of rows in that bucket. The list/board toggle is unaffected (Board view always shows status columns; Group only restructures the List view).
+
+**Bucket order**:
+- *Assignee* — populated buckets first (alphabetical), Unassigned last.
+- *Category* — populated buckets first (alphabetical), Uncategorised last.
+- *Supplier* — populated buckets first (alphabetical), No supplier last. Bucket label is `name · category` (matches the picker option label).
+- *Priority* — fixed Urgent → High → Medium → Low.
+- *Status* — fixed OPEN → IN_PROGRESS → WAITING → DONE → ARCHIVED. Header labels match the existing pill copy (TODO / DOING / WAITING / DONE / ARCHIVED).
+
+**Sort + group are orthogonal.** Within each group section the rows preserve the active Sort key's order — so "Group by Category, Sort by Due date" gives sections per category with each section's rows sorted soonest-first. The same applies for "Smart" (the default sort), which collapses DONE rows to the bottom *within* each group.
+
+**Files:** all changes in `src/app/(app)/tasks/TaskList.tsx`. Added the `GroupKey` type, `GROUP_LABELS` map, `PRIORITY_ORDER` / `STATUS_ORDER` arrays, `suppliersById` lookup, the `groups` `useMemo` that produces ordered `{ key, label, tasks }` sections, the dropdown beside Sort, and the new sectioned render. Original flat-list path is preserved as the `groupKey === "none"` path through the same renderer (single synthetic section with empty label).
+
+**Verification:** typecheck + lint clean, 232 unit tests pass, clean `.next` build green. Manual: open `/tasks`, set Group → Category, sections appear in alphabetical order with task counts; Group → Supplier, ditto; Group → None, sections collapse back to flat. Refresh — selection persists.
 
 ### 2026-04-29 · v1.28.0 — Task ↔ Supplier link
 

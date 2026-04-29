@@ -11,6 +11,7 @@ import type { CustomFieldDef } from "@/lib/custom-fields";
 
 const VIEW_KEY = "wh_tasks_view";
 const SORT_KEY = "wh_tasks_sort";
+const GROUP_KEY = "wh_tasks_group";
 
 type Task = {
   id: string;
@@ -36,6 +37,30 @@ const SORT_LABELS: Record<SortKey, string> = {
   title: "Title",
   assignee: "Assignee",
   created: "Newest",
+};
+
+// v1.29.0: group-by buckets. "none" preserves the v1.27.x flat list.
+// Each non-"none" bucket renders sectioned headers above the relevant
+// rows; the user-facing labels match the existing pill / column copy.
+type GroupKey = "none" | "assignee" | "category" | "supplier" | "priority" | "status";
+const GROUP_LABELS: Record<GroupKey, string> = {
+  none: "None",
+  assignee: "Assignee",
+  category: "Category",
+  supplier: "Supplier",
+  priority: "Priority",
+  status: "Status",
+};
+// Static priority order so the group sections render Urgent → Low.
+const PRIORITY_ORDER = ["URGENT", "HIGH", "MEDIUM", "LOW"];
+// Static status order so OPEN appears before DONE etc.
+const STATUS_ORDER = ["OPEN", "IN_PROGRESS", "WAITING", "DONE", "ARCHIVED"];
+const STATUS_GROUP_LABEL: Record<string, string> = {
+  OPEN: "TODO",
+  IN_PROGRESS: "DOING",
+  WAITING: "WAITING",
+  DONE: "DONE",
+  ARCHIVED: "ARCHIVED",
 };
 
 function priorityRank(p: string): number {
@@ -78,6 +103,7 @@ export function TaskList({
   const [filter, setFilter] = useState<Filter>("all");
   const [view, setView] = useState<View>("list");
   const [sortKey, setSortKey] = useState<SortKey>("smart");
+  const [groupKey, setGroupKey] = useState<GroupKey>("none");
   const [search, setSearch] = useState("");
   const [openTaskId, setOpenTaskId] = useState<string | null>(null);
 
@@ -91,6 +117,10 @@ export function TaskList({
       const savedSort = localStorage.getItem(SORT_KEY);
       if (savedSort && (Object.keys(SORT_LABELS) as SortKey[]).includes(savedSort as SortKey)) {
         setSortKey(savedSort as SortKey);
+      }
+      const savedGroup = localStorage.getItem(GROUP_KEY);
+      if (savedGroup && (Object.keys(GROUP_LABELS) as GroupKey[]).includes(savedGroup as GroupKey)) {
+        setGroupKey(savedGroup as GroupKey);
       }
     } catch {
       // ignore
@@ -110,12 +140,26 @@ export function TaskList({
       // ignore
     }
   }, [sortKey]);
+  useEffect(() => {
+    try {
+      localStorage.setItem(GROUP_KEY, groupKey);
+    } catch {
+      // ignore
+    }
+  }, [groupKey]);
 
   const usersById = useMemo(() => {
     const m = new Map<string, UserOpt>();
     users.forEach((u) => m.set(u.id, u));
     return m;
   }, [users]);
+
+  // v1.29.0: supplier lookup for the supplier-grouped renderer.
+  const suppliersById = useMemo(() => {
+    const m = new Map<string, SupplierOpt>();
+    suppliers.forEach((s) => m.set(s.id, s));
+    return m;
+  }, [suppliers]);
 
   // v1.27.4: distinct categories from `tags[0]` (the convention the
   // rest of the app uses for "primary category"). Sorted alphabetically
@@ -197,6 +241,69 @@ export function TaskList({
     return list;
   }, [filtered, sortKey, usersById]);
 
+  // v1.29.0: split sorted rows into ordered group sections. When
+  // groupKey is "none" we still produce a single synthetic section
+  // so the render path stays unified. Each section keeps the rows
+  // in the parent `sorted` order — grouping is orthogonal to sort.
+  const groups = useMemo<{ key: string; label: string; tasks: Task[] }[]>(() => {
+    if (groupKey === "none") {
+      return [{ key: "all", label: "", tasks: sorted }];
+    }
+    const buckets = new Map<string, { key: string; label: string; tasks: Task[]; rank: number }>();
+    const bump = (key: string, label: string, t: Task, rank: number) => {
+      let b = buckets.get(key);
+      if (!b) {
+        b = { key, label, tasks: [], rank };
+        buckets.set(key, b);
+      }
+      b.tasks.push(t);
+    };
+    for (const t of sorted) {
+      switch (groupKey) {
+        case "assignee": {
+          if (t.assigneeId) {
+            const u = usersById.get(t.assigneeId);
+            const label = u?.name ?? u?.email ?? "Unknown";
+            bump(`u:${t.assigneeId}`, label, t, 0);
+          } else {
+            bump("u:null", "Unassigned", t, 1);
+          }
+          break;
+        }
+        case "category": {
+          const cat = t.tags[0];
+          if (cat) bump(`c:${cat}`, cat, t, 0);
+          else bump("c:null", "Uncategorised", t, 1);
+          break;
+        }
+        case "supplier": {
+          if (t.supplierId) {
+            const s = suppliersById.get(t.supplierId);
+            const label = s ? `${s.name}${s.category ? ` · ${s.category}` : ""}` : "Unknown supplier";
+            bump(`s:${t.supplierId}`, label, t, 0);
+          } else {
+            bump("s:null", "No supplier", t, 1);
+          }
+          break;
+        }
+        case "priority": {
+          const idx = PRIORITY_ORDER.indexOf(t.priority);
+          bump(`p:${t.priority}`, t.priority, t, idx >= 0 ? idx : 99);
+          break;
+        }
+        case "status": {
+          const idx = STATUS_ORDER.indexOf(t.status);
+          bump(`st:${t.status}`, STATUS_GROUP_LABEL[t.status] ?? t.status, t, idx >= 0 ? idx : 99);
+          break;
+        }
+      }
+    }
+    return [...buckets.values()].sort((a, b) => {
+      if (a.rank !== b.rank) return a.rank - b.rank;
+      return a.label.localeCompare(b.label);
+    });
+  }, [sorted, groupKey, usersById, suppliersById]);
+
   const openTask = openTaskId ? tasks.find((t) => t.id === openTaskId) : null;
 
   return (
@@ -262,21 +369,42 @@ export function TaskList({
               {filtered.length}/{tasks.length}
             </span>
           )}
-          <div className="flex items-center gap-1 ml-auto">
-            <label className="text-[10px] uppercase tracking-wider text-ink-tertiary font-bold">
-              Sort
-            </label>
-            <select
-              value={sortKey}
-              onChange={(e) => setSortKey(e.target.value as SortKey)}
-              className="text-xs bg-canvas text-ink-primary border border-border-soft rounded-sm px-2 py-1 outline-none focus:border-moss-500"
-            >
-              {(Object.keys(SORT_LABELS) as SortKey[]).map((k) => (
-                <option key={k} value={k}>
-                  {SORT_LABELS[k]}
-                </option>
-              ))}
-            </select>
+          <div className="flex items-center gap-3 ml-auto">
+            {/* v1.29.0: group-by selector. Sits next to Sort because
+                the user reads them together — "show me my tasks
+                grouped by category, sorted by due date". */}
+            <div className="flex items-center gap-1">
+              <label className="text-[10px] uppercase tracking-wider text-ink-tertiary font-bold">
+                Group
+              </label>
+              <select
+                value={groupKey}
+                onChange={(e) => setGroupKey(e.target.value as GroupKey)}
+                className="text-xs bg-canvas text-ink-primary border border-border-soft rounded-sm px-2 py-1 outline-none focus:border-moss-500"
+              >
+                {(Object.keys(GROUP_LABELS) as GroupKey[]).map((k) => (
+                  <option key={k} value={k}>
+                    {GROUP_LABELS[k]}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="flex items-center gap-1">
+              <label className="text-[10px] uppercase tracking-wider text-ink-tertiary font-bold">
+                Sort
+              </label>
+              <select
+                value={sortKey}
+                onChange={(e) => setSortKey(e.target.value as SortKey)}
+                className="text-xs bg-canvas text-ink-primary border border-border-soft rounded-sm px-2 py-1 outline-none focus:border-moss-500"
+              >
+                {(Object.keys(SORT_LABELS) as SortKey[]).map((k) => (
+                  <option key={k} value={k}>
+                    {SORT_LABELS[k]}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
         </div>
         <FilterTabs value={filter} onChange={setFilter} categories={categories} />
@@ -313,20 +441,36 @@ export function TaskList({
                   <span className="w-24 text-right">Due</span>
                   <span className="w-24 text-center">Category</span>
                 </div>
-                <ol>
-                  {sorted.map((t) => {
-                    const assignee = t.assigneeId ? usersById.get(t.assigneeId) : null;
-                    return (
-                      <TaskRow
-                        key={t.id}
-                        task={t}
-                        canEdit={canEdit}
-                        assigneeName={assignee?.name ?? assignee?.email ?? null}
-                        onOpen={() => setOpenTaskId(t.id)}
-                      />
-                    );
-                  })}
-                </ol>
+                {/* v1.29.0: render group sections. When groupKey is
+                    "none" `groups` collapses to one synthetic section
+                    with empty label, so the section header is hidden
+                    and the rendered output matches v1.28.x exactly. */}
+                {groups.map((g) => (
+                  <div key={g.key}>
+                    {g.label && (
+                      <div className="px-4 pt-4 pb-1 text-[10px] uppercase tracking-wider font-bold text-ink-tertiary border-b border-border-soft bg-canvas/30 flex items-baseline gap-2">
+                        <span>{g.label}</span>
+                        <span className="text-ink-tertiary/70 normal-case font-normal tabular-nums">
+                          {g.tasks.length}
+                        </span>
+                      </div>
+                    )}
+                    <ol>
+                      {g.tasks.map((t) => {
+                        const assignee = t.assigneeId ? usersById.get(t.assigneeId) : null;
+                        return (
+                          <TaskRow
+                            key={t.id}
+                            task={t}
+                            canEdit={canEdit}
+                            assigneeName={assignee?.name ?? assignee?.email ?? null}
+                            onOpen={() => setOpenTaskId(t.id)}
+                          />
+                        );
+                      })}
+                    </ol>
+                  </div>
+                ))}
               </>
             )}
           </div>
