@@ -403,6 +403,11 @@ model BookSection {
   illustration String?
   order       Int              @default(0)
   subsections BookSubsection[]
+  // v1.24.0: per-section audience override. Reuses the same enum the
+  // BookSubsection has had since C1 (v1.14.0) so the read-side filter
+  // can collapse both checks. Default EVERYONE so existing rows stay
+  // visible after the migration.
+  visibility BookSubsectionVisibility @default(EVERYONE)
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
 }

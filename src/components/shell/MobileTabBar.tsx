@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
 import { MOBILE_TABS, NAV_GROUPS } from "@/components/shell/nav-config";
 
@@ -13,6 +13,7 @@ export function MobileTabBar({
   signOutAction: () => Promise<void>;
 }) {
   const pathname = usePathname();
+  const router = useRouter();
   const [moreOpen, setMoreOpen] = useState(false);
 
   const visibleGroups = NAV_GROUPS.map((g) => ({
@@ -60,6 +61,22 @@ export function MobileTabBar({
             <Link
               key={tab.href}
               href={tab.href}
+              // v1.24.0 navbar fix: explicit router.push on click.
+              // Multiple users reported clicks landing on / instead of
+              // the tab's href. The exact cause wasn't reproducible
+              // from the code (hrefs are correct, no obvious overlay,
+              // no service worker). Forcing imperative navigation via
+              // useRouter as a defence-in-depth: if Link's click
+              // handler is being intercepted somewhere, router.push
+              // still fires here. preventDefault stops Link's own
+              // navigate from running so we don't navigate twice.
+              onClick={(e) => {
+                e.preventDefault();
+                if (process.env.NODE_ENV !== "production") {
+                  console.log("[MobileTabBar] tab click →", tab.href);
+                }
+                router.push(tab.href);
+              }}
               className={[
                 "flex-1 flex flex-col items-center justify-center gap-0.5 h-full",
                 active ? "text-moss-500 font-semibold" : "text-ink-tertiary",
@@ -87,7 +104,15 @@ export function MobileTabBar({
               <Link
                 key={item.href}
                 href={item.href}
-                onClick={() => setMoreOpen(false)}
+                // v1.24.0 navbar fix — same reason as tabs above.
+                onClick={(e) => {
+                  e.preventDefault();
+                  if (process.env.NODE_ENV !== "production") {
+                    console.log("[MobileTabBar] sheet click →", item.href);
+                  }
+                  setMoreOpen(false);
+                  router.push(item.href);
+                }}
                 className="flex items-center gap-3.5 w-full px-5 py-3 text-[15px] text-ink-primary"
               >
                 <span className="w-5 text-center opacity-70">{item.icon}</span>

@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.23.3** | 2026-04-29 | [Seating bugfix: freeze auto-crop viewBox during drag (drift fix)](#2026-04-29--v1233--seating-freeze-viewbox-during-drag) |
+| **v1.24.0** | 2026-04-29 | [Print stylesheets for /budget + /payments · BookSection couple-only audience · mobile navbar imperative-routing fix](#2026-04-29--v1240--print-stylesheets--booksection-visibility--mobile-navbar-fix) |
+| v1.23.3 | 2026-04-29 | [Seating bugfix: freeze auto-crop viewBox during drag (drift fix)](#2026-04-29--v1233--seating-freeze-viewbox-during-drag) |
 | v1.23.2 | 2026-04-29 | [Seating: notes/checklist into collapsible sidebar · auto-crop canvas · disable table-drag on mobile · ceremony save returns result](#2026-04-29--v1232--seating-collapsible-sidebar--canvas-auto-crop--mobile-drag-disable--ceremony-save-result) |
 | v1.23.1 | 2026-04-29 | [Seating: notes + checklist global & always visible · obvious Reception/Ceremony tabs](#2026-04-29--v1231--seating-globalize-notes--checklist--obvious-tabs) |
 | v1.23.0 | 2026-04-29 | [Seating notes + day-of checklists + ceremony placeholder page + bigger top table](#2026-04-29--v1230--seating-notes--day-of-checklists--ceremony-placeholder) |
@@ -189,10 +190,8 @@ items renumbered down the queue. Current state:
   table).
 - ~~**Seating notes + day-of checklist + ceremony placeholder**~~ —
   shipped v1.23.0.
-- **Print stylesheet for /budget + /payments** — bumped to v1.24.0.
-  Pattern already in use on `/schedule` and `/guests/catering`. ~1 hr.
-- **BookSection audience overrides** — bundled with the v1.24.0
-  print pass (both small additive schema changes). ~1 hr.
+- ~~**Print stylesheet for /budget + /payments**~~ — shipped v1.24.0.
+- ~~**BookSection audience overrides**~~ — shipped v1.24.0.
 - **Email reminders / nudges** — bumped to v1.25.0. `Guest.lastNudgedAt`
   is already in the schema. Build "nudge unconfirmed RSVPs" + "follow-
   up task due tomorrow" digests. Sends to the planner / couple, not to
@@ -459,6 +458,46 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-29 · v1.24.0 — Print stylesheets · BookSection visibility · mobile navbar fix
+
+Three planner-only-shortlist items, bundled. Two are small additive features; one is a defensive fix for a recurring user-reported bug.
+
+**1. Print stylesheets for `/budget` + `/payments`.** Both pages get the same treatment as `/schedule` and `/guests/catering`:
+
+- A new `<PrintButton />` shared client component (hoisted from the per-page duplicate that was on `/schedule`) goes in the page-header actions on `/budget` + `/payments`.
+- A `print-only-block` letterhead at the top of each page — couple label + date + venue, hidden on screen, visible on print.
+- New `.budget-page` and `.payments-page` blocks in `globals.css`'s `@media print` section (mirroring `.schedule-page` + `.catering-page`): full-width, black ink, lighter table borders, `f0f0f0` table headers.
+
+Both pages are couple-only at the route level (the existing `redirect("/")` for non-couple), so the print path inherits that gate — no extra permission check needed in the stylesheet.
+
+**2. `BookSection.visibility` couple-only override.** Mirrors the C1/v1.14.0 BookSubsection visibility — a couple can now hide a whole section (not just individual pages within it). Migration `20260429020000_book_section_visibility` is additive: `BookSection.visibility BookSubsectionVisibility @default(EVERYONE)`. Reuses the existing `BookSubsectionVisibility` enum to avoid duplication.
+
+Read-side filters added at:
+- `/book` hub: `findMany({ where: user.isCouple ? undefined : { visibility: "EVERYONE" } })` collapses non-couple results to public-only sections.
+- `/book/[slug]` detail: `notFound()` if the section is `COUPLE_ONLY` and the visitor isn't couple — keeps the section's existence invisible (better than redirecting to `/book` which would reveal it ever existed).
+
+Write-side: new `setBookSectionVisibility(id, visibility)` action mirrors `setBookSubsectionVisibility` (couple-only gate, audit log, revalidate). New `<SectionVisibilityToggle>` component renders next to the section header — a single button that toggles `🔒 Couple-only` ↔ `👥 Public` and shows the current state on its label. Couple-only at every layer.
+
+**3. Mobile navbar imperative-routing fix.** User reported (twice) that clicking any item in the mobile tab bar on prod takes them to `/`. Inspected `MobileTabBar.tsx`, `nav-config.ts`, middleware, layout overlays — couldn't reproduce in source: hrefs are correct, no obvious overlay sitting at the tab-bar's z-index, no service worker. Possible culprits: prefetched stale routes, a click intercept somewhere I can't see, or environment-specific oddness.
+
+Defence-in-depth fix: bypass `<Link>`'s default click handling. Each tab + sheet item now has an explicit `onClick={(e) => { e.preventDefault(); router.push(tab.href); }}`. `useRouter()` from `next/navigation` is the same primitive Link uses internally — the difference is that the `onClick` runs *before* Link's own click logic, and `e.preventDefault()` stops Link from then re-navigating. Whatever was eating the Link click is bypassed; navigation goes through `router.push` directly.
+
+Includes a non-production `console.log("[MobileTabBar] tab click → ", href)` so if it's still broken in prod we can see exactly what fires from devtools mobile mode. The diagnostic is `process.env.NODE_ENV !== "production"` gated so it's stripped from the prod bundle.
+
+**Files:**
+
+- New: `src/components/ui/PrintButton.tsx` — shared.
+- New: `prisma/migrations/20260429020000_book_section_visibility/migration.sql`.
+- New: `src/app/(app)/book/[slug]/SectionVisibilityToggle.tsx`.
+- Modified: `src/app/(app)/budget/page.tsx`, `src/app/(app)/payments/page.tsx` — print button + letterhead + class.
+- Modified: `src/app/globals.css` — two new `@media print` blocks.
+- Modified: `prisma/schema.prisma` — `BookSection.visibility` column.
+- Modified: `src/app/(app)/book/page.tsx`, `src/app/(app)/book/[slug]/page.tsx` — read filters.
+- Modified: `src/app/(app)/book/actions.ts` — `setBookSectionVisibility` action.
+- Modified: `src/components/shell/MobileTabBar.tsx` — imperative router.push on every tab + sheet item.
+
+**Verification:** typecheck/lint clean, all 188 unit tests pass, clean `.next` build green. Manual: open `/budget` → header shows Print button → click → browser print dialog opens with full-width black-on-white layout. Open `/book` as couple → toggle a section to couple-only → sign in as non-couple → section is gone from the hub and `/book/[slug]` 404s.
 
 ### 2026-04-29 · v1.23.3 — Seating: freeze viewBox during drag
 

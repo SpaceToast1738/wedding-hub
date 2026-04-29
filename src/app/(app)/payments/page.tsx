@@ -1,8 +1,10 @@
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { PrintButton } from "@/components/ui/PrintButton";
 import { requireUser } from "@/lib/actions";
 import { formatMoneyDecimal } from "@/lib/format";
+import { formatWeddingDate, getWeddingSettings } from "@/lib/wedding-settings";
 import { EmptyPayments, EmptyState } from "@/components/ui/Illustrations";
 import { AddPaymentToggle } from "./AddPaymentToggle";
 import { PaymentRow } from "./PaymentRow";
@@ -10,6 +12,7 @@ import { PaymentRow } from "./PaymentRow";
 export default async function PaymentsPage() {
   const user = await requireUser();
   if (!user.isCouple) redirect("/");
+  const wedding = await getWeddingSettings();
 
   const [payments, suppliers] = await Promise.all([
     db.payment.findMany({
@@ -27,9 +30,21 @@ export default async function PaymentsPage() {
       <PageHeader
         title="Payments"
         subtitle={`Outstanding: ${formatMoneyDecimal(outstanding as unknown as { toString(): string })} · Paid: ${formatMoneyDecimal(paid as unknown as { toString(): string })}`}
-        actions={<AddPaymentToggle suppliers={suppliers} />}
+        actions={
+          <div className="flex items-center gap-2">
+            <PrintButton />
+            <AddPaymentToggle suppliers={suppliers} />
+          </div>
+        }
       />
-      <div className="flex-1 overflow-auto">
+      <div className="flex-1 overflow-auto payments-page">
+        {/* v1.24.0: print-only letterhead. */}
+        <div className="print-only-block max-w-6xl mx-auto px-6 pt-6 border-b-2 border-ink-primary pb-3 mb-6">
+          <h1 className="font-display text-2xl text-ink-primary">{wedding.coupleLabel}</h1>
+          <div className="text-xs text-ink-tertiary mt-1">
+            Payments · {formatWeddingDate(wedding)} · {wedding.venue}
+          </div>
+        </div>
         <div className="max-w-6xl mx-auto p-6">
           {payments.length === 0 ? (
             <EmptyState

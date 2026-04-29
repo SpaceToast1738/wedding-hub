@@ -5,6 +5,7 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { canEdit } from "@/lib/permissions";
 import { requireUser } from "@/lib/actions";
 import { AddSubsectionToggle } from "./AddSubsectionToggle";
+import { SectionVisibilityToggle } from "./SectionVisibilityToggle";
 import { SubsectionEditor } from "./SubsectionEditor";
 
 export default async function BookSectionPage({ params }: { params: Promise<{ slug: string }> }) {
@@ -24,13 +25,29 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
     },
   });
   if (!section) notFound();
+  // v1.24.0: non-couple users can't open a section the couple has
+  // marked COUPLE_ONLY. Returning 404 (rather than redirecting to
+  // /book) keeps the existence of the section invisible — matches
+  // how the hub-page filter hides them from the index.
+  if (section.visibility === "COUPLE_ONLY" && !user.isCouple) notFound();
 
   return (
     <>
       <PageHeader
         title={section.title}
-        subtitle={`Wedding Book · ${section.subsections.length} ${section.subsections.length === 1 ? "page" : "pages"}`}
-        actions={editable ? <AddSubsectionToggle sectionId={section.id} /> : undefined}
+        subtitle={`Wedding Book · ${section.subsections.length} ${section.subsections.length === 1 ? "page" : "pages"}${section.visibility === "COUPLE_ONLY" ? " · couple-only" : ""}`}
+        actions={
+          <div className="flex items-center gap-2">
+            {/* v1.24.0: section-level visibility toggle, couple-only. */}
+            {user.isCouple && (
+              <SectionVisibilityToggle
+                sectionId={section.id}
+                initial={section.visibility}
+              />
+            )}
+            {editable && <AddSubsectionToggle sectionId={section.id} />}
+          </div>
+        }
       />
       <div className="flex-1 overflow-auto">
         <div className="max-w-3xl mx-auto p-6 space-y-4">

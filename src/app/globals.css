@@ -200,6 +200,27 @@ kbd {
     color: #000;
   }
   .schedule-page ol { border-color: #999 !important; }
+
+  /* v1.24.0: Budget print — couple-facing financial summary. Couple
+     status enforced server-side (page redirects non-couple) so this
+     only ever prints with permission. Tables get the same lighter-
+     border treatment as catering. */
+  .budget-page {
+    max-width: none !important;
+    padding: 0 !important;
+    color: #000;
+  }
+  .budget-page table { border-color: #999 !important; }
+  .budget-page table th { background: #f0f0f0 !important; }
+
+  /* v1.24.0: Payments print — same shape as Budget, also couple-only. */
+  .payments-page {
+    max-width: none !important;
+    padding: 0 !important;
+    color: #000;
+  }
+  .payments-page table { border-color: #999 !important; }
+  .payments-page table th { background: #f0f0f0 !important; }
   .photography-page input[type="checkbox"] {
     /* Ensure the box prints as a hollow square even if browser drops it. */
     appearance: none;

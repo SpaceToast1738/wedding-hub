@@ -113,3 +113,28 @@ export async function setBookSubsectionVisibility(
   revalidatePath("/book");
   revalidatePath(`/book/${sub.section.slug}`);
 }
+
+// v1.24.0: same gate, applied at the BookSection level so the couple
+// can hide a whole section (not just individual pages). Mirrors the
+// subsection action above 1:1.
+export async function setBookSectionVisibility(
+  id: string,
+  visibility: BookSubsectionVisibility,
+) {
+  const user = await requireUser();
+  if (!user.isCouple) {
+    throw new Error("Forbidden: only the couple can change section visibility");
+  }
+  const section = await db.bookSection.update({
+    where: { id },
+    data: { visibility },
+  });
+  await audit(user, {
+    action: "visibility",
+    entity: "BookSection",
+    entityId: id,
+    metadata: { visibility },
+  });
+  revalidatePath("/book");
+  revalidatePath(`/book/${section.slug}`);
+}

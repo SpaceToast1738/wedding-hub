@@ -89,6 +89,10 @@ export default async function BookHubPage() {
 
   const [sections, shotCounts] = await Promise.all([
     db.bookSection.findMany({
+      // v1.24.0: hide COUPLE_ONLY sections from non-couple users.
+      // Mirrors the C1/v1.14.0 subsection filter that's applied at
+      // /book/[slug] read time.
+      where: user.isCouple ? undefined : { visibility: "EVERYONE" },
       orderBy: [{ order: "asc" }, { title: "asc" }],
       include: { _count: { select: { subsections: true } } },
     }),
