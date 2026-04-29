@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.27.7** | 2026-04-29 | [Guest detail side panel on seating canvas — click a seated guest dot to open](#2026-04-29--v1277--guest-detail-side-panel-on-seating-canvas) |
+| **v1.27.9** | 2026-04-29 | [Tasks polish: drop list container · wider rightmost columns · Type changer in the drawer · all-day events render "All day" instead of "01:00"](#2026-04-29--v1279--tasks-polish-round-3--all-day-display-fix) |
+| v1.27.7 | 2026-04-29 | [Guest detail side panel on seating canvas — click a seated guest dot to open](#2026-04-29--v1277--guest-detail-side-panel-on-seating-canvas) |
 | v1.27.6 | 2026-04-29 | [Photography migration: PhotographyShot rows → BookShot under a SHOT_LIST card · bespoke route deleted](#2026-04-29--v1276--photography-migration) |
 | v1.27.5 | 2026-04-29 | [Mobile nav full `<Link>` revert (Tasks · Guests · sheet items)](#2026-04-29--v1275--mobile-nav-full-link-revert) |
 | v1.27.4 | 2026-04-29 | [Tasks visual style match: text-underline List/Board tabs · dynamic category filter pills · Questions filter · "+ View" stub](#2026-04-29--v1274--tasks-visual-style-match-text-tabs--dynamic-category-pills) |
@@ -591,6 +592,29 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-29 · v1.27.9 — Tasks polish round 3 + all-day display fix
+
+User-reported (29 Apr 2026): four small but visible Tasks/Today asks bundled together. Versioned together (skipping v1.27.8) because the type-system changes to `EventLite` would have failed typecheck if shipped half-done.
+
+**Tasks polish:**
+
+1. **Drop the bordered container around the task list.** The mockup renders rows directly on the page background; the v1.27.3-vintage `bg-surface border rounded shadow` wrapper made the list look like a card-within-a-card. Replaced by a bare `<>` fragment so the header strip + rows now sit flat on the canvas, separated only by the existing per-row `border-b border-border-soft`.
+2. **Wider rightmost columns.** `gap-3` → `gap-5` on both the header strip and `TaskRow`. Priority cell `w-14` → `w-16`; Status / Due / Category cells `w-20` → `w-24`. The MED/HIGH/LOW pills + status badges + dates + category chips now have a comfortable amount of breathing room and no longer feel squished.
+3. **Type changer in the drawer.** `TaskDrawer` was hard-coding `task.type` on save, so a row created as `TASK` could never be converted to `QUESTION` / `DECISION` (or vice versa) without going through the admin-only `updateTask` path. Added a `TYPE_OPTIONS` pill row at the top of the drawer form that mirrors the existing Status / Priority pill styling. The model has always been polymorphic — this just exposes the toggle.
+
+**All-day display fix:**
+
+4. **Upcoming events: render "All day" instead of "01:00" for all-day events.** Pre-fix the Today page's `TodayEventsCard` and the `/today/day-of` timeline both ran `toLocaleTimeString` on the stored `startTime`, which is midnight-UTC for all-day events — that renders as `01:00` in BST and similar offset in other locales. v1.27.1 added `ScheduleEvent.allDay` (and the editor toggle) but never threaded it through to the read-side. Fixed by:
+   - Adding `allDay: boolean` to the `EventLite` shape in `TodayEventsCard` and reading it on the time render.
+   - Passing `e.allDay` through in `(app)/page.tsx`'s `events.map(...)`.
+   - Adding the same conditional on the day-of timeline (`(app)/today/day-of/page.tsx`) where the event row's left-side time block now reads "All day" instead of `00:00`.
+
+**Files:**
+- Modified: `src/app/(app)/tasks/TaskList.tsx`, `src/app/(app)/tasks/TaskRow.tsx`, `src/app/(app)/tasks/TaskDrawer.tsx`.
+- Modified: `src/app/(app)/TodayEventsCard.tsx`, `src/app/(app)/page.tsx`, `src/app/(app)/today/day-of/page.tsx`.
+
+**Verification:** typecheck + lint + 232 unit tests + clean `.next` build all green.
 
 ### 2026-04-29 · v1.27.7 — Guest detail side panel on seating canvas
 

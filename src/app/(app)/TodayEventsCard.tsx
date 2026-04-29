@@ -9,6 +9,11 @@ type EventLite = {
   startTime: Date;
   location: string | null;
   audience: string[];
+  // v1.27.9: when true, render "All day" instead of the time. Pre-fix
+  // all-day events showed as 01:00 / midnight depending on browser
+  // locale because we just toLocaleTimeString'd whatever was stored
+  // (midnight UTC, which renders as 01:00 in BST).
+  allDay: boolean;
 };
 
 type Persona = "mine" | "everyone";
@@ -84,7 +89,7 @@ export function TodayEventsCard({
           {filtered.slice(0, 5).map((e) => (
             <li key={e.id} className="flex items-start gap-3">
               <span className="text-xs font-medium text-moss-700 w-14 flex-shrink-0 pt-0.5">
-                {formatTime(new Date(e.startTime))}
+                {e.allDay ? "All day" : formatTime(new Date(e.startTime))}
               </span>
               <div className="flex-1 min-w-0">
                 <div className="text-sm text-ink-primary font-medium truncate">{e.title}</div>

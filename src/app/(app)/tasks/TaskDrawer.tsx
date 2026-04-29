@@ -29,6 +29,17 @@ const STATUS_OPTIONS: { value: string; label: string }[] = [
 
 const PRIORITY_OPTIONS = ["URGENT", "HIGH", "MEDIUM", "LOW"];
 
+// v1.27.8: Type changer in the drawer. Pre-fix the drawer hard-coded
+// `task.type` on save, so a row created as TASK could never become a
+// QUESTION/DECISION (or vice versa) without going through the
+// admin-only updateTask path. The model has always been polymorphic;
+// this just exposes the toggle.
+const TYPE_OPTIONS: { value: string; label: string }[] = [
+  { value: "TASK", label: "Task" },
+  { value: "QUESTION", label: "Question" },
+  { value: "DECISION", label: "Decision" },
+];
+
 // v1.27.0: right-side drawer for task detail / quick edit. Replaces
 // the v1.0.x inline-expand-to-edit pattern that buried the form
 // inside the row. UX: click any task in the list → drawer slides in
@@ -50,6 +61,7 @@ export function TaskDrawer({
   onClose: () => void;
 }) {
   const [title, setTitle] = useState(task.title);
+  const [type, setType] = useState(task.type);
   const [status, setStatus] = useState(task.status);
   const [priority, setPriority] = useState(task.priority);
   const [assigneeId, setAssigneeId] = useState(task.assigneeId ?? "");
@@ -69,6 +81,7 @@ export function TaskDrawer({
 
   const dirty =
     title !== task.title ||
+    type !== task.type ||
     status !== task.status ||
     priority !== task.priority ||
     (assigneeId || null) !== (task.assigneeId ?? null) ||
@@ -83,7 +96,7 @@ export function TaskDrawer({
     }
     const fd = new FormData();
     fd.set("title", title);
-    fd.set("type", task.type);
+    fd.set("type", type);
     fd.set("status", status);
     fd.set("priority", priority);
     fd.set("assigneeId", assigneeId);
@@ -160,6 +173,39 @@ export function TaskDrawer({
         </header>
 
         <div className="flex-1 overflow-auto px-5 py-4 space-y-4">
+          {/* v1.27.8: Type changer — TASK/QUESTION/DECISION. The
+              model has always been polymorphic; this just exposes
+              the toggle so a row created as the wrong kind can be
+              converted in place. */}
+          <div>
+            <strong className="block text-[10px] uppercase tracking-wider text-ink-tertiary font-bold mb-1.5">
+              Type
+            </strong>
+            {canEdit ? (
+              <div className="flex flex-wrap gap-1">
+                {TYPE_OPTIONS.map((o) => (
+                  <button
+                    key={o.value}
+                    type="button"
+                    onClick={() => setType(o.value)}
+                    className={[
+                      "text-[11px] px-2.5 py-1 rounded-md border transition-colors",
+                      type === o.value
+                        ? "bg-moss-500 text-white border-moss-500"
+                        : "bg-canvas text-ink-secondary border-border-soft hover:border-moss-300",
+                    ].join(" ")}
+                  >
+                    {o.label}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <span className="text-sm text-ink-primary">
+                {TYPE_OPTIONS.find((o) => o.value === type)?.label ?? type}
+              </span>
+            )}
+          </div>
+
           <div>
             <strong className="block text-[10px] uppercase tracking-wider text-ink-tertiary font-bold mb-1.5">
               Status

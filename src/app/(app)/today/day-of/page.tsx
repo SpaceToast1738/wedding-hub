@@ -194,7 +194,15 @@ export default async function DayOfPage() {
                         ev.status === "now" ? "text-marigold-700" : "text-ink-primary",
                       ].join(" ")}
                     >
-                      {formatTime(ev.startTime)}
+                      {/* v1.27.9: render "All day" instead of a derived
+                          time when the event is flagged all-day. The
+                          stored startTime is midnight UTC, which would
+                          otherwise format as "01:00" in BST etc. */}
+                      {ev.allDay ? (
+                        <span className="text-xs font-medium">All day</span>
+                      ) : (
+                        formatTime(ev.startTime)
+                      )}
                     </div>
                     <div className="flex-1 min-w-0">
                       <div

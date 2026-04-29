@@ -162,6 +162,10 @@ export default async function TodayPage() {
               startTime: e.startTime,
               location: e.location,
               audience: e.audience,
+              // v1.27.9: pass through the all-day flag so the card
+              // renders "All day" instead of toLocaleTimeString'ing
+              // a midnight-UTC timestamp into "01:00".
+              allDay: e.allDay,
             }))}
             currentUserRole={session.user.role}
           />

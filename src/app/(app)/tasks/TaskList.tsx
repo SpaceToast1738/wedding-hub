@@ -280,6 +280,11 @@ export function TaskList({
         <TaskBoard tasks={sorted} users={users} canEdit={canEdit} />
       ) : (
         <div className="flex-1 overflow-auto">
+          {/* v1.27.8: dropped the bordered/shadowed container that
+              wrapped the list. Target mockup renders rows directly
+              on the page background. Same applies to the header row
+              — now a flat strip with the same divider underline as
+              the row separators. */}
           <div className="px-4 sm:px-6 py-4">
             {sorted.length === 0 ? (
               <EmptyState
@@ -288,20 +293,19 @@ export function TaskList({
                 body="Try a different filter, or add a task with the C shortcut anywhere in the app."
               />
             ) : (
-              <div className="bg-surface border border-border-soft rounded-md shadow-sm overflow-x-auto">
-                {/* v1.27.3: column headers. Category column kept (it
-                    duplicates the filter-pill semantic but the user
-                    asked for it to stay). Hidden on mobile — rows
-                    collapse to title-only there. */}
-                <div className="hidden sm:flex items-center gap-3 px-4 py-2 border-b border-border-soft bg-canvas/40 text-[10px] uppercase tracking-wider font-bold text-ink-tertiary">
+              <>
+                {/* v1.27.8: column header strip — matches the mockup.
+                    More gap (gap-4 → gap-5) + bumped right-side widths
+                    so the rightmost columns stop feeling squished. */}
+                <div className="hidden sm:flex items-center gap-5 px-4 py-2 border-b border-border-soft text-[10px] uppercase tracking-wider font-bold text-ink-tertiary">
                   <span className="w-4 flex-shrink-0" aria-hidden />
                   <span className="w-1.5 flex-shrink-0" aria-hidden />
                   <span className="flex-1 min-w-0">Title</span>
                   <span className="w-32">Assignee</span>
-                  <span className="w-14 text-center">Priority</span>
-                  <span className="w-20 text-center">Status</span>
-                  <span className="w-20 text-right">Due</span>
-                  <span className="w-20 text-center">Category</span>
+                  <span className="w-16 text-center">Priority</span>
+                  <span className="w-24 text-center">Status</span>
+                  <span className="w-24 text-right">Due</span>
+                  <span className="w-24 text-center">Category</span>
                 </div>
                 <ol>
                   {sorted.map((t) => {
@@ -317,7 +321,7 @@ export function TaskList({
                     );
                   })}
                 </ol>
-              </div>
+              </>
             )}
           </div>
         </div>

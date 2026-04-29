@@ -80,7 +80,7 @@ export function TaskRow({
   return (
     <li
       onClick={onOpen}
-      className="flex items-center gap-3 px-4 py-2.5 border-b border-border-soft last:border-b-0 hover:bg-muted/40 cursor-pointer"
+      className="flex items-center gap-5 px-4 py-2.5 border-b border-border-soft last:border-b-0 hover:bg-muted/40 cursor-pointer"
     >
       <button
         type="button"
@@ -126,7 +126,7 @@ export function TaskRow({
           <p className="text-xs text-ink-tertiary mt-1 italic">{task.questionAnswer}</p>
         )}
       </div>
-      <div className="hidden sm:flex items-center gap-3 flex-shrink-0">
+      <div className="hidden sm:flex items-center gap-5 flex-shrink-0">
         {assigneeName ? (
           <span className="flex items-center gap-1.5 w-32">
             <Avatar name={assigneeName} size={20} />
@@ -137,16 +137,16 @@ export function TaskRow({
         ) : (
           <span className="w-32" />
         )}
-        <span className="w-14 flex justify-center">
+        <span className="w-16 flex justify-center">
           <StatusPill status={PRIORITY_LABEL[task.priority] ?? "LOW"} size="sm" />
         </span>
-        <span className="text-[10px] uppercase tracking-wider text-ink-tertiary bg-canvas border border-border-soft rounded-md px-2 py-0.5 w-20 text-center">
+        <span className="text-[10px] uppercase tracking-wider text-ink-tertiary bg-canvas border border-border-soft rounded-md px-2 py-0.5 w-24 text-center">
           {STATUS_LABEL[task.status] ?? task.status}
         </span>
-        <span className="text-xs text-ink-tertiary w-20 text-right">
+        <span className="text-xs text-ink-tertiary w-24 text-right">
           {formatRelativeDue(task.dueDate)}
         </span>
-        <span className="w-20 text-center">
+        <span className="w-24 text-center">
           {category ? (
             <span className="text-[10px] text-ink-tertiary bg-canvas border border-border-soft px-1.5 py-px rounded-md inline-block max-w-full truncate">
               {category}
