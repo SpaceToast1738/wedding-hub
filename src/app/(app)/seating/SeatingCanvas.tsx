@@ -32,6 +32,17 @@ function dotStrokeForRsvp(rsvp: Rsvp): string {
   return "var(--color-border-strong)";
 }
 
+// v1.22.8: glyph reinforces the RSVP color so the canvas reads
+// correctly for colour-blind users and at small dot sizes (where
+// hue alone gets ambiguous). Mirrors the AllGuestsPanel tag chars
+// exactly so the visual language is consistent across surfaces.
+function seatGlyphForRsvp(rsvp: Rsvp): string {
+  if (rsvp === "ATTENDING") return "✓";
+  if (rsvp === "PENDING") return "?";
+  if (rsvp === "MAYBE") return "~";
+  return "✗";
+}
+
 type Table = {
   id: string;
   name: string;
@@ -612,6 +623,24 @@ export function SeatingCanvas({
                           strokeWidth={isDragOver ? 2 : 1}
                           pointerEvents="none"
                         />
+                        {/* v1.22.8: white RSVP glyph inside the dot
+                            (✓ / ? / ~ / ✗). Below dotScale=1.4 the
+                            glyph is too small to read so it's hidden;
+                            colour alone carries the meaning at S. */}
+                        {occupied && dotScale >= 1.4 && (
+                          <text
+                            x={layout.cx}
+                            y={layout.cy + 1.4 * dotScale}
+                            textAnchor="middle"
+                            fontSize={4.8 * dotScale}
+                            fontWeight={700}
+                            fill="white"
+                            pointerEvents="none"
+                            style={{ userSelect: "none" }}
+                          >
+                            {seatGlyphForRsvp(guestRsvp!)}
+                          </text>
+                        )}
                         {occupied && (
                           <text
                             x={layout.labelX}

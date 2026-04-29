@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.22.7** | 2026-04-29 | [Seating: RSVP-colored dots, HEAD/RECTANGLE seats, drag-between-seats, resizable grid, uniform S/M/L/XL, visible capacity buttons, click-once focus](#2026-04-29--v1227--seating-rsvp-dots-all-shape-seats-canvas-drag-resizable-grid-uniform-toggles) |
+| **v1.22.8** | 2026-04-29 | [Seating: RSVP glyphs inside seat dots (✓ ? ~ ✗) for colour-blind accessibility](#2026-04-29--v1228--seating-rsvp-glyphs-inside-seat-dots) |
+| v1.22.7 | 2026-04-29 | [Seating: RSVP-colored dots, HEAD/RECTANGLE seats, drag-between-seats, resizable grid, uniform S/M/L/XL, visible capacity buttons, click-once focus](#2026-04-29--v1227--seating-rsvp-dots-all-shape-seats-canvas-drag-resizable-grid-uniform-toggles) |
 | v1.22.6 | 2026-04-29 | [Seating: snap-to-grid toggle + modify table capacity + pending guests in seat-picker](#2026-04-29--v1226--seating-snap-to-grid-toggle--modify-capacity--pending-in-picker) |
 | v1.22.5 | 2026-04-29 | [Bugfix: hydration mismatch (#418/#482) on Today page + persistence race on seating canvas + decoupled dot/label scales](#2026-04-29--v1225--bugfix-hydration-persistence-race-decoupled-seating-scales) |
 | v1.22.0 | 2026-04-28 | [Custom fields for Supplier + Task](#2026-04-28--v1220--custom-fields-for-supplier--task) |
@@ -309,6 +310,19 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-29 · v1.22.8 — Seating: RSVP glyphs inside seat dots
+
+Tiny accessibility-and-clarity follow-up to v1.22.7's coloured-dots ask. Hue alone gets ambiguous at small dot sizes and is unreadable for colour-blind users. Each occupied seat dot now carries a white glyph centred inside it:
+
+- ✓ Attending (moss)
+- ? Pending (marigold)
+- ~ Maybe (info-blue)
+- ✗ Declined (muted — rare since declined guests usually don't have a seat)
+
+Glyphs match the AllGuestsPanel tag chars exactly so the visual language is consistent across surfaces. Hidden when `dotScale < 1.4` (S size — the dot is only ~3.5px wide and the glyph would be unreadable; colour alone carries the meaning at S). At M/L/XL the glyph reads cleanly. `pointerEvents="none"` so it doesn't intercept drags. ([SeatingCanvas.tsx](src/app/(app)/seating/SeatingCanvas.tsx))
+
+**Verification:** typecheck + lint clean, 188 tests pass, build green.
 
 ### 2026-04-29 · v1.22.7 — Seating: RSVP dots, all-shape seats, canvas drag, resizable grid, uniform toggles
 
