@@ -43,6 +43,9 @@ type Table = {
 // v1.20.6: panel now shows ALL non-archived guests with RSVP tag, not
 // just unseated attending. The legacy `GuestOpt` shape (id+firstName+
 // lastName) is still accepted by sub-components that don't need RSVP.
+// v1.27.7: extended with the fields the GuestDetailPanel needs when
+// the planner clicks a seated guest dot. Kept on the same type so
+// AllGuestsPanel can stay unchanged (it just doesn't use the extras).
 export type AllGuest = {
   id: string;
   firstName: string;
@@ -50,6 +53,13 @@ export type AllGuest = {
   rsvp: "PENDING" | "ATTENDING" | "DECLINED" | "MAYBE";
   currentSeatId: string | null;
   currentTableName: string | null;
+  email: string | null;
+  isChild: boolean;
+  dietary: string[];
+  plusOneAllowed: boolean;
+  plusOneName: string | null;
+  notes: string | null;
+  householdName: string | null;
 };
 
 // v1.22.6: dropdown options now carry RSVP so the picker can prefix

@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { notify } from "@/lib/notify";
 import { assignGuestToSeat, deleteTable, updateTableCapacity, updateTablePosition } from "./actions";
 import { CollapsiblePanel } from "./CollapsiblePanel";
+import { GuestDetailPanel } from "./GuestDetailPanel";
 import {
   ChecklistContent,
   NotesContent,
@@ -484,6 +485,12 @@ export function SeatingCanvas({
     | null
   >(null);
   const [focusedId, setFocusedId] = useState<string | null>(null);
+  // v1.27.7: focused-guest state for the GuestDetailPanel that opens
+  // when the planner clicks (no drag) a seated guest dot. Mutually
+  // exclusive with focused-table — selecting a guest closes any
+  // table focus and vice versa, so only one entity is "selected" at
+  // a time in the sidebar.
+  const [focusedGuestId, setFocusedGuestId] = useState<string | null>(null);
   const [, startTransition] = useTransition();
 
   // v1.23.2: auto-crop viewBox to fit the actual tables — declared
@@ -628,6 +635,9 @@ export function SeatingCanvas({
       // mousedown, which fires `onFocus` and sets focusedId mid-flight.
       // The pointerup toggle then *un*set it on the very same click.
       // Fix: just set; deselection happens via the × button.
+      // v1.27.7: also clear any focused guest — sidebar selection is
+      // mutually exclusive.
+      setFocusedGuestId(null);
       setFocusedId(id);
       return;
     }
@@ -688,6 +698,13 @@ export function SeatingCanvas({
   const focusedTable = useMemo(
     () => initialTables.find((t) => t.id === focusedId) ?? null,
     [initialTables, focusedId],
+  );
+  // v1.27.7: focused guest from allGuests by id. Falls back to null
+  // if the id is stale (e.g. the guest was unseated by another tab
+  // mid-session); the panel won't render in that case.
+  const focusedGuest = useMemo(
+    () => (focusedGuestId ? allGuests.find((g) => g.id === focusedGuestId) ?? null : null),
+    [allGuests, focusedGuestId],
   );
 
   // viewBox auto-crop is declared earlier (above clientToSvg) so the
@@ -910,7 +927,16 @@ export function SeatingCanvas({
                               setSeatDrag(null);
                               setDraggingGuestId(null);
                               setDragOverSeatId(null);
-                              if (!ds.moved) return; // plain click — ignore
+                              if (!ds.moved) {
+                                // v1.27.7: plain click on a seated
+                                // guest dot opens the GuestDetailPanel
+                                // in the sidebar. Closes any focused
+                                // table — selection is mutually
+                                // exclusive between the two.
+                                setFocusedId(null);
+                                setFocusedGuestId(ds.guestId);
+                                return;
+                              }
                               const p = clientToSvg(e.clientX, e.clientY);
                               const overId = findSeatAt(p.x, p.y);
                               if (overId && overId !== ds.fromSeatId) {
@@ -1149,6 +1175,33 @@ export function SeatingCanvas({
               unseatedGuests={unseatedGuests}
               canEdit={canEdit}
               onClose={() => setFocusedId(null)}
+            />
+          </CollapsiblePanel>
+        )}
+        {/* v1.27.7: GuestDetailPanel — shows when the planner clicks
+            (no drag) a seated guest dot. Mutually exclusive with the
+            table FocusPanel above; the click handler swaps focus. */}
+        {focusedGuest && (
+          <CollapsiblePanel
+            storageKey="wh_seating_panel_guest_focus"
+            title={`Guest: ${focusedGuest.firstName}`}
+            defaultOpen
+            rightSlot={
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setFocusedGuestId(null);
+                }}
+                aria-label="Close guest detail"
+                className="text-ink-tertiary hover:text-ink-primary text-base leading-none px-1"
+              >
+                ×
+              </button>
+            }
+          >
+            <GuestDetailPanel
+              guest={focusedGuest}
+              onClose={() => setFocusedGuestId(null)}
             />
           </CollapsiblePanel>
         )}

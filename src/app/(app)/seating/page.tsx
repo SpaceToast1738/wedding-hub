@@ -40,6 +40,17 @@ export default async function SeatingPage() {
         rsvp: true,
         tableSeatId: true,
         tableSeat: { select: { table: { select: { id: true, name: true } } } },
+        // v1.27.7: extra fields for the GuestDetailPanel that opens
+        // when the planner clicks (no drag) a seated guest dot. Keeps
+        // the existing AllGuestsPanel use unchanged — it just reads
+        // the same columns it always has.
+        email: true,
+        isChild: true,
+        dietary: true,
+        plusOneAllowed: true,
+        plusOneName: true,
+        notes: true,
+        household: { select: { name: true } },
       },
       orderBy: [{ firstName: "asc" }, { lastName: "asc" }],
     }),
@@ -52,6 +63,14 @@ export default async function SeatingPage() {
     rsvp: g.rsvp as "PENDING" | "ATTENDING" | "DECLINED" | "MAYBE",
     currentSeatId: g.tableSeatId,
     currentTableName: g.tableSeat?.table.name ?? null,
+    // v1.27.7: extras for the guest detail panel.
+    email: g.email,
+    isChild: g.isChild,
+    dietary: g.dietary,
+    plusOneAllowed: g.plusOneAllowed,
+    plusOneName: g.plusOneName,
+    notes: g.notes,
+    householdName: g.household?.name ?? null,
   }));
   const seatedCount = tables.reduce((n, t) => n + t.seats.filter((s) => s.guest).length, 0);
   const totalCapacity = tables.reduce((n, t) => n + t.capacity, 0);

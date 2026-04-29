@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.27.6** | 2026-04-29 | [Photography migration: PhotographyShot rows → BookShot under a SHOT_LIST card · bespoke route deleted](#2026-04-29--v1276--photography-migration) |
+| **v1.27.7** | 2026-04-29 | [Guest detail side panel on seating canvas — click a seated guest dot to open](#2026-04-29--v1277--guest-detail-side-panel-on-seating-canvas) |
+| v1.27.6 | 2026-04-29 | [Photography migration: PhotographyShot rows → BookShot under a SHOT_LIST card · bespoke route deleted](#2026-04-29--v1276--photography-migration) |
 | v1.27.5 | 2026-04-29 | [Mobile nav full `<Link>` revert (Tasks · Guests · sheet items)](#2026-04-29--v1275--mobile-nav-full-link-revert) |
 | v1.27.4 | 2026-04-29 | [Tasks visual style match: text-underline List/Board tabs · dynamic category filter pills · Questions filter · "+ View" stub](#2026-04-29--v1274--tasks-visual-style-match-text-tabs--dynamic-category-pills) |
 | v1.27.3 | 2026-04-29 | [Tasks polish round 2: full-width table with column headers · centred new-task popout · unified search/filter styling](#2026-04-29--v1273--tasks-polish-round-2-full-width-table--centred-popout--unified-styling) |
@@ -237,9 +238,11 @@ in priority order.
   (resolves through /book/[slug] now). Legacy PhotographyShot
   table retained one release for recoverability — to be dropped
   in v1.28.0.
-- **Guest detail side panel on seating canvas** — click a seated
-  guest dot, get their full record in a right-hand drawer. Same
-  primitive as the table FocusPanel (v1.22.x). ~1.5 hrs.
+- ~~**Guest detail side panel on seating canvas**~~ — shipped
+  v1.27.7. Click (no drag) a seated guest dot opens a
+  GuestDetailPanel in the canvas sidebar with the guest's record
+  (RSVP, household, email, dietary, plus-one, notes) and an
+  "Open record →" link to the full /guests/[id] page.
 - **"View as another role" preview** — header dropdown to preview
   the app as if you were another user. Cookie-based override read
   by every server component's permission gate. Audit-logged on every
@@ -424,18 +427,8 @@ When the open questions are answered, this section gets replaced with a concrete
   unregisters every SW on first paint; v1.25.0 swapped Link → plain
   anchor as a defensive fallback. v1.25.4 plans the graceful Link
   revert now that the SW is cleared.
-- **Guest detail side panel on seating canvas** — when a planner
-  *clicks* (no drag movement) a seated guest dot, open a right-hand
-  side panel showing the guest's full record: full name + RSVP +
-  household + dietary + plus-one status + note + custom-field
-  values. Same panel shape as the existing FocusPanel (which docks
-  on table click) — probably swap between table-focus and guest-
-  focus depending on what was clicked. Uses the same `<g>` click
-  semantics that v1.22.7 introduced for the table click-to-focus
-  fix; the seat drag-source already swallows pointer-down via
-  `stopPropagation`, so distinguishing click vs drag is the
-  pointer-distance threshold (already 4px). ~1.5 hrs.
-  *Asked by user, 29 Apr 2026.*
+- ~~**Guest detail side panel on seating canvas**~~ — shipped v1.27.7
+  per the design captured here on 29 Apr 2026.
 - **Seating constraint rules** — must-sit-together / must-not-sit /
   prefer-group hints, plus violation indicators on the canvas. The
   prototype had a richer rules panel; we shipped the canvas without it
@@ -555,6 +548,28 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-29 · v1.27.7 — Guest detail side panel on seating canvas
+
+User-asked (29 Apr 2026). Click (no drag) a seated guest dot on the seating canvas → a `GuestDetailPanel` opens in the canvas sidebar with the guest's record. Mirrors the v1.22.x click-vs-drag distinction the existing seat-drag-source uses (4px pointer-move threshold from v1.22.9 — anything under that is treated as a click).
+
+**Wiring:**
+
+- The seating page (`page.tsx`) already fetches every non-archived guest for the AllGuestsPanel. v1.27.7 extends the `select` to include `email · isChild · dietary · plusOneAllowed · plusOneName · notes · household.name` so the detail panel has everything it needs without a separate round-trip on click.
+- `SeatingCanvas` gains a `focusedGuestId` state alongside the existing `focusedId` (table). The two are mutually exclusive — clicking a guest closes any focused table, and vice versa. Sidebar selection always shows one entity.
+- The seat-source `<circle>`'s `onPointerUp` already had a "plain click — ignore" branch when `!ds.moved`. v1.27.7 swaps that early-return for `setFocusedGuestId(ds.guestId)` so the click opens the panel.
+
+**Panel contents** (read-only summary): full name + RSVP pill + child badge + current table; household name; email; plus-one status (with name if set); dietary chips; notes. An empty-state line ("No extra details on file…") shows when the guest has nothing populated. An **"Open record →"** link sends the planner to `/guests/[id]` for the full editable form — keeping the panel read-only avoids maintaining a second copy of the guest-edit form.
+
+Sidebar mount: same `CollapsiblePanel` shape as the table FocusPanel — title shows "Guest: {firstName}", × button closes, persists open/closed via `wh_seating_panel_guest_focus`.
+
+**Files:**
+- New: `src/app/(app)/seating/GuestDetailPanel.tsx`.
+- Modified: `src/app/(app)/seating/page.tsx` (fetch the extra fields).
+- Modified: `src/app/(app)/seating/SeatingClient.tsx` (extended `AllGuest` type).
+- Modified: `src/app/(app)/seating/SeatingCanvas.tsx` (focusedGuestId state, click handler, sidebar mount).
+
+**Verification:** typecheck/lint clean, all 232 unit tests pass, clean `.next` build green. Manual: open `/seating`, click a seated guest dot → drawer opens with their record. Click another seated guest → swaps to the new one. Click a table → guest panel closes, table FocusPanel opens.
 
 ### 2026-04-29 · v1.27.6 — Photography migration
 
