@@ -8,20 +8,38 @@ import type { CustomFieldDef } from "@/lib/custom-fields";
 import { AddTaskToggle } from "./AddTaskToggle";
 import { TaskList } from "./TaskList";
 
-export default async function TasksPage() {
+export default async function TasksPage({
+  searchParams,
+}: {
+  // v1.28.0: `?supplier=<id>` deep-links from the supplier-detail page
+  // and pre-filters the tasks server-side to that supplier. We keep
+  // the rest of the search/filter UI intact so the user can still
+  // pivot from there.
+  searchParams: Promise<{ supplier?: string }>;
+}) {
   const user = await requireUser();
   if (!(await canView(user, "tasks"))) redirect("/");
   const editable = await canEdit(user, "tasks");
+  const sp = await searchParams;
+  const supplierFilter = typeof sp.supplier === "string" ? sp.supplier : null;
 
-  const [tasks, users, customFieldDefs] = await Promise.all([
+  const [tasks, users, customFieldDefs, suppliers] = await Promise.all([
     db.task.findMany({
-      where: { type: "TASK" },
+      where: {
+        type: "TASK",
+        ...(supplierFilter ? { supplierId: supplierFilter } : {}),
+      },
       orderBy: [{ status: "asc" }, { priority: "desc" }, { dueDate: "asc" }, { createdAt: "desc" }],
     }),
     db.user.findMany({ orderBy: [{ isCouple: "desc" }, { name: "asc" }] }),
     // v1.22.0: defs scoped to task entity, passed down so TaskRow's edit
     // mode can render the custom-fields editor in the inline form.
     db.customField.findMany({ where: { entity: "task" }, orderBy: { order: "asc" } }),
+    // v1.28.0: supplier picker on task forms — surface name + category.
+    db.supplier.findMany({
+      orderBy: [{ category: "asc" }, { name: "asc" }],
+      select: { id: true, name: true, category: true },
+    }),
   ]);
   const customFieldDefsTyped: CustomFieldDef[] = customFieldDefs.map((f) => ({
     id: f.id,
@@ -36,6 +54,9 @@ export default async function TasksPage() {
   const visible = user.isCouple ? tasks : tasks.filter((t) => !t.tags.includes("Budget"));
   const open = visible.filter((t) => t.status !== "DONE" && t.status !== "ARCHIVED").length;
   const done = visible.filter((t) => t.status === "DONE").length;
+  const filteredSupplier = supplierFilter
+    ? suppliers.find((s) => s.id === supplierFilter)
+    : null;
 
   return (
     <>
@@ -53,11 +74,24 @@ export default async function TasksPage() {
               </Link>
               <AddTaskToggle
                 users={users.map((u) => ({ id: u.id, name: u.name, email: u.email }))}
+                suppliers={suppliers}
               />
             </>
           ) : undefined
         }
       />
+      {filteredSupplier && (
+        <div className="bg-moss-50 border-b border-moss-300 px-4 sm:px-6 py-2 flex items-center gap-3 text-xs">
+          <span className="text-ink-secondary">
+            Filtered by supplier:{" "}
+            <strong className="text-ink-primary">{filteredSupplier.name}</strong>
+            {filteredSupplier.category ? ` · ${filteredSupplier.category}` : ""}
+          </span>
+          <Link href="/tasks" className="text-info hover:underline ml-auto">
+            Clear ×
+          </Link>
+        </div>
+      )}
       <TaskList
         tasks={visible.map((t) => ({
           ...t,
@@ -68,6 +102,7 @@ export default async function TasksPage() {
             (t.customFieldValues as unknown as Record<string, string | number | null> | null) ?? null,
         }))}
         users={users.map((u) => ({ id: u.id, name: u.name, email: u.email }))}
+        suppliers={suppliers}
         currentUserId={user.id}
         canEdit={editable}
         customFieldDefs={customFieldDefsTyped}

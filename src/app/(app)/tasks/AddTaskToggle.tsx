@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/Button";
-import { TaskForm, type UserOpt } from "./TaskForm";
+import { TaskForm, type UserOpt, type SupplierOpt } from "./TaskForm";
 import { createTask } from "./actions";
 
 // v1.27.0: New-task button now opens a fixed-position popover at
@@ -12,12 +12,19 @@ import { createTask } from "./actions";
 // page; clicking outside / Escape / Cancel / Create all close.
 export function AddTaskToggle({
   users,
+  suppliers = [],
   defaultType = "TASK",
+  defaultSupplierId,
   showType = true,
   buttonLabel = "+ New task",
 }: {
   users: UserOpt[];
+  // v1.28.0: optional supplier picker. When this component is mounted
+  // on a supplier-detail page, callers can also pass `defaultSupplierId`
+  // to pre-select that supplier in the new-task form.
+  suppliers?: SupplierOpt[];
   defaultType?: string;
+  defaultSupplierId?: string;
   showType?: boolean;
   buttonLabel?: string;
 }) {
@@ -65,8 +72,9 @@ export function AddTaskToggle({
             </div>
             <TaskForm
               users={users}
+              suppliers={suppliers}
               showType={showType}
-              initial={{ type: defaultType }}
+              initial={{ type: defaultType, supplierId: defaultSupplierId ?? null }}
               submitLabel="Create"
               onSubmit={async (fd) => {
                 await createTask(fd);

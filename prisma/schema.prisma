@@ -228,11 +228,20 @@ model Task {
   // module to rate-limit which tasks land in each digest send (>7
   // days since last include, or never).
   lastNudgedAt DateTime?
+  // v1.28.0: optional supplier link — surface tasks/questions/decisions
+  // from the supplier's detail page, and group/filter on it from the
+  // Tasks page. Nullable + onDelete: SetNull so deleting a supplier
+  // doesn't cascade-delete the linked tasks (the questions about
+  // "what should we ask the photographer?" outlive the booking
+  // decision).
+  supplierId   String?
+  supplier     Supplier?   @relation(fields: [supplierId], references: [id], onDelete: SetNull)
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
 
   @@index([status])
   @@index([type])
+  @@index([supplierId])
 }
 
 enum TaskType {
@@ -301,6 +310,9 @@ model Supplier {
   contracts       SupplierContract[]
   communications  SupplierCommunication[]
   payments        Payment[]
+  // v1.28.0: tasks / questions / decisions linked to this supplier.
+  // SetNull cascade — see Task.supplier.
+  tasks           Task[]
   // v1.22.0: per-supplier custom field values, mirrors Guest + Task.
   customFieldValues Json?
   createdAt       DateTime                @default(now())

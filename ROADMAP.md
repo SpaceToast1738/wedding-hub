@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.27.9** | 2026-04-29 | [Tasks polish: drop list container · wider rightmost columns · Type changer in the drawer · all-day events render "All day" instead of "01:00"](#2026-04-29--v1279--tasks-polish-round-3--all-day-display-fix) |
+| **v1.28.0** | 2026-04-29 | [Task ↔ Supplier link · supplier picker on Task / Question / Decision forms · Linked tasks section on supplier detail · `?supplier=` deep-link from supplier page](#2026-04-29--v1280--task--supplier-link) |
+| v1.27.9 | 2026-04-29 | [Tasks polish: drop list container · wider rightmost columns · Type changer in the drawer · all-day events render "All day" instead of "01:00"](#2026-04-29--v1279--tasks-polish-round-3--all-day-display-fix) |
 | v1.27.7 | 2026-04-29 | [Guest detail side panel on seating canvas — click a seated guest dot to open](#2026-04-29--v1277--guest-detail-side-panel-on-seating-canvas) |
 | v1.27.6 | 2026-04-29 | [Photography migration: PhotographyShot rows → BookShot under a SHOT_LIST card · bespoke route deleted](#2026-04-29--v1276--photography-migration) |
 | v1.27.5 | 2026-04-29 | [Mobile nav full `<Link>` revert (Tasks · Guests · sheet items)](#2026-04-29--v1275--mobile-nav-full-link-revert) |
@@ -592,6 +593,48 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-29 · v1.28.0 — Task ↔ Supplier link
+
+User-asked (29 Apr 2026, the bulk-asks list): "Linked Supplier to a Task / decision or question". Tasks (and questions and decisions, which share the same `Task` row under the hood) can now optionally point at a `Supplier`. The link surfaces in three places:
+
+1. **Supplier picker on the task forms** — both the create form (`AddTaskToggle` → `TaskForm`) and the edit drawer (`TaskDrawer`) gained an optional Supplier dropdown. Hidden when the workspace has no suppliers yet, so fresh installs stay uncluttered. Reusable `SupplierOpt` shape exported from `TaskForm` mirrors the existing `UserOpt`.
+2. **Linked tasks section on the supplier detail page** — read-only list under CustomFields and above Payments. Shows TYPE label, title (line-through when DONE), status pill, due-date column. Empty state nudges the user toward the Tasks page. Header link "See all on Tasks →" deep-links into `/tasks?supplier=<id>`.
+3. **Server-side filter on `/tasks?supplier=<id>`** — the Tasks page reads the `supplier` searchParam, narrows the prisma query to that supplier, and renders an info banner ("Filtered by supplier: …  · Clear ×") above the FilterTabs. The rest of the search/filter UI stays interactive so the user can pivot from there.
+
+**Schema** ([prisma/schema.prisma](prisma/schema.prisma)):
+
+```prisma
+model Task {
+  …
+  supplierId String?
+  supplier   Supplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  @@index([supplierId])
+}
+
+model Supplier {
+  …
+  tasks Task[]
+}
+```
+
+`onDelete: SetNull` so deleting a supplier doesn't cascade-delete the tasks/questions/decisions linked to them — the discussion thread about "what should we ask the photographer?" outlives the booking decision.
+
+**Migration:** `prisma/migrations/20260429070000_task_supplier_link/migration.sql` — additive only: nullable column, FK with SET NULL, index for the supplier-detail query.
+
+**Files modified:**
+- `prisma/schema.prisma` — Task.supplierId/supplier relation + index, Supplier.tasks back-relation.
+- `prisma/migrations/20260429070000_task_supplier_link/migration.sql` — new.
+- `src/app/(app)/tasks/actions.ts` — supplierId in baseSchema + create/update.
+- `src/app/(app)/tasks/TaskForm.tsx` — SupplierOpt type + supplier picker UI.
+- `src/app/(app)/tasks/AddTaskToggle.tsx` — suppliers prop + defaultSupplierId pass-through.
+- `src/app/(app)/tasks/TaskDrawer.tsx` — supplierId state + dirty check + picker UI.
+- `src/app/(app)/tasks/TaskList.tsx` — suppliers prop pass-through to TaskDrawer.
+- `src/app/(app)/tasks/page.tsx` — supplier query, searchParams supplier filter, banner.
+- `src/app/(app)/questions/page.tsx` — suppliers prop on AddTaskToggle.
+- `src/app/(app)/suppliers/[id]/page.tsx` — fetch tasks include + Linked tasks section.
+
+**Verification:** typecheck + lint clean, 232 unit tests pass, clean `.next` build green.
 
 ### 2026-04-29 · v1.27.9 — Tasks polish round 3 + all-day display fix
 

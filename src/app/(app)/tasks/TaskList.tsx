@@ -6,7 +6,7 @@ import { TaskRow } from "./TaskRow";
 import { TaskBoard } from "./TaskBoard";
 import { FilterTabs, type Filter, type View } from "./FilterTabs";
 import { TaskDrawer } from "./TaskDrawer";
-import type { UserOpt } from "./TaskForm";
+import type { UserOpt, SupplierOpt } from "./TaskForm";
 import type { CustomFieldDef } from "@/lib/custom-fields";
 
 const VIEW_KEY = "wh_tasks_view";
@@ -24,6 +24,8 @@ type Task = {
   notes: string | null;
   questionAnswer: string | null;
   customFieldValues?: Record<string, string | number | null> | null;
+  // v1.28.0: optional supplier link.
+  supplierId: string | null;
 };
 
 type SortKey = "smart" | "due" | "priority" | "title" | "assignee" | "created";
@@ -58,12 +60,16 @@ function priorityRank(p: string): number {
 export function TaskList({
   tasks,
   users,
+  suppliers = [],
   currentUserId,
   canEdit,
   customFieldDefs = [],
 }: {
   tasks: Task[];
   users: UserOpt[];
+  // v1.28.0: optional list of suppliers for the supplier picker on the
+  // task drawer + filter pills. Empty array hides supplier UI.
+  suppliers?: SupplierOpt[];
   currentUserId: string;
   canEdit: boolean;
   customFieldDefs?: CustomFieldDef[];
@@ -330,6 +336,7 @@ export function TaskList({
         <TaskDrawer
           task={openTask}
           users={users}
+          suppliers={suppliers}
           canEdit={canEdit}
           onClose={() => setOpenTaskId(null)}
         />

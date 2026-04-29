@@ -47,6 +47,23 @@ export default async function SupplierDetailPage({
       contracts: { orderBy: { signedAt: "desc" } },
       communications: { orderBy: { createdAt: "desc" } },
       payments: { orderBy: { dueDate: "asc" } },
+      // v1.28.0: tasks/questions/decisions linked to this supplier.
+      // Sorted: open before done, then priority desc, then due-asc.
+      tasks: {
+        orderBy: [
+          { status: "asc" },
+          { priority: "desc" },
+          { dueDate: "asc" },
+        ],
+        select: {
+          id: true,
+          title: true,
+          type: true,
+          status: true,
+          priority: true,
+          dueDate: true,
+        },
+      },
     },
   });
   if (!supplier) notFound();
@@ -159,6 +176,51 @@ export default async function SupplierDetailPage({
             values={customFieldValues}
             canEdit={editable}
           />
+
+          {/* v1.28.0: Linked tasks/questions/decisions — read-only on
+              this page. Click any row to deep-link into the task list
+              filtered by this supplier (TODO once filter pill ships
+              for v1.28.0). */}
+          <section className="bg-surface border border-border-soft rounded-md shadow-sm">
+            <header className="px-4 py-3 border-b border-border-soft flex items-baseline justify-between">
+              <h2 className="text-sm font-semibold text-ink-primary">
+                Linked tasks &amp; questions
+                <span className="ml-2 text-[11px] font-normal text-ink-tertiary">
+                  {supplier.tasks.length}
+                </span>
+              </h2>
+              <Link href={`/tasks?supplier=${supplier.id}`} className="text-[11px] text-info hover:underline">
+                See all on Tasks →
+              </Link>
+            </header>
+            {supplier.tasks.length === 0 ? (
+              <p className="px-4 py-4 text-sm text-ink-tertiary italic">
+                No tasks linked yet. Add one from the Tasks page and pick this supplier.
+              </p>
+            ) : (
+              <ul className="divide-y divide-border-soft text-sm">
+                {supplier.tasks.map((t) => (
+                  <li key={t.id} className="flex items-baseline gap-3 px-4 py-2">
+                    <span className="text-[10px] font-bold text-ink-tertiary uppercase tracking-wider w-16">
+                      {t.type === "TASK" ? "Task" : t.type === "QUESTION" ? "Question" : "Decision"}
+                    </span>
+                    <span className={[
+                      "flex-1 min-w-0 truncate",
+                      t.status === "DONE" ? "text-ink-tertiary line-through" : "text-ink-primary",
+                    ].join(" ")}>
+                      {t.title}
+                    </span>
+                    <span className="text-[10px] uppercase tracking-wider text-ink-tertiary">
+                      {t.status.toLowerCase().replace("_", " ")}
+                    </span>
+                    <span className="text-xs text-ink-tertiary tabular-nums w-20 text-right">
+                      {formatDate(t.dueDate)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
 
           {/* Linked payments — read-only on this page; full CRUD lives on /payments */}
           <section className="bg-surface border border-border-soft rounded-md shadow-sm">

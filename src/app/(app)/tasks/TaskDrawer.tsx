@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { notify } from "@/lib/notify";
 import { isoForInput } from "@/lib/format";
 import { deleteTask, updateTask } from "./actions";
-import type { UserOpt } from "./TaskForm";
+import type { UserOpt, SupplierOpt } from "./TaskForm";
 
 type Task = {
   id: string;
@@ -18,6 +18,8 @@ type Task = {
   dueDate: Date | null;
   tags: string[];
   notes: string | null;
+  // v1.28.0: optional supplier link.
+  supplierId: string | null;
 };
 
 const STATUS_OPTIONS: { value: string; label: string }[] = [
@@ -52,11 +54,15 @@ const TYPE_OPTIONS: { value: string; label: string }[] = [
 export function TaskDrawer({
   task,
   users,
+  suppliers = [],
   canEdit,
   onClose,
 }: {
   task: Task;
   users: UserOpt[];
+  // v1.28.0: optional list of suppliers for the supplier-link picker.
+  // Empty array hides the field entirely.
+  suppliers?: SupplierOpt[];
   canEdit: boolean;
   onClose: () => void;
 }) {
@@ -68,6 +74,7 @@ export function TaskDrawer({
   const [dueDate, setDueDate] = useState(isoForInput(task.dueDate) ?? "");
   const [category, setCategory] = useState(task.tags[0] ?? "");
   const [notes, setNotes] = useState(task.notes ?? "");
+  const [supplierId, setSupplierId] = useState(task.supplierId ?? "");
   const [pending, startTransition] = useTransition();
 
   // ESC key dismisses the drawer.
@@ -87,7 +94,8 @@ export function TaskDrawer({
     (assigneeId || null) !== (task.assigneeId ?? null) ||
     dueDate !== (isoForInput(task.dueDate) ?? "") ||
     category !== (task.tags[0] ?? "") ||
-    notes !== (task.notes ?? "");
+    notes !== (task.notes ?? "") ||
+    (supplierId || null) !== (task.supplierId ?? null);
 
   function save() {
     if (!title.trim()) {
@@ -103,6 +111,7 @@ export function TaskDrawer({
     fd.set("dueDate", dueDate);
     fd.set("category", category);
     fd.set("notes", notes);
+    fd.set("supplierId", supplierId);
     startTransition(async () => {
       try {
         await updateTask(task.id, fd);
@@ -324,6 +333,39 @@ export function TaskDrawer({
               <span className="text-sm text-ink-primary">{category || <span className="text-ink-tertiary italic">—</span>}</span>
             )}
           </div>
+
+          {/* v1.28.0: optional supplier link. Only rendered when the
+              parent passes a non-empty suppliers array — keeps fresh
+              workspaces uncluttered. */}
+          {suppliers.length > 0 && (
+            <div>
+              <strong className="block text-[10px] uppercase tracking-wider text-ink-tertiary font-bold mb-1.5">
+                Supplier
+              </strong>
+              {canEdit ? (
+                <select
+                  value={supplierId}
+                  onChange={(e) => setSupplierId(e.target.value)}
+                  className="w-full text-sm bg-surface text-ink-primary border border-border-soft rounded-sm px-2 py-1 outline-none focus:border-moss-500"
+                >
+                  <option value="">— none —</option>
+                  {suppliers.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
+                      {s.category ? ` · ${s.category}` : ""}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <span className="text-sm text-ink-primary">
+                  {(() => {
+                    const s = suppliers.find((x) => x.id === task.supplierId);
+                    return s ? s.name : <span className="text-ink-tertiary italic">—</span>;
+                  })()}
+                </span>
+              )}
+            </div>
+          )}
 
           <div>
             <strong className="block text-[10px] uppercase tracking-wider text-ink-tertiary font-bold mb-1.5">

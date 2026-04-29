@@ -22,6 +22,8 @@ const baseSchema = z.object({
   dueDate: z.string().optional().nullable(),
   category: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
+  // v1.28.0: optional supplier link.
+  supplierId: z.string().optional().nullable(),
 });
 
 function parseDue(v: FormDataEntryValue | null): Date | null {
@@ -43,6 +45,7 @@ export async function createTask(formData: FormData) {
     dueDate: formData.get("dueDate") || null,
     category: formData.get("category") || null,
     notes: formData.get("notes") || null,
+    supplierId: formData.get("supplierId") || null,
   });
   const tags = parsed.category ? [parsed.category] : [];
   const created = await db.task.create({
@@ -55,6 +58,7 @@ export async function createTask(formData: FormData) {
       dueDate: parseDue(parsed.dueDate ?? null),
       tags,
       notes: parsed.notes ?? null,
+      supplierId: parsed.supplierId || null,
     },
   });
   await audit(user, { action: "create", entity: "Task", entityId: created.id });
@@ -74,6 +78,7 @@ export async function updateTask(id: string, formData: FormData) {
     dueDate: formData.get("dueDate") ?? undefined,
     category: formData.get("category") ?? undefined,
     notes: formData.get("notes") ?? undefined,
+    supplierId: formData.get("supplierId") ?? undefined,
   });
   const data: Record<string, unknown> = {};
   if (parsed.title !== undefined) data.title = parsed.title;
@@ -84,6 +89,7 @@ export async function updateTask(id: string, formData: FormData) {
   if (parsed.dueDate !== undefined) data.dueDate = parseDue(parsed.dueDate ?? null);
   if (parsed.category !== undefined) data.tags = parsed.category ? [parsed.category] : [];
   if (parsed.notes !== undefined) data.notes = parsed.notes ?? null;
+  if (parsed.supplierId !== undefined) data.supplierId = parsed.supplierId || null;
 
   await db.task.update({ where: { id }, data });
   await audit(user, { action: "update", entity: "Task", entityId: id });

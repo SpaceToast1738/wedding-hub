@@ -25,13 +25,21 @@ export type Initial = {
   dueDate?: string;
   category?: string;
   notes?: string;
+  // v1.28.0: optional supplier link.
+  supplierId?: string | null;
 };
 
 export type UserOpt = { id: string; name: string | null; email: string };
+// v1.28.0: minimal supplier shape for the picker.
+export type SupplierOpt = { id: string; name: string; category: string };
 
 type Props = {
   initial?: Initial;
   users: UserOpt[];
+  // v1.28.0: optional list of suppliers for the supplier-link picker.
+  // Empty array hides the picker entirely (e.g. when no suppliers
+  // have been added yet, or on contexts where the link isn't useful).
+  suppliers?: SupplierOpt[];
   submitLabel?: string;
   onSubmit: (formData: FormData) => Promise<void>;
   onCancel?: () => void;
@@ -49,6 +57,7 @@ type Props = {
 export function TaskForm({
   initial,
   users,
+  suppliers = [],
   submitLabel = "Create",
   onSubmit,
   onCancel,
@@ -120,6 +129,26 @@ export function TaskForm({
           </datalist>
         </div>
       </div>
+      {/* v1.28.0: optional supplier link. Hidden when no suppliers are
+          available so the form stays compact in fresh workspaces. */}
+      {suppliers.length > 0 && (
+        <div>
+          <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">Supplier</label>
+          <select
+            name="supplierId"
+            defaultValue={initial?.supplierId ?? ""}
+            className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2 py-1.5 text-ink-primary outline-none"
+          >
+            <option value="">— none —</option>
+            {suppliers.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
+                {s.category ? ` · ${s.category}` : ""}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
       <div>
         <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">Notes</label>
         <textarea name="notes" defaultValue={initial?.notes ?? ""} rows={3}

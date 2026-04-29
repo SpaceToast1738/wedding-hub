@@ -12,7 +12,7 @@ export default async function QuestionsPage() {
   if (!(await canView(user, "questions"))) redirect("/");
   const editable = await canEdit(user, "questions");
 
-  const [questions, users, customFieldDefs] = await Promise.all([
+  const [questions, users, customFieldDefs, suppliers] = await Promise.all([
     db.task.findMany({
       where: { type: { in: ["QUESTION", "DECISION"] } },
       orderBy: [{ status: "asc" }, { priority: "desc" }, { createdAt: "desc" }],
@@ -21,6 +21,13 @@ export default async function QuestionsPage() {
     // v1.22.0: defs scoped to task entity (Question/Decision are
     // Task rows under the hood, so they share the "task" entity).
     db.customField.findMany({ where: { entity: "task" }, orderBy: { order: "asc" } }),
+    // v1.28.0: suppliers for the optional link picker on new
+    // questions/decisions (e.g. "what time will the photographer
+    // arrive?" linked to that supplier).
+    db.supplier.findMany({
+      orderBy: [{ category: "asc" }, { name: "asc" }],
+      select: { id: true, name: true, category: true },
+    }),
   ]);
   const customFieldDefsTyped: CustomFieldDef[] = customFieldDefs.map((f) => ({
     id: f.id,
@@ -45,6 +52,7 @@ export default async function QuestionsPage() {
           editable ? (
             <AddTaskToggle
               users={users.map((u) => ({ id: u.id, name: u.name, email: u.email }))}
+              suppliers={suppliers}
               defaultType="QUESTION"
               showType={true}
               buttonLabel="+ New"
