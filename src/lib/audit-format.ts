@@ -76,6 +76,7 @@ function entityLabel(entity: string): string {
     CustomField: "custom field",
     WeddingSettings: "wedding settings",
     CeremonySeating: "ceremony layout",
+    UserGroup: "user group",
   };
   return map[entity] ?? entity.replace(/([A-Z])/g, " $1").trim().toLowerCase();
 }
@@ -534,6 +535,30 @@ export function formatAuditAction(row: AuditRow): string {
   if (row.entity === "File") {
     const n = asString(meta.name);
     if (a === "delete") return `Deleted file ${quoted(n)}`;
+  }
+
+  // UserGroup (v1.40.0)
+  if (row.entity === "UserGroup") {
+    const n = asString(meta.name);
+    if (a === "create") return `Added user group ${quoted(n)}`;
+    if (a === "update") {
+      const changed = Array.isArray(meta.changedFields)
+        ? (meta.changedFields as unknown[]).filter((f) => typeof f === "string")
+        : [];
+      return `Updated user group ${quoted(n)}${changed.length > 0 ? ` — ${changed.join(", ")}` : ""}`;
+    }
+    if (a === "delete") {
+      const mc = asNumber(meta.memberCount) ?? 0;
+      return `Deleted user group ${quoted(n)}${mc > 0 ? ` (${pluralise(mc, "member", "members")} unlinked)` : ""}`;
+    }
+    if (a === "member-add") {
+      const memberName = asString(meta.memberName) ?? asString(meta.memberEmail);
+      return `Added ${quoted(memberName)} to user group ${quoted(n)}`;
+    }
+    if (a === "member-remove") {
+      const memberName = asString(meta.memberName) ?? asString(meta.memberEmail);
+      return `Removed ${quoted(memberName)} from user group ${quoted(n)}`;
+    }
   }
 
   // Generic CRUD verbs against any entity.

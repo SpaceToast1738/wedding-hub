@@ -2511,6 +2511,32 @@ export async function seedPostWeddingSection() {
   console.log(`  ✓ post-wedding seeded (${subs.length} subsections · ${totalDefs} FIELD defs)`);
 }
 
+// v1.40.0 (backlog #3): seed one example custom user-group ("After-
+// party") with the COUPLE + WEDDING_PARTY users as initial members.
+// Idempotent — skip if a group with this slug already exists.
+async function seedUserGroups() {
+  const slug = "after-party";
+  const existing = await db.userGroup.findUnique({ where: { slug } });
+  if (existing) {
+    console.log(`  ✓ user group "${slug}" already present; skipping seed`);
+    return;
+  }
+  const members = await db.user.findMany({
+    where: { role: { in: ["COUPLE", "WEDDING_PARTY"] } },
+    select: { id: true },
+  });
+  await db.userGroup.create({
+    data: {
+      slug,
+      name: "After-party",
+      description: "Inner-circle invite for the after-party at the bridal suite once the venue closes.",
+      order: 0,
+      members: { connect: members.map((m) => ({ id: m.id })) },
+    },
+  });
+  console.log(`  ✓ user group "${slug}" seeded with ${members.length} members`);
+}
+
 async function main() {
   console.log("Seeding Wedding Hub…");
   await seedUsersAndPermissions();
@@ -2541,6 +2567,7 @@ async function main() {
   await seedPhotographyCards();
   await seedGuestExperienceCards();
   await seedPostWeddingSection();
+  await seedUserGroups();
   console.log("Done.");
 }
 

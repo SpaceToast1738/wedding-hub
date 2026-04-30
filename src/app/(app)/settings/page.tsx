@@ -12,6 +12,12 @@ import { WeddingSettingsPanel } from "./WeddingSettingsPanel";
 import { AuditLogPanel } from "./AuditLogPanel";
 import { NudgesPanel } from "./NudgesPanel";
 import { NavTagsBlock } from "./NavTagsBlock";
+import { UserGroupsBlock } from "./UserGroupsBlock";
+import {
+  BUILTIN_GROUPS,
+  displayName,
+  resolveBuiltinGroup,
+} from "@/lib/group-members";
 
 export default async function SettingsPage({
   searchParams,
@@ -22,7 +28,7 @@ export default async function SettingsPage({
   const editable = await canEdit(user, "settings");
   const { audit_before, audit_q } = await searchParams;
 
-  const [users, permissions, me, customFields, wedding, navTagsRaw] = await Promise.all([
+  const [users, permissions, me, customFields, wedding, navTagsRaw, userGroupsRaw] = await Promise.all([
     db.user.findMany({ orderBy: [{ isCouple: "desc" }, { name: "asc" }] }),
     db.permission.findMany(),
     db.user.findUnique({
@@ -39,6 +45,15 @@ export default async function SettingsPage({
       ? db.navTag.findMany({
           orderBy: { order: "asc" },
           include: { _count: { select: { tasks: true } } },
+        })
+      : Promise.resolve([]),
+    // v1.40.0 (backlog #3): UserGroup rows for the couple-only
+    // UserGroupsBlock. Eager-load member ids so the toggle UI
+    // renders without a second round-trip.
+    user.isCouple
+      ? db.userGroup.findMany({
+          orderBy: [{ order: "asc" }, { name: "asc" }],
+          include: { members: { select: { id: true } } },
         })
       : Promise.resolve([]),
   ]);
@@ -106,6 +121,51 @@ export default async function SettingsPage({
               }))}
             />
           )}
+
+          {/* v1.40.0 (backlog #3): user-groups admin block. Couple-
+              only management of custom groups; built-ins shown
+              read-only with their computed member count. */}
+          {user.isCouple && (() => {
+            const allUsersShape = users.map((u) => ({
+              id: u.id,
+              email: u.email,
+              firstName: u.firstName,
+              lastName: u.lastName,
+              name: u.name,
+              role: u.role,
+              isCouple: u.isCouple,
+            }));
+            const allUsersForBlock = allUsersShape.map((u) => ({
+              id: u.id,
+              name: displayName(u),
+            }));
+            const builtins = BUILTIN_GROUPS.map((g) => ({
+              slug: g.slug,
+              name: g.name,
+              members: resolveBuiltinGroup(g.slug, allUsersShape).map((u) => ({
+                id: u.id,
+                name: displayName(u),
+              })),
+            }));
+            const groupRows = userGroupsRaw.map((g) => ({
+              id: g.id,
+              slug: g.slug,
+              name: g.name,
+              description: g.description,
+              order: g.order,
+              members: g.members
+                .map((m) => allUsersShape.find((u) => u.id === m.id))
+                .filter((u): u is (typeof allUsersShape)[number] => Boolean(u))
+                .map((u) => ({ id: u.id, name: displayName(u) })),
+            }));
+            return (
+              <UserGroupsBlock
+                groups={groupRows}
+                builtins={builtins}
+                allUsers={allUsersForBlock}
+              />
+            );
+          })()}
 
           {editable && (
             <div className="bg-marigold-100/40 border border-marigold-700/20 text-marigold-700 rounded-md px-4 py-2.5 text-xs">

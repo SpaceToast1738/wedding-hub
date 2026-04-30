@@ -1,0 +1,162 @@
+// v1.40.0 (backlog #3): pure helpers for resolving "group → user
+// list" — both DB-backed UserGroup rows and four built-in virtual
+// groups computed from User.role / User.isCouple. The Schedule
+// attendees picker (backlog #4) and any future "send email to
+// group" surface use these.
+//
+// Built-in virtual groups always exist regardless of DB state:
+//   "everyone"           — all non-archived users
+//   "couple"             — User.isCouple === true
+//   "wedding-party-role" — User.role === "WEDDING_PARTY"
+//   "planners-role"      — User.role === "PLANNER"
+//
+// Custom groups are surfaced by their `slug` from the UserGroup
+// table. A group reference is a single string with the form:
+//   - "builtin:everyone" / "builtin:couple" / etc.
+//   - "group:<slug>" for a DB-backed UserGroup
+//
+// Pure: helpers take plain inputs (User-like + UserGroup-like
+// shapes) so unit tests don't need a Prisma fixture.
+
+export type UserShape = {
+  id: string;
+  name?: string | null;
+  firstName?: string | null;
+  lastName?: string | null;
+  email: string;
+  role?: string | null;
+  isCouple?: boolean;
+};
+
+export type UserGroupShape = {
+  id: string;
+  slug: string;
+  name: string;
+  members: Array<{ id: string }>;
+};
+
+// Stable identifiers for the built-in virtual groups. Used as the
+// `slug` half of the "builtin:<slug>" group reference. Picker UIs
+// use these as the dropdown's first options.
+export const BUILTIN_GROUPS = [
+  { slug: "everyone", name: "Everyone" },
+  { slug: "couple", name: "Couple" },
+  { slug: "wedding-party-role", name: "Wedding party (by role)" },
+  { slug: "planners-role", name: "Planners (by role)" },
+] as const;
+
+export type BuiltinGroupSlug = (typeof BUILTIN_GROUPS)[number]["slug"];
+
+export const BUILTIN_GROUP_SLUGS = new Set<string>(
+  BUILTIN_GROUPS.map((g) => g.slug),
+);
+
+/**
+ * Pretty-print a User row's display name. Prefers firstName + lastName,
+ * falls back to `name`, then to `email`.
+ */
+export function displayName(u: UserShape): string {
+  const composed = [u.firstName, u.lastName].filter(Boolean).join(" ").trim();
+  if (composed) return composed;
+  if (u.name && u.name.trim()) return u.name.trim();
+  return u.email;
+}
+
+/**
+ * Resolve a built-in group slug to the matching User[] subset.
+ * Throws on an unknown built-in slug — callers should use
+ * BUILTIN_GROUP_SLUGS to validate ahead of calling.
+ */
+export function resolveBuiltinGroup(
+  slug: BuiltinGroupSlug | string,
+  users: UserShape[],
+): UserShape[] {
+  switch (slug) {
+    case "everyone":
+      return [...users];
+    case "couple":
+      return users.filter((u) => u.isCouple === true);
+    case "wedding-party-role":
+      return users.filter((u) => u.role === "WEDDING_PARTY");
+    case "planners-role":
+      return users.filter((u) => u.role === "PLANNER");
+    default:
+      throw new Error(`Unknown built-in group slug: ${slug}`);
+  }
+}
+
+/**
+ * Resolve any group reference ("builtin:everyone" or "group:<slug>")
+ * to the matching User[] subset. Unknown references return an empty
+ * array — callers that care about the distinction should pre-validate.
+ */
+export function resolveGroupMembers(
+  ref: string,
+  users: UserShape[],
+  customGroups: UserGroupShape[],
+): UserShape[] {
+  if (ref.startsWith("builtin:")) {
+    const slug = ref.slice("builtin:".length);
+    if (!BUILTIN_GROUP_SLUGS.has(slug)) return [];
+    return resolveBuiltinGroup(slug, users);
+  }
+  if (ref.startsWith("group:")) {
+    const slug = ref.slice("group:".length);
+    const group = customGroups.find((g) => g.slug === slug);
+    if (!group) return [];
+    const memberIds = new Set(group.members.map((m) => m.id));
+    return users.filter((u) => memberIds.has(u.id));
+  }
+  return [];
+}
+
+/**
+ * Resolve multiple group references and produce the deduplicated
+ * union of member ids. Stable order: groups iterate in input order;
+ * within a group, users keep their input order.
+ */
+export function resolveGroupMembersUnion(
+  refs: string[],
+  users: UserShape[],
+  customGroups: UserGroupShape[],
+): UserShape[] {
+  const seen = new Set<string>();
+  const out: UserShape[] = [];
+  for (const ref of refs) {
+    const members = resolveGroupMembers(ref, users, customGroups);
+    for (const m of members) {
+      if (!seen.has(m.id)) {
+        seen.add(m.id);
+        out.push(m);
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * For a given user, list every group reference they belong to —
+ * built-in plus DB-backed. Useful for "show user's groups" UIs.
+ */
+export function groupsForUser(
+  userId: string,
+  users: UserShape[],
+  customGroups: UserGroupShape[],
+): string[] {
+  const out: string[] = [];
+  const u = users.find((x) => x.id === userId);
+  if (!u) return out;
+  // Built-ins, in the order they're declared in BUILTIN_GROUPS so
+  // pickers display them consistently.
+  for (const g of BUILTIN_GROUPS) {
+    if (resolveBuiltinGroup(g.slug, [u]).length > 0) {
+      out.push(`builtin:${g.slug}`);
+    }
+  }
+  for (const cg of customGroups) {
+    if (cg.members.some((m) => m.id === userId)) {
+      out.push(`group:${cg.slug}`);
+    }
+  }
+  return out;
+}

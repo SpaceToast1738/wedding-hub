@@ -31,6 +31,11 @@ model User {
   accounts      Account[]
   sessions      Session[]
   auditLogs     AuditLog[]
+  // v1.40.0 (backlog #3): per-user m2m to UserGroup. Groups are a
+  // way to bundle users for picking attendees / recipients without
+  // enumerating individuals. Future: groups may also carry
+  // permission overrides (the original "permission-group" framing).
+  groups        UserGroup[] @relation("UserGroupMembers")
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
 
@@ -974,6 +979,36 @@ model NavTag {
   tasks     Task[]   // implicit m2m: Task ↔ NavTag (_NavTagToTask)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+// ─── User groups (v1.40.0, backlog #3) ────────────────────────────────────
+//
+// User-configurable list of groups for bundling users together when
+// picking attendees / recipients (and, in future, attaching
+// permission overrides as a unit — hence the original "permission-
+// group" framing in the deferred backlog).
+//
+// Built-in virtual groups computed from User.role / User.isCouple
+// are surfaced in pickers alongside DB-backed custom groups (see
+// src/lib/group-members.ts):
+//   - "everyone" (all non-archived users)
+//   - "couple" (User.isCouple === true)
+//   - "wedding-party-role" (User.role === WEDDING_PARTY)
+//   - "planners-role" (User.role === PLANNER)
+// These are not stored in the DB; they always exist.
+//
+// DB-backed groups have stable slugs (couple-editable) so callers
+// can reference them across schema migrations without churning ids.
+// The User.groups m2m back-relation lives on the User model.
+model UserGroup {
+  id          String   @id @default(cuid())
+  slug        String   @unique
+  name        String
+  description String?  @db.Text
+  order       Int      @default(0)
+  members     User[]   @relation("UserGroupMembers")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }
 
 // v1.30.5: PhotographyShot dropped. Data was migrated to BookShot under

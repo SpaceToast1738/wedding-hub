@@ -287,6 +287,58 @@ describe("formatAuditAction — v1.39.0 enrichment", () => {
     });
   });
 
+  describe("UserGroup (v1.40.0)", () => {
+    it("create", () => {
+      expect(
+        formatAuditAction({
+          action: "create",
+          entity: "UserGroup",
+          metadata: { name: "After-party", slug: "after-party" },
+        }),
+      ).toBe(`Added user group "After-party"`);
+    });
+
+    it("update with changedFields", () => {
+      expect(
+        formatAuditAction({
+          action: "update",
+          entity: "UserGroup",
+          metadata: { name: "After-party", changedFields: ["description"] },
+        }),
+      ).toBe(`Updated user group "After-party" — description`);
+    });
+
+    it("delete with member count", () => {
+      expect(
+        formatAuditAction({
+          action: "delete",
+          entity: "UserGroup",
+          metadata: { name: "After-party", memberCount: 4 },
+        }),
+      ).toBe(`Deleted user group "After-party" (4 members unlinked)`);
+    });
+
+    it("member-add", () => {
+      expect(
+        formatAuditAction({
+          action: "member-add",
+          entity: "UserGroup",
+          metadata: { name: "After-party", memberName: "Aimee Hollingsworth" },
+        }),
+      ).toBe(`Added "Aimee Hollingsworth" to user group "After-party"`);
+    });
+
+    it("member-remove falls back to memberEmail when name absent", () => {
+      expect(
+        formatAuditAction({
+          action: "member-remove",
+          entity: "UserGroup",
+          metadata: { name: "After-party", memberEmail: "viewer@example.com" },
+        }),
+      ).toBe(`Removed "viewer@example.com" from user group "After-party"`);
+    });
+  });
+
   describe("CeremonySeating + WeddingSettings (seating-globals)", () => {
     it("ceremony layout update with totalSeats + changedFields", () => {
       expect(

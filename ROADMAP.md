@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.39.1** | 2026-04-30 | [Recent-activity feed on Today (couple-only) — last 10 audit rows rendered as human sentences via `formatAuditAction` + `timeAgo`. Auto-hides for non-couple users + when log is empty. Closes backlog item #2.](#2026-04-30--v1391--recent-activity-feed) |
+| **v1.40.0** | 2026-04-30 | [User-group model (backlog #3) — `UserGroup` table + `User.groups` m2m + four built-in virtual groups (Everyone / Couple / Wedding party-by-role / Planners-by-role) computed from `User.role`. Couple-only Settings panel for CRUD. Foundation for the Schedule attendees rework (#4).](#2026-04-30--v1400--user-group-model-backlog-3) |
+| v1.39.1 | 2026-04-30 | [Recent-activity feed on Today (couple-only) — last 10 audit rows rendered as human sentences via `formatAuditAction` + `timeAgo`. Auto-hides for non-couple users + when log is empty. Closes backlog item #2.](#2026-04-30--v1391--recent-activity-feed) |
 | v1.39.0 | 2026-04-30 | [Audit-log enrichment sweep across non-Book modules — budget / seating / songs / guests / suppliers / payments / files / tasks all now emit snapshot fields + `changedFields` diff per the v1.30.5 standing rule. ~34 bare audits enriched. 29 new audit-format tests, 392 total.](#2026-04-30--v1390--audit-log-enrichment-sweep) |
 | v1.38.6 | 2026-04-30 | [Critical: `prisma/seed.ts` had an unguarded `main()` call at the bottom that fired whenever the file was imported. Operator scripts (`reset-book.ts`, `seed-samples-only.ts`) import section seeders from it — so every operator-script run kicked off the full seed in parallel, hitting P2002 unique-constraint violations.](#2026-04-30--v1386--seed-ts-double-run-fix) |
 | v1.38.5 | 2026-04-30 | [Book index hides empty legacy sections · BUILD seed targets `venue-decor` not legacy `venue` · stop seeding legacy `wedding-party` (the v1.35.0 split made it duplicate)](#2026-04-30--v1385--book-index--seed-de-duplication) |
@@ -754,6 +755,58 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-30 · v1.40.0 — User-group model (backlog #3)
+
+Backlog item #3 — the foundation for #4 (Schedule attendees rework). Adds a way to bundle users together for picking attendees, sending reminders, and (eventually) attaching permission overrides as a unit. Hence the original "permission-group" framing in the deferred backlog; the user-facing label is "User groups" because nothing in this ship hangs permissions off them yet.
+
+**Schema** (additive only, no data migration):
+
+```prisma
+model UserGroup {
+  id          String   @id @default(cuid())
+  slug        String   @unique
+  name        String
+  description String?  @db.Text
+  order       Int      @default(0)
+  members     User[]   @relation("UserGroupMembers")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+```
+
+Plus the back-relation on `User.groups`. Migration `20260430110000_user_groups`.
+
+**Built-in virtual groups** — always exist, computed from `User.role` / `User.isCouple` rather than stored:
+
+- `builtin:everyone` — all non-archived users
+- `builtin:couple` — `User.isCouple === true`
+- `builtin:wedding-party-role` — `User.role === "WEDDING_PARTY"`
+- `builtin:planners-role` — `User.role === "PLANNER"`
+
+These get surfaced in pickers alongside DB-backed custom groups. The reference format is intentionally typed: `builtin:<slug>` vs. `group:<slug>` so callers can never confuse a virtual group's name with a custom one even if a couple gives a custom group the same slug.
+
+**Pure helpers** in [`src/lib/group-members.ts`](src/lib/group-members.ts):
+
+- `resolveBuiltinGroup(slug, users)` → User subset for a built-in.
+- `resolveGroupMembers(ref, users, customGroups)` → resolves either kind to a User[]. Unknown refs return `[]` (no throw — keeps callers tolerant of stale references).
+- `resolveGroupMembersUnion(refs, users, customGroups)` → deduplicated union across many group refs, preserving first-seen order.
+- `groupsForUser(userId, users, customGroups)` → list every group ref the user belongs to (built-ins + custom). Useful for "show this user's groups" UIs.
+- `displayName(user)` → `firstName lastName` → `name` → `email` fallback chain so picker labels never come up empty.
+
+**24 unit tests** cover each helper and edge case (missing user, malformed ref, dedupe order, role boundaries).
+
+**Server actions** in `src/app/(app)/settings/group-actions.ts` — couple-only gated. `createUserGroup` / `updateUserGroup` / `deleteUserGroup` / `toggleUserGroupMember`. Slug auto-derives from name when blank, refuses any reserved built-in slug, P2002 surfaced as a clean "already exists" error. All audit-enriched per the v1.30.5 standing rule.
+
+**Settings UI** — new `UserGroupsBlock` panel below the existing NavTagsBlock. Couple-only. Built-ins listed read-only with their member count. Custom groups expand to a checkbox grid of all users for quick toggle-on / toggle-off.
+
+**Audit format** — five new patterns (`UserGroup` create / update / delete / member-add / member-remove). Sentences read as "Added 'Aimee Hollingsworth' to user group 'After-party'" or "Deleted user group 'After-party' (4 members unlinked)".
+
+**Seed** — one example group ("After-party", slug `after-party`) connecting the COUPLE + WEDDING_PARTY users so a fresh DB shows what a custom group looks like in the UI without manual setup.
+
+**Verification gate:** typecheck + lint + 430 unit tests + production build all green.
+
+Files: [prisma/schema.prisma](prisma/schema.prisma) · [prisma/migrations/20260430110000_user_groups/migration.sql](prisma/migrations/20260430110000_user_groups/migration.sql) · [src/lib/group-members.ts](src/lib/group-members.ts) · [tests/unit/group-members.test.ts](tests/unit/group-members.test.ts) · [src/app/(app)/settings/group-actions.ts](src/app/(app)/settings/group-actions.ts) · [src/app/(app)/settings/UserGroupsBlock.tsx](src/app/(app)/settings/UserGroupsBlock.tsx) · [src/app/(app)/settings/page.tsx](src/app/(app)/settings/page.tsx) · [src/lib/audit-format.ts](src/lib/audit-format.ts) · [prisma/seed.ts](prisma/seed.ts).
 
 ### 2026-04-30 · v1.39.1 — Recent-activity feed
 
