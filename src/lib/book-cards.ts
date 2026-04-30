@@ -6,7 +6,8 @@
 // lock the contract without setup; mirrors the v1.11.0 csv-merge and
 // v1.15.0 custom-fields patterns.
 
-export const BOOK_CARD_KINDS = ["TEXT", "FIELD", "RECIPE", "SHOT_LIST", "OUTFIT"] as const;
+// v1.31.0: + BUILD.
+export const BOOK_CARD_KINDS = ["TEXT", "FIELD", "RECIPE", "SHOT_LIST", "OUTFIT", "BUILD"] as const;
 export type BookCardKind = (typeof BOOK_CARD_KINDS)[number];
 
 // Display metadata for each card kind — used by the picker UI and
@@ -36,6 +37,10 @@ export const BOOK_CARD_KIND_META: Record<
   OUTFIT: {
     label: "Outfit",
     description: "Per-person outfits — items, supplier, status, notes.",
+  },
+  BUILD: {
+    label: "Build",
+    description: "Track a DIY project end-to-end — materials, sessions, status.",
   },
 };
 
@@ -264,3 +269,84 @@ export function validateOutfit(input: BookOutfitShape): BookOutfitShape {
 // "Charcoal three-piece, White shirt, Burgundy tie") parse into
 // array via the same helper as withWhom.
 export const parseOutfitItems = parseWithWhom;
+
+// ─── BUILD card (v1.31.0) ─────────────────────────────────────────
+//
+// DIY production tracker. Pure helper computes rollups for the
+// header strip (units done, hours logged vs estimated, materials
+// progress) plus a prototype-blocker flag — true when the card has
+// a target date inside the next 30 days but the prototype still
+// hasn't been ticked off. Keeps the logic in one place so the
+// editor and any "Today widget" or audit summary can reuse it.
+
+export type BuildMaterialShape = {
+  quantity?: number | null;
+  costPence?: number | null;
+  ordered: boolean;
+  arrived: boolean;
+};
+
+export type BuildSessionShape = {
+  minutes: number;
+  unitsCompleted?: number | null;
+};
+
+export type BuildCardShape = {
+  quantityNeeded?: number | null;
+  estimatedMinutesPerUnit?: number | null;
+  prototypeDone: boolean;
+  targetDate?: Date | null;
+  materials: BuildMaterialShape[];
+  sessions: BuildSessionShape[];
+};
+
+export type BuildRollups = {
+  materialsTotalPence: number;
+  hoursLogged: number;
+  hoursEstimated: number | null;
+  unitsDone: number;
+  percentMaterialsOrdered: number;
+  percentMaterialsArrived: number;
+  prototypeBlocker: boolean;
+};
+
+const PROTOTYPE_BLOCKER_DAYS = 30;
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+export function buildRollups(card: BuildCardShape, now: Date = new Date()): BuildRollups {
+  const materialsTotalPence = card.materials.reduce(
+    (sum, m) => sum + (m.costPence ?? 0),
+    0,
+  );
+  const hoursLogged =
+    Math.round(
+      (card.sessions.reduce((sum, s) => sum + s.minutes, 0) / 60) * 10,
+    ) / 10;
+  const hoursEstimated =
+    card.estimatedMinutesPerUnit != null && card.quantityNeeded != null
+      ? Math.round((card.estimatedMinutesPerUnit * card.quantityNeeded) / 60 * 10) / 10
+      : null;
+  const unitsDone = card.sessions.reduce(
+    (sum, s) => sum + (s.unitsCompleted ?? 0),
+    0,
+  );
+  const total = card.materials.length;
+  const percentMaterialsOrdered =
+    total === 0 ? 0 : Math.round((card.materials.filter((m) => m.ordered).length / total) * 100);
+  const percentMaterialsArrived =
+    total === 0 ? 0 : Math.round((card.materials.filter((m) => m.arrived).length / total) * 100);
+  const prototypeBlocker =
+    !card.prototypeDone &&
+    card.targetDate != null &&
+    (card.targetDate.getTime() - now.getTime()) / MS_PER_DAY <= PROTOTYPE_BLOCKER_DAYS &&
+    card.targetDate.getTime() >= now.getTime();
+  return {
+    materialsTotalPence,
+    hoursLogged,
+    hoursEstimated,
+    unitsDone,
+    percentMaterialsOrdered,
+    percentMaterialsArrived,
+    prototypeBlocker,
+  };
+}

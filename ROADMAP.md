@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.30.6** | 2026-04-30 | [Track `BOOK-EXPANSION-PLAN.md` in the repo (docs only) — sets the v1.31.0–v1.38.0 arc](#2026-04-30--v1306--track-book-expansion-plan-in-the-repo) |
+| **v1.31.0** | 2026-04-30 | [Wedding Book BUILD card (P1) — DIY production tracker with materials list, sessions log, prototype-blocker warning, copy-to-Budget action](#2026-04-30--v1310--wedding-book-build-card-p1) |
+| v1.30.6 | 2026-04-30 | [Track `BOOK-EXPANSION-PLAN.md` in the repo (docs only) — sets the v1.31.0–v1.38.0 arc](#2026-04-30--v1306--track-book-expansion-plan-in-the-repo) |
 | v1.30.5 | 2026-04-29 | [Schema cleanup + Topics multi-select · drop legacy `PhotographyShot` and `ScheduleEvent.audience` · combined Wedding Book section + NavTag picker on tasks · NavTag CRUD in Settings · audit-rule standing add + first-pass enrichment](#2026-04-29--v1305--schema-cleanup--topics-multi-select--audit-rule) |
 | v1.30.0 | 2026-04-29 | [Tasks ↔ Wedding Book subsection link · picker on task forms + drawer · Linked tasks panel under each card on `/book/[slug]` with per-card search](#2026-04-29--v1300--tasks--wedding-book-subsection-link) |
 | v1.29.0 | 2026-04-29 | [Task grouping: None / Assignee / Category / Supplier / Priority / Status · localStorage-persisted dropdown beside Sort · sectioned headers with counts](#2026-04-29--v1290--task-grouping) |
@@ -699,6 +700,46 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-30 · v1.31.0 — Wedding Book BUILD card (P1)
+
+First phase of the [Book expansion arc](BOOK-EXPANSION-PLAN.md) — a new `BUILD` card kind that tracks DIY production projects (centerpieces, place cards, handmade signage, favours, programs) end-to-end inside a single Wedding Book card. **One card per project.**
+
+**Schema:** `BUILD` added to `BookSubsectionKind`. Three new tables — `BookBuildCard` (1:1 with `BookSubsection`), `BookBuildMaterial` (line items per card), `BookBuildSession` (production sessions logged per card). Migration `20260430000000_book_build_card`, additive only.
+
+**Card features:**
+
+- **Header strip** — units done / quantity, hours logged / estimated, status pill, target date with days-remaining countdown.
+- **Status options:** Designing → Prototyping → Producing → Done.
+- **Materials table** with `ordered` + `arrived` checkbox columns, in-place edit/reorder/remove, supplier + cost.
+- **Sessions log** — date, minutes, units completed, optional notes; "+ Log session" prefills today.
+- **Prototype-blocker banner** — fires when target is within 30 days and prototype not yet ticked.
+- **One-click "Copy materials total to Budget"** — creates a draft `BudgetLine` in a "DIY production" category (find-or-create) with the rolled-up cost. Manual review on `/budget`. No auto-sync per the v1.30.5 cross-module-wiring rule.
+
+**Pure helper.** `buildRollups()` in [src/lib/book-cards.ts](src/lib/book-cards.ts) computes everything the header strip + the prototype-blocker need. Unit-tested with 11 cases including the 30-day boundary, null inputs, and past target dates.
+
+**Audit enrichment** per the v1.30.5 standing rule — every BUILD action logs snapshot fields:
+- `build-update` → `{ title, status, quantityNeeded, targetDate, changedFields }`.
+- `build-material-{create,update,delete,flag,reorder}` → `{ cardTitle, materialName, … }`.
+- `build-session-{create,update,delete}` → `{ cardTitle, minutes, unitsCompleted, sessionDate }`.
+- `build-copy-to-budget` → `{ cardTitle, materialCount, totalPence, budgetLineId }`.
+
+**Files:**
+- New: `prisma/migrations/20260430000000_book_build_card/migration.sql`.
+- `prisma/schema.prisma` — `BUILD` enum value, three new tables, `BookSubsection.buildCard`.
+- `prisma/seed.ts` — `seedBuildCards()` adds three sample BUILD cards under `venue` (Centerpieces with 3 materials, Handmade signage, Place cards). Idempotent.
+- `src/lib/book-cards.ts` — `buildRollups()` + types + meta entry.
+- `src/app/(app)/book/actions.ts` — 11 new BUILD server actions, all gated + audited + result-shape.
+- New: `src/app/(app)/book/[slug]/BookBuildCard.tsx` — editor with header form, Materials, Sessions, Copy-to-Budget.
+- `src/app/(app)/book/[slug]/CardRouter.tsx` — `case "BUILD"` branch + extended `Sub` type.
+- `src/app/(app)/book/[slug]/page.tsx` — eager-load `buildCard` with `materials` + `sessions`.
+- New: `tests/unit/build-rollups.test.ts` — 11 test cases.
+
+**Verification:** typecheck + lint + 243 unit tests pass (up from 232 with 11 new BUILD-rollup tests), clean `.next` build green.
+
+**Open questions before P1 ships** (from the planning pass): welcome bags / favours / programs DIY status was undecided so they're deferred from the seed. They can be added later via the UI with no schema change.
+
+**Next:** v1.32.0 P2 — MENU + BAR cards.
 
 ### 2026-04-30 · v1.30.6 — Track Book expansion plan in the repo
 

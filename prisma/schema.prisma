@@ -474,6 +474,9 @@ model BookSubsection {
   recipe     BookRecipe?
   shotList   BookShotList?
   outfitCard BookOutfitCard?
+  // v1.31.0: BUILD card — DIY production tracker with materials +
+  // sessions. One card per project (centerpieces, place cards, etc.).
+  buildCard  BookBuildCard?
   // v1.30.5: subsection-level task link removed; replaced by section-
   // level link on the parent BookSection (see BookSection.tasks).
   updatedAt  DateTime    @updatedAt
@@ -482,12 +485,14 @@ model BookSubsection {
 }
 
 // v1.26.0: card-kind discriminator on BookSubsection.
+// v1.31.0: + BUILD.
 enum BookSubsectionKind {
   TEXT
   FIELD
   RECIPE
   SHOT_LIST
   OUTFIT
+  BUILD
 }
 
 // v1.26.0: FIELD card — list of typed fields. Values stored on
@@ -562,6 +567,57 @@ model BookOutfit {
   status      String?        // "Ordered" / "Fitted" / "Collected"
   notes       String?        @db.Text
   order       Int            @default(0)
+}
+
+// v1.31.0: BUILD card — DIY production tracker. One card per project
+// (centerpieces, place cards, handmade signage, favours, etc.).
+// Materials list + sessions log + status timeline. Designed to live
+// across many sections (Venue — Décor in particular, also Guest
+// Experience for welcome bags / favours / programs if those go DIY).
+model BookBuildCard {
+  id                       String         @id @default(cuid())
+  subsectionId             String         @unique
+  subsection               BookSubsection @relation(fields: [subsectionId], references: [id], onDelete: Cascade)
+  quantityNeeded           Int?
+  targetDate               DateTime?
+  status                   String?        // "Designing" | "Prototyping" | "Producing" | "Done"
+  prototypeDone            Boolean        @default(false)
+  prototypeNotes           String?        @db.Text
+  estimatedMinutesPerUnit  Int?
+  notes                    String?        @db.Text
+  materials                BookBuildMaterial[]
+  sessions                 BookBuildSession[]
+}
+
+model BookBuildMaterial {
+  id          String         @id @default(cuid())
+  cardId      String
+  card        BookBuildCard  @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  name        String
+  quantity    Float?
+  unit        String?
+  supplier    String?
+  costPence   Int?
+  ordered     Boolean        @default(false)
+  arrived     Boolean        @default(false)
+  notes       String?
+  order       Int            @default(0)
+
+  @@index([cardId])
+}
+
+model BookBuildSession {
+  id              String         @id @default(cuid())
+  cardId          String
+  card            BookBuildCard  @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  date            DateTime
+  minutes         Int
+  unitsCompleted  Int?
+  notes           String?
+  loggedById      String?
+  createdAt       DateTime       @default(now())
+
+  @@index([cardId])
 }
 
 enum BookSubsectionVisibility {

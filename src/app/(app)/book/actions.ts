@@ -97,6 +97,11 @@ export async function createBookSubsection(formData: FormData) {
     await db.bookShotList.create({ data: { subsectionId: created.id } });
   } else if (parsed.kind === BookSubsectionKind.OUTFIT) {
     await db.bookOutfitCard.create({ data: { subsectionId: created.id } });
+  } else if (parsed.kind === BookSubsectionKind.BUILD) {
+    // v1.31.0: BUILD card child seeds with all-null fields. The
+    // editor renders an empty Materials list and Sessions log; the
+    // header shows "—" until the user fills anything in.
+    await db.bookBuildCard.create({ data: { subsectionId: created.id } });
   }
   // FIELD card seeds the value bag lazily — fields stays null until
   // the user adds the first def + value.
@@ -520,5 +525,481 @@ export async function deleteBookOutfit(id: string): Promise<BookActionResult> {
     return { ok: true };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "Couldn't delete outfit" };
+  }
+}
+
+// ── v1.31.0: BUILD card actions ──────────────────────────────────────
+//
+// One card per DIY project. Card-level fields hold the production
+// metadata (status, target date, prototype done, est minutes per unit);
+// materials are line items (with `ordered` / `arrived` flags); sessions
+// log production time + units completed. All audit calls per the
+// v1.30.5 audit-aware-feature-design rule — snapshot fields + a
+// changedFields diff on updates.
+
+const buildCardUpdateSchema = z.object({
+  quantityNeeded: z.coerce.number().int().min(0).optional().nullable(),
+  targetDate: z.string().optional().nullable(),
+  status: z.string().max(40).optional().nullable(),
+  prototypeDone: z.coerce.boolean().optional(),
+  prototypeNotes: z.string().max(2000).optional().nullable(),
+  estimatedMinutesPerUnit: z.coerce.number().int().min(0).optional().nullable(),
+  notes: z.string().max(4000).optional().nullable(),
+});
+
+function parseDate(v: FormDataEntryValue | null | undefined): Date | null | undefined {
+  if (v === null || v === undefined) return undefined;
+  const s = String(v).trim();
+  if (!s) return null;
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+export async function updateBuildCard(
+  subsectionId: string,
+  formData: FormData,
+): Promise<BookActionResult> {
+  const user = await requireEdit("book");
+  try {
+    const before = await db.bookBuildCard.findUnique({ where: { subsectionId } });
+    if (!before) return { ok: false, error: "Build card not found" };
+    const raw = {
+      quantityNeeded: formData.get("quantityNeeded") ?? undefined,
+      targetDate: formData.get("targetDate") ?? undefined,
+      status: formData.get("status") ?? undefined,
+      prototypeDone: formData.get("prototypeDone") === "on" || formData.get("prototypeDone") === "true",
+      prototypeNotes: formData.get("prototypeNotes") ?? undefined,
+      estimatedMinutesPerUnit: formData.get("estimatedMinutesPerUnit") ?? undefined,
+      notes: formData.get("notes") ?? undefined,
+    };
+    const parsed = buildCardUpdateSchema.parse(raw);
+    const data: Record<string, unknown> = {};
+    if (parsed.quantityNeeded !== undefined) data.quantityNeeded = parsed.quantityNeeded;
+    if (parsed.targetDate !== undefined) data.targetDate = parseDate(parsed.targetDate);
+    if (parsed.status !== undefined) data.status = parsed.status || null;
+    if (parsed.prototypeDone !== undefined) data.prototypeDone = parsed.prototypeDone;
+    if (parsed.prototypeNotes !== undefined) data.prototypeNotes = parsed.prototypeNotes || null;
+    if (parsed.estimatedMinutesPerUnit !== undefined) data.estimatedMinutesPerUnit = parsed.estimatedMinutesPerUnit;
+    if (parsed.notes !== undefined) data.notes = parsed.notes || null;
+    await db.bookBuildCard.update({ where: { subsectionId }, data });
+    const sub = await db.bookSubsection.findUnique({ where: { id: subsectionId } });
+    const changedFields: string[] = [];
+    if (data.quantityNeeded !== undefined && data.quantityNeeded !== before.quantityNeeded) changedFields.push("quantityNeeded");
+    if (data.targetDate !== undefined) {
+      const newT = data.targetDate instanceof Date ? data.targetDate.getTime() : null;
+      const oldT = before.targetDate?.getTime() ?? null;
+      if (newT !== oldT) changedFields.push("targetDate");
+    }
+    if (data.status !== undefined && data.status !== before.status) changedFields.push("status");
+    if (data.prototypeDone !== undefined && data.prototypeDone !== before.prototypeDone) changedFields.push("prototypeDone");
+    if (data.prototypeNotes !== undefined && data.prototypeNotes !== before.prototypeNotes) changedFields.push("prototypeNotes");
+    if (data.estimatedMinutesPerUnit !== undefined && data.estimatedMinutesPerUnit !== before.estimatedMinutesPerUnit) changedFields.push("estimatedMinutesPerUnit");
+    if (data.notes !== undefined && data.notes !== before.notes) changedFields.push("notes");
+    await audit(user, {
+      action: "build-update",
+      entity: "BookSubsection",
+      entityId: subsectionId,
+      metadata: {
+        title: sub?.title,
+        status: data.status ?? before.status,
+        quantityNeeded: data.quantityNeeded ?? before.quantityNeeded,
+        targetDate: (data.targetDate instanceof Date ? data.targetDate.toISOString() : null) ?? before.targetDate?.toISOString() ?? null,
+        changedFields,
+      },
+    });
+    await revalidateBookSubsection(subsectionId);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Couldn't save build card" };
+  }
+}
+
+const materialSchema = z.object({
+  name: z.string().min(1).max(120),
+  quantity: z.coerce.number().min(0).optional().nullable(),
+  unit: z.string().max(40).optional().nullable(),
+  supplier: z.string().max(120).optional().nullable(),
+  costPence: z.coerce.number().int().min(0).optional().nullable(),
+  notes: z.string().max(2000).optional().nullable(),
+});
+
+export async function createBuildMaterial(
+  cardId: string,
+  formData: FormData,
+): Promise<BookActionResult> {
+  const user = await requireEdit("book");
+  try {
+    const parsed = materialSchema.parse({
+      name: String(formData.get("name") ?? "").trim(),
+      quantity: formData.get("quantity") || null,
+      unit: formData.get("unit") || null,
+      supplier: formData.get("supplier") || null,
+      costPence: formData.get("costPence") || null,
+      notes: formData.get("notes") || null,
+    });
+    const card = await db.bookBuildCard.findUnique({
+      where: { id: cardId },
+      include: { subsection: true },
+    });
+    if (!card) return { ok: false, error: "Build card not found" };
+    const last = await db.bookBuildMaterial.findFirst({
+      where: { cardId },
+      orderBy: { order: "desc" },
+    });
+    const created = await db.bookBuildMaterial.create({
+      data: {
+        cardId,
+        name: parsed.name,
+        quantity: parsed.quantity ?? null,
+        unit: parsed.unit ?? null,
+        supplier: parsed.supplier ?? null,
+        costPence: parsed.costPence ?? null,
+        notes: parsed.notes ?? null,
+        order: (last?.order ?? -1) + 1,
+      },
+    });
+    await audit(user, {
+      action: "build-material-create",
+      entity: "BookSubsection",
+      entityId: card.subsectionId,
+      metadata: {
+        cardTitle: card.subsection.title,
+        materialName: created.name,
+        costPence: created.costPence,
+      },
+    });
+    await revalidateBookSubsection(card.subsectionId);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Couldn't add material" };
+  }
+}
+
+export async function updateBuildMaterial(
+  id: string,
+  formData: FormData,
+): Promise<BookActionResult> {
+  const user = await requireEdit("book");
+  try {
+    const before = await db.bookBuildMaterial.findUnique({
+      where: { id },
+      include: { card: { include: { subsection: true } } },
+    });
+    if (!before) return { ok: false, error: "Material not found" };
+    const parsed = materialSchema.partial().parse({
+      name: formData.get("name") ?? undefined,
+      quantity: formData.get("quantity") ?? undefined,
+      unit: formData.get("unit") ?? undefined,
+      supplier: formData.get("supplier") ?? undefined,
+      costPence: formData.get("costPence") ?? undefined,
+      notes: formData.get("notes") ?? undefined,
+    });
+    const data: Record<string, unknown> = {};
+    if (parsed.name !== undefined) data.name = parsed.name;
+    if (parsed.quantity !== undefined) data.quantity = parsed.quantity;
+    if (parsed.unit !== undefined) data.unit = parsed.unit || null;
+    if (parsed.supplier !== undefined) data.supplier = parsed.supplier || null;
+    if (parsed.costPence !== undefined) data.costPence = parsed.costPence;
+    if (parsed.notes !== undefined) data.notes = parsed.notes || null;
+    await db.bookBuildMaterial.update({ where: { id }, data });
+    const changedFields = Object.keys(data).filter((k) => {
+      const newV = (data as Record<string, unknown>)[k];
+      const oldV = (before as unknown as Record<string, unknown>)[k];
+      return newV !== oldV;
+    });
+    await audit(user, {
+      action: "build-material-update",
+      entity: "BookSubsection",
+      entityId: before.card.subsectionId,
+      metadata: {
+        cardTitle: before.card.subsection.title,
+        materialName: parsed.name ?? before.name,
+        changedFields,
+      },
+    });
+    await revalidateBookSubsection(before.card.subsectionId);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Couldn't save material" };
+  }
+}
+
+export async function deleteBuildMaterial(id: string): Promise<BookActionResult> {
+  const user = await requireEdit("book");
+  try {
+    const before = await db.bookBuildMaterial.findUnique({
+      where: { id },
+      include: { card: { include: { subsection: true } } },
+    });
+    if (!before) return { ok: false, error: "Material not found" };
+    await db.bookBuildMaterial.delete({ where: { id } });
+    await audit(user, {
+      action: "build-material-delete",
+      entity: "BookSubsection",
+      entityId: before.card.subsectionId,
+      metadata: {
+        cardTitle: before.card.subsection.title,
+        materialName: before.name,
+      },
+    });
+    await revalidateBookSubsection(before.card.subsectionId);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Couldn't delete material" };
+  }
+}
+
+export async function toggleBuildMaterialFlag(
+  id: string,
+  flag: "ordered" | "arrived",
+  value: boolean,
+): Promise<BookActionResult> {
+  const user = await requireEdit("book");
+  try {
+    const before = await db.bookBuildMaterial.findUnique({
+      where: { id },
+      include: { card: { include: { subsection: true } } },
+    });
+    if (!before) return { ok: false, error: "Material not found" };
+    await db.bookBuildMaterial.update({
+      where: { id },
+      data: flag === "ordered" ? { ordered: value } : { arrived: value },
+    });
+    await audit(user, {
+      action: "build-material-flag",
+      entity: "BookSubsection",
+      entityId: before.card.subsectionId,
+      metadata: {
+        cardTitle: before.card.subsection.title,
+        materialName: before.name,
+        flag,
+        value,
+      },
+    });
+    await revalidateBookSubsection(before.card.subsectionId);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Couldn't toggle" };
+  }
+}
+
+export async function reorderBuildMaterials(
+  id: string,
+  delta: number,
+): Promise<BookActionResult> {
+  const user = await requireEdit("book");
+  try {
+    const item = await db.bookBuildMaterial.findUnique({
+      where: { id },
+      include: { card: { include: { subsection: true } } },
+    });
+    if (!item) return { ok: false, error: "Material not found" };
+    const siblings = await db.bookBuildMaterial.findMany({
+      where: { cardId: item.cardId },
+      orderBy: { order: "asc" },
+    });
+    const idx = siblings.findIndex((s) => s.id === id);
+    const targetIdx = idx + (delta < 0 ? -1 : 1);
+    if (targetIdx < 0 || targetIdx >= siblings.length) return { ok: true };
+    const swap = siblings[targetIdx]!;
+    await db.$transaction([
+      db.bookBuildMaterial.update({ where: { id: item.id }, data: { order: swap.order } }),
+      db.bookBuildMaterial.update({ where: { id: swap.id }, data: { order: item.order } }),
+    ]);
+    await audit(user, {
+      action: "build-material-reorder",
+      entity: "BookSubsection",
+      entityId: item.card.subsectionId,
+      metadata: { cardTitle: item.card.subsection.title, materialName: item.name, delta },
+    });
+    await revalidateBookSubsection(item.card.subsectionId);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Couldn't reorder" };
+  }
+}
+
+const sessionSchema = z.object({
+  date: z.string().min(1),
+  minutes: z.coerce.number().int().min(0).max(60 * 24 * 30),
+  unitsCompleted: z.coerce.number().int().min(0).optional().nullable(),
+  notes: z.string().max(2000).optional().nullable(),
+});
+
+export async function createBuildSession(
+  cardId: string,
+  formData: FormData,
+): Promise<BookActionResult> {
+  const user = await requireEdit("book");
+  try {
+    const parsed = sessionSchema.parse({
+      date: String(formData.get("date") ?? ""),
+      minutes: formData.get("minutes") ?? "0",
+      unitsCompleted: formData.get("unitsCompleted") || null,
+      notes: formData.get("notes") || null,
+    });
+    const card = await db.bookBuildCard.findUnique({
+      where: { id: cardId },
+      include: { subsection: true },
+    });
+    if (!card) return { ok: false, error: "Build card not found" };
+    const date = new Date(parsed.date);
+    if (isNaN(date.getTime())) return { ok: false, error: "Invalid date" };
+    const created = await db.bookBuildSession.create({
+      data: {
+        cardId,
+        date,
+        minutes: parsed.minutes,
+        unitsCompleted: parsed.unitsCompleted ?? null,
+        notes: parsed.notes ?? null,
+        loggedById: user.id,
+      },
+    });
+    await audit(user, {
+      action: "build-session-create",
+      entity: "BookSubsection",
+      entityId: card.subsectionId,
+      metadata: {
+        cardTitle: card.subsection.title,
+        minutes: created.minutes,
+        unitsCompleted: created.unitsCompleted,
+        sessionDate: created.date.toISOString(),
+      },
+    });
+    await revalidateBookSubsection(card.subsectionId);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Couldn't log session" };
+  }
+}
+
+export async function updateBuildSession(
+  id: string,
+  formData: FormData,
+): Promise<BookActionResult> {
+  const user = await requireEdit("book");
+  try {
+    const before = await db.bookBuildSession.findUnique({
+      where: { id },
+      include: { card: { include: { subsection: true } } },
+    });
+    if (!before) return { ok: false, error: "Session not found" };
+    const parsed = sessionSchema.partial().parse({
+      date: formData.get("date") ?? undefined,
+      minutes: formData.get("minutes") ?? undefined,
+      unitsCompleted: formData.get("unitsCompleted") ?? undefined,
+      notes: formData.get("notes") ?? undefined,
+    });
+    const data: Record<string, unknown> = {};
+    if (parsed.date !== undefined) {
+      const d = new Date(parsed.date);
+      if (isNaN(d.getTime())) return { ok: false, error: "Invalid date" };
+      data.date = d;
+    }
+    if (parsed.minutes !== undefined) data.minutes = parsed.minutes;
+    if (parsed.unitsCompleted !== undefined) data.unitsCompleted = parsed.unitsCompleted;
+    if (parsed.notes !== undefined) data.notes = parsed.notes || null;
+    await db.bookBuildSession.update({ where: { id }, data });
+    await audit(user, {
+      action: "build-session-update",
+      entity: "BookSubsection",
+      entityId: before.card.subsectionId,
+      metadata: {
+        cardTitle: before.card.subsection.title,
+        sessionId: id,
+        changedFields: Object.keys(data),
+      },
+    });
+    await revalidateBookSubsection(before.card.subsectionId);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Couldn't update session" };
+  }
+}
+
+export async function deleteBuildSession(id: string): Promise<BookActionResult> {
+  const user = await requireEdit("book");
+  try {
+    const before = await db.bookBuildSession.findUnique({
+      where: { id },
+      include: { card: { include: { subsection: true } } },
+    });
+    if (!before) return { ok: false, error: "Session not found" };
+    await db.bookBuildSession.delete({ where: { id } });
+    await audit(user, {
+      action: "build-session-delete",
+      entity: "BookSubsection",
+      entityId: before.card.subsectionId,
+      metadata: {
+        cardTitle: before.card.subsection.title,
+        minutes: before.minutes,
+        unitsCompleted: before.unitsCompleted,
+        sessionDate: before.date.toISOString(),
+      },
+    });
+    await revalidateBookSubsection(before.card.subsectionId);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Couldn't delete session" };
+  }
+}
+
+// v1.31.0: one-click "Copy materials total to Budget". Creates a draft
+// BudgetLine in a "DIY production" category (find-or-create) with the
+// rolled-up cost. No auto-sync — the user reviews on /budget. Returns
+// the new BudgetLine id so the caller can deep-link.
+export async function copyBuildMaterialsToBudget(
+  cardId: string,
+): Promise<BookActionResult & { budgetLineId?: string }> {
+  const user = await requireEdit("book");
+  try {
+    const card = await db.bookBuildCard.findUnique({
+      where: { id: cardId },
+      include: { subsection: true, materials: true },
+    });
+    if (!card) return { ok: false, error: "Build card not found" };
+    const totalPence = card.materials.reduce(
+      (sum, m) => sum + (m.costPence ?? 0),
+      0,
+    );
+    // Find or create the "DIY production" BudgetCategory.
+    let category = await db.budgetCategory.findFirst({
+      where: { name: "DIY production" },
+    });
+    if (!category) {
+      const last = await db.budgetCategory.findFirst({ orderBy: { order: "desc" } });
+      category = await db.budgetCategory.create({
+        data: { name: "DIY production", order: (last?.order ?? -1) + 1 },
+      });
+    }
+    const lastLine = await db.budgetLine.findFirst({
+      where: { categoryId: category.id },
+      orderBy: { order: "desc" },
+    });
+    const created = await db.budgetLine.create({
+      data: {
+        categoryId: category.id,
+        description: card.subsection.title,
+        estimated: (totalPence / 100).toFixed(2),
+        notes: `from BUILD card · ${card.materials.length} material(s)`,
+        order: (lastLine?.order ?? -1) + 1,
+      },
+    });
+    await audit(user, {
+      action: "build-copy-to-budget",
+      entity: "BookSubsection",
+      entityId: card.subsectionId,
+      metadata: {
+        cardTitle: card.subsection.title,
+        materialCount: card.materials.length,
+        totalPence,
+        budgetLineId: created.id,
+      },
+    });
+    revalidatePath("/budget");
+    await revalidateBookSubsection(card.subsectionId);
+    return { ok: true, budgetLineId: created.id };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Couldn't copy to budget" };
   }
 }

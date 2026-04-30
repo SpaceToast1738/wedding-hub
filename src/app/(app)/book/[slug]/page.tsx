@@ -24,11 +24,18 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
         orderBy: [{ order: "asc" }, { title: "asc" }],
         // v1.26.0: load all per-kind nested data so the CardRouter
         // can render whichever editor matches the subsection's kind.
+        // v1.31.0: + buildCard.
         include: {
           fieldDefs: { orderBy: { order: "asc" } },
           recipe: true,
           shotList: { include: { shots: { orderBy: { order: "asc" } } } },
           outfitCard: { include: { outfits: { orderBy: { order: "asc" } } } },
+          buildCard: {
+            include: {
+              materials: { orderBy: { order: "asc" } },
+              sessions: { orderBy: { date: "desc" } },
+            },
+          },
         },
       },
     },

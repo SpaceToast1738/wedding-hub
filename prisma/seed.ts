@@ -252,6 +252,97 @@ async function seedWeddingSettings() {
   console.log(`  ✓ wedding settings (${data.coupleLabel})`);
 }
 
+// v1.31.0: seed three sample BUILD cards under the legacy `venue`
+// section (P3 will move them into `venue-decor` once that section
+// exists). Idempotent: skips when there's already at least one
+// BookBuildCard in the DB. Real cards added via the UI are never
+// overwritten by re-seed.
+async function seedBuildCards() {
+  const existing = await db.bookBuildCard.count();
+  if (existing > 0) {
+    console.log(`  ✓ build cards already present (${existing}); skipping seed`);
+    return;
+  }
+  const venue = await db.bookSection.findUnique({ where: { slug: "venue" } });
+  if (!venue) {
+    console.log(`  · no 'venue' section found; skipping build seed`);
+    return;
+  }
+  const drafts = [
+    {
+      slug: "centerpieces",
+      title: "Centerpieces",
+      materials: [
+        { name: "Mason jars", quantity: 14, unit: "ea", costPence: 1400, supplier: "Hobbycraft" },
+        { name: "Eucalyptus stems", quantity: 30, unit: "stems", costPence: 1500, supplier: "Paintbox Blooms" },
+        { name: "Twine", quantity: 1, unit: "spool", costPence: 350 },
+      ],
+      quantityNeeded: 14,
+      estimatedMinutesPerUnit: 10,
+    },
+    {
+      slug: "handmade-signage",
+      title: "Handmade signage (welcome, directional)",
+      materials: [],
+      quantityNeeded: 5,
+      estimatedMinutesPerUnit: 45,
+    },
+    {
+      slug: "place-cards",
+      title: "Place cards / name places",
+      materials: [],
+      quantityNeeded: 80,
+      estimatedMinutesPerUnit: 4,
+    },
+  ];
+  // Use the next available order so we don't clash with anything
+  // existing under venue.
+  const last = await db.bookSubsection.findFirst({
+    where: { sectionId: venue.id },
+    orderBy: { order: "desc" },
+  });
+  let nextOrder = (last?.order ?? -1) + 1;
+  for (const d of drafts) {
+    // If a subsection with this slug already exists, skip — the user
+    // may have already created one manually with the same slug.
+    const existingSub = await db.bookSubsection.findUnique({
+      where: { sectionId_slug: { sectionId: venue.id, slug: d.slug } },
+    });
+    if (existingSub) continue;
+    const sub = await db.bookSubsection.create({
+      data: {
+        sectionId: venue.id,
+        slug: d.slug,
+        title: d.title,
+        kind: "BUILD",
+        order: nextOrder++,
+      },
+    });
+    const card = await db.bookBuildCard.create({
+      data: {
+        subsectionId: sub.id,
+        quantityNeeded: d.quantityNeeded,
+        estimatedMinutesPerUnit: d.estimatedMinutesPerUnit,
+      },
+    });
+    let materialOrder = 0;
+    for (const m of d.materials) {
+      await db.bookBuildMaterial.create({
+        data: {
+          cardId: card.id,
+          name: m.name,
+          quantity: m.quantity,
+          unit: m.unit,
+          costPence: m.costPence,
+          supplier: m.supplier,
+          order: materialOrder++,
+        },
+      });
+    }
+  }
+  console.log(`  ✓ ${drafts.length} sample build cards`);
+}
+
 async function main() {
   console.log("Seeding Wedding Hub…");
   await seedUsersAndPermissions();
@@ -262,6 +353,7 @@ async function main() {
   await seedBookSections();
   await seedWeddingPartySubsections();
   await seedNavTags();
+  await seedBuildCards();
   console.log("Done.");
 }
 

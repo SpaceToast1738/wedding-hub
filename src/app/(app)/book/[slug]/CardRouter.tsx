@@ -1,5 +1,6 @@
 "use client";
 
+import { BookBuildCard } from "./BookBuildCard";
 import { BookFieldsCard } from "./BookFieldsCard";
 import { BookOutfitCardEditor } from "./BookOutfitCard";
 import { BookRecipeCard } from "./BookRecipeCard";
@@ -28,7 +29,7 @@ type Sub = {
   body: string | null;
   fields: unknown;
   visibility: "EVERYONE" | "COUPLE_ONLY";
-  kind: "TEXT" | "FIELD" | "RECIPE" | "SHOT_LIST" | "OUTFIT";
+  kind: "TEXT" | "FIELD" | "RECIPE" | "SHOT_LIST" | "OUTFIT" | "BUILD";
   fieldDefs: Array<{
     id: string;
     label: string;
@@ -65,6 +66,36 @@ type Sub = {
       status: string | null;
       notes: string | null;
       order: number;
+    }>;
+  } | null;
+  // v1.31.0: BUILD card eager-loaded data.
+  buildCard: {
+    id: string;
+    quantityNeeded: number | null;
+    targetDate: Date | null;
+    status: string | null;
+    prototypeDone: boolean;
+    prototypeNotes: string | null;
+    estimatedMinutesPerUnit: number | null;
+    notes: string | null;
+    materials: Array<{
+      id: string;
+      name: string;
+      quantity: number | null;
+      unit: string | null;
+      supplier: string | null;
+      costPence: number | null;
+      ordered: boolean;
+      arrived: boolean;
+      notes: string | null;
+      order: number;
+    }>;
+    sessions: Array<{
+      id: string;
+      date: Date;
+      minutes: number;
+      unitsCompleted: number | null;
+      notes: string | null;
     }>;
   } | null;
 };
@@ -150,6 +181,34 @@ export function CardRouter({
           isCouple={isCouple}
         />
       );
+    case "BUILD": {
+      // Defensive default if buildCard is missing — shouldn't happen
+      // because createBookSubsection seeds it, but legacy rows pre-
+      // dating the seeder fix would render with empty defaults.
+      const bc = sub.buildCard ?? {
+        id: "",
+        quantityNeeded: null,
+        targetDate: null,
+        status: null,
+        prototypeDone: false,
+        prototypeNotes: null,
+        estimatedMinutesPerUnit: null,
+        notes: null,
+        materials: [],
+        sessions: [],
+      };
+      return (
+        <BookBuildCard
+          subsectionId={sub.id}
+          slug={sub.slug}
+          title={sub.title}
+          visibility={sub.visibility}
+          canEdit={canEdit}
+          isCouple={isCouple}
+          card={bc}
+        />
+      );
+    }
     default: {
       // Exhaustiveness guard. If a new kind is added to the schema
       // without a matching CardRouter branch, TS catches it here.
