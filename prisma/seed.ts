@@ -199,7 +199,7 @@ async function seedBookSections() {
 
 // Seed the Wedding Party subsections only on first run — never overwrite
 // real notes the couple has added.
-async function seedWeddingPartySubsections() {
+export async function seedWeddingPartySubsections() {
   const section = await db.bookSection.findUnique({ where: { slug: "wedding-party" } });
   if (!section) return;
   const existing = await db.bookSubsection.count({ where: { sectionId: section.id } });
@@ -279,7 +279,7 @@ async function seedWeddingSettings() {
 // exists). Idempotent: skips when there's already at least one
 // BookBuildCard in the DB. Real cards added via the UI are never
 // overwritten by re-seed.
-async function seedBuildCards() {
+export async function seedBuildCards() {
   const existing = await db.bookBuildCard.count();
   if (existing > 0) {
     console.log(`  ✓ build cards already present (${existing}); skipping seed`);
@@ -369,7 +369,7 @@ async function seedBuildCards() {
 // section. Idempotent: skips when there's already at least one
 // BookMenuCard or BookBarCard in the DB. Real cards added via the
 // UI are never overwritten by re-seed.
-async function seedFoodDrinkCards() {
+export async function seedFoodDrinkCards() {
   const existingMenu = await db.bookMenuCard.count();
   const existingBar = await db.bookBarCard.count();
   if (existingMenu > 0 && existingBar > 0) {
@@ -510,7 +510,7 @@ async function seedFoodDrinkCards() {
 // florist brief, photo booth, décor inspiration). BUILD cards from
 // v1.31.0 stay where the v1.31.0 seeder put them (under the legacy
 // `venue` section); the user can move them via UI when convenient.
-async function seedVenueSpacesAndDecor() {
+export async function seedVenueSpacesAndDecor() {
   const spaces = await db.bookSection.findUnique({ where: { slug: "venue-spaces" } });
   const decor = await db.bookSection.findUnique({ where: { slug: "venue-decor" } });
   if (!spaces || !decor) {
@@ -605,7 +605,7 @@ async function seedVenueSpacesAndDecor() {
 
 // v1.34.0: seed the three Legal sections with their per-§8.8-§8.10
 // subsections. Idempotent — skipped per-section if already populated.
-async function seedLegalSections() {
+export async function seedLegalSections() {
   const before = await db.bookSection.findUnique({ where: { slug: "legal-before" } });
   const day = await db.bookSection.findUnique({ where: { slug: "legal-day" } });
   const after = await db.bookSection.findUnique({ where: { slug: "legal-after" } });
@@ -760,7 +760,7 @@ async function seedLegalSections() {
 // ring-keepers / day-of TEXT + FIELD subsections from §8.2 of the
 // Book expansion plan. Idempotent — both sections seeded
 // independently, and a section that already has content is skipped.
-async function seedWeddingPartyPeopleAndDayof() {
+export async function seedWeddingPartyPeopleAndDayof() {
   const people = await db.bookSection.findUnique({
     where: { slug: "wedding-party-people" },
   });
@@ -878,7 +878,7 @@ async function seedWeddingPartyPeopleAndDayof() {
 // LODGING_GUIDE cards per BOOK-EXPANSION-PLAN.md §8.11. Idempotent —
 // skipped when the section already has subsections. Real cards added
 // via the UI are never overwritten by re-seed.
-async function seedAccommodationCards() {
+export async function seedAccommodationCards() {
   const section = await db.bookSection.findUnique({
     where: { slug: "accommodation" },
   });
@@ -1004,7 +1004,7 @@ async function seedAccommodationCards() {
 
 // v1.38.0 (P8): seed the Post-wedding section per BOOK-EXPANSION-PLAN
 // §8.12. Idempotent — skipped when the section already has content.
-async function seedPostWeddingSection() {
+export async function seedPostWeddingSection() {
   const section = await db.bookSection.findUnique({ where: { slug: "post-wedding" } });
   if (!section) {
     console.log(`  · post-wedding section not found; skipping seed`);

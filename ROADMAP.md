@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.38.0** | 2026-04-30 | [Wedding Book closes the arc (P7b/B + P8) — SHOT_LIST gains category / time budget / **guest-list link** · FIELD gains group / helpText / required / numeric + date ranges · RECIPE gains servingsBase + structured `BookRecipeStep` (Json→rows migration) + day-before tag · Post-wedding section seeded · Production backfill script · Guest detail "Photos to capture" reverse query](#2026-04-30--v1380--wedding-book-arc-closes-p7bb--p8) |
+| **v1.38.1** | 2026-04-30 | [`scripts/seed-samples-only.ts` — fills empty Book sections + subpages on prod without touching users / tasks / schedule / guests / seating. Section seeders refactored to be importable.](#2026-04-30--v1381--samples-only-prod-backfill-script) |
+| v1.38.0 | 2026-04-30 | [Wedding Book closes the arc (P7b/B + P8) — SHOT_LIST gains category / time budget / **guest-list link** · FIELD gains group / helpText / required / numeric + date ranges · RECIPE gains servingsBase + structured `BookRecipeStep` (Json→rows migration) + day-before tag · Post-wedding section seeded · Production backfill script · Guest detail "Photos to capture" reverse query](#2026-04-30--v1380--wedding-book-arc-closes-p7bb--p8) |
 | v1.37.5 | 2026-04-30 | [Cross-module wiring (P7b/Part C) — Today widgets for legal deadlines / outfit milestones / open decisions · Guest detail surfaces meal-choice deep-links + accommodation · Budget shows DIY-card linkbacks · Supplier shows "used in setup" rows](#2026-04-30--v1375--cross-module-wiring-p7b-part-c) |
 | v1.37.2 | 2026-04-30 | [TEXT card list / blockquote rendering fix — Tailwind v4 has no `@tailwindcss/typography`, so `prose` was a no-op and bullets / numbers / quote borders all disappeared](#2026-04-30--v1372--text-card-list--blockquote-rendering-fix) |
 | v1.37.1 | 2026-04-30 | [TEXT card View / Edit toggle — toolbar no longer leaks into read mode after save (matches every other v1.31+ card)](#2026-04-30--v1371--text-card-view--edit-toggle) |
@@ -746,6 +747,28 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-30 · v1.38.1 — Samples-only prod backfill script
+
+User-flagged after the v1.38.0 promotion: "I want the samples but don't want to change any other db data such as seating allocations, tasks, guests".
+
+The full `npm run db:seed` is intentionally aggressive — it runs `seedSampleTasks` (4 placeholder tasks), `seedScheduleEvents` (8 day-of placeholders), and `seedUsersAndPermissions` (refreshes user metadata from env). On a populated production those would add noise / churn user records. The Book section seeders are already idempotent (per-section skip-if-content-exists), but they were buried inside `seed.ts`'s `main()` — couldn't be invoked piecemeal.
+
+Fix: refactor `prisma/seed.ts` to **export** the eight section-level seeders (`seedWeddingPartySubsections`, `seedBuildCards`, `seedFoodDrinkCards`, `seedVenueSpacesAndDecor`, `seedLegalSections`, `seedWeddingPartyPeopleAndDayof`, `seedAccommodationCards`, `seedPostWeddingSection`). New script `scripts/seed-samples-only.ts` imports them and runs all eight in sequence + ensures the 12 BookSection rows exist with correct ordering.
+
+Each seeder remains per-section skip-if-content-exists, so populated sections (anything the couple has authored) are no-ops. Empty sections receive their sample subpages (e.g. Post-wedding gets its four placeholders, Wedding Party — People gets six OUTFIT cards for the known wedding-party members).
+
+What the script **does NOT touch**: users, tasks, schedule events, guests, households, seating, songs, payments, suppliers, files. Only Book sections and their child subsection rows.
+
+Run on production after `docker compose pull && up -d`:
+
+```bash
+docker compose exec web npx tsx scripts/seed-samples-only.ts
+```
+
+Idempotent — safe to re-run.
+
+Files: [scripts/seed-samples-only.ts](scripts/seed-samples-only.ts) · [prisma/seed.ts](prisma/seed.ts) (eight `async function` → `export async function`).
 
 ### 2026-04-30 · v1.38.0 — Wedding Book arc closes (P7b/B + P8)
 
