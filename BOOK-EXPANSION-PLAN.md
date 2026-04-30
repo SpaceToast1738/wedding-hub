@@ -823,6 +823,58 @@ remaining card upgrades and cross-module wiring.
 9. **No new tags until CI is green on the same SHA.**
 10. **Sanitise all WYSIWYG-authored HTML on write AND on read.**
 
+### 10a. Edit-row field layout (temporary, v1.33.1 → end of this arc)
+
+Added after v1.33.1 fixed cramped fields that v1.32.2's edit row
+introduced. Applies to every new card editor shipped in P4–P8.
+Re-evaluate after v1.38.0 — promote to permanent or relax.
+
+Every multi-field edit row (an item / option / line) in a Book card
+follows these rules:
+
+1. **Two-row grid maximum.** Don't pack 5+ fields into a single
+   12-column row. Cards live in a `max-w-3xl` column (~660 px
+   usable); a 1-col field is ~42 px wide and unusable. Split into
+   two grids of 3–4 fields each, or three for very busy rows.
+2. **Per-cell labels.** Every input has a small uppercase label
+   above it (`text-[10px] uppercase tracking-wider text-ink-tertiary
+   font-bold`). Even narrow columns are recognisable at a glance.
+   Use the `FieldLabel` + `Label` primitives — currently copy-pasted
+   in `BookBuildCard.tsx`, `BookBarCard.tsx`, `BookSetupCard.tsx`;
+   when P4 lands, lift them into `src/app/(app)/book/[slug]/bookCardUi.tsx`
+   alongside the existing £-input helpers.
+3. **Minimum column widths per field type** (relative to a 12-col
+   row):
+   - **Name / label / title**: ≥4 cols (~190 px) — the primary
+     thing on the row.
+   - **Supplier / source / contact**: ≥4 cols.
+   - **£ price inputs**: ≥3 cols. The £ prefix + decimal value +
+     optional `/hd` suffix need the space.
+   - **Qty (numeric)**: 2 cols minimum.
+   - **Unit / short text**: 2 cols minimum.
+   - **Free-text "when" / "where" / "category"**: 3 cols minimum.
+4. **Toggles + checkboxes + reorder/remove on a third compact row.**
+   Pricing-mode toggles, flag checkboxes (ordered/arrived,
+   packed/placed, vegetarian-main/kids-meal), and the up/down/×
+   buttons all live below the field grid in a single
+   `flex items-center justify-between` row. They never take grid
+   columns away from the field inputs.
+5. **View mode mirrors the same proportions.** When a card switches
+   from edit to view, the column widths and grouping should match
+   so the user's eye doesn't have to recalibrate.
+6. **Helper hints stay on the header fields, not per-row inputs.**
+   Hints (the small grey text under the input) belong on top-of-
+   card "what is this card for" fields, not on every line item —
+   per-line hints add clutter and the placeholder usually carries
+   the meaning.
+
+When a P4–P8 prompt is executed, run the resulting editor against
+this checklist before declaring done. The v1.33.1 layout in
+`BookBarCard.tsx`/`BookSetupCard.tsx`/`BookBuildCard.tsx` is the
+canonical reference — copy the shape.
+
+---
+
 There is **no calendar-based feature freeze** in this plan. Risk is
 managed by the standing rules above (every change ships green CI; no
 breaking migrations; audit on every write; tests gate every release)

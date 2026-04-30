@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.33.1** | 2026-04-30 | [Edit-row layout pass — BUILD / BAR / SETUP cards switch to two-row grids with per-cell labels so name / supplier / £ all get usable width](#2026-04-30--v1331--edit-row-layout-pass) |
+| **v1.33.2** | 2026-04-30 | [BOOK-EXPANSION-PLAN.md gains a temporary edit-row layout rule (§10a) so P4–P8 ship correct widths from day one](#2026-04-30--v1332--edit-row-layout-rule-pinned-into-the-card-creation-plan) |
+| v1.33.1 | 2026-04-30 | [Edit-row layout pass — BUILD / BAR / SETUP cards switch to two-row grids with per-cell labels so name / supplier / £ all get usable width](#2026-04-30--v1331--edit-row-layout-pass) |
 | v1.33.0 | 2026-04-30 | [Wedding Book SETUP card (P3) — per-space spatial walkthrough · Venue split into Spaces / Décor (additive)](#2026-04-30--v1330--wedding-book-setup-card-p3--venue-split) |
 | v1.32.2 | 2026-04-30 | [BAR card: per-head pricing + serving timing — handles £2.50/head toast drinks; view groups by timing when set](#2026-04-30--v1322--bar-per-head-pricing--timing) |
 | v1.32.1 | 2026-04-30 | [Audit log: 30-day retention sweep + search box on the Settings viewer](#2026-04-30--v1321--audit-log-retention--search) |
@@ -706,6 +707,27 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-30 · v1.33.2 — Edit-row layout rule pinned into the card-creation plan
+
+Docs-only follow-up to v1.33.1. The lessons from cramming six fields into a 12-column row (BAR card, v1.32.2) and the two-row redesign that fixed it (v1.33.1) get pinned into [BOOK-EXPANSION-PLAN.md](BOOK-EXPANSION-PLAN.md) as a **temporary standing constraint (§10a)** so P4 (LEGAL), P5 (OUTFIT rework), P6 (STAY + LODGING_GUIDE) ship with proper widths from day one rather than needing UX patches afterwards.
+
+The rule covers six bullets:
+
+1. Two-row grid maximum per editable line.
+2. Per-cell labels above every input — `FieldLabel` + `Label` primitives in the per-card files, lifted to a shared module when P4 needs them.
+3. Minimum column widths by field type (Name ≥4, £ ≥3, Qty ≥2, etc.).
+4. Toggles / flag checkboxes / reorder + remove on a third compact row.
+5. View mode mirrors the edit-mode proportions.
+6. Helper hints stay on top-of-card fields, not per-line inputs.
+
+Marked **temporary** — re-evaluate after v1.38.0 (last phase of the Book expansion arc): promote to permanent if it's still serving the codebase, or relax if it gets in the way of a card kind we haven't anticipated.
+
+**Files:** `BOOK-EXPANSION-PLAN.md` (new §10a), `package.json` bump, this changelog entry.
+
+**Verification:** typecheck + lint + 271 tests + clean `.next` build all green. No code changed.
+
+**Next:** v1.34.0 P4 — LEGAL card + Legal split, ships against §10a from the start.
 
 ### 2026-04-30 · v1.33.1 — Edit-row layout pass
 
