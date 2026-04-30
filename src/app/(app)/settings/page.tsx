@@ -16,11 +16,11 @@ import { NavTagsBlock } from "./NavTagsBlock";
 export default async function SettingsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ audit_before?: string }>;
+  searchParams: Promise<{ audit_before?: string; audit_q?: string }>;
 }) {
   const user = await requireUser();
   const editable = await canEdit(user, "settings");
-  const { audit_before } = await searchParams;
+  const { audit_before, audit_q } = await searchParams;
 
   const [users, permissions, me, customFields, wedding, navTagsRaw] = await Promise.all([
     db.user.findMany({ orderBy: [{ isCouple: "desc" }, { name: "asc" }] }),
@@ -134,7 +134,11 @@ export default async function SettingsPage({
           {/* v1.25.0: nudges digest, couple-only. */}
           {user.isCouple && <NudgesPanel />}
 
-          <AuditLogPanel isCouple={user.isCouple} before={audit_before} />
+          <AuditLogPanel
+            isCouple={user.isCouple}
+            before={audit_before}
+            query={audit_q}
+          />
         </div>
       </div>
     </>

@@ -886,6 +886,9 @@ model AuditLog {
 
   @@index([userId, createdAt])
   @@index([entity, entityId])
+  // v1.32.1: support the 30-day retention sweep — cheap range delete
+  // when the cleanup cron runs.
+  @@index([createdAt])
 }
 
 // Tracks magic-link send attempts for rate-limiting. The auth flow checks

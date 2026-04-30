@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.32.0** | 2026-04-30 | [Wedding Book MENU + BAR cards (P2) — food service composition with live guest selection counts, drinks plan with per-head sanity check · BUILD label renamed to "DIY" · audit log viewer now renders human sentences via `formatAuditAction`](#2026-04-30--v1320--wedding-book-menu--bar-cards-p2) |
+| **v1.32.1** | 2026-04-30 | [Audit log: 30-day retention sweep + search box on the Settings viewer](#2026-04-30--v1321--audit-log-retention--search) |
+| v1.32.0 | 2026-04-30 | [Wedding Book MENU + BAR cards (P2) — food service composition with live guest selection counts, drinks plan with per-head sanity check · BUILD label renamed to "DIY" · audit log viewer now renders human sentences via `formatAuditAction`](#2026-04-30--v1320--wedding-book-menu--bar-cards-p2) |
 | v1.31.1 | 2026-04-30 | [BUILD card UX pass — single Edit/View states · live Budget link · `/diy` overview page · £-input · clearer field hints · status-disappear bug fixed](#2026-04-30--v1311--build-card-ux-pass) |
 | v1.31.0 | 2026-04-30 | [Wedding Book BUILD card (P1) — DIY production tracker with materials list, sessions log, prototype-blocker warning, copy-to-Budget action](#2026-04-30--v1310--wedding-book-build-card-p1) |
 | v1.30.6 | 2026-04-30 | [Track `BOOK-EXPANSION-PLAN.md` in the repo (docs only) — sets the v1.31.0–v1.38.0 arc](#2026-04-30--v1306--track-book-expansion-plan-in-the-repo) |
@@ -702,6 +703,53 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-30 · v1.32.1 — Audit log retention + search
+
+User-asked while reviewing v1.32.0 in the wild. Two operational
+quality-of-life additions to the audit log:
+
+**30-day retention.** Audit rows older than 30 days are pruned by a
+lazy sweep inside `logAudit()` ([src/lib/audit.ts](src/lib/audit.ts)).
+Runs at most once per hour per process — process-local timestamp
+gate (`SWEEP_COOLDOWN_MS`). Fire-and-forget after each successful
+audit write; errors are logged but never propagate. No new cron
+infra required, which suits the admin-only / low-volume profile of
+this app. Multi-instance deploys each track their own cooldown,
+which is fine — the DELETE is idempotent and indexed.
+
+New `@@index([createdAt])` on `AuditLog` to make the range-DELETE
+cheap. The pre-existing `(userId, createdAt)` composite index isn't
+useful for a plain "createdAt < cutoff" query without a userId
+predicate. Migration `20260430030000_audit_log_createdat_index`,
+additive only.
+
+**Search box on `/settings` audit viewer.** New `audit_q` search
+param. When set:
+
+- Database filter: case-insensitive substring match against
+  `action`, `entity`, and `user.{name,email}`.
+- Post-filter in JS: also matches against the `formatAuditAction`
+  output (the human "what" sentence) so a search for a card title
+  embedded in metadata (like "Centerpieces") finds the row even
+  though `cardTitle` lives in the JSON metadata bag.
+- Fetch limit raised to 200 candidates while searching; `Older →`
+  cursor pagination is hidden when a search is active. A footer
+  hint appears at the cap suggesting the user refine the term.
+- Plain GET form — no client JS — so the browser's normal
+  form-submission flow handles the navigation. "Clear" link exits
+  search mode by stripping the `audit_q` param.
+
+**Files:**
+- `prisma/schema.prisma` — `@@index([createdAt])` on AuditLog.
+- New: `prisma/migrations/20260430030000_audit_log_createdat_index/migration.sql`.
+- `src/lib/audit.ts` — retention sweep + cooldown.
+- `src/app/(app)/settings/AuditLogPanel.tsx` — search input + filter logic + result-count copy + capped-result hint.
+- `src/app/(app)/settings/page.tsx` — `audit_q` searchParam threaded through.
+
+**Verification:** typecheck + lint clean, 259 unit tests pass, clean `.next` build green.
+
+**Next:** v1.33.0 P3 — SETUP card + Venue → Spaces / Décor split.
 
 ### 2026-04-30 · v1.32.0 — Wedding Book MENU + BAR cards (P2)
 
