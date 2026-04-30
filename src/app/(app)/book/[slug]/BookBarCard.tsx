@@ -584,108 +584,142 @@ function ItemEditRow({
   }
 
   return (
-    <li className="px-3 py-2.5 bg-canvas/30">
+    <li className="px-3 py-3 bg-canvas/30 space-y-2">
+      {/* Row 1 — what is it: name | category | when */}
       <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-start">
-        <div className="sm:col-span-3">
+        <FieldLabel className="sm:col-span-6">
+          <span className="text-[10px] uppercase tracking-wider text-ink-tertiary font-bold">Name</span>
+          <input
+            value={item.name}
+            onChange={(e) => onChange({ name: e.target.value })}
+            disabled={pending}
+            placeholder="e.g. Pinot grigio"
+            className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2 py-1.5 text-ink-primary outline-none focus:border-moss-500"
+          />
+        </FieldLabel>
+        <FieldLabel className="sm:col-span-3">
+          <span className="text-[10px] uppercase tracking-wider text-ink-tertiary font-bold">Category</span>
           <input
             value={item.category}
             onChange={(e) => onChange({ category: e.target.value })}
             disabled={pending}
             list={`bar-cats-${item.id}`}
-            placeholder="Category"
-            className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2 py-1 text-ink-primary outline-none focus:border-moss-500"
+            placeholder="e.g. Wine"
+            className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2 py-1.5 text-ink-primary outline-none focus:border-moss-500"
           />
           <datalist id={`bar-cats-${item.id}`}>
             {PRESET_CATEGORIES.map((c) => (
               <option key={c} value={c} />
             ))}
           </datalist>
-        </div>
-        <input
-          value={item.name}
-          onChange={(e) => onChange({ name: e.target.value })}
-          disabled={pending}
-          placeholder="Name (e.g. Pinot grigio)"
-          className="sm:col-span-3 text-sm bg-surface border border-border-soft rounded-sm px-2 py-1 text-ink-primary outline-none focus:border-moss-500"
-        />
-        <input
-          value={item.timing ?? ""}
-          onChange={(e) => onChange({ timing: e.target.value || null })}
-          disabled={pending}
-          list={`bar-timings-${item.id}`}
-          placeholder="When (e.g. Toast)"
-          className="sm:col-span-2 text-sm bg-surface border border-border-soft rounded-sm px-2 py-1 text-ink-primary outline-none focus:border-moss-500"
-        />
-        <datalist id={`bar-timings-${item.id}`}>
-          {PRESET_TIMINGS.map((t) => (
-            <option key={t} value={t} />
-          ))}
-        </datalist>
-        <input
-          type="number"
-          step="any"
-          min={0}
-          value={item.quantityPlanned ?? ""}
-          onChange={(e) =>
-            onChange({ quantityPlanned: e.target.value === "" ? null : Number(e.target.value) })
-          }
-          disabled={pending}
-          placeholder={isPerHead ? "drinks/head" : "Qty"}
-          title={isPerHead ? "Drinks per head" : "Quantity"}
-          className="sm:col-span-1 text-sm bg-surface border border-border-soft rounded-sm px-2 py-1 text-ink-primary outline-none focus:border-moss-500 tabular-nums"
-        />
-        {isPerHead ? (
+        </FieldLabel>
+        <FieldLabel className="sm:col-span-3">
+          <span className="text-[10px] uppercase tracking-wider text-ink-tertiary font-bold">When</span>
           <input
-            value=""
-            disabled
-            placeholder="—"
-            className="sm:col-span-1 text-sm bg-canvas/40 border border-border-soft rounded-sm px-2 py-1 text-ink-tertiary outline-none"
-          />
-        ) : (
-          <input
-            value={item.unit ?? ""}
-            onChange={(e) => onChange({ unit: e.target.value })}
+            value={item.timing ?? ""}
+            onChange={(e) => onChange({ timing: e.target.value || null })}
             disabled={pending}
-            placeholder="Unit"
-            className="sm:col-span-1 text-sm bg-surface border border-border-soft rounded-sm px-2 py-1 text-ink-primary outline-none focus:border-moss-500"
+            list={`bar-timings-${item.id}`}
+            placeholder="e.g. Toast"
+            className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2 py-1.5 text-ink-primary outline-none focus:border-moss-500"
           />
-        )}
-        {isPerHead ? (
-          <div className="sm:col-span-2 relative">
-            <span className="absolute left-2 top-1/2 -translate-y-1/2 text-ink-tertiary text-sm pointer-events-none">£</span>
-            <input
-              type="text"
-              inputMode="decimal"
-              value={perHeadStr}
-              onChange={(e) => setPerHeadStr(e.target.value)}
-              onBlur={() =>
-                onChange({ pricePerHeadPence: poundsStringToPence(perHeadStr) ?? 0 })
-              }
-              disabled={pending}
-              placeholder="0.00"
-              title="Price per head"
-              className="w-full text-sm bg-surface border border-border-soft rounded-sm pl-5 pr-9 py-1 text-ink-primary outline-none focus:border-moss-500 tabular-nums text-right"
-            />
-            <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-ink-tertiary pointer-events-none">/hd</span>
-          </div>
-        ) : (
-          <div className="sm:col-span-2 relative">
-            <span className="absolute left-2 top-1/2 -translate-y-1/2 text-ink-tertiary text-sm pointer-events-none">£</span>
-            <input
-              type="text"
-              inputMode="decimal"
-              value={costStr}
-              onChange={(e) => setCostStr(e.target.value)}
-              onBlur={() => onChange({ costPence: poundsStringToPence(costStr) })}
-              disabled={pending}
-              placeholder="0.00"
-              title="Total cost"
-              className="w-full text-sm bg-surface border border-border-soft rounded-sm pl-5 pr-2 py-1 text-ink-primary outline-none focus:border-moss-500 tabular-nums text-right"
-            />
-          </div>
-        )}
+          <datalist id={`bar-timings-${item.id}`}>
+            {PRESET_TIMINGS.map((t) => (
+              <option key={t} value={t} />
+            ))}
+          </datalist>
+        </FieldLabel>
       </div>
-      <div className="flex items-center justify-between gap-2 mt-2">
+
+      {/* Row 2 — how much / who from: qty | unit | supplier | £ */}
+      <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-start">
+        <FieldLabel className="sm:col-span-2">
+          <span className="text-[10px] uppercase tracking-wider text-ink-tertiary font-bold">
+            {isPerHead ? "Drinks/head" : "Qty"}
+          </span>
+          <input
+            type="number"
+            step="any"
+            min={0}
+            value={item.quantityPlanned ?? ""}
+            onChange={(e) =>
+              onChange({ quantityPlanned: e.target.value === "" ? null : Number(e.target.value) })
+            }
+            disabled={pending}
+            placeholder="0"
+            className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2 py-1.5 text-ink-primary outline-none focus:border-moss-500 tabular-nums"
+          />
+        </FieldLabel>
+        <FieldLabel className="sm:col-span-2">
+          <span className="text-[10px] uppercase tracking-wider text-ink-tertiary font-bold">Unit</span>
+          {isPerHead ? (
+            <input
+              value=""
+              disabled
+              placeholder="—"
+              className="w-full text-sm bg-canvas/40 border border-border-soft rounded-sm px-2 py-1.5 text-ink-tertiary outline-none"
+            />
+          ) : (
+            <input
+              value={item.unit ?? ""}
+              onChange={(e) => onChange({ unit: e.target.value })}
+              disabled={pending}
+              placeholder="bottles, L"
+              className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2 py-1.5 text-ink-primary outline-none focus:border-moss-500"
+            />
+          )}
+        </FieldLabel>
+        <FieldLabel className="sm:col-span-4">
+          <span className="text-[10px] uppercase tracking-wider text-ink-tertiary font-bold">Supplier</span>
+          <input
+            value={item.supplier ?? ""}
+            onChange={(e) => onChange({ supplier: e.target.value })}
+            disabled={pending}
+            placeholder="e.g. Majestic"
+            className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2 py-1.5 text-ink-primary outline-none focus:border-moss-500"
+          />
+        </FieldLabel>
+        <FieldLabel className="sm:col-span-4">
+          <span className="text-[10px] uppercase tracking-wider text-ink-tertiary font-bold">
+            {isPerHead ? "Price / head" : "Total cost"}
+          </span>
+          {isPerHead ? (
+            <div className="relative">
+              <span className="absolute left-2 top-1/2 -translate-y-1/2 text-ink-tertiary text-sm pointer-events-none">£</span>
+              <input
+                type="text"
+                inputMode="decimal"
+                value={perHeadStr}
+                onChange={(e) => setPerHeadStr(e.target.value)}
+                onBlur={() =>
+                  onChange({ pricePerHeadPence: poundsStringToPence(perHeadStr) ?? 0 })
+                }
+                disabled={pending}
+                placeholder="0.00"
+                className="w-full text-sm bg-surface border border-border-soft rounded-sm pl-5 pr-10 py-1.5 text-ink-primary outline-none focus:border-moss-500 tabular-nums text-right"
+              />
+              <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-ink-tertiary pointer-events-none">/hd</span>
+            </div>
+          ) : (
+            <div className="relative">
+              <span className="absolute left-2 top-1/2 -translate-y-1/2 text-ink-tertiary text-sm pointer-events-none">£</span>
+              <input
+                type="text"
+                inputMode="decimal"
+                value={costStr}
+                onChange={(e) => setCostStr(e.target.value)}
+                onBlur={() => onChange({ costPence: poundsStringToPence(costStr) })}
+                disabled={pending}
+                placeholder="0.00"
+                className="w-full text-sm bg-surface border border-border-soft rounded-sm pl-5 pr-2 py-1.5 text-ink-primary outline-none focus:border-moss-500 tabular-nums text-right"
+              />
+            </div>
+          )}
+        </FieldLabel>
+      </div>
+
+      {/* Row 3 — pricing toggle + reorder/remove */}
+      <div className="flex items-center justify-between gap-2 pt-1">
         <div className="flex items-center gap-1 text-[11px]">
           <span className="text-ink-tertiary uppercase tracking-wider font-bold">Pricing</span>
           <button
@@ -714,13 +748,6 @@ function ItemEditRow({
           >
             Per head
           </button>
-          <input
-            value={item.supplier ?? ""}
-            onChange={(e) => onChange({ supplier: e.target.value })}
-            disabled={pending}
-            placeholder="Supplier (optional)"
-            className="ml-3 text-xs bg-surface border border-border-soft rounded-sm px-2 py-0.5 text-ink-primary outline-none focus:border-moss-500"
-          />
         </div>
         <div className="flex items-center gap-1">
           <button
@@ -753,6 +780,29 @@ function ItemEditRow({
         </div>
       </div>
     </li>
+  );
+}
+
+// v1.33.1: small wrapper that pairs a label with an input inside a
+// grid cell. Uses a structural label-then-children pattern so the
+// per-cell label is always present even when a column is narrow —
+// stops the row from looking like an unrelated jumble of inputs.
+function FieldLabel({
+  className,
+  children,
+}: {
+  className?: string;
+  children: React.ReactNode;
+}) {
+  return <div className={`${className ?? ""} flex flex-col gap-1`}>{children}</div>;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function Label({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="block text-[10px] uppercase tracking-wider text-ink-tertiary font-bold">
+      {children}
+    </span>
   );
 }
 

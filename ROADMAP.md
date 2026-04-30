@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.33.0** | 2026-04-30 | [Wedding Book SETUP card (P3) — per-space spatial walkthrough · Venue split into Spaces / Décor (additive)](#2026-04-30--v1330--wedding-book-setup-card-p3--venue-split) |
+| **v1.33.1** | 2026-04-30 | [Edit-row layout pass — BUILD / BAR / SETUP cards switch to two-row grids with per-cell labels so name / supplier / £ all get usable width](#2026-04-30--v1331--edit-row-layout-pass) |
+| v1.33.0 | 2026-04-30 | [Wedding Book SETUP card (P3) — per-space spatial walkthrough · Venue split into Spaces / Décor (additive)](#2026-04-30--v1330--wedding-book-setup-card-p3--venue-split) |
 | v1.32.2 | 2026-04-30 | [BAR card: per-head pricing + serving timing — handles £2.50/head toast drinks; view groups by timing when set](#2026-04-30--v1322--bar-per-head-pricing--timing) |
 | v1.32.1 | 2026-04-30 | [Audit log: 30-day retention sweep + search box on the Settings viewer](#2026-04-30--v1321--audit-log-retention--search) |
 | v1.32.0 | 2026-04-30 | [Wedding Book MENU + BAR cards (P2) — food service composition with live guest selection counts, drinks plan with per-head sanity check · BUILD label renamed to "DIY" · audit log viewer now renders human sentences via `formatAuditAction`](#2026-04-30--v1320--wedding-book-menu--bar-cards-p2) |
@@ -705,6 +706,30 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-30 · v1.33.1 — Edit-row layout pass
+
+User-reported while reviewing v1.32.2: drinks fields squashed in the BAR card edit row. Six fields packed into a single 12-column grid (category 3, name 3, timing 2, qty 1, unit 1, £ 2) was uncomfortably tight on the ~660 px card width.
+
+**Fix applied to all three multi-field card editors:**
+
+- **BAR ItemEditRow** — 6-field row split into **two grids of 3+4 fields each**. Row 1: Name (6/12) · Category (3/12) · When (3/12). Row 2: Drinks/head or Qty (2/12) · Unit (2/12) · Supplier (4/12) · £ Total or £/head (4/12). Supplier comes back into the main grid (was tucked next to the pricing toggle in v1.32.2). Pricing toggle + reorder/remove stay on the third compact row.
+
+- **SETUP ItemEditRow** — split into two rows. Row 1: Item (6/12) · Qty (2/12) · Location (4/12). Row 2: Source/supplier (6/12) · Pack-down plan (6/12). Packed/placed flags + reorder/remove on the third row.
+
+- **BUILD MaterialEditRow** — split into two rows. Row 1: Material (8/12) · Qty (2/12) · Unit (2/12). Row 2: Supplier (8/12) · £ Total cost (4/12). Ordered/arrived flags + reorder/remove on the third row.
+
+- **MENU OptionEditRow** unchanged — already used a 2-col `label / dietary` grid plus a full-width description row, with comfortable widths.
+
+**Per-cell labels.** Each field now has a small uppercase label above it (`Name`, `Category`, `When`, etc.). Even at narrow widths the row is recognisable at a glance — matches the v1.31.1 BUILD-header pattern with helper hints.
+
+**Common helpers.** Added `FieldLabel` (grid-cell wrapper) + `Label` (label text) primitives in each of the three card files. They're tiny — a copy in each file is fine; promoting to a shared component is overkill until a fourth card needs the same shape (P4 LEGAL likely will, then we'll move them).
+
+**Files:** `BookBarCard.tsx`, `BookSetupCard.tsx`, `BookBuildCard.tsx` — only the edit-row sections. View-mode display + server actions + audit metadata all unchanged.
+
+**Verification:** typecheck + lint clean, 271 unit tests pass, clean `.next` build green. No schema or migration changes — pure client-side layout.
+
+**Next:** v1.34.0 P4 — LEGAL card + Legal section split (the LEGAL card editor will use the same FieldLabel/Label shape from day one, and we'll lift the helpers out into a shared file then).
 
 ### 2026-04-30 · v1.33.0 — Wedding Book SETUP card (P3) + Venue split
 

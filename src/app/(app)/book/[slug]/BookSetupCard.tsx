@@ -422,55 +422,74 @@ function ItemEditRow({
   onMoveDown: () => void;
 }) {
   return (
-    <li className="px-3 py-2.5 bg-canvas/30">
+    <li className="px-3 py-3 bg-canvas/30 space-y-2">
+      {/* Row 1 — what + where: name | qty | location */}
       <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-start">
-        <input
-          value={item.name}
-          onChange={(e) => onChange({ name: e.target.value })}
-          disabled={pending}
-          placeholder="Item (e.g. Centerpiece)"
-          className="sm:col-span-3 text-sm bg-surface border border-border-soft rounded-sm px-2 py-1 text-ink-primary outline-none focus:border-moss-500"
-        />
-        <input
-          type="number"
-          min={0}
-          value={item.quantity ?? ""}
-          onChange={(e) =>
-            onChange({ quantity: e.target.value === "" ? null : Number(e.target.value) })
-          }
-          disabled={pending}
-          placeholder="Qty"
-          className="sm:col-span-1 text-sm bg-surface border border-border-soft rounded-sm px-2 py-1 text-ink-primary outline-none focus:border-moss-500 tabular-nums"
-        />
-        <input
-          value={item.location ?? ""}
-          onChange={(e) => onChange({ location: e.target.value })}
-          disabled={pending}
-          placeholder="Location (e.g. Round-table centre)"
-          className="sm:col-span-3 text-sm bg-surface border border-border-soft rounded-sm px-2 py-1 text-ink-primary outline-none focus:border-moss-500"
-        />
-        <input
-          value={item.source ?? ""}
-          onChange={(e) => onChange({ source: e.target.value })}
-          disabled={pending}
-          list={`setup-suppliers-${item.id}`}
-          placeholder="Source / supplier"
-          className="sm:col-span-3 text-sm bg-surface border border-border-soft rounded-sm px-2 py-1 text-ink-primary outline-none focus:border-moss-500"
-        />
-        <datalist id={`setup-suppliers-${item.id}`}>
-          {supplierNames.map((s) => (
-            <option key={s} value={s} />
-          ))}
-        </datalist>
-        <input
-          value={item.packDownPlan ?? ""}
-          onChange={(e) => onChange({ packDownPlan: e.target.value })}
-          disabled={pending}
-          placeholder="Pack-down plan"
-          className="sm:col-span-2 text-sm bg-surface border border-border-soft rounded-sm px-2 py-1 text-ink-primary outline-none focus:border-moss-500"
-        />
+        <FieldLabel className="sm:col-span-6">
+          <Label>Item</Label>
+          <input
+            value={item.name}
+            onChange={(e) => onChange({ name: e.target.value })}
+            disabled={pending}
+            placeholder="e.g. Centerpiece"
+            className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2 py-1.5 text-ink-primary outline-none focus:border-moss-500"
+          />
+        </FieldLabel>
+        <FieldLabel className="sm:col-span-2">
+          <Label>Qty</Label>
+          <input
+            type="number"
+            min={0}
+            value={item.quantity ?? ""}
+            onChange={(e) =>
+              onChange({ quantity: e.target.value === "" ? null : Number(e.target.value) })
+            }
+            disabled={pending}
+            placeholder="0"
+            className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2 py-1.5 text-ink-primary outline-none focus:border-moss-500 tabular-nums"
+          />
+        </FieldLabel>
+        <FieldLabel className="sm:col-span-4">
+          <Label>Location</Label>
+          <input
+            value={item.location ?? ""}
+            onChange={(e) => onChange({ location: e.target.value })}
+            disabled={pending}
+            placeholder="e.g. Round-table centre"
+            className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2 py-1.5 text-ink-primary outline-none focus:border-moss-500"
+          />
+        </FieldLabel>
       </div>
-      <div className="flex items-center justify-between gap-2 mt-2 text-xs">
+      {/* Row 2 — who from / what to do: source | pack-down plan */}
+      <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-start">
+        <FieldLabel className="sm:col-span-6">
+          <Label>Source / supplier</Label>
+          <input
+            value={item.source ?? ""}
+            onChange={(e) => onChange({ source: e.target.value })}
+            disabled={pending}
+            list={`setup-suppliers-${item.id}`}
+            placeholder="e.g. Paintbox Blooms"
+            className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2 py-1.5 text-ink-primary outline-none focus:border-moss-500"
+          />
+          <datalist id={`setup-suppliers-${item.id}`}>
+            {supplierNames.map((s) => (
+              <option key={s} value={s} />
+            ))}
+          </datalist>
+        </FieldLabel>
+        <FieldLabel className="sm:col-span-6">
+          <Label>Pack-down plan</Label>
+          <input
+            value={item.packDownPlan ?? ""}
+            onChange={(e) => onChange({ packDownPlan: e.target.value })}
+            disabled={pending}
+            placeholder="e.g. Bridesmaids take to best man's car"
+            className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2 py-1.5 text-ink-primary outline-none focus:border-moss-500"
+          />
+        </FieldLabel>
+      </div>
+      <div className="flex items-center justify-between gap-2 pt-1 text-xs">
         <div className="flex gap-3">
           <label className="flex items-center gap-1.5">
             <input
@@ -557,5 +576,19 @@ function Field({
       {children}
       {hint && <p className="mt-1 text-[11px] text-ink-tertiary">{hint}</p>}
     </div>
+  );
+}
+
+// v1.33.1: same FieldLabel + Label primitives the BAR card uses —
+// per-cell label + roomy input pair so two-row edit grids stay
+// readable.
+function FieldLabel({ className, children }: { className?: string; children: React.ReactNode }) {
+  return <div className={`${className ?? ""} flex flex-col gap-1`}>{children}</div>;
+}
+function Label({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="block text-[10px] uppercase tracking-wider text-ink-tertiary font-bold">
+      {children}
+    </span>
   );
 }

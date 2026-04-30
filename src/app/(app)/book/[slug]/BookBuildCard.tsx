@@ -733,6 +733,19 @@ function Field({
   );
 }
 
+// v1.33.1: per-cell label + input pair for the two-row materials
+// edit grid. Same shape as BAR / SETUP equivalents.
+function FieldLabel({ className, children }: { className?: string; children: React.ReactNode }) {
+  return <div className={`${className ?? ""} flex flex-col gap-1`}>{children}</div>;
+}
+function Label({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="block text-[10px] uppercase tracking-wider text-ink-tertiary font-bold">
+      {children}
+    </span>
+  );
+}
+
 function MaterialEditRow({
   material,
   isFirst,
@@ -768,56 +781,75 @@ function MaterialEditRow({
   }
 
   return (
-    <li className="px-3 py-2.5 bg-canvas/30">
+    <li className="px-3 py-3 bg-canvas/30 space-y-2">
+      {/* Row 1 — what + how much: name | qty | unit */}
       <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-start">
-        <input
-          value={material.name}
-          onChange={(e) => onChange({ name: e.target.value })}
-          disabled={pending}
-          placeholder="Name (e.g. Mason jars)"
-          className="sm:col-span-4 text-sm bg-surface border border-border-soft rounded-sm px-2 py-1 text-ink-primary outline-none focus:border-moss-500"
-        />
-        <input
-          type="number"
-          step="any"
-          min={0}
-          value={material.quantity ?? ""}
-          onChange={(e) =>
-            onChange({ quantity: e.target.value === "" ? null : Number(e.target.value) })
-          }
-          disabled={pending}
-          placeholder="Qty"
-          className="sm:col-span-1 text-sm bg-surface border border-border-soft rounded-sm px-2 py-1 text-ink-primary outline-none focus:border-moss-500 tabular-nums"
-        />
-        <input
-          value={material.unit ?? ""}
-          onChange={(e) => onChange({ unit: e.target.value })}
-          disabled={pending}
-          placeholder="Unit (ea, m, stems)"
-          className="sm:col-span-2 text-sm bg-surface border border-border-soft rounded-sm px-2 py-1 text-ink-primary outline-none focus:border-moss-500"
-        />
-        <input
-          value={material.supplier ?? ""}
-          onChange={(e) => onChange({ supplier: e.target.value })}
-          disabled={pending}
-          placeholder="Supplier (e.g. Hobbycraft)"
-          className="sm:col-span-3 text-sm bg-surface border border-border-soft rounded-sm px-2 py-1 text-ink-primary outline-none focus:border-moss-500"
-        />
-        <div className="sm:col-span-2 relative">
-          <span className="absolute left-2 top-1/2 -translate-y-1/2 text-ink-tertiary text-sm pointer-events-none">£</span>
+        <FieldLabel className="sm:col-span-8">
+          <Label>Material</Label>
           <input
-            type="text"
-            inputMode="decimal"
-            value={costStr}
-            onChange={(e) => setCostStr(e.target.value)}
-            onBlur={() => commitCost(costStr)}
+            value={material.name}
+            onChange={(e) => onChange({ name: e.target.value })}
             disabled={pending}
-            placeholder="0.00"
-            className="w-full text-sm bg-surface border border-border-soft rounded-sm pl-5 pr-2 py-1 text-ink-primary outline-none focus:border-moss-500 tabular-nums text-right"
+            placeholder="e.g. Mason jars"
+            className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2 py-1.5 text-ink-primary outline-none focus:border-moss-500"
           />
-        </div>
+        </FieldLabel>
+        <FieldLabel className="sm:col-span-2">
+          <Label>Qty</Label>
+          <input
+            type="number"
+            step="any"
+            min={0}
+            value={material.quantity ?? ""}
+            onChange={(e) =>
+              onChange({ quantity: e.target.value === "" ? null : Number(e.target.value) })
+            }
+            disabled={pending}
+            placeholder="0"
+            className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2 py-1.5 text-ink-primary outline-none focus:border-moss-500 tabular-nums"
+          />
+        </FieldLabel>
+        <FieldLabel className="sm:col-span-2">
+          <Label>Unit</Label>
+          <input
+            value={material.unit ?? ""}
+            onChange={(e) => onChange({ unit: e.target.value })}
+            disabled={pending}
+            placeholder="ea, m, stems"
+            className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2 py-1.5 text-ink-primary outline-none focus:border-moss-500"
+          />
+        </FieldLabel>
       </div>
-      <div className="flex items-center justify-between gap-2 mt-2 text-xs">
+      {/* Row 2 — who from / how much £: supplier | £ cost */}
+      <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-start">
+        <FieldLabel className="sm:col-span-8">
+          <Label>Supplier</Label>
+          <input
+            value={material.supplier ?? ""}
+            onChange={(e) => onChange({ supplier: e.target.value })}
+            disabled={pending}
+            placeholder="e.g. Hobbycraft"
+            className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2 py-1.5 text-ink-primary outline-none focus:border-moss-500"
+          />
+        </FieldLabel>
+        <FieldLabel className="sm:col-span-4">
+          <Label>Total cost</Label>
+          <div className="relative">
+            <span className="absolute left-2 top-1/2 -translate-y-1/2 text-ink-tertiary text-sm pointer-events-none">£</span>
+            <input
+              type="text"
+              inputMode="decimal"
+              value={costStr}
+              onChange={(e) => setCostStr(e.target.value)}
+              onBlur={() => commitCost(costStr)}
+              disabled={pending}
+              placeholder="0.00"
+              className="w-full text-sm bg-surface border border-border-soft rounded-sm pl-5 pr-2 py-1.5 text-ink-primary outline-none focus:border-moss-500 tabular-nums text-right"
+            />
+          </div>
+        </FieldLabel>
+      </div>
+      <div className="flex items-center justify-between gap-2 pt-1 text-xs">
         <div className="flex gap-3">
           <label className="flex items-center gap-1.5">
             <input
