@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.37.1** | 2026-04-30 | [TEXT card View / Edit toggle — toolbar no longer leaks into read mode after save (matches every other v1.31+ card)](#2026-04-30--v1371--text-card-view--edit-toggle) |
+| **v1.37.2** | 2026-04-30 | [TEXT card list / blockquote rendering fix — Tailwind v4 has no `@tailwindcss/typography`, so `prose` was a no-op and bullets / numbers / quote borders all disappeared](#2026-04-30--v1372--text-card-list--blockquote-rendering-fix) |
+| v1.37.1 | 2026-04-30 | [TEXT card View / Edit toggle — toolbar no longer leaks into read mode after save (matches every other v1.31+ card)](#2026-04-30--v1371--text-card-view--edit-toggle) |
 | v1.37.0 | 2026-04-30 | [Wedding Book TEXT cards switch to Tiptap WYSIWYG (P7a) — 10-mark toolbar (Bold / Italic / Underline / H2 / H3 / lists / quote / link / undo / redo) · sanitiser allow-list with enforced `rel`+`target` on every anchor · idempotent SQL backfill for existing TEXT bodies](#2026-04-30--v1370--wedding-book-text-wysiwyg-p7a) |
 | v1.36.0 | 2026-04-30 | [Wedding Book STAY + LODGING_GUIDE cards (P6) — one card per accommodation booking with cost / dates / linked guests · recommended-hotels reference card with print stylesheet · Accommodation section seeded with 4 STAY + 1 LODGING_GUIDE around Stratford-upon-Avon](#2026-04-30--v1360--wedding-book-stay--lodging_guide-cards-p6) |
 | v1.35.1 | 2026-04-30 | [Migration fix — `CREATE EXTENSION pgcrypto` so `gen_random_bytes()` works in CI's bare Postgres image](#2026-04-30--v1351--migration-fix-pgcrypto) |
@@ -743,6 +744,14 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-30 · v1.37.2 — TEXT card list / blockquote rendering fix
+
+User-flagged on v1.37.1 review: "Some items are not working as expected like bullet points". Root cause: this project's Tailwind v4 setup doesn't include `@tailwindcss/typography`, so the `prose prose-sm` classes I'd added to the editor and `RichTextRead` were no-ops — and Tailwind Preflight resets `<ul>`, `<ol>` to `list-style: none` with zero indent, so bullet markers and numbers disappeared. Same for `<blockquote>`'s left border and `<h2>`/`<h3>` spacing.
+
+Fix: drop the `prose` classes and pin every needed style with explicit Tailwind utility selectors (`[&_ul]:list-disc`, `[&_ol]:list-decimal`, `[&_blockquote]:border-l-2`, etc.). Build one `RICH_TEXT_PROSE_CLASS` constant; share it between the live editor and `RichTextRead` so what-you-see-is-what-you-get across the View / Edit toggle. Covers every tag the sanitiser allow-list permits: paragraph spacing, H2 / H3, bulleted + numbered lists with nested-list margin handling, blockquote, strong / em / u, anchors.
+
+Files: [src/components/ui/RichTextEditor.tsx](src/components/ui/RichTextEditor.tsx).
 
 ### 2026-04-30 · v1.37.1 — TEXT card View / Edit toggle
 

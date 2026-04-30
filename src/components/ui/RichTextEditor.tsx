@@ -7,6 +7,41 @@ import StarterKit from "@tiptap/starter-kit";
 import { useEffect, useMemo, useState } from "react";
 import { sanitizeBookHtml } from "@/lib/sanitize-book-html";
 
+// v1.37.2: Tailwind v4 in this project doesn't ship `@tailwindcss/
+// typography`, so the Tiptap default `prose` class has no styles to
+// hang on to — `<ul>`, `<ol>`, `<blockquote>` all render with
+// list-style:none + zero margins (Preflight reset) and the bullet /
+// number markers disappear. We explicitly pin the styles for every
+// tag the sanitiser allows. Shared between the editor (edit mode)
+// and `RichTextRead` (view mode) so what-you-see-is-what-you-get
+// across the toggle.
+const RICH_TEXT_PROSE_CLASS = [
+  "max-w-none text-sm text-ink-secondary leading-relaxed",
+  // Block spacing — tight, matches how the editor authors paragraph
+  // breaks via blank lines.
+  "[&>:first-child]:mt-0 [&>:last-child]:mb-0",
+  "[&_p]:my-2",
+  // Headings.
+  "[&_h2]:text-ink-primary [&_h2]:text-base [&_h2]:font-semibold [&_h2]:mt-3 [&_h2]:mb-1.5",
+  "[&_h3]:text-ink-primary [&_h3]:text-sm [&_h3]:font-semibold [&_h3]:mt-3 [&_h3]:mb-1",
+  // Lists — explicit list-style + indentation since Preflight kills
+  // the browser defaults.
+  "[&_ul]:list-disc [&_ul]:pl-6 [&_ul]:my-2",
+  "[&_ol]:list-decimal [&_ol]:pl-6 [&_ol]:my-2",
+  "[&_li]:my-0.5 [&_li]:pl-1",
+  // Nested lists collapse the outer margin so the indent reads
+  // cleanly when someone makes a bulleted sub-list.
+  "[&_li>ul]:my-1 [&_li>ol]:my-1",
+  // Blockquote — left border + muted text, matches how it reads in
+  // every other Wedding Book card.
+  "[&_blockquote]:border-l-2 [&_blockquote]:border-border-soft [&_blockquote]:pl-3 [&_blockquote]:italic [&_blockquote]:text-ink-tertiary [&_blockquote]:my-2",
+  // Inline marks.
+  "[&_strong]:font-semibold [&_strong]:text-ink-primary",
+  "[&_em]:italic",
+  "[&_u]:underline",
+  "[&_a]:text-info [&_a]:underline",
+].join(" ");
+
 // v1.37.0 (P7a): Tiptap-based WYSIWYG for the Book TEXT card. The
 // toolbar is a **compile-time constant** — Bold, Italic, Underline,
 // H2, H3, Bullet list, Numbered list, Blockquote, Link, Undo, Redo.
@@ -66,8 +101,7 @@ export function RichTextEditor({
     ],
     editorProps: {
       attributes: {
-        class:
-          "min-h-[120px] prose prose-sm max-w-none px-2 py-1.5 outline-none text-ink-secondary [&_h2]:text-ink-primary [&_h2]:text-base [&_h2]:font-semibold [&_h3]:text-ink-primary [&_h3]:text-sm [&_h3]:font-semibold [&_a]:text-info [&_a]:underline",
+        class: `min-h-[120px] px-2 py-1.5 outline-none ${RICH_TEXT_PROSE_CLASS}`,
       },
     },
     content: value || "",
@@ -361,10 +395,7 @@ export function RichTextRead({ html, className }: { html: string; className?: st
   const sanitised = useMemo(() => sanitizeBookHtml(html), [html]);
   return (
     <div
-      className={[
-        "prose prose-sm max-w-none text-ink-secondary [&_h2]:text-ink-primary [&_h2]:text-base [&_h2]:font-semibold [&_h3]:text-ink-primary [&_h3]:text-sm [&_h3]:font-semibold [&_a]:text-info [&_a]:underline",
-        className ?? "",
-      ].join(" ")}
+      className={[RICH_TEXT_PROSE_CLASS, className ?? ""].join(" ")}
       // eslint-disable-next-line react/no-danger
       dangerouslySetInnerHTML={{ __html: sanitised }}
     />
