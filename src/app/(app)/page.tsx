@@ -3,9 +3,15 @@ import { auth } from "@/auth";
 import { db } from "@/lib/db";
 import { redirect } from "next/navigation";
 import { getWeddingSettings } from "@/lib/wedding-settings";
+import {
+  nextLegalDeadlines,
+  nextOutfitMilestones,
+  oldestOpenDecisions,
+} from "@/lib/today-widgets";
 import { CountdownCard } from "./CountdownCard";
 import { TodayEventsCard } from "./TodayEventsCard";
 import { TodayTaskList } from "./TodayTaskList";
+import { TodayCrossModuleStrip } from "./TodayCrossModuleStrip";
 
 export default async function TodayPage() {
   const session = await auth();
@@ -13,7 +19,19 @@ export default async function TodayPage() {
   const userId = session.user.id;
   const wedding = await getWeddingSettings();
 
-  const [allOpenTasks, totalTaskCount, guestStats, dietaryRows, upcomingEvents] = await Promise.all([
+  // v1.37.5 (P7b/C): three new cross-module widgets — LEGAL deadlines,
+  // OUTFIT milestones, open DECISIONs. Fetch alongside the existing
+  // queries so the page does its work in one round-trip.
+  const [
+    allOpenTasks,
+    totalTaskCount,
+    guestStats,
+    dietaryRows,
+    upcomingEvents,
+    legalCardRows,
+    outfitCardRows,
+    decisionTaskRows,
+  ] = await Promise.all([
     // v1.27.2: fetch all open TASK rows (no take, no assignee filter)
     // and select the user's tasks client-side. Pre-fix the query was
     // narrow (assigned-to-me OR unassigned) AND had `take: 5` AND
@@ -45,7 +63,83 @@ export default async function TodayPage() {
       orderBy: { startTime: "asc" },
       take: 8,
     }),
+    // LEGAL cards — pull dueByDate + items.expiresAt; the Today
+    // helper folds in only what's within the window.
+    db.bookLegalCard.findMany({
+      include: {
+        items: { select: { id: true, label: true, obtained: true, expiresAt: true } },
+        subsection: { select: { slug: true, title: true, section: { select: { slug: true } } } },
+      },
+    }),
+    // OUTFIT cards — three date fields per card.
+    db.bookOutfitCard.findMany({
+      select: {
+        id: true,
+        personName: true,
+        fittingDate: true,
+        alterationsDueBy: true,
+        pickupDate: true,
+        subsection: {
+          select: { slug: true, title: true, section: { select: { slug: true } } },
+        },
+      },
+    }),
+    // DECISION-type tasks — non-closed.
+    db.task.findMany({
+      where: {
+        type: "DECISION",
+        status: { in: ["OPEN", "IN_PROGRESS", "WAITING"] },
+      },
+      orderBy: [{ dueDate: "asc" }, { createdAt: "asc" }],
+      take: 20, // helper caps + sorts; this is just a generous cap on the fetch
+    }),
   ]);
+
+  const now = new Date();
+  const WIDGET_DAYS_AHEAD = 30;
+  const legalHits = nextLegalDeadlines(
+    legalCardRows.map((c) => ({
+      cardId: c.id,
+      cardTitle: c.subsection.title,
+      sectionSlug: c.subsection.section.slug,
+      subsectionSlug: c.subsection.slug,
+      dueByDate: c.dueByDate,
+      items: c.items.map((i) => ({
+        id: i.id,
+        label: i.label,
+        obtained: i.obtained,
+        expiresAt: i.expiresAt,
+      })),
+    })),
+    now,
+    WIDGET_DAYS_AHEAD,
+  );
+  const outfitHits = nextOutfitMilestones(
+    outfitCardRows.map((c) => ({
+      cardId: c.id,
+      personName: c.personName,
+      sectionSlug: c.subsection.section.slug,
+      subsectionSlug: c.subsection.slug,
+      subsectionTitle: c.subsection.title,
+      fittingDate: c.fittingDate,
+      alterationsDueBy: c.alterationsDueBy,
+      pickupDate: c.pickupDate,
+    })),
+    now,
+    WIDGET_DAYS_AHEAD,
+  );
+  const decisions = oldestOpenDecisions(
+    decisionTaskRows.map((t) => ({
+      id: t.id,
+      title: t.title,
+      type: t.type,
+      status: t.status,
+      priority: t.priority,
+      dueDate: t.dueDate,
+      createdAt: t.createdAt,
+    })),
+    5,
+  );
 
   const today = new Date().toLocaleDateString("en-GB", {
     weekday: "long", day: "numeric", month: "long", year: "numeric",
@@ -172,6 +266,16 @@ export default async function TodayPage() {
             currentUserId={userId}
           />
         </div>
+
+        {/* v1.37.5 (P7b/C): cross-module strip — three Wedding Book
+            roll-ups (legal deadlines / outfit milestones / open
+            decisions). Auto-hides when all three are empty so quiet
+            days don't get a blank row. */}
+        <TodayCrossModuleStrip
+          legalHits={legalHits}
+          outfitHits={outfitHits}
+          decisions={decisions}
+        />
 
         {/* RSVP / catering snapshot strip */}
         <div className="bg-surface border border-border-soft rounded-md px-5 py-3 flex items-center gap-x-6 gap-y-1.5 flex-wrap">

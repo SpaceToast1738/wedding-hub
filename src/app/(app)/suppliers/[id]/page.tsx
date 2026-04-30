@@ -68,6 +68,31 @@ export default async function SupplierDetailPage({
   });
   if (!supplier) notFound();
 
+  // v1.37.5 (P7b/C): "Used in setup" — find every BookSetupItem
+  // whose `source` field matches this supplier's name (case-
+  // insensitive). String match, no FK — matches the v1.30.5 cross-
+  // module-reference rule (read-time queries, not denormalisation).
+  const setupItems = await db.bookSetupItem.findMany({
+    where: { source: { equals: supplier.name, mode: "insensitive" } },
+    select: {
+      id: true,
+      name: true,
+      quantity: true,
+      packed: true,
+      placed: true,
+      card: {
+        select: {
+          id: true,
+          space: true,
+          subsection: {
+            select: { slug: true, title: true, section: { select: { slug: true } } },
+          },
+        },
+      },
+    },
+    orderBy: [{ packed: "asc" }, { placed: "asc" }],
+  });
+
   // v1.22.0: pull custom-field defs scoped to suppliers + the values
   // for this row so CustomFieldsBlock can render at the bottom.
   const customFieldDefs = await db.customField.findMany({
@@ -176,6 +201,53 @@ export default async function SupplierDetailPage({
             values={customFieldValues}
             canEdit={editable}
           />
+
+          {/* v1.37.5 (P7b/C): Used in setup — items on any SETUP
+              card whose `source` matches this supplier's name. Hidden
+              when no rows match. */}
+          {setupItems.length > 0 && (
+            <section className="bg-surface border border-border-soft rounded-md shadow-sm">
+              <header className="px-4 py-3 border-b border-border-soft flex items-baseline justify-between">
+                <h2 className="text-sm font-semibold text-ink-primary">
+                  Used in setup
+                  <span className="ml-2 text-[11px] font-normal text-ink-tertiary">
+                    {setupItems.length} {setupItems.length === 1 ? "item" : "items"}
+                  </span>
+                </h2>
+              </header>
+              <ul className="divide-y divide-border-soft text-sm">
+                {setupItems.map((it) => (
+                  <li key={it.id} className="px-4 py-2 flex items-baseline gap-3">
+                    <Link
+                      href={`/book/${it.card.subsection.section.slug}#${it.card.subsection.slug}`}
+                      className="text-ink-primary hover:text-moss-700 hover:underline truncate flex-1"
+                      title={`${it.card.space ?? it.card.subsection.title} → ${it.name}`}
+                    >
+                      <span className="font-medium">{it.name}</span>
+                      <span className="text-ink-tertiary"> · {it.card.space ?? it.card.subsection.title}</span>
+                    </Link>
+                    {it.quantity != null && (
+                      <span className="text-xs text-ink-tertiary tabular-nums">
+                        ×{it.quantity}
+                      </span>
+                    )}
+                    <span className="flex items-center gap-1 flex-shrink-0">
+                      {it.packed && (
+                        <span className="text-[10px] uppercase tracking-wider rounded-full px-1.5 py-0.5 bg-canvas border border-border-soft text-ink-tertiary">
+                          packed
+                        </span>
+                      )}
+                      {it.placed && (
+                        <span className="text-[10px] uppercase tracking-wider rounded-full px-1.5 py-0.5 bg-moss-50 border-moss-300 text-moss-700">
+                          placed
+                        </span>
+                      )}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
 
           {/* v1.28.0: Linked tasks/questions/decisions — read-only on
               this page. Click any row to deep-link into the task list

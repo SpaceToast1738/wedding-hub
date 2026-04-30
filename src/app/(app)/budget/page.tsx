@@ -5,13 +5,18 @@ import { requireUser } from "@/lib/actions";
 import { redirect } from "next/navigation";
 import { formatWeddingDate, getWeddingSettings } from "@/lib/wedding-settings";
 import { BudgetClient } from "./BudgetClient";
+import { BudgetDiyLinks } from "./BudgetDiyLinks";
 
 export default async function BudgetPage() {
   const user = await requireUser();
   if (!user.isCouple) redirect("/");
   const wedding = await getWeddingSettings();
 
-  const [categories, suppliers] = await Promise.all([
+  // v1.37.5 (P7b/C): pull every BUILD card with a budget link so the
+  // "Linked from DIY" panel can surface the rolled-up totals at the
+  // top of the Budget page. Reads from the `BookBuildCard.budgetLineId`
+  // FK established in v1.31.1 — no schema changes here.
+  const [categories, suppliers, buildCardsWithBudget] = await Promise.all([
     db.budgetCategory.findMany({
       orderBy: { order: "asc" },
       include: {
@@ -24,7 +29,32 @@ export default async function BudgetPage() {
       },
     }),
     db.supplier.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
+    db.bookBuildCard.findMany({
+      where: { budgetLineId: { not: null } },
+      select: {
+        id: true,
+        budgetLineId: true,
+        budgetLine: { select: { id: true, description: true, estimated: true } },
+        subsection: {
+          select: { slug: true, title: true, section: { select: { slug: true } } },
+        },
+      },
+      orderBy: { id: "asc" },
+    }),
   ]);
+
+  const diyLinks = buildCardsWithBudget
+    .filter((c) => c.budgetLine != null)
+    .map((c) => ({
+      buildCardId: c.id,
+      buildCardTitle: c.subsection.title,
+      buildSectionSlug: c.subsection.section.slug,
+      buildSubsectionSlug: c.subsection.slug,
+      budgetLineId: c.budgetLine!.id,
+      budgetLineDescription: c.budgetLine!.description,
+      estimated:
+        c.budgetLine!.estimated == null ? null : Number(c.budgetLine!.estimated),
+    }));
 
   return (
     <>
@@ -42,6 +72,14 @@ export default async function BudgetPage() {
             Budget · {formatWeddingDate(wedding)} · {wedding.venue}
           </div>
         </div>
+        {/* v1.37.5 (P7b/C): DIY linkbacks above the categories so a
+            quick-scan reveals which budget lines came from a BUILD
+            card. Hidden when there are none. */}
+        {diyLinks.length > 0 && (
+          <div className="max-w-5xl mx-auto px-6 pt-6 -mb-2">
+            <BudgetDiyLinks links={diyLinks} />
+          </div>
+        )}
         <BudgetClient
         categories={categories.map((c) => ({
           id: c.id,

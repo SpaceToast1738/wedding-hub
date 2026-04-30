@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.37.2** | 2026-04-30 | [TEXT card list / blockquote rendering fix — Tailwind v4 has no `@tailwindcss/typography`, so `prose` was a no-op and bullets / numbers / quote borders all disappeared](#2026-04-30--v1372--text-card-list--blockquote-rendering-fix) |
+| **v1.37.5** | 2026-04-30 | [Cross-module wiring (P7b/Part C) — Today widgets for legal deadlines / outfit milestones / open decisions · Guest detail surfaces meal-choice deep-links + accommodation · Budget shows DIY-card linkbacks · Supplier shows "used in setup" rows](#2026-04-30--v1375--cross-module-wiring-p7b-part-c) |
+| v1.37.2 | 2026-04-30 | [TEXT card list / blockquote rendering fix — Tailwind v4 has no `@tailwindcss/typography`, so `prose` was a no-op and bullets / numbers / quote borders all disappeared](#2026-04-30--v1372--text-card-list--blockquote-rendering-fix) |
 | v1.37.1 | 2026-04-30 | [TEXT card View / Edit toggle — toolbar no longer leaks into read mode after save (matches every other v1.31+ card)](#2026-04-30--v1371--text-card-view--edit-toggle) |
 | v1.37.0 | 2026-04-30 | [Wedding Book TEXT cards switch to Tiptap WYSIWYG (P7a) — 10-mark toolbar (Bold / Italic / Underline / H2 / H3 / lists / quote / link / undo / redo) · sanitiser allow-list with enforced `rel`+`target` on every anchor · idempotent SQL backfill for existing TEXT bodies](#2026-04-30--v1370--wedding-book-text-wysiwyg-p7a) |
 | v1.36.0 | 2026-04-30 | [Wedding Book STAY + LODGING_GUIDE cards (P6) — one card per accommodation booking with cost / dates / linked guests · recommended-hotels reference card with print stylesheet · Accommodation section seeded with 4 STAY + 1 LODGING_GUIDE around Stratford-upon-Avon](#2026-04-30--v1360--wedding-book-stay--lodging_guide-cards-p6) |
@@ -744,6 +745,27 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-30 · v1.37.5 — Cross-module wiring (P7b / Part C)
+
+Second half of [P7](BOOK-EXPANSION-PLAN.md). The Wedding Book stops being a silo: every Book card kind that holds a date / cost / supplier / guest now has a read-time projection on the **page that asks for it**. No new schema; everything is read-time queries against the data already produced by P1–P6. Part B (FIELD / RECIPE / SHOT_LIST card upgrades — including the RECIPE Json→rows migration) splits out to v1.37.6 so this ship stays focused on wiring.
+
+**Two pure-decision modules** with full unit-test coverage:
+
+- [`src/lib/today-widgets.ts`](src/lib/today-widgets.ts) — `nextLegalDeadlines(cards, now, daysAhead)` (folds card `dueByDate` + per-item `expiresAt`, includes overdue items, skips fully-obtained cards), `nextOutfitMilestones(cards, now, daysAhead)` (one row per (card, milestone) within the future window), `oldestOpenDecisions(tasks, limit)` (filter `type=DECISION` + non-closed status, sort dated-soonest-then-oldest-created).
+- [`src/lib/guest-cross-refs.ts`](src/lib/guest-cross-refs.ts) — `findStaysForGuest(guestId, stays)` (reverse query for STAY cards listing this guest), `findMealChoiceLinks(guest, options)` (case-insensitive label match, prefers same-course when ambiguous, returns `null` when no match so panel still shows free-text choice).
+
+**26 new unit tests** covering window inclusion / exclusion, sort stability, case + whitespace normalisation, ambiguous-course resolution, and empty-input edge cases.
+
+**Today page** ([src/app/(app)/page.tsx](src/app/(app)/page.tsx) + new [TodayCrossModuleStrip.tsx](src/app/(app)/TodayCrossModuleStrip.tsx)): three new widgets in a 3-column grid below the existing tasks/events row. Auto-hides when all three are empty (quiet day = no blank row). Each row deep-links to the underlying Book card via `/book/<section>#<subsection>` anchors. Day pills colour-code days-remaining: red for overdue, marigold for today / ≤7 days, muted for further out.
+
+**Guest detail page** ([src/app/(app)/guests/[id]/page.tsx](src/app/(app)/guests/[id]/page.tsx)): "Meal choices" rows now render an `on menu →` link beside each guest's free-text choice when it matches a current `BookMenuOption`. New "Accommodation" section appears when one or more STAY cards list the guest in `guestIds` — shows property name + check-in→out date range, links back to the Book.
+
+**Budget page** ([src/app/(app)/budget/BudgetDiyLinks.tsx](src/app/(app)/budget/BudgetDiyLinks.tsx)): "Linked from DIY" panel above the categories shows every BUILD card that has a `budgetLineId` (set by P1's "Copy materials total to Budget" action). Per-row deep-link back to the source DIY card; total at the top so the couple can see the rolled-up DIY spend at a glance. Hidden when no links exist.
+
+**Supplier detail page** ([src/app/(app)/suppliers/[id]/page.tsx](src/app/(app)/suppliers/[id]/page.tsx)): "Used in setup" section appears when any `BookSetupItem.source` matches the supplier's name (case-insensitive). Shows item + space + quantity + packed/placed pills. Hidden when none match. String match (no FK), matching the v1.30.5 cross-module-reference rule.
+
+**Verification gate:** typecheck + lint + 342 unit tests + production build all green on the same SHA.
 
 ### 2026-04-30 · v1.37.2 — TEXT card list / blockquote rendering fix
 

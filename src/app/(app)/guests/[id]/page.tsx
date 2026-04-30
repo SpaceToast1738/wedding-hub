@@ -5,6 +5,7 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { canEdit, canView } from "@/lib/permissions";
 import { requireUser } from "@/lib/actions";
+import { findMealChoiceLinks, findStaysForGuest } from "@/lib/guest-cross-refs";
 import { GuestDetailClient } from "./GuestDetailClient";
 import { AddSongRequestInline } from "./AddSongRequestInline";
 import { CustomFieldsBlock } from "./CustomFieldsBlock";
@@ -122,6 +123,95 @@ export default async function GuestDetailPage({
   ];
   const hasMeals = meals.some((m) => !!m.value);
 
+  // v1.37.5 (P7b/C): cross-module surfaces — STAY cards listing this
+  // guest, and MENU option deep-links matching the guest's meal
+  // choices. Both are read-time-only queries (forward-only relations
+  // per v1.30.5 cross-module-reference rule).
+  const stayCardRows = await db.bookStayCard.findMany({
+    select: {
+      id: true,
+      propertyName: true,
+      checkInDate: true,
+      checkOutDate: true,
+      guestIds: true,
+      subsection: {
+        select: {
+          id: true,
+          slug: true,
+          title: true,
+          section: { select: { slug: true } },
+        },
+      },
+    },
+  });
+  const stays = findStaysForGuest(
+    guest.id,
+    stayCardRows.map((s) => ({
+      cardId: s.id,
+      subsectionId: s.subsection.id,
+      subsectionSlug: s.subsection.slug,
+      subsectionTitle: s.subsection.title,
+      sectionSlug: s.subsection.section.slug,
+      propertyName: s.propertyName,
+      checkInDate: s.checkInDate,
+      checkOutDate: s.checkOutDate,
+      guestIds: s.guestIds,
+    })),
+  );
+
+  const menuOptionRows = hasMeals
+    ? await db.bookMenuOption.findMany({
+        select: {
+          id: true,
+          label: true,
+          course: {
+            select: {
+              courseLabel: true,
+              card: {
+                select: {
+                  id: true,
+                  subsection: {
+                    select: {
+                      slug: true,
+                      title: true,
+                      section: { select: { slug: true } },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      })
+    : [];
+  const mealLinks = findMealChoiceLinks(
+    {
+      mealStarter: guest.mealStarter,
+      mealMain: guest.mealMain,
+      mealDessert: guest.mealDessert,
+    },
+    menuOptionRows.map((o) => ({
+      optionId: o.id,
+      optionLabel: o.label,
+      courseLabel: o.course.courseLabel,
+      cardId: o.course.card.id,
+      subsectionSlug: o.course.card.subsection.slug,
+      subsectionTitle: o.course.card.subsection.title,
+      sectionSlug: o.course.card.subsection.section.slug,
+    })),
+  );
+  const mealLinkByCourse = new Map(mealLinks.map((m) => [m.course, m]));
+
+  function shortDateRange(ci: Date | null, co: Date | null): string {
+    if (!ci && !co) return "";
+    const fmt = (d: Date) =>
+      d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+    if (ci && co) return `${fmt(ci)} → ${fmt(co)}`;
+    if (ci) return fmt(ci);
+    if (co) return `→ ${fmt(co)}`;
+    return "";
+  }
+
   return (
     <>
       <PageHeader
@@ -186,23 +276,40 @@ export default async function GuestDetailPage({
             </dl>
           </section>
 
-          {/* Meal choices */}
+          {/* Meal choices — v1.37.5: each row deep-links to the
+              matching MENU option's parent subsection when one
+              exists. Free-text choices that don't match any current
+              option still show, just without the link. */}
           <section className="bg-surface border border-border-soft rounded-md shadow-sm">
             <header className="px-4 py-3 border-b border-border-soft">
               <h2 className="text-sm font-semibold text-ink-primary">Meal choices</h2>
             </header>
             {hasMeals ? (
               <dl className="divide-y divide-border-soft text-sm">
-                {meals.map((m) => (
-                  <div key={m.label} className="grid grid-cols-3 gap-3 px-4 py-2.5">
-                    <dt className="text-[11px] font-bold text-ink-tertiary uppercase tracking-wider self-center">
-                      {m.label}
-                    </dt>
-                    <dd className="col-span-2 text-ink-primary">
-                      {m.value ?? <Empty />}
-                    </dd>
-                  </div>
-                ))}
+                {meals.map((m) => {
+                  const link = mealLinkByCourse.get(
+                    m.label.toLowerCase() as "starter" | "main" | "dessert",
+                  );
+                  return (
+                    <div key={m.label} className="grid grid-cols-3 gap-3 px-4 py-2.5">
+                      <dt className="text-[11px] font-bold text-ink-tertiary uppercase tracking-wider self-center">
+                        {m.label}
+                      </dt>
+                      <dd className="col-span-2 text-ink-primary flex items-baseline gap-2">
+                        <span>{m.value ?? <Empty />}</span>
+                        {link?.matched && (
+                          <Link
+                            href={`/book/${link.matched.sectionSlug}#${link.matched.subsectionSlug}`}
+                            className="text-[11px] text-info hover:underline"
+                            title={`View on ${link.matched.subsectionTitle}`}
+                          >
+                            on menu →
+                          </Link>
+                        )}
+                      </dd>
+                    </div>
+                  );
+                })}
               </dl>
             ) : (
               <p className="px-4 py-4 text-sm text-ink-tertiary italic">
@@ -210,6 +317,38 @@ export default async function GuestDetailPage({
               </p>
             )}
           </section>
+
+          {/* v1.37.5 (P7b/C): Accommodation — STAY cards that list
+              this guest in their guestIds. Hidden when none. */}
+          {stays.length > 0 && (
+            <section className="bg-surface border border-border-soft rounded-md shadow-sm">
+              <header className="px-4 py-3 border-b border-border-soft">
+                <h2 className="text-sm font-semibold text-ink-primary">
+                  Accommodation
+                  <span className="ml-2 text-[11px] font-normal text-ink-tertiary">
+                    {stays.length} {stays.length === 1 ? "stay" : "stays"}
+                  </span>
+                </h2>
+              </header>
+              <ul className="divide-y divide-border-soft text-sm">
+                {stays.map((s) => (
+                  <li key={s.cardId} className="px-4 py-2.5">
+                    <Link
+                      href={`/book/${s.sectionSlug}#${s.subsectionSlug}`}
+                      className="font-medium text-ink-primary hover:text-moss-700 hover:underline"
+                    >
+                      {s.propertyName || s.subsectionTitle}
+                    </Link>
+                    {(s.checkInDate || s.checkOutDate) && (
+                      <span className="ml-2 text-xs text-ink-tertiary tabular-nums">
+                        {shortDateRange(s.checkInDate, s.checkOutDate)}
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
 
           {/* Notes */}
           {guest.notes && (
