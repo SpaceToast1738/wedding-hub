@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.39.0** | 2026-04-30 | [Audit-log enrichment sweep across non-Book modules — budget / seating / songs / guests / suppliers / payments / files / tasks all now emit snapshot fields + `changedFields` diff per the v1.30.5 standing rule. ~34 bare audits enriched. 29 new audit-format tests, 392 total.](#2026-04-30--v1390--audit-log-enrichment-sweep) |
+| **v1.39.1** | 2026-04-30 | [Recent-activity feed on Today (couple-only) — last 10 audit rows rendered as human sentences via `formatAuditAction` + `timeAgo`. Auto-hides for non-couple users + when log is empty. Closes backlog item #2.](#2026-04-30--v1391--recent-activity-feed) |
+| v1.39.0 | 2026-04-30 | [Audit-log enrichment sweep across non-Book modules — budget / seating / songs / guests / suppliers / payments / files / tasks all now emit snapshot fields + `changedFields` diff per the v1.30.5 standing rule. ~34 bare audits enriched. 29 new audit-format tests, 392 total.](#2026-04-30--v1390--audit-log-enrichment-sweep) |
 | v1.38.6 | 2026-04-30 | [Critical: `prisma/seed.ts` had an unguarded `main()` call at the bottom that fired whenever the file was imported. Operator scripts (`reset-book.ts`, `seed-samples-only.ts`) import section seeders from it — so every operator-script run kicked off the full seed in parallel, hitting P2002 unique-constraint violations.](#2026-04-30--v1386--seed-ts-double-run-fix) |
 | v1.38.5 | 2026-04-30 | [Book index hides empty legacy sections · BUILD seed targets `venue-decor` not legacy `venue` · stop seeding legacy `wedding-party` (the v1.35.0 split made it duplicate)](#2026-04-30--v1385--book-index--seed-de-duplication) |
 | v1.38.4 | 2026-04-30 | [Wedding Book seed overhaul — every card kind now gets a fully-populated example (OUTFIT items + dates, SETUP items, LEGAL items + name-change checklist, FIELD defs everywhere, RECIPE cocktail, MENU kids/evening/late-night, BUILD welcome bags + favours, plus new Photography + Guest Experience seeders). All 12 card kinds covered.](#2026-04-30--v1384--wedding-book-seed-overhaul) |
@@ -753,6 +754,21 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-30 · v1.39.1 — Recent-activity feed
+
+Backlog item #2 from the v1.39.0 deferred list. The audit-log enrichment that v1.39.0 just shipped makes every row read as a human sentence — that's the precondition that makes a real-time activity feed worth surfacing. Pre-v1.39.0 the rows were terse (`update Guest`); a feed of those would've been noise. Now `Set RSVP for "Aimee Hollingsworth" to attending` and `Updated payment "Venue balance" — amount, status` are scannable at a glance.
+
+Lives on the Today page just below the cross-module strip. **Couple-only** — non-couple users see nothing rendered, and the database isn't even queried for them. Reads the most-recent 10 `AuditLog` rows, joins user name, renders each as `<timeAgo> <human-summary> · <user>`. Auto-hides on a freshly-seeded prod with empty audit log.
+
+Two new pieces:
+
+- **`src/lib/time-ago.ts`** — pure helper for relative-time strings (`just now` / `5 min ago` / `8 hr ago` / `yesterday` / `3 days ago` / `2 weeks ago` → falls through to a `dd Mon` short date past 6 weeks). Dependency-free; no `Intl.RelativeTimeFormat` / no `date-fns`. Clamps future timestamps (clock skew) to "just now". 9 unit tests covering every breakpoint.
+- **`src/app/(app)/RecentActivityFeed.tsx`** — server component. Takes already-shaped rows + `isCouple` + optional `totalCount`. Renders `formatAuditAction(row)` (the v1.39.0 sentence) prefixed by `timeAgo(createdAt)` and suffixed by the user's name. Title attribute on each row carries the full `toLocaleString` timestamp for hover precision. Footer link routes to `/settings` for the full searchable log.
+
+**Verification gate:** typecheck + lint + 401 unit tests + production build all green.
+
+Files: [src/lib/time-ago.ts](src/lib/time-ago.ts) · [tests/unit/time-ago.test.ts](tests/unit/time-ago.test.ts) · [src/app/(app)/RecentActivityFeed.tsx](src/app/(app)/RecentActivityFeed.tsx) · [src/app/(app)/page.tsx](src/app/(app)/page.tsx).
 
 ### 2026-04-30 · v1.39.0 — Audit-log enrichment sweep
 

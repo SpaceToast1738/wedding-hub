@@ -12,11 +12,13 @@ import { CountdownCard } from "./CountdownCard";
 import { TodayEventsCard } from "./TodayEventsCard";
 import { TodayTaskList } from "./TodayTaskList";
 import { TodayCrossModuleStrip } from "./TodayCrossModuleStrip";
+import { RecentActivityFeed } from "./RecentActivityFeed";
 
 export default async function TodayPage() {
   const session = await auth();
   if (!session?.user) redirect("/signin");
   const userId = session.user.id;
+  const isCouple = session.user.isCouple === true;
   const wedding = await getWeddingSettings();
 
   // v1.37.5 (P7b/C): three new cross-module widgets — LEGAL deadlines,
@@ -94,6 +96,20 @@ export default async function TodayPage() {
       take: 20, // helper caps + sorts; this is just a generous cap on the fetch
     }),
   ]);
+
+  // v1.39.1 (backlog #2): recent-activity feed — couple-only,
+  // last 10 audit rows. The full searchable log lives at /settings.
+  // Cheap query (indexed on createdAt; AuditLog has 30-day retention).
+  // Skipped entirely for non-couple users so the table isn't even
+  // touched for them.
+  const recentAudits = isCouple
+    ? await db.auditLog.findMany({
+        orderBy: { createdAt: "desc" },
+        take: 10,
+        include: { user: { select: { name: true, email: true } } },
+      })
+    : [];
+  const auditTotalCount = isCouple ? await db.auditLog.count() : 0;
 
   const now = new Date();
   const WIDGET_DAYS_AHEAD = 30;
@@ -276,6 +292,31 @@ export default async function TodayPage() {
           outfitHits={outfitHits}
           decisions={decisions}
         />
+
+        {/* v1.39.1: recent-activity feed (couple-only). Reads the
+            last 10 audit-log rows and renders them as human sentences
+            via formatAuditAction. Auto-hides for non-couple users
+            and on a freshly-seeded prod with empty audit log. */}
+        {isCouple && (
+          <div className="mb-4">
+            <RecentActivityFeed
+              isCouple={isCouple}
+              totalCount={auditTotalCount}
+              rows={recentAudits.map((r) => ({
+                id: r.id,
+                action: r.action,
+                entity: r.entity,
+                metadata:
+                  r.metadata && typeof r.metadata === "object" && !Array.isArray(r.metadata)
+                    ? (r.metadata as Record<string, unknown>)
+                    : null,
+                createdAt: r.createdAt,
+                userName: r.user?.name ?? null,
+                userEmail: r.user?.email ?? null,
+              }))}
+            />
+          </div>
+        )}
 
         {/* RSVP / catering snapshot strip */}
         <div className="bg-surface border border-border-soft rounded-md px-5 py-3 flex items-center gap-x-6 gap-y-1.5 flex-wrap">
