@@ -30,7 +30,10 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
           fieldDefs: { orderBy: { order: "asc" } },
           recipe: true,
           shotList: { include: { shots: { orderBy: { order: "asc" } } } },
-          outfitCard: { include: { outfits: { orderBy: { order: "asc" } } } },
+          // v1.35.0: OUTFIT rework — pull card-level fields + items.
+          outfitCard: {
+            include: { outfits: { orderBy: { order: "asc" } } },
+          },
           buildCard: {
             include: {
               materials: { orderBy: { order: "asc" } },
@@ -127,11 +130,16 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
     : [];
 
   // v1.34.0: wedding date + files list for LEGAL cards' expiry flag
-  // and per-item file picker. Skipped when no LEGAL cards present.
+  // and per-item file picker.
+  // v1.35.0: OUTFIT cards also use the file list for the per-card
+  // photo picker — a single fetch covers both kinds when either is
+  // present.
   const hasLegal = section.subsections.some((s) => s.kind === "LEGAL");
-  const [weddingSettings, allFiles] = hasLegal
+  const hasOutfit = section.subsections.some((s) => s.kind === "OUTFIT");
+  const needFiles = hasLegal || hasOutfit;
+  const [weddingSettings, allFiles] = needFiles
     ? await Promise.all([
-        db.weddingSettings.findUnique({ where: { id: 1 } }),
+        hasLegal ? db.weddingSettings.findUnique({ where: { id: 1 } }) : Promise.resolve(null),
         db.file.findMany({
           orderBy: { name: "asc" },
           select: { id: true, name: true, mimeType: true },
@@ -253,6 +261,34 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
                     files: allFiles,
                   }
                 : null;
+              // v1.35.0: shape OUTFIT data — flatten outfits → items
+              // (renaming the relation), and thread the file list
+              // for the per-card photo picker.
+              const outfitCard = sRaw.outfitCard
+                ? {
+                    id: sRaw.outfitCard.id,
+                    personName: sRaw.outfitCard.personName,
+                    role: sRaw.outfitCard.role,
+                    fittingDate: sRaw.outfitCard.fittingDate,
+                    alterationsDueBy: sRaw.outfitCard.alterationsDueBy,
+                    pickupDate: sRaw.outfitCard.pickupDate,
+                    costPence: sRaw.outfitCard.costPence,
+                    paidBy: sRaw.outfitCard.paidBy,
+                    paid: sRaw.outfitCard.paid,
+                    fileIds: sRaw.outfitCard.fileIds,
+                    notes: sRaw.outfitCard.notes,
+                    items: sRaw.outfitCard.outfits.map((o) => ({
+                      id: o.id,
+                      itemLabel: o.itemLabel ?? "Outfit",
+                      description: o.description,
+                      supplier: o.supplier,
+                      status: o.status,
+                      notes: o.notes,
+                      order: o.order,
+                    })),
+                    files: allFiles,
+                  }
+                : null;
               const s = {
                 ...sRaw,
                 buildCard,
@@ -260,6 +296,7 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
                 barCard,
                 setupCard,
                 legalCard,
+                outfitCard,
               };
               return (
                 <CardRouter

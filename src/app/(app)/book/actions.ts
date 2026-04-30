@@ -1915,3 +1915,236 @@ export async function detachFileFromLegalItem(
     return { ok: false, error: err instanceof Error ? err.message : "Couldn't detach file" };
   }
 }
+
+// ── v1.35.0: OUTFIT card actions (rework) ──────────────────────────
+//
+// Same single-bulk-save shape as BUILD / MENU / BAR / SETUP / LEGAL.
+// Card-level fields hold the per-person identity + fitting timeline +
+// cost; items are per-item composition (dress / shoes / etc.).
+//
+// Legacy addBookOutfit / updateBookOutfit / deleteBookOutfit kept in
+// place above — they still write to the row table, so older callers
+// don't break. New editor uses saveOutfitCard exclusively.
+
+const outfitItemPayloadSchema = z.object({
+  id: z.string().min(1).max(50),
+  itemLabel: z.string().min(1).max(160),
+  description: z.string().max(2000).nullable(),
+  supplier: z.string().max(120).nullable(),
+  status: z.string().max(40).nullable(),
+  notes: z.string().max(2000).nullable(),
+});
+
+const outfitSavePayloadSchema = z.object({
+  personName: z.string().max(120).nullable(),
+  role: z.string().max(60).nullable(),
+  fittingDate: z.string().nullable(),
+  alterationsDueBy: z.string().nullable(),
+  pickupDate: z.string().nullable(),
+  costPence: z.number().int().min(0).nullable(),
+  paidBy: z.string().max(40).nullable(),
+  paid: z.boolean(),
+  fileIds: z.array(z.string().min(1).max(50)),
+  notes: z.string().max(4000).nullable(),
+  items: z.array(outfitItemPayloadSchema),
+});
+
+export type OutfitSavePayload = z.infer<typeof outfitSavePayloadSchema>;
+
+export async function saveOutfitCard(
+  subsectionId: string,
+  payload: OutfitSavePayload,
+): Promise<BookActionResult> {
+  const user = await requireEdit("book");
+  try {
+    const parsed = outfitSavePayloadSchema.parse(payload);
+    const before = await db.bookOutfitCard.findUnique({
+      where: { subsectionId },
+      include: { subsection: true, outfits: true },
+    });
+    if (!before) return { ok: false, error: "Outfit card not found" };
+
+    const headerChanged: string[] = [];
+    if (parsed.personName !== before.personName) headerChanged.push("personName");
+    if (parsed.role !== before.role) headerChanged.push("role");
+    const newFitting = parseISODate(parsed.fittingDate)?.getTime() ?? null;
+    const oldFitting = before.fittingDate?.getTime() ?? null;
+    if (newFitting !== oldFitting) headerChanged.push("fittingDate");
+    const newAlt = parseISODate(parsed.alterationsDueBy)?.getTime() ?? null;
+    const oldAlt = before.alterationsDueBy?.getTime() ?? null;
+    if (newAlt !== oldAlt) headerChanged.push("alterationsDueBy");
+    const newPickup = parseISODate(parsed.pickupDate)?.getTime() ?? null;
+    const oldPickup = before.pickupDate?.getTime() ?? null;
+    if (newPickup !== oldPickup) headerChanged.push("pickupDate");
+    if (parsed.costPence !== before.costPence) headerChanged.push("costPence");
+    if (parsed.paidBy !== before.paidBy) headerChanged.push("paidBy");
+    if (parsed.paid !== before.paid) headerChanged.push("paid");
+    if (parsed.notes !== before.notes) headerChanged.push("notes");
+    if (JSON.stringify([...parsed.fileIds].sort()) !== JSON.stringify([...before.fileIds].sort())) {
+      headerChanged.push("fileIds");
+    }
+
+    const beforeIds = new Set(before.outfits.map((i) => i.id));
+    const incomingIds = new Set(
+      parsed.items.map((i) => i.id).filter((id) => !id.startsWith("new-")),
+    );
+    const toDelete = [...beforeIds].filter((id) => !incomingIds.has(id));
+    const toCreate = parsed.items.filter((i) => i.id.startsWith("new-"));
+    const toUpdate = parsed.items.filter((i) => !i.id.startsWith("new-"));
+
+    await db.$transaction(async (tx) => {
+      await tx.bookOutfitCard.update({
+        where: { subsectionId },
+        data: {
+          personName: parsed.personName,
+          role: parsed.role,
+          fittingDate: parseISODate(parsed.fittingDate),
+          alterationsDueBy: parseISODate(parsed.alterationsDueBy),
+          pickupDate: parseISODate(parsed.pickupDate),
+          costPence: parsed.costPence,
+          paidBy: parsed.paidBy,
+          paid: parsed.paid,
+          notes: parsed.notes,
+          fileIds: parsed.fileIds,
+        },
+      });
+      if (toDelete.length > 0) {
+        await tx.bookOutfit.deleteMany({ where: { id: { in: toDelete } } });
+      }
+      for (const i of toUpdate) {
+        await tx.bookOutfit.update({
+          where: { id: i.id },
+          data: {
+            itemLabel: i.itemLabel,
+            description: i.description,
+            supplier: i.supplier,
+            status: i.status,
+            notes: i.notes,
+          },
+        });
+      }
+      let orderCounter = before.outfits.reduce((max, i) => Math.max(max, i.order), -1);
+      for (const i of toCreate) {
+        orderCounter += 1;
+        await tx.bookOutfit.create({
+          data: {
+            cardId: before.id,
+            itemLabel: i.itemLabel,
+            description: i.description,
+            supplier: i.supplier,
+            status: i.status,
+            notes: i.notes,
+            order: orderCounter,
+            // Legacy required field — null is fine post-migration; keep
+            // a placeholder so existing prod rows pre-migration don't
+            // collide. The migration's ALTER drops the NOT NULL.
+            personName: null,
+          },
+        });
+      }
+      for (let idx = 0; idx < parsed.items.length; idx++) {
+        const i = parsed.items[idx]!;
+        if (!i.id.startsWith("new-")) {
+          await tx.bookOutfit.update({ where: { id: i.id }, data: { order: idx } });
+        }
+      }
+    });
+
+    await audit(user, {
+      action: "outfit-save",
+      entity: "BookSubsection",
+      entityId: subsectionId,
+      metadata: {
+        cardTitle: before.subsection.title,
+        personName: parsed.personName,
+        role: parsed.role,
+        itemsAdded: toCreate.length,
+        itemsUpdated: toUpdate.length,
+        itemsRemoved: toDelete.length,
+        itemsTotal: parsed.items.length,
+        headerChanged,
+      },
+    });
+    await revalidateBookSubsection(subsectionId);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Couldn't save outfit card" };
+  }
+}
+
+// v1.35.0: file attach/detach for OUTFIT cards. fileIds is a String[]
+// on BookOutfitCard rather than a relation, so attach = append-id,
+// detach = remove-id. Keeps the existing files-page UX unchanged.
+
+export async function attachFileToOutfitCard(
+  subsectionId: string,
+  fileId: string,
+): Promise<BookActionResult> {
+  const user = await requireEdit("book");
+  try {
+    const card = await db.bookOutfitCard.findUnique({
+      where: { subsectionId },
+      include: { subsection: true },
+    });
+    if (!card) return { ok: false, error: "Outfit card not found" };
+    const file = await db.file.findUnique({ where: { id: fileId } });
+    if (!file) return { ok: false, error: "File not found" };
+    if (card.fileIds.includes(fileId)) return { ok: true };
+    const next = [...card.fileIds, fileId];
+    await db.bookOutfitCard.update({
+      where: { subsectionId },
+      data: { fileIds: next },
+    });
+    await audit(user, {
+      action: "outfit-file-attach",
+      entity: "BookSubsection",
+      entityId: subsectionId,
+      metadata: {
+        cardTitle: card.subsection.title,
+        personName: card.personName,
+        fileId,
+        fileName: file.name,
+      },
+    });
+    await revalidateBookSubsection(subsectionId);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Couldn't attach file" };
+  }
+}
+
+export async function detachFileFromOutfitCard(
+  subsectionId: string,
+  fileId: string,
+): Promise<BookActionResult> {
+  const user = await requireEdit("book");
+  try {
+    const card = await db.bookOutfitCard.findUnique({
+      where: { subsectionId },
+      include: { subsection: true },
+    });
+    if (!card) return { ok: false, error: "Outfit card not found" };
+    if (!card.fileIds.includes(fileId)) return { ok: true };
+    const file = await db.file.findUnique({ where: { id: fileId } });
+    const next = card.fileIds.filter((id) => id !== fileId);
+    await db.bookOutfitCard.update({
+      where: { subsectionId },
+      data: { fileIds: next },
+    });
+    await audit(user, {
+      action: "outfit-file-detach",
+      entity: "BookSubsection",
+      entityId: subsectionId,
+      metadata: {
+        cardTitle: card.subsection.title,
+        personName: card.personName,
+        fileId,
+        fileName: file?.name ?? null,
+      },
+    });
+    await revalidateBookSubsection(subsectionId);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Couldn't detach file" };
+  }
+}

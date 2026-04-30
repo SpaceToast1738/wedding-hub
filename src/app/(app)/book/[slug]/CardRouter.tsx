@@ -59,18 +59,31 @@ type Sub = {
       order: number;
     }>;
   } | null;
+  // v1.35.0: OUTFIT rework — card-level fields hold the person +
+  // fitting timeline + cost; items are per-item composition. `files`
+  // is the global file list the per-card photo picker reads from.
   outfitCard: {
     id: string;
-    outfits: Array<{
+    personName: string | null;
+    role: string | null;
+    fittingDate: Date | null;
+    alterationsDueBy: Date | null;
+    pickupDate: Date | null;
+    costPence: number | null;
+    paidBy: string | null;
+    paid: boolean;
+    fileIds: string[];
+    notes: string | null;
+    items: Array<{
       id: string;
-      personName: string;
-      role: string | null;
-      items: string[];
+      itemLabel: string;
+      description: string | null;
       supplier: string | null;
       status: string | null;
       notes: string | null;
       order: number;
     }>;
+    files: Array<{ id: string; name: string; mimeType: string }>;
   } | null;
   // v1.32.0: MENU card eager-loaded data + server-computed live counts.
   menuCard: {
@@ -276,19 +289,48 @@ export function CardRouter({
           isCouple={isCouple}
         />
       );
-    case "OUTFIT":
+    case "OUTFIT": {
+      const oc = sub.outfitCard ?? {
+        id: "",
+        personName: null,
+        role: null,
+        fittingDate: null,
+        alterationsDueBy: null,
+        pickupDate: null,
+        costPence: null,
+        paidBy: null,
+        paid: false,
+        fileIds: [],
+        notes: null,
+        items: [],
+        files: [],
+      };
       return (
         <BookOutfitCardEditor
           subsectionId={sub.id}
           slug={sub.slug}
           title={sub.title}
-          cardId={sub.outfitCard?.id ?? ""}
-          outfits={sub.outfitCard?.outfits ?? []}
           visibility={sub.visibility}
           canEdit={canEdit}
           isCouple={isCouple}
+          card={{
+            id: oc.id,
+            personName: oc.personName,
+            role: oc.role,
+            fittingDate: oc.fittingDate,
+            alterationsDueBy: oc.alterationsDueBy,
+            pickupDate: oc.pickupDate,
+            costPence: oc.costPence,
+            paidBy: oc.paidBy,
+            paid: oc.paid,
+            fileIds: oc.fileIds,
+            notes: oc.notes,
+            items: oc.items,
+          }}
+          files={oc.files}
         />
       );
+    }
     case "MENU": {
       const mc = sub.menuCard ?? {
         id: "",

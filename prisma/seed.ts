@@ -149,12 +149,16 @@ async function seedBookSections() {
   // v1.34.0: legal split — legal-before / legal-day / legal-after at
   //   9 / 10 / 11. Legacy `legal-admin` stays at order 8 with any
   //   user-added content; the /book index hides empty legacy sections.
+  // v1.35.0: wedding-party split — wedding-party-people /
+  //   wedding-party-dayof at 1 / 2. Legacy `wedding-party` slug stays
+  //   in place (with any couple-edited subsections) and is pushed
+  //   towards the back as a deprecated section.
   // Existing sections shift down; the upsert's `update: { order }`
   // re-numbers them on re-run.
   const sections = [
     // Prototype-aligned set
-    { slug: "wedding-party",     title: "Wedding Party",             order: 1 },
-    { slug: "venue",             title: "Venue, Décor & Setup",      order: 2 },
+    { slug: "wedding-party-people", title: "Wedding Party — People",   order: 1 },
+    { slug: "wedding-party-dayof",  title: "Wedding Party — Day-of",   order: 2 },
     { slug: "venue-spaces",      title: "Venue — Spaces",            order: 3 },
     { slug: "venue-decor",       title: "Venue — Décor",             order: 4 },
     { slug: "food-drink",        title: "Food & Drink",              order: 5 },
@@ -164,17 +168,23 @@ async function seedBookSections() {
     // card on /book.
     { slug: "photography",       title: "Photography & Videography", order: 6 },
     { slug: "guest-experience",  title: "Guest Experience",          order: 7 },
-    { slug: "legal-admin",       title: "Legal & Admin",             order: 8 },
-    { slug: "legal-before",      title: "Legal — Before the day",    order: 9 },
-    { slug: "legal-day",         title: "Legal — On the day",        order: 10 },
-    { slug: "legal-after",       title: "Legal — After",             order: 11 },
-    { slug: "accommodation",     title: "Accommodation",             order: 12 },
+    { slug: "legal-before",      title: "Legal — Before the day",    order: 8 },
+    { slug: "legal-day",         title: "Legal — On the day",        order: 9 },
+    { slug: "legal-after",       title: "Legal — After",             order: 10 },
+    { slug: "accommodation",     title: "Accommodation",             order: 11 },
+    // Deprecated split sources — pushed to the bottom so the new
+    // sections lead. Kept (not deleted) because they may carry
+    // couple-edited subsections from earlier releases. The /book
+    // index hides legacy sections that have zero subsections.
+    { slug: "wedding-party",     title: "Wedding Party",             order: 12 },
+    { slug: "venue",             title: "Venue, Décor & Setup",      order: 13 },
+    { slug: "legal-admin",       title: "Legal & Admin",             order: 14 },
     // Legacy v1.4.0 sections — pushed to the bottom of the order so
     // the prototype's 7 lead. Kept (rather than deleted) because they
     // may carry user-added subsection content from prior versions.
-    { slug: "ceremony",          title: "Ceremony",                  order: 13 },
-    { slug: "reception",         title: "Reception",                 order: 14 },
-    { slug: "logistics",         title: "Logistics",                 order: 15 },
+    { slug: "ceremony",          title: "Ceremony",                  order: 15 },
+    { slug: "reception",         title: "Reception",                 order: 16 },
+    { slug: "logistics",         title: "Logistics",                 order: 17 },
   ];
   for (const s of sections) {
     await db.bookSection.upsert({
@@ -744,6 +754,125 @@ async function seedLegalSections() {
   }
 }
 
+// v1.35.0: seed `wedding-party-people` with one OUTFIT card per known
+// wedding-party member, and `wedding-party-dayof` with the timeline /
+// ring-keepers / day-of TEXT + FIELD subsections from §8.2 of the
+// Book expansion plan. Idempotent — both sections seeded
+// independently, and a section that already has content is skipped.
+async function seedWeddingPartyPeopleAndDayof() {
+  const people = await db.bookSection.findUnique({
+    where: { slug: "wedding-party-people" },
+  });
+  const dayof = await db.bookSection.findUnique({
+    where: { slug: "wedding-party-dayof" },
+  });
+  if (!people || !dayof) {
+    console.log(`  · wedding-party-people/-dayof not found; skipping seed`);
+    return;
+  }
+
+  // wedding-party-people — one OUTFIT card per known member.
+  const peopleCount = await db.bookSubsection.count({
+    where: { sectionId: people.id },
+  });
+  if (peopleCount === 0) {
+    const members = [
+      { personName: "Bryony", role: "Bride" },
+      { personName: "Jamie", role: "Groom" },
+      { personName: "Aimee Hollingsworth", role: "Maid of Honour" },
+      { personName: "Joshua Dickson", role: "Best Man" },
+      { personName: "Clara", role: "Flower Girl" },
+      { personName: "Torin", role: "Page Boy" },
+    ];
+    let order = 0;
+    for (const m of members) {
+      const slug =
+        m.personName
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "-")
+          .replace(/^-+|-+$/g, "") + "-outfit";
+      const sub = await db.bookSubsection.create({
+        data: {
+          sectionId: people.id,
+          slug,
+          title: `${m.personName} — outfit`,
+          kind: "OUTFIT",
+          order: order++,
+        },
+      });
+      await db.bookOutfitCard.create({
+        data: {
+          subsectionId: sub.id,
+          personName: m.personName,
+          role: m.role,
+        },
+      });
+    }
+    console.log(`  ✓ wedding-party-people seeded (${members.length} OUTFIT cards)`);
+  } else {
+    console.log(
+      `  ✓ wedding-party-people already present (${peopleCount}); skipping seed`,
+    );
+  }
+
+  // wedding-party-dayof — TEXT/FIELD subsections per §8.2.
+  const dayofCount = await db.bookSubsection.count({
+    where: { sectionId: dayof.id },
+  });
+  if (dayofCount === 0) {
+    const subs = [
+      {
+        slug: "morning-prep-timeline",
+        title: "Morning prep timeline",
+        kind: "TEXT" as const,
+        body: "Bridesmaids arrive at the bridal suite 11:00.\nGroomsmen arrive at the manor 12:30.\nPhotographer with the groomsmen 12:45.\nPhotographer with the bridesmaids 13:00.",
+      },
+      {
+        slug: "ring-keepers",
+        title: "Ring keepers",
+        kind: "TEXT" as const,
+        body: "Joshua holds both rings until the ceremony.\nHand-off in the groomsmen room at 1:30pm.\nConfirm with Aimee day-of.",
+      },
+      {
+        slug: "pre-ceremony-handoffs",
+        title: "Pre-ceremony hand-offs",
+        kind: "TEXT" as const,
+        body: "Bouquets to bridesmaids 13:30.\nButtonholes to groomsmen 13:00.\nFlower girl petals to Clara 13:45.",
+      },
+      {
+        slug: "wedding-day-cars",
+        title: "Wedding-day cars",
+        kind: "FIELD" as const,
+        body: null,
+      },
+      {
+        slug: "stag-hen-recap",
+        title: "Stag & Hen recap",
+        kind: "TEXT" as const,
+        body: "Stag · …\nHen · …",
+      },
+    ];
+    let order = 0;
+    for (const s of subs) {
+      await db.bookSubsection.create({
+        data: {
+          sectionId: dayof.id,
+          slug: s.slug,
+          title: s.title,
+          kind: s.kind,
+          body: s.body,
+          order: order++,
+        },
+      });
+    }
+    console.log(`  ✓ wedding-party-dayof seeded (${subs.length} subsections)`);
+  } else {
+    console.log(
+      `  ✓ wedding-party-dayof already present (${dayofCount}); skipping seed`,
+    );
+  }
+}
+
 async function main() {
   console.log("Seeding Wedding Hub…");
   await seedUsersAndPermissions();
@@ -758,6 +887,7 @@ async function main() {
   await seedFoodDrinkCards();
   await seedVenueSpacesAndDecor();
   await seedLegalSections();
+  await seedWeddingPartyPeopleAndDayof();
   console.log("Done.");
 }
 

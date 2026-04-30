@@ -153,6 +153,27 @@ export function formatAuditAction(row: AuditRow): string {
     return `Saved menu ${quoted(title)}${parts.length ? ` — ${parts.join(", ")}` : ""}`;
   }
 
+  // OUTFIT card (v1.35.0 rework)
+  if (a === "outfit-save") {
+    const ia = asNumber(meta.itemsAdded) ?? 0;
+    const ir = asNumber(meta.itemsRemoved) ?? 0;
+    const iu = asNumber(meta.itemsUpdated) ?? 0;
+    const person = asString(meta.personName);
+    const parts: string[] = [];
+    if (ia > 0) parts.push(`added ${pluralise(ia, "item", "items")}`);
+    if (ir > 0) parts.push(`removed ${pluralise(ir, "item", "items")}`);
+    if (iu > 0 && ia === 0 && ir === 0) parts.push(`edited ${pluralise(iu, "item", "items")}`);
+    return `Saved outfit card ${quoted(person ?? title)}${parts.length ? ` — ${parts.join(", ")}` : ""}`;
+  }
+  if (a === "outfit-file-attach") {
+    const person = asString(meta.personName);
+    return `Attached ${quoted(asString(meta.fileName))} to outfit card ${quoted(person ?? title)}`;
+  }
+  if (a === "outfit-file-detach") {
+    const person = asString(meta.personName);
+    return `Detached ${quoted(asString(meta.fileName))} from outfit card ${quoted(person ?? title)}`;
+  }
+
   // LEGAL card (v1.34.0+)
   if (a === "legal-save") {
     const ia = asNumber(meta.itemsAdded) ?? 0;

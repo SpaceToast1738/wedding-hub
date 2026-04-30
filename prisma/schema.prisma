@@ -570,23 +570,52 @@ model BookShot {
 
 // v1.26.0: OUTFIT card — list of per-person outfit rows. Free-text
 // items + supplier + status to match how planners actually track
-// wedding-party outfits. Photo upload deferred to a later release.
+// v1.35.0 (P5): one card per wedding-party member. Card-level fields
+// hold the per-person metadata (fitting timeline, cost, paid status,
+// photos); the BookOutfit child rows now describe per-item
+// composition (dress / shoes / accessories) for that one person.
+//
+// Pre-v1.35.0 the card was 1:N with rows-per-person; the v1.35.0
+// migration splits any 2+-children card into multiple cards (one
+// per person) under wedding-party-people. Single-person cards stay
+// in place; the row's personName/role get copied onto the card.
+//
+// Recoverability buffer: BookOutfit.personName / role columns kept
+// for one release post-migration so the legacy data is recoverable
+// if anything goes sideways.
 model BookOutfitCard {
-  id           String         @id @default(cuid())
-  subsectionId String         @unique
-  subsection   BookSubsection @relation(fields: [subsectionId], references: [id], onDelete: Cascade)
-  outfits      BookOutfit[]
+  id               String         @id @default(cuid())
+  subsectionId     String         @unique
+  subsection       BookSubsection @relation(fields: [subsectionId], references: [id], onDelete: Cascade)
+  // v1.35.0: card-level person identity + fitting timeline + cost.
+  // All nullable so legacy single-card-per-section rows render OK.
+  personName       String?
+  role             String?        // "Bride" | "Groom" | "Best Man" | "Bridesmaid" | "Groomsman" | "Flower Girl" | etc.
+  fittingDate      DateTime?
+  alterationsDueBy DateTime?
+  pickupDate       DateTime?
+  costPence        Int?
+  paidBy           String?        // "Self" | "Couple" | "Parents"
+  paid             Boolean        @default(false)
+  fileIds          String[]       @default([])
+  notes            String?        @db.Text
+  outfits          BookOutfit[]
 }
 
 model BookOutfit {
   id          String         @id @default(cuid())
   cardId      String
   card        BookOutfitCard @relation(fields: [cardId], references: [id], onDelete: Cascade)
-  personName  String
-  role        String?        // "Bride" / "Groom" / "Best man" — free text
-  items       String[]       @default([])  // ["Charcoal three-piece", "White shirt", "Burgundy tie"]
+  // v1.35.0: re-purposed — was per-person, now per-item.
+  // personName + role kept for one release as a recoverability
+  // buffer; itemLabel takes over as the row identity.
+  itemLabel   String?        // "Dress" | "Shoes" | "Veil" | "Tie" | "Cufflinks"
+  description String?
+  personName  String?        // legacy buffer — was required pre-v1.35.0
+  role        String?        // legacy buffer
+  items       String[]       @default([])
   supplier    String?
-  status      String?        // "Ordered" / "Fitted" / "Collected"
+  status      String?        // "Designed" | "Ordered" | "Fitted" | "Collected"
   notes       String?        @db.Text
   order       Int            @default(0)
 }

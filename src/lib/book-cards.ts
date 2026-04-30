@@ -36,7 +36,7 @@ export const BOOK_CARD_KIND_META: Record<
   },
   OUTFIT: {
     label: "Outfit",
-    description: "Per-person outfits — items, supplier, status, notes.",
+    description: "One person's outfit — fitting timeline, cost, items, photos.",
   },
   BUILD: {
     label: "DIY",
@@ -663,4 +663,69 @@ export function legalRollups(
     isOverdue,
     expiringBeforeWedding,
   };
+}
+
+// ─── OUTFIT card (v1.35.0 rework) ─────────────────────────────────
+//
+// One card per wedding-party member. Rollups feed the header strip:
+// the next upcoming fitting milestone (fitting → alterations →
+// pickup), days remaining, and per-item progress (how many items
+// are at or beyond "Collected" status).
+
+const OUTFIT_MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+export type OutfitItemShape = {
+  status?: string | null;
+};
+
+export type OutfitCardShape = {
+  fittingDate?: Date | null;
+  alterationsDueBy?: Date | null;
+  pickupDate?: Date | null;
+  items: OutfitItemShape[];
+};
+
+export type OutfitMilestone = {
+  label: "Fitting" | "Alterations" | "Pickup";
+  date: Date;
+};
+
+export type OutfitRollups = {
+  itemCount: number;
+  collectedCount: number;
+  percentCollected: number;
+  /** Closest future milestone, or the most-recent past one if all
+   *  three are behind us. Null when no dates are set. */
+  nextMilestone: OutfitMilestone | null;
+  daysToNext: number | null;
+};
+
+const COLLECTED_STATUS_KEY = "collected";
+
+export function outfitRollups(card: OutfitCardShape, now: Date = new Date()): OutfitRollups {
+  const itemCount = card.items.length;
+  const collectedCount = card.items.filter(
+    (i) => (i.status ?? "").toLowerCase() === COLLECTED_STATUS_KEY,
+  ).length;
+  const percentCollected = itemCount === 0 ? 0 : Math.round((collectedCount / itemCount) * 100);
+
+  // Walk the three milestones in order; pick the soonest future one.
+  // If all three are past, fall back to the most-recent past one so
+  // the header shows context rather than an awkward dash.
+  const milestones: OutfitMilestone[] = [];
+  if (card.fittingDate) milestones.push({ label: "Fitting", date: card.fittingDate });
+  if (card.alterationsDueBy) milestones.push({ label: "Alterations", date: card.alterationsDueBy });
+  if (card.pickupDate) milestones.push({ label: "Pickup", date: card.pickupDate });
+  let nextMilestone: OutfitMilestone | null = null;
+  let daysToNext: number | null = null;
+  if (milestones.length > 0) {
+    const future = milestones.filter((m) => m.date.getTime() >= now.getTime());
+    if (future.length > 0) {
+      nextMilestone = future.reduce((a, b) => (a.date < b.date ? a : b));
+    } else {
+      nextMilestone = milestones.reduce((a, b) => (a.date > b.date ? a : b));
+    }
+    daysToNext = Math.round((nextMilestone.date.getTime() - now.getTime()) / OUTFIT_MS_PER_DAY);
+  }
+  return { itemCount, collectedCount, percentCollected, nextMilestone, daysToNext };
 }

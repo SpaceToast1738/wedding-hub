@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.34.0** | 2026-04-30 | [Wedding Book LEGAL card (P4) — document checklist with deadlines + file attachments · Legal split into Before / Day / After (additive) · FieldLabel + Label lifted to shared `bookCardUi.tsx`](#2026-04-30--v1340--wedding-book-legal-card-p4--legal-split) |
+| **v1.35.0** | 2026-04-30 | [Wedding Book OUTFIT rework (P5) — one card per wedding-party member with fitting timeline / cost / paid status / per-item composition / photos · Wedding Party split into People (OUTFIT cards) + Day-of (TEXT/FIELD timeline)](#2026-04-30--v1350--wedding-book-outfit-rework-p5--wedding-party-split) |
+| v1.34.0 | 2026-04-30 | [Wedding Book LEGAL card (P4) — document checklist with deadlines + file attachments · Legal split into Before / Day / After (additive) · FieldLabel + Label lifted to shared `bookCardUi.tsx`](#2026-04-30--v1340--wedding-book-legal-card-p4--legal-split) |
 | v1.33.2 | 2026-04-30 | [BOOK-EXPANSION-PLAN.md gains a temporary edit-row layout rule (§10a) so P4–P8 ship correct widths from day one](#2026-04-30--v1332--edit-row-layout-rule-pinned-into-the-card-creation-plan) |
 | v1.33.1 | 2026-04-30 | [Edit-row layout pass — BUILD / BAR / SETUP cards switch to two-row grids with per-cell labels so name / supplier / £ all get usable width](#2026-04-30--v1331--edit-row-layout-pass) |
 | v1.33.0 | 2026-04-30 | [Wedding Book SETUP card (P3) — per-space spatial walkthrough · Venue split into Spaces / Décor (additive)](#2026-04-30--v1330--wedding-book-setup-card-p3--venue-split) |
@@ -738,6 +739,26 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-30 · v1.35.0 — Wedding Book OUTFIT rework (P5) + Wedding Party split
+
+Fifth phase of the [Book expansion arc](BOOK-EXPANSION-PLAN.md). The OUTFIT card moves from a single card-per-section listing N people, to **one card per person** with their own fitting timeline, cost, paid status, items list, and photos. The Wedding Party section splits into two: `wedding-party-people` (the OUTFIT cards) and `wedding-party-dayof` (timeline / ring keepers / day-of TEXT + FIELD subsections).
+
+**OUTFIT card** — header is the person's name + role chip. Stats strip shows the next milestone with days-remaining (fitting → alterations → pickup), cost, paid-by + paid status, and items collected/total. Fitting-timeline strip highlights whichever step is next. Items list breaks the outfit into pieces (dress / shoes / tie etc.) with their own status pill (`Designed` / `Ordered` / `Fitted` / `Collected`). Photos via `fileIds[]` with attach/detach picker reusing the existing `File` model.
+
+**Schema:** card-level fields move **onto** `BookOutfitCard` — `personName`, `role`, `fittingDate`, `alterationsDueBy`, `pickupDate`, `costPence`, `paidBy`, `paid`, `fileIds`, `notes`. The legacy `BookOutfit` row table is **repurposed** into per-item composition for that one person — gains `itemLabel`, `description`; the legacy `personName` / `role` columns are now nullable and stay populated for one release as a recoverability buffer (matches the v1.30.5 `body` / `bodyHtml` pattern). Migration `20260430070000_book_outfit_rework` includes a data-migration `DO` block that walks every existing card: 0 children skipped, 1 child copies onto parent in place, 2+ children split out into per-person cards under a freshly-inserted `wedding-party-people` section. Idempotent on re-run.
+
+**Pure helper:** `outfitRollups({ fittingDate, alterationsDueBy, pickupDate, items }, now)` → `{ itemCount, collectedCount, percentCollected, nextMilestone, daysToNext }`. Picks the soonest-future milestone, falls back to the most-recent past one when all three are behind, treats today as future (>= now). 8 unit tests covering each branch.
+
+**Server actions:** `saveOutfitCard` (single bulk save with full reconcile — payload covers card-level fields + items list, transactional) + `attachFileToOutfitCard` / `detachFileFromOutfitCard` (per-card photo ops). All audit-enriched per the v1.30.5 standing rule. New `outfit-save`, `outfit-file-attach`, `outfit-file-detach` patterns in [audit-format.ts](src/lib/audit-format.ts) so the audit log reads in human sentences.
+
+**Editor** built against §10a's edit-row layout rule from day one — two-row grids for header (Name+Role; Fitting+Alterations+Pickup; Cost+PaidBy+Paid), and per-item rows (Item+Status; Description+Supplier; reorder/remove). View mirrors edit. Photos picker lives on view mode so a single attach doesn't re-save the whole card.
+
+**Section split (additive):** two new BookSection rows — `wedding-party-people` at order 1, `wedding-party-dayof` at order 2. Legacy `wedding-party` slug stays at the bottom of the order with any couple-edited subsections still intact (the /book index hides empty legacy sections). Seed wires `wedding-party-people` with one OUTFIT card per known wedding-party member (Bryony, Jamie, Aimee, Joshua, Clara, Torin) and `wedding-party-dayof` with the §8.2 layouts (Morning prep timeline · Ring keepers · Pre-ceremony hand-offs · Wedding-day cars · Stag & Hen recap).
+
+**Verification gate:** typecheck + lint + 286 unit tests + production build all green on the same SHA. The data migration sits behind an idempotent gate, so production prod-promote is a fast-forward + Prisma migrate + image rebuild — the migration runs cleanly even if existing prod cards already match the new shape.
+
+Files: [prisma/schema.prisma](prisma/schema.prisma) · [prisma/migrations/20260430070000_book_outfit_rework/migration.sql](prisma/migrations/20260430070000_book_outfit_rework/migration.sql) · [src/lib/book-cards.ts](src/lib/book-cards.ts) · [tests/unit/outfit-rollups.test.ts](tests/unit/outfit-rollups.test.ts) · [src/app/(app)/book/actions.ts](src/app/(app)/book/actions.ts) · [src/lib/audit-format.ts](src/lib/audit-format.ts) · [src/app/(app)/book/[slug]/BookOutfitCard.tsx](src/app/(app)/book/[slug]/BookOutfitCard.tsx) · [src/app/(app)/book/[slug]/CardRouter.tsx](src/app/(app)/book/[slug]/CardRouter.tsx) · [src/app/(app)/book/[slug]/page.tsx](src/app/(app)/book/[slug]/page.tsx) · [prisma/seed.ts](prisma/seed.ts).
 
 ### 2026-04-30 · v1.34.0 — Wedding Book LEGAL card (P4) + Legal split
 
