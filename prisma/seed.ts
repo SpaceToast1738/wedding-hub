@@ -873,6 +873,134 @@ async function seedWeddingPartyPeopleAndDayof() {
   }
 }
 
+// v1.36.0 (P6): seed the Accommodation section with sample STAY +
+// LODGING_GUIDE cards per BOOK-EXPANSION-PLAN.md §8.11. Idempotent —
+// skipped when the section already has subsections. Real cards added
+// via the UI are never overwritten by re-seed.
+async function seedAccommodationCards() {
+  const section = await db.bookSection.findUnique({
+    where: { slug: "accommodation" },
+  });
+  if (!section) {
+    console.log(`  · accommodation section not found; skipping seed`);
+    return;
+  }
+  const existing = await db.bookSubsection.count({
+    where: { sectionId: section.id },
+  });
+  if (existing > 0) {
+    console.log(
+      `  ✓ accommodation already populated (${existing}); skipping seed`,
+    );
+    return;
+  }
+
+  // Four sample STAY cards (per §8.11) + one LODGING_GUIDE card.
+  const stays = [
+    {
+      slug: "bridal-suite",
+      title: "Bridal Suite",
+      propertyName: "Alveston Manor — Bridal Suite",
+      occupants: ["Bryony", "Jamie"],
+    },
+    {
+      slug: "bryony-night-before",
+      title: "Bryony — night before",
+      propertyName: "Alveston Manor — Bridal Suite (early check-in)",
+      occupants: ["Bryony"],
+    },
+    {
+      slug: "bridesmaids-night-before",
+      title: "Aimee / bridesmaids — night before",
+      propertyName: "Alveston Manor — bridesmaid block",
+      occupants: ["Aimee Hollingsworth"],
+    },
+    {
+      slug: "groomsmen-night-before",
+      title: "Jamie / groomsmen — night before",
+      propertyName: "Alveston Manor — groomsmen block",
+      occupants: ["Jamie", "Joshua Dickson"],
+    },
+  ];
+  let order = 0;
+  for (const s of stays) {
+    const sub = await db.bookSubsection.create({
+      data: {
+        sectionId: section.id,
+        slug: s.slug,
+        title: s.title,
+        kind: "STAY",
+        order: order++,
+      },
+    });
+    await db.bookStayCard.create({
+      data: {
+        subsectionId: sub.id,
+        propertyName: s.propertyName,
+        occupants: s.occupants,
+      },
+    });
+  }
+  // LODGING_GUIDE card with three placeholder hotels around
+  // Stratford-upon-Avon. Couple swaps in real picks via the UI.
+  const guideSub = await db.bookSubsection.create({
+    data: {
+      sectionId: section.id,
+      slug: "recommended-for-guests",
+      title: "Recommended for guests",
+      kind: "LODGING_GUIDE",
+      order: order++,
+    },
+  });
+  const guideCard = await db.bookLodgingCard.create({
+    data: {
+      subsectionId: guideSub.id,
+      notes:
+        "A few options around Stratford-upon-Avon. Group rate codes added below where they apply.",
+    },
+  });
+  const hotels = [
+    {
+      name: "Crowne Plaza Stratford-upon-Avon",
+      distanceFromVenue: "0.4 miles — 10 min walk",
+      priceRangeLabel: "££",
+      phone: "01789 279988",
+      website: "https://www.crowneplaza.com/stratford-upon-avon",
+    },
+    {
+      name: "Mercure Shakespeare Hotel",
+      distanceFromVenue: "0.5 miles — 12 min walk",
+      priceRangeLabel: "££",
+      phone: "01789 294997",
+      website: "https://www.mercure.com",
+    },
+    {
+      name: "Premier Inn Stratford-upon-Avon Central",
+      distanceFromVenue: "0.7 miles — 15 min walk",
+      priceRangeLabel: "£",
+      phone: "0333 321 9296",
+      website: "https://www.premierinn.com",
+    },
+  ];
+  let itemOrder = 0;
+  for (const h of hotels) {
+    await db.bookLodgingItem.create({
+      data: {
+        cardId: guideCard.id,
+        name: h.name,
+        distanceFromVenue: h.distanceFromVenue,
+        priceRangeLabel: h.priceRangeLabel,
+        phone: h.phone,
+        website: h.website,
+        order: itemOrder++,
+      },
+    });
+  }
+  console.log(
+    `  ✓ accommodation seeded (${stays.length} STAY + 1 LODGING_GUIDE w/ ${hotels.length} hotels)`,
+  );
+}
+
 async function main() {
   console.log("Seeding Wedding Hub…");
   await seedUsersAndPermissions();
@@ -888,6 +1016,7 @@ async function main() {
   await seedVenueSpacesAndDecor();
   await seedLegalSections();
   await seedWeddingPartyPeopleAndDayof();
+  await seedAccommodationCards();
   console.log("Done.");
 }
 

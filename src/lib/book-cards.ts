@@ -7,7 +7,8 @@
 // v1.15.0 custom-fields patterns.
 
 // v1.31.0: + BUILD. v1.32.0: + MENU, BAR. v1.33.0: + SETUP. v1.34.0: + LEGAL.
-export const BOOK_CARD_KINDS = ["TEXT", "FIELD", "RECIPE", "SHOT_LIST", "OUTFIT", "BUILD", "MENU", "BAR", "SETUP", "LEGAL"] as const;
+// v1.36.0: + STAY, LODGING_GUIDE.
+export const BOOK_CARD_KINDS = ["TEXT", "FIELD", "RECIPE", "SHOT_LIST", "OUTFIT", "BUILD", "MENU", "BAR", "SETUP", "LEGAL", "STAY", "LODGING_GUIDE"] as const;
 export type BookCardKind = (typeof BOOK_CARD_KINDS)[number];
 
 // Display metadata for each card kind — used by the picker UI and
@@ -57,6 +58,14 @@ export const BOOK_CARD_KIND_META: Record<
   LEGAL: {
     label: "Legal",
     description: "Document checklist with deadlines + optional file attachments.",
+  },
+  STAY: {
+    label: "Stay",
+    description: "One accommodation booking — property, dates, cost, occupants.",
+  },
+  LODGING_GUIDE: {
+    label: "Lodging guide",
+    description: "Recommended hotels for guests — single sheet to share.",
   },
 };
 
@@ -728,4 +737,77 @@ export function outfitRollups(card: OutfitCardShape, now: Date = new Date()): Ou
     daysToNext = Math.round((nextMilestone.date.getTime() - now.getTime()) / OUTFIT_MS_PER_DAY);
   }
   return { itemCount, collectedCount, percentCollected, nextMilestone, daysToNext };
+}
+
+// ─── STAY card (v1.36.0) ────────────────────────────────────────────
+//
+// Pure rollups for a single accommodation booking. Cost-only — the
+// booking itself is one row, so there's nothing to count up. We
+// derive nights stayed (check-in → check-out) and days-until-checkin
+// for the header strip; both null when the dates aren't set.
+
+const STAY_MS_PER_DAY = 86_400_000;
+
+export type StayCardShape = {
+  checkInDate?: Date | null;
+  checkOutDate?: Date | null;
+  costPence?: number | null;
+  paid?: boolean;
+};
+
+export type StayRollups = {
+  /** check-out − check-in, in whole days. Null when either date missing. */
+  nights: number | null;
+  /** days until check-in (negative if past). Null when no check-in date. */
+  daysToCheckIn: number | null;
+  /** "upcoming" | "current" | "past" | null based on now vs check-in/out. */
+  phase: "upcoming" | "current" | "past" | null;
+};
+
+export function stayRollups(card: StayCardShape, now: Date = new Date()): StayRollups {
+  const ci = card.checkInDate ?? null;
+  const co = card.checkOutDate ?? null;
+  let nights: number | null = null;
+  if (ci && co) {
+    nights = Math.max(0, Math.round((co.getTime() - ci.getTime()) / STAY_MS_PER_DAY));
+  }
+  let daysToCheckIn: number | null = null;
+  if (ci) {
+    daysToCheckIn = Math.round((ci.getTime() - now.getTime()) / STAY_MS_PER_DAY);
+  }
+  let phase: StayRollups["phase"] = null;
+  if (ci) {
+    if (now.getTime() < ci.getTime()) phase = "upcoming";
+    else if (co && now.getTime() > co.getTime()) phase = "past";
+    else phase = "current";
+  }
+  return { nights, daysToCheckIn, phase };
+}
+
+// ─── LODGING_GUIDE card (v1.36.0) ──────────────────────────────────
+//
+// Pure rollups for the recommended-hotels reference card. Items have
+// no tracked-state, so the rollup is just a count + a per-price-band
+// breakdown so the header can show "8 hotels — 3 £, 4 ££, 1 £££".
+
+export type LodgingItemShape = {
+  priceRangeLabel?: string | null;
+};
+
+export type LodgingRollups = {
+  itemCount: number;
+  /** Map of priceRangeLabel → count. Items with null/empty label
+   *  bucketed under the empty string so the caller can choose to
+   *  hide them. */
+  perPriceBand: Map<string, number>;
+};
+
+export function lodgingRollups(card: { items: LodgingItemShape[] }): LodgingRollups {
+  const itemCount = card.items.length;
+  const perPriceBand = new Map<string, number>();
+  for (const i of card.items) {
+    const k = (i.priceRangeLabel ?? "").trim();
+    perPriceBand.set(k, (perPriceBand.get(k) ?? 0) + 1);
+  }
+  return { itemCount, perPriceBand };
 }

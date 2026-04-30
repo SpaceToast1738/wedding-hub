@@ -68,6 +68,11 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
               },
             },
           },
+          // v1.36.0: STAY + LODGING_GUIDE cards.
+          stayCard: true,
+          lodgingCard: {
+            include: { items: { orderBy: { order: "asc" } } },
+          },
         },
       },
     },
@@ -147,6 +152,24 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
       ])
     : [null, [] as Array<{ id: string; name: string; mimeType: string }>];
   const legalWeddingDate = weddingSettings?.weddingDate ?? null;
+
+  // v1.36.0: STAY cards need a guest list for the "linked guests"
+  // picker. Cheap — runs once per section, only when at least one
+  // STAY card is present. Mirrors the LODGING_GUIDE / supplier-name
+  // pattern. Archived guests excluded.
+  const hasStay = section.subsections.some((s) => s.kind === "STAY");
+  const stayGuests = hasStay
+    ? (
+        await db.guest.findMany({
+          where: { archived: false },
+          orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
+          select: { id: true, firstName: true, lastName: true },
+        })
+      ).map((g) => ({
+        id: g.id,
+        name: [g.firstName, g.lastName].filter(Boolean).join(" "),
+      }))
+    : [];
 
   return (
     <>
@@ -289,6 +312,12 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
                     files: allFiles,
                   }
                 : null;
+              // v1.36.0: shape STAY data — thread the guest list for
+              // the linked-guest picker.
+              const stayCard = sRaw.stayCard
+                ? { ...sRaw.stayCard, guests: stayGuests }
+                : null;
+              const lodgingCard = sRaw.lodgingCard ?? null;
               const s = {
                 ...sRaw,
                 buildCard,
@@ -297,6 +326,8 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
                 setupCard,
                 legalCard,
                 outfitCard,
+                stayCard,
+                lodgingCard,
               };
               return (
                 <CardRouter

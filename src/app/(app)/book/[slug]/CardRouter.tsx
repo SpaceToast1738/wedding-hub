@@ -4,11 +4,13 @@ import { BookBarCard } from "./BookBarCard";
 import { BookBuildCard } from "./BookBuildCard";
 import { BookFieldsCard } from "./BookFieldsCard";
 import { BookLegalCard } from "./BookLegalCard";
+import { BookLodgingCard } from "./BookLodgingCard";
 import { BookMenuCard } from "./BookMenuCard";
 import { BookOutfitCardEditor } from "./BookOutfitCard";
 import { BookRecipeCard } from "./BookRecipeCard";
 import { BookSetupCard } from "./BookSetupCard";
 import { BookShotListCard } from "./BookShotListCard";
+import { BookStayCard } from "./BookStayCard";
 import { SubsectionEditor } from "./SubsectionEditor";
 
 // v1.26.0: kind discriminator → per-kind editor. Each subsection
@@ -33,7 +35,7 @@ type Sub = {
   body: string | null;
   fields: unknown;
   visibility: "EVERYONE" | "COUPLE_ONLY";
-  kind: "TEXT" | "FIELD" | "RECIPE" | "SHOT_LIST" | "OUTFIT" | "BUILD" | "MENU" | "BAR" | "SETUP" | "LEGAL";
+  kind: "TEXT" | "FIELD" | "RECIPE" | "SHOT_LIST" | "OUTFIT" | "BUILD" | "MENU" | "BAR" | "SETUP" | "LEGAL" | "STAY" | "LODGING_GUIDE";
   fieldDefs: Array<{
     id: string;
     label: string;
@@ -181,6 +183,39 @@ type Sub = {
       order: number;
     }>;
     supplierNames: string[];
+  } | null;
+  // v1.36.0: STAY card eager-loaded data + global guest list for the
+  // linked-guest picker.
+  stayCard: {
+    id: string;
+    propertyName: string | null;
+    propertyContact: string | null;
+    bookingReference: string | null;
+    checkInDate: Date | null;
+    checkOutDate: Date | null;
+    costPence: number | null;
+    paidBy: string | null;
+    paid: boolean;
+    occupants: string[];
+    guestIds: string[];
+    notes: string | null;
+    guests: Array<{ id: string; name: string }>;
+  } | null;
+  // v1.36.0: LODGING_GUIDE card eager-loaded data.
+  lodgingCard: {
+    id: string;
+    notes: string | null;
+    items: Array<{
+      id: string;
+      name: string;
+      distanceFromVenue: string | null;
+      priceRangeLabel: string | null;
+      phone: string | null;
+      website: string | null;
+      groupRateCode: string | null;
+      notes: string | null;
+      order: number;
+    }>;
   } | null;
   // v1.31.0: BUILD card eager-loaded data.
   // v1.31.1: + budgetLineId + budgetLine snapshot.
@@ -488,6 +523,62 @@ export function CardRouter({
           canEdit={canEdit}
           isCouple={isCouple}
           card={bc}
+        />
+      );
+    }
+    case "STAY": {
+      const sc = sub.stayCard ?? {
+        id: "",
+        propertyName: null,
+        propertyContact: null,
+        bookingReference: null,
+        checkInDate: null,
+        checkOutDate: null,
+        costPence: null,
+        paidBy: null,
+        paid: false,
+        occupants: [],
+        guestIds: [],
+        notes: null,
+        guests: [],
+      };
+      return (
+        <BookStayCard
+          subsectionId={sub.id}
+          slug={sub.slug}
+          title={sub.title}
+          visibility={sub.visibility}
+          canEdit={canEdit}
+          isCouple={isCouple}
+          card={{
+            id: sc.id,
+            propertyName: sc.propertyName,
+            propertyContact: sc.propertyContact,
+            bookingReference: sc.bookingReference,
+            checkInDate: sc.checkInDate,
+            checkOutDate: sc.checkOutDate,
+            costPence: sc.costPence,
+            paidBy: sc.paidBy,
+            paid: sc.paid,
+            occupants: sc.occupants,
+            guestIds: sc.guestIds,
+            notes: sc.notes,
+          }}
+          guests={sc.guests}
+        />
+      );
+    }
+    case "LODGING_GUIDE": {
+      const lg = sub.lodgingCard ?? { id: "", notes: null, items: [] };
+      return (
+        <BookLodgingCard
+          subsectionId={sub.id}
+          slug={sub.slug}
+          title={sub.title}
+          visibility={sub.visibility}
+          canEdit={canEdit}
+          isCouple={isCouple}
+          card={{ id: lg.id, notes: lg.notes, items: lg.items }}
         />
       );
     }

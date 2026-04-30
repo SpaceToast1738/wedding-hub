@@ -192,6 +192,29 @@ export function formatAuditAction(row: AuditRow): string {
     return `Detached ${quoted(asString(meta.previousFileName))} from legal item ${quoted(asString(meta.itemLabel))} (${title ?? "legal card"})`;
   }
 
+  // STAY card (v1.36.0+) — single booking, no item reconcile.
+  if (a === "stay-save") {
+    const property = asString(meta.propertyName);
+    const occupants = asNumber(meta.occupantCount) ?? 0;
+    const guests = asNumber(meta.guestCount) ?? 0;
+    const parts: string[] = [];
+    if (occupants > 0) parts.push(pluralise(occupants, "occupant", "occupants"));
+    if (guests > 0) parts.push(pluralise(guests, "linked guest", "linked guests"));
+    return `Saved stay card ${quoted(property ?? title)}${parts.length ? ` — ${parts.join(", ")}` : ""}`;
+  }
+
+  // LODGING_GUIDE card (v1.36.0+) — list of recommended hotels.
+  if (a === "lodging-save") {
+    const ia = asNumber(meta.itemsAdded) ?? 0;
+    const ir = asNumber(meta.itemsRemoved) ?? 0;
+    const iu = asNumber(meta.itemsUpdated) ?? 0;
+    const parts: string[] = [];
+    if (ia > 0) parts.push(`added ${pluralise(ia, "hotel", "hotels")}`);
+    if (ir > 0) parts.push(`removed ${pluralise(ir, "hotel", "hotels")}`);
+    if (iu > 0 && ia === 0 && ir === 0) parts.push(`edited ${pluralise(iu, "hotel", "hotels")}`);
+    return `Saved lodging guide ${quoted(title)}${parts.length ? ` — ${parts.join(", ")}` : ""}`;
+  }
+
   // SETUP card (v1.33.0+)
   if (a === "setup-save") {
     const ia = asNumber(meta.itemsAdded) ?? 0;

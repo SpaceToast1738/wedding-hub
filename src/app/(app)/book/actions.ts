@@ -130,6 +130,14 @@ export async function createBookSubsection(formData: FormData) {
     // items list. Couple sets regulator + due date + items in the
     // editor.
     await db.bookLegalCard.create({ data: { subsectionId: created.id } });
+  } else if (parsed.kind === BookSubsectionKind.STAY) {
+    // v1.36.0: STAY card child seeds with all-null fields. Couple
+    // fills property + dates + cost + occupants via the editor.
+    await db.bookStayCard.create({ data: { subsectionId: created.id } });
+  } else if (parsed.kind === BookSubsectionKind.LODGING_GUIDE) {
+    // v1.36.0: LODGING_GUIDE card seeds empty. Items added via the
+    // editor's bulk-save flow.
+    await db.bookLodgingCard.create({ data: { subsectionId: created.id } });
   }
   // FIELD card seeds the value bag lazily — fields stays null until
   // the user adds the first def + value.
@@ -2146,5 +2154,218 @@ export async function detachFileFromOutfitCard(
     return { ok: true };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "Couldn't detach file" };
+  }
+}
+
+// ── v1.36.0 (P6): STAY card actions ─────────────────────────────────
+//
+// One card per booking. Single-bulk-save shape: payload covers every
+// card-level field (no child-row reconcile because STAY is a single
+// row, not a list-of-rows). Occupants is free-text array; guestIds
+// is an array of optional Guest.id FKs (forward link only — no
+// relation defined; reverse query lives at render time).
+
+const staySavePayloadSchema = z.object({
+  propertyName: z.string().max(160).nullable(),
+  propertyContact: z.string().max(400).nullable(),
+  bookingReference: z.string().max(120).nullable(),
+  checkInDate: z.string().nullable(),
+  checkOutDate: z.string().nullable(),
+  costPence: z.number().int().min(0).nullable(),
+  paidBy: z.string().max(40).nullable(),
+  paid: z.boolean(),
+  occupants: z.array(z.string().min(1).max(120)),
+  guestIds: z.array(z.string().min(1).max(50)),
+  notes: z.string().max(4000).nullable(),
+});
+
+export type StaySavePayload = z.infer<typeof staySavePayloadSchema>;
+
+export async function saveStayCard(
+  subsectionId: string,
+  payload: StaySavePayload,
+): Promise<BookActionResult> {
+  const user = await requireEdit("book");
+  try {
+    const parsed = staySavePayloadSchema.parse(payload);
+    const before = await db.bookStayCard.findUnique({
+      where: { subsectionId },
+      include: { subsection: true },
+    });
+    if (!before) return { ok: false, error: "Stay card not found" };
+
+    const changedFields: string[] = [];
+    if (parsed.propertyName !== before.propertyName) changedFields.push("propertyName");
+    if (parsed.propertyContact !== before.propertyContact) changedFields.push("propertyContact");
+    if (parsed.bookingReference !== before.bookingReference) changedFields.push("bookingReference");
+    const newCi = parseISODate(parsed.checkInDate)?.getTime() ?? null;
+    const oldCi = before.checkInDate?.getTime() ?? null;
+    if (newCi !== oldCi) changedFields.push("checkInDate");
+    const newCo = parseISODate(parsed.checkOutDate)?.getTime() ?? null;
+    const oldCo = before.checkOutDate?.getTime() ?? null;
+    if (newCo !== oldCo) changedFields.push("checkOutDate");
+    if (parsed.costPence !== before.costPence) changedFields.push("costPence");
+    if (parsed.paidBy !== before.paidBy) changedFields.push("paidBy");
+    if (parsed.paid !== before.paid) changedFields.push("paid");
+    if (parsed.notes !== before.notes) changedFields.push("notes");
+    if (JSON.stringify(parsed.occupants) !== JSON.stringify(before.occupants)) {
+      changedFields.push("occupants");
+    }
+    if (
+      JSON.stringify([...parsed.guestIds].sort()) !==
+      JSON.stringify([...before.guestIds].sort())
+    ) {
+      changedFields.push("guestIds");
+    }
+
+    await db.bookStayCard.update({
+      where: { subsectionId },
+      data: {
+        propertyName: parsed.propertyName,
+        propertyContact: parsed.propertyContact,
+        bookingReference: parsed.bookingReference,
+        checkInDate: parseISODate(parsed.checkInDate),
+        checkOutDate: parseISODate(parsed.checkOutDate),
+        costPence: parsed.costPence,
+        paidBy: parsed.paidBy,
+        paid: parsed.paid,
+        occupants: parsed.occupants,
+        guestIds: parsed.guestIds,
+        notes: parsed.notes,
+      },
+    });
+
+    await audit(user, {
+      action: "stay-save",
+      entity: "BookSubsection",
+      entityId: subsectionId,
+      metadata: {
+        cardTitle: before.subsection.title,
+        propertyName: parsed.propertyName,
+        guestCount: parsed.guestIds.length,
+        occupantCount: parsed.occupants.length,
+        changedFields,
+      },
+    });
+    await revalidateBookSubsection(subsectionId);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Couldn't save stay card" };
+  }
+}
+
+// ── v1.36.0 (P6): LODGING_GUIDE card actions ────────────────────────
+//
+// One card with rows for recommended hotels. Single-bulk-save with
+// child reconcile (id starts "new-" → create; missing from payload
+// → delete; existing → update). Items have no tracked-state, so
+// nothing to flag here.
+
+const lodgingItemPayloadSchema = z.object({
+  id: z.string().min(1).max(50),
+  name: z.string().min(1).max(160),
+  distanceFromVenue: z.string().max(120).nullable(),
+  priceRangeLabel: z.string().max(20).nullable(),
+  phone: z.string().max(40).nullable(),
+  website: z.string().max(400).nullable(),
+  groupRateCode: z.string().max(80).nullable(),
+  notes: z.string().max(2000).nullable(),
+});
+
+const lodgingSavePayloadSchema = z.object({
+  notes: z.string().max(4000).nullable(),
+  items: z.array(lodgingItemPayloadSchema),
+});
+
+export type LodgingSavePayload = z.infer<typeof lodgingSavePayloadSchema>;
+
+export async function saveLodgingCard(
+  subsectionId: string,
+  payload: LodgingSavePayload,
+): Promise<BookActionResult> {
+  const user = await requireEdit("book");
+  try {
+    const parsed = lodgingSavePayloadSchema.parse(payload);
+    const before = await db.bookLodgingCard.findUnique({
+      where: { subsectionId },
+      include: { subsection: true, items: true },
+    });
+    if (!before) return { ok: false, error: "Lodging card not found" };
+
+    const headerChanged: string[] = [];
+    if (parsed.notes !== before.notes) headerChanged.push("notes");
+
+    const beforeIds = new Set(before.items.map((i) => i.id));
+    const incomingIds = new Set(
+      parsed.items.map((i) => i.id).filter((id) => !id.startsWith("new-")),
+    );
+    const toDelete = [...beforeIds].filter((id) => !incomingIds.has(id));
+    const toCreate = parsed.items.filter((i) => i.id.startsWith("new-"));
+    const toUpdate = parsed.items.filter((i) => !i.id.startsWith("new-"));
+
+    await db.$transaction(async (tx) => {
+      await tx.bookLodgingCard.update({
+        where: { subsectionId },
+        data: { notes: parsed.notes },
+      });
+      if (toDelete.length > 0) {
+        await tx.bookLodgingItem.deleteMany({ where: { id: { in: toDelete } } });
+      }
+      for (const i of toUpdate) {
+        await tx.bookLodgingItem.update({
+          where: { id: i.id },
+          data: {
+            name: i.name,
+            distanceFromVenue: i.distanceFromVenue,
+            priceRangeLabel: i.priceRangeLabel,
+            phone: i.phone,
+            website: i.website,
+            groupRateCode: i.groupRateCode,
+            notes: i.notes,
+          },
+        });
+      }
+      let orderCounter = before.items.reduce((max, i) => Math.max(max, i.order), -1);
+      for (const i of toCreate) {
+        orderCounter += 1;
+        await tx.bookLodgingItem.create({
+          data: {
+            cardId: before.id,
+            name: i.name,
+            distanceFromVenue: i.distanceFromVenue,
+            priceRangeLabel: i.priceRangeLabel,
+            phone: i.phone,
+            website: i.website,
+            groupRateCode: i.groupRateCode,
+            notes: i.notes,
+            order: orderCounter,
+          },
+        });
+      }
+      for (let idx = 0; idx < parsed.items.length; idx++) {
+        const i = parsed.items[idx]!;
+        if (!i.id.startsWith("new-")) {
+          await tx.bookLodgingItem.update({ where: { id: i.id }, data: { order: idx } });
+        }
+      }
+    });
+
+    await audit(user, {
+      action: "lodging-save",
+      entity: "BookSubsection",
+      entityId: subsectionId,
+      metadata: {
+        cardTitle: before.subsection.title,
+        itemsAdded: toCreate.length,
+        itemsUpdated: toUpdate.length,
+        itemsRemoved: toDelete.length,
+        itemsTotal: parsed.items.length,
+        headerChanged,
+      },
+    });
+    await revalidateBookSubsection(subsectionId);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Couldn't save lodging card" };
   }
 }

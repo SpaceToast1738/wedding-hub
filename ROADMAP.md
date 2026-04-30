@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.35.1** | 2026-04-30 | [Migration fix — `CREATE EXTENSION pgcrypto` so `gen_random_bytes()` works in CI's bare Postgres image](#2026-04-30--v1351--migration-fix-pgcrypto) |
+| **v1.36.0** | 2026-04-30 | [Wedding Book STAY + LODGING_GUIDE cards (P6) — one card per accommodation booking with cost / dates / linked guests · recommended-hotels reference card with print stylesheet · Accommodation section seeded with 4 STAY + 1 LODGING_GUIDE around Stratford-upon-Avon](#2026-04-30--v1360--wedding-book-stay--lodging_guide-cards-p6) |
+| v1.35.1 | 2026-04-30 | [Migration fix — `CREATE EXTENSION pgcrypto` so `gen_random_bytes()` works in CI's bare Postgres image](#2026-04-30--v1351--migration-fix-pgcrypto) |
 | v1.35.0 | 2026-04-30 | [Wedding Book OUTFIT rework (P5) — one card per wedding-party member with fitting timeline / cost / paid status / per-item composition / photos · Wedding Party split into People (OUTFIT cards) + Day-of (TEXT/FIELD timeline)](#2026-04-30--v1350--wedding-book-outfit-rework-p5--wedding-party-split) |
 | v1.34.0 | 2026-04-30 | [Wedding Book LEGAL card (P4) — document checklist with deadlines + file attachments · Legal split into Before / Day / After (additive) · FieldLabel + Label lifted to shared `bookCardUi.tsx`](#2026-04-30--v1340--wedding-book-legal-card-p4--legal-split) |
 | v1.33.2 | 2026-04-30 | [BOOK-EXPANSION-PLAN.md gains a temporary edit-row layout rule (§10a) so P4–P8 ship correct widths from day one](#2026-04-30--v1332--edit-row-layout-rule-pinned-into-the-card-creation-plan) |
@@ -740,6 +741,28 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-30 · v1.36.0 — Wedding Book STAY + LODGING_GUIDE cards (P6)
+
+Sixth phase of the [Book expansion arc](BOOK-EXPANSION-PLAN.md). Two new card kinds rebuild the Accommodation section: **STAY** for bookings the couple makes and pays for (one card per booking), and **LODGING_GUIDE** for the recommended-hotels reference card guests can be pointed at.
+
+**STAY card** — one card per booking. Header strip shows the property + a phase pill (upcoming / current / past), plus a stats grid for check-in date with days-remaining, check-out date, cost, and paid status. Booking ref + nights count surface in a one-line strip below. Body has property contact, free-text occupants list (chips), an inline picker for **linked guests** that ties this booking to existing `Guest.id`s, and notes. The `guestIds` array is a forward link only — no relation defined on the schema, matching the v1.30.5 cross-module-reference convention. The reverse query ("which stay is this guest at?") lights up in P7's guest detail panel.
+
+**LODGING_GUIDE card** — single card with rows for recommended hotels around the venue. Each row carries name + distance + price band (`£` / `££` / `£££`) + phone + website + group-rate code + notes. Built read-mostly — no `obtained` / `paid` flags. Header summarises N hotels with a per-price-band breakdown (`3 × £, 4 × ££, 1 × £££`) so the at-a-glance read works without scrolling.
+
+**Schema:** `STAY` and `LODGING_GUIDE` added to `BookSubsectionKind`. Three new tables — `BookStayCard` (1:1 with subsection, `guestIds: String[]`, `occupants: String[]`), `BookLodgingCard` (1:1) + `BookLodgingItem` (rows). Migration `20260430080000_book_stay_lodging_cards`, additive only — no data migration needed because Accommodation didn't have any structured cards yet.
+
+**Pure helpers:** `stayRollups({ checkInDate, checkOutDate, costPence, paid }, now)` → `{ nights, daysToCheckIn, phase }`. `lodgingRollups({ items })` → `{ itemCount, perPriceBand }`. 11 unit tests covering boundaries (same-day = 0 nights, current/upcoming/past phase pivots on now vs check-in/out, null/empty price labels bucket together).
+
+**Server actions:** `saveStayCard` (single bulk save — one row, no item reconcile) + `saveLodgingCard` (single bulk save with item reconcile). Both audit-enriched per the v1.30.5 standing rule with `changedFields` diff for STAY's nine card-level fields and `itemsAdded` / `Updated` / `Removed` counts for LODGING. New `stay-save` + `lodging-save` patterns in [audit-format.ts](src/lib/audit-format.ts).
+
+**Editors** built against §10a's edit-row layout rule from day one — two-row grids for STAY's header (Property+BookingRef; CheckIn+CheckOut; Cost+PaidBy+Paid), and three-row grids per hotel for LODGING_GUIDE (Name+PriceBand; Distance+Phone; Website+GroupRate). View modes mirror edit. STAY's linked-guest picker reuses the toggle-chip pattern from the seating canvas — clicking adds/removes by `Guest.id`.
+
+**Seed:** Accommodation seeded per [BOOK-EXPANSION-PLAN.md §8.11](BOOK-EXPANSION-PLAN.md) with four STAY cards (Bridal Suite, Bryony night-before, bridesmaids night-before, groomsmen night-before) and one LODGING_GUIDE with three placeholder hotels around Stratford-upon-Avon (Crowne Plaza, Mercure Shakespeare, Premier Inn Central). Idempotent — skipped when the section already has subsections.
+
+**Verification gate:** typecheck + lint + 297 unit tests + production build all green on the same SHA.
+
+Files: [prisma/schema.prisma](prisma/schema.prisma) · [prisma/migrations/20260430080000_book_stay_lodging_cards/migration.sql](prisma/migrations/20260430080000_book_stay_lodging_cards/migration.sql) · [src/lib/book-cards.ts](src/lib/book-cards.ts) · [tests/unit/stay-lodging-rollups.test.ts](tests/unit/stay-lodging-rollups.test.ts) · [src/app/(app)/book/actions.ts](src/app/(app)/book/actions.ts) · [src/lib/audit-format.ts](src/lib/audit-format.ts) · [src/app/(app)/book/[slug]/BookStayCard.tsx](src/app/(app)/book/[slug]/BookStayCard.tsx) · [src/app/(app)/book/[slug]/BookLodgingCard.tsx](src/app/(app)/book/[slug]/BookLodgingCard.tsx) · [src/app/(app)/book/[slug]/CardRouter.tsx](src/app/(app)/book/[slug]/CardRouter.tsx) · [src/app/(app)/book/[slug]/page.tsx](src/app/(app)/book/[slug]/page.tsx) · [prisma/seed.ts](prisma/seed.ts).
 
 ### 2026-04-30 · v1.35.1 — Migration fix (pgcrypto)
 

@@ -492,6 +492,12 @@ model BookSubsection {
   // v1.34.0: LEGAL card — document checklist with deadlines + file
   // attachments (e.g. Notice of Marriage, marriage cert pickup).
   legalCard  BookLegalCard?
+  // v1.36.0: STAY card — one card per accommodation booking the couple
+  // pays for (bridal suite, night-before rooms, etc.).
+  stayCard   BookStayCard?
+  // v1.36.0: LODGING_GUIDE card — recommended hotels for guests, rows
+  // are reference data not tracked-state.
+  lodgingCard BookLodgingCard?
   // v1.30.5: subsection-level task link removed; replaced by section-
   // level link on the parent BookSection (see BookSection.tasks).
   updatedAt  DateTime    @updatedAt
@@ -504,6 +510,7 @@ model BookSubsection {
 // v1.32.0: + MENU, BAR.
 // v1.33.0: + SETUP.
 // v1.34.0: + LEGAL.
+// v1.36.0: + STAY, LODGING_GUIDE.
 enum BookSubsectionKind {
   TEXT
   FIELD
@@ -515,6 +522,8 @@ enum BookSubsectionKind {
   BAR
   SETUP
   LEGAL
+  STAY
+  LODGING_GUIDE
 }
 
 // v1.26.0: FIELD card — list of typed fields. Values stored on
@@ -838,6 +847,59 @@ model BookLegalItem {
 
   @@index([cardId])
   @@index([fileId])
+}
+
+// v1.36.0 (P6): STAY card — one card per booking the couple pays for
+// (bridal suite, night-before rooms, etc.). Distinct from LODGING_GUIDE
+// which is reference data for guests.
+//
+// `guestIds` is an array of optional FKs to Guest.id. **No relation
+// defined** — lookup happens at render time. This preserves the
+// v1.30.5 cross-module-reference convention (read-time queries, not
+// denormalisation), and matches OUTFIT card's `fileIds` shape.
+model BookStayCard {
+  id               String         @id @default(cuid())
+  subsectionId     String         @unique
+  subsection       BookSubsection @relation(fields: [subsectionId], references: [id], onDelete: Cascade)
+  propertyName     String?
+  propertyContact  String?        // free text — phone / email / address
+  bookingReference String?
+  checkInDate      DateTime?
+  checkOutDate     DateTime?
+  costPence        Int?
+  paidBy           String?        // "Couple" | "Self" | "Parents" | "Other"
+  paid             Boolean        @default(false)
+  occupants        String[]       @default([])
+  guestIds         String[]       @default([])
+  notes            String?        @db.Text
+}
+
+// v1.36.0 (P6): LODGING_GUIDE card — recommended hotels for guests.
+// One card with rows. Read-mostly reference data — items have a
+// `name` + `distanceFromVenue` + price-range label + contact, not
+// tracked state.
+model BookLodgingCard {
+  id           String            @id @default(cuid())
+  subsectionId String            @unique
+  subsection   BookSubsection    @relation(fields: [subsectionId], references: [id], onDelete: Cascade)
+  notes        String?           @db.Text
+  items        BookLodgingItem[]
+}
+
+model BookLodgingItem {
+  id                String          @id @default(cuid())
+  cardId            String
+  card              BookLodgingCard @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  name              String
+  distanceFromVenue String?         // e.g. "0.3 miles — 8 min walk"
+  priceRangeLabel   String?         // "£" | "££" | "£££"
+  phone             String?
+  website           String?
+  groupRateCode     String?
+  notes             String?
+  order             Int             @default(0)
+
+  @@index([cardId])
 }
 
 enum BookSubsectionVisibility {
