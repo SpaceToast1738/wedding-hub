@@ -120,6 +120,11 @@ export async function createBookSubsection(formData: FormData) {
     // items list. Categories are free-text on each item, so we
     // don't pre-seed any.
     await db.bookBarCard.create({ data: { subsectionId: created.id } });
+  } else if (parsed.kind === BookSubsectionKind.SETUP) {
+    // v1.33.0: SETUP card child seeds with all-null fields. Empty
+    // items list. Couple fills in space + setup time + items via
+    // the editor.
+    await db.bookSetupCard.create({ data: { subsectionId: created.id } });
   }
   // FIELD card seeds the value bag lazily — fields stays null until
   // the user adds the first def + value.
@@ -1573,5 +1578,133 @@ export async function saveBarCard(
     return { ok: true };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "Couldn't save bar card" };
+  }
+}
+
+// ── v1.33.0: SETUP card actions ────────────────────────────────────
+//
+// Same single-bulk-save shape as BUILD / MENU / BAR. Header fields
+// + items reconciled in a transaction. Audit metadata enriched per
+// the v1.30.5 standing rule.
+
+const setupItemPayloadSchema = z.object({
+  id: z.string().min(1).max(50),
+  name: z.string().min(1).max(160),
+  quantity: z.number().int().min(0).nullable(),
+  location: z.string().max(160).nullable(),
+  source: z.string().max(120).nullable(),
+  packed: z.boolean(),
+  placed: z.boolean(),
+  packDownPlan: z.string().max(2000).nullable(),
+  notes: z.string().max(2000).nullable(),
+});
+
+const setupSavePayloadSchema = z.object({
+  space: z.string().max(120).nullable(),
+  setupStartsAt: z.string().max(60).nullable(),
+  setupOwner: z.string().max(120).nullable(),
+  notes: z.string().max(4000).nullable(),
+  items: z.array(setupItemPayloadSchema),
+});
+
+export type SetupSavePayload = z.infer<typeof setupSavePayloadSchema>;
+
+export async function saveSetupCard(
+  subsectionId: string,
+  payload: SetupSavePayload,
+): Promise<BookActionResult> {
+  const user = await requireEdit("book");
+  try {
+    const parsed = setupSavePayloadSchema.parse(payload);
+    const before = await db.bookSetupCard.findUnique({
+      where: { subsectionId },
+      include: { subsection: true, items: true },
+    });
+    if (!before) return { ok: false, error: "Setup card not found" };
+
+    const headerChanged: string[] = [];
+    if (parsed.space !== before.space) headerChanged.push("space");
+    if (parsed.setupStartsAt !== before.setupStartsAt) headerChanged.push("setupStartsAt");
+    if (parsed.setupOwner !== before.setupOwner) headerChanged.push("setupOwner");
+    if (parsed.notes !== before.notes) headerChanged.push("notes");
+
+    const beforeIds = new Set(before.items.map((i) => i.id));
+    const incomingIds = new Set(parsed.items.map((i) => i.id).filter((id) => !id.startsWith("new-")));
+    const toDelete = [...beforeIds].filter((id) => !incomingIds.has(id));
+    const toCreate = parsed.items.filter((i) => i.id.startsWith("new-"));
+    const toUpdate = parsed.items.filter((i) => !i.id.startsWith("new-"));
+
+    await db.$transaction(async (tx) => {
+      await tx.bookSetupCard.update({
+        where: { subsectionId },
+        data: {
+          space: parsed.space,
+          setupStartsAt: parsed.setupStartsAt,
+          setupOwner: parsed.setupOwner,
+          notes: parsed.notes,
+        },
+      });
+      if (toDelete.length > 0) {
+        await tx.bookSetupItem.deleteMany({ where: { id: { in: toDelete } } });
+      }
+      for (const i of toUpdate) {
+        await tx.bookSetupItem.update({
+          where: { id: i.id },
+          data: {
+            name: i.name,
+            quantity: i.quantity,
+            location: i.location,
+            source: i.source,
+            packed: i.packed,
+            placed: i.placed,
+            packDownPlan: i.packDownPlan,
+            notes: i.notes,
+          },
+        });
+      }
+      let orderCounter = before.items.reduce((max, i) => Math.max(max, i.order), -1);
+      for (const i of toCreate) {
+        orderCounter += 1;
+        await tx.bookSetupItem.create({
+          data: {
+            cardId: before.id,
+            name: i.name,
+            quantity: i.quantity,
+            location: i.location,
+            source: i.source,
+            packed: i.packed,
+            placed: i.placed,
+            packDownPlan: i.packDownPlan,
+            notes: i.notes,
+            order: orderCounter,
+          },
+        });
+      }
+      for (let idx = 0; idx < parsed.items.length; idx++) {
+        const i = parsed.items[idx]!;
+        if (!i.id.startsWith("new-")) {
+          await tx.bookSetupItem.update({ where: { id: i.id }, data: { order: idx } });
+        }
+      }
+    });
+
+    await audit(user, {
+      action: "setup-save",
+      entity: "BookSubsection",
+      entityId: subsectionId,
+      metadata: {
+        cardTitle: before.subsection.title,
+        space: parsed.space,
+        itemsAdded: toCreate.length,
+        itemsUpdated: toUpdate.length,
+        itemsRemoved: toDelete.length,
+        itemsTotal: parsed.items.length,
+        headerChanged,
+      },
+    });
+    await revalidateBookSubsection(subsectionId);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Couldn't save setup card" };
   }
 }

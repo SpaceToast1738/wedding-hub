@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.32.2** | 2026-04-30 | [BAR card: per-head pricing + serving timing — handles £2.50/head toast drinks; view groups by timing when set](#2026-04-30--v1322--bar-per-head-pricing--timing) |
+| **v1.33.0** | 2026-04-30 | [Wedding Book SETUP card (P3) — per-space spatial walkthrough · Venue split into Spaces / Décor (additive)](#2026-04-30--v1330--wedding-book-setup-card-p3--venue-split) |
+| v1.32.2 | 2026-04-30 | [BAR card: per-head pricing + serving timing — handles £2.50/head toast drinks; view groups by timing when set](#2026-04-30--v1322--bar-per-head-pricing--timing) |
 | v1.32.1 | 2026-04-30 | [Audit log: 30-day retention sweep + search box on the Settings viewer](#2026-04-30--v1321--audit-log-retention--search) |
 | v1.32.0 | 2026-04-30 | [Wedding Book MENU + BAR cards (P2) — food service composition with live guest selection counts, drinks plan with per-head sanity check · BUILD label renamed to "DIY" · audit log viewer now renders human sentences via `formatAuditAction`](#2026-04-30--v1320--wedding-book-menu--bar-cards-p2) |
 | v1.31.1 | 2026-04-30 | [BUILD card UX pass — single Edit/View states · live Budget link · `/diy` overview page · £-input · clearer field hints · status-disappear bug fixed](#2026-04-30--v1311--build-card-ux-pass) |
@@ -704,6 +705,43 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-30 · v1.33.0 — Wedding Book SETUP card (P3) + Venue split
+
+Third phase of the [Book expansion arc](BOOK-EXPANSION-PLAN.md). Two changes that fit naturally together: a new `SETUP` card kind for per-space spatial walkthroughs, and a section split that gives `SETUP` cards (and the v1.31.0 `BUILD` cards) cleaner homes.
+
+**SETUP card** — one card per physical space (Ceremony room / Drinks reception / Reception room / Evening setup / Pack-down). Header has space, setup-start time, owner. Items table with name + quantity + location ("Top of aisle", "Round-table centre"…) + source (autocompletes from Supplier names — read-time string match, no FK) + packed/placed checkbox columns + pack-down plan column. Header progress stat shows `% packed · % placed`.
+
+**Schema:** `SETUP` added to `BookSubsectionKind`. Two new tables — `BookSetupCard` (1:1 with subsection) + `BookSetupItem` (line items). Migration `20260430050000_book_setup_card`, additive only.
+
+**Pure helper:** `setupRollups({ items })` in [src/lib/book-cards.ts](src/lib/book-cards.ts) returns `{ itemCount, packedCount, placedCount, percentPacked, percentPlaced }`. Integer-rounded percentages, 0% on empty cards (no NaN). 5 unit tests cover boundary + empty + 100% cases.
+
+**Server action:** `saveSetupCard(subsectionId, payload)` — the same single-bulk-save pattern as BUILD / MENU / BAR. Audit-enriched per the v1.30.5 standing rule with `{ space, itemsAdded, itemsUpdated, itemsRemoved, headerChanged }`. New `setup-save` pattern in [src/lib/audit-format.ts](src/lib/audit-format.ts) so the audit log reads as "Saved setup card 'Ceremony room' — added 4 items".
+
+**Editor** — `BookSetupCard.tsx`. Same View / Edit toggle as BUILD / MENU / BAR. Per-item row has packed + placed checkboxes (always on the secondary line so the primary grid stays clean). `source` field has a `<datalist>` populated from existing Supplier names. View mode renders an items table with ●/○ for the two flags.
+
+**Section split — additive.** Two new BookSection rows seeded:
+
+- `venue-spaces` (order 3) — five SETUP cards: Ceremony room, Drinks reception, Reception room, Evening setup, Pack-down (all with sample owner + setup time, empty items list).
+- `venue-decor` (order 4) — non-BUILD seed: Printed signage (FIELD), Florist brief (TEXT), Photo booth (FIELD), Décor inspiration (TEXT). The v1.31.0 BUILD cards (Centerpieces / Handmade signage / Place cards) **stay where the v1.31.0 seeder put them** under the legacy `venue` section — moving them automatically risks overwriting user edits, so we leave them. Couples can move them via the UI when convenient.
+
+The legacy `venue` section stays at order 2 with whatever subsections live under it. The `/book` index already filters out empty legacy sections, so once a couple finishes moving cards across, `venue` quietly drops off the hub. Existing sections shift down two slots; the seed's upsert with `update: { order }` re-numbers them on re-run.
+
+**Files:**
+- `prisma/schema.prisma` — `SETUP` enum value, two new tables, `BookSubsection.setupCard` back-relation.
+- New: `prisma/migrations/20260430050000_book_setup_card/migration.sql`.
+- `prisma/seed.ts` — `venue-spaces` + `venue-decor` BookSection rows + `seedVenueSpacesAndDecor()` function (idempotent — skip when subsections > 0).
+- `src/lib/book-cards.ts` — `BOOK_CARD_KINDS` + `BOOK_CARD_KIND_META` extended; `setupRollups()` helper.
+- `src/lib/audit-format.ts` — `setup-save` pattern.
+- `src/app/(app)/book/actions.ts` — `saveSetupCard` + new `createBookSubsection` SETUP branch.
+- New: `src/app/(app)/book/[slug]/BookSetupCard.tsx`.
+- `src/app/(app)/book/[slug]/CardRouter.tsx` — SETUP case + extended `Sub` type with `setupCard` shape (incl. `supplierNames` autocomplete list).
+- `src/app/(app)/book/[slug]/page.tsx` — eager-load `setupCard.items`, fetch supplier names when any SETUP card present.
+- New: `tests/unit/setup-rollups.test.ts` — 5 cases.
+
+**Verification:** typecheck + lint clean, 271 unit tests pass (+5 SETUP rollups), clean `.next` build green.
+
+**Next:** v1.34.0 P4 — LEGAL card + Legal section split (before / day / after).
 
 ### 2026-04-30 · v1.32.2 — BAR per-head pricing + timing
 

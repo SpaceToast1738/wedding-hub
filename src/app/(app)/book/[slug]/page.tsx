@@ -52,6 +52,10 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
           barCard: {
             include: { items: { orderBy: { order: "asc" } } },
           },
+          // v1.33.0: SETUP card.
+          setupCard: {
+            include: { items: { orderBy: { order: "asc" } } },
+          },
         },
       },
     },
@@ -102,6 +106,16 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
         where: { archived: false, attending: true, isChild: false },
       })
     : null;
+
+  // v1.33.0: supplier names for the SETUP card's `source`
+  // autocomplete. Sorted alphabetically; cheap because Suppliers
+  // is a small table.
+  const hasSetup = section.subsections.some((s) => s.kind === "SETUP");
+  const supplierNames = hasSetup
+    ? (await db.supplier.findMany({ orderBy: { name: "asc" }, select: { name: true } })).map(
+        (s) => s.name,
+      )
+    : [];
 
   return (
     <>
@@ -206,11 +220,15 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
               const barCard = sRaw.barCard
                 ? { ...sRaw.barCard, confirmedAdults }
                 : null;
+              const setupCard = sRaw.setupCard
+                ? { ...sRaw.setupCard, supplierNames }
+                : null;
               const s = {
                 ...sRaw,
                 buildCard,
                 menuCard,
                 barCard,
+                setupCard,
               };
               return (
                 <CardRouter

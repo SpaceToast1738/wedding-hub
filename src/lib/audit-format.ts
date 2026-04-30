@@ -153,6 +153,18 @@ export function formatAuditAction(row: AuditRow): string {
     return `Saved menu ${quoted(title)}${parts.length ? ` — ${parts.join(", ")}` : ""}`;
   }
 
+  // SETUP card (v1.33.0+)
+  if (a === "setup-save") {
+    const ia = asNumber(meta.itemsAdded) ?? 0;
+    const ir = asNumber(meta.itemsRemoved) ?? 0;
+    const iu = asNumber(meta.itemsUpdated) ?? 0;
+    const parts: string[] = [];
+    if (ia > 0) parts.push(`added ${pluralise(ia, "item", "items")}`);
+    if (ir > 0) parts.push(`removed ${pluralise(ir, "item", "items")}`);
+    if (iu > 0 && ia === 0 && ir === 0) parts.push(`edited ${pluralise(iu, "item", "items")}`);
+    return `Saved setup card ${quoted(title)}${parts.length ? ` — ${parts.join(", ")}` : ""}`;
+  }
+
   // BAR card (v1.32.0+)
   if (a === "bar-save") {
     const ia = asNumber(meta.itemsAdded) ?? 0;

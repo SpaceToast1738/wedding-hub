@@ -6,8 +6,8 @@
 // lock the contract without setup; mirrors the v1.11.0 csv-merge and
 // v1.15.0 custom-fields patterns.
 
-// v1.31.0: + BUILD. v1.32.0: + MENU, BAR.
-export const BOOK_CARD_KINDS = ["TEXT", "FIELD", "RECIPE", "SHOT_LIST", "OUTFIT", "BUILD", "MENU", "BAR"] as const;
+// v1.31.0: + BUILD. v1.32.0: + MENU, BAR. v1.33.0: + SETUP.
+export const BOOK_CARD_KINDS = ["TEXT", "FIELD", "RECIPE", "SHOT_LIST", "OUTFIT", "BUILD", "MENU", "BAR", "SETUP"] as const;
 export type BookCardKind = (typeof BOOK_CARD_KINDS)[number];
 
 // Display metadata for each card kind — used by the picker UI and
@@ -49,6 +49,10 @@ export const BOOK_CARD_KIND_META: Record<
   BAR: {
     label: "Bar",
     description: "Drinks plan — items by category, per-head sanity check.",
+  },
+  SETUP: {
+    label: "Setup",
+    description: "Per-space spatial walkthrough — items, location, packed/placed flags.",
   },
 };
 
@@ -562,4 +566,36 @@ export function barRollups(
     else perHeadFlag = "ok";
   }
   return { totalCostPence, perCategory, perHeadFlag, bottlesPerAdult };
+}
+
+// ─── SETUP card (v1.33.0) ────────────────────────────────────────
+//
+// Per-space spatial walkthrough. Rollups feed the header strip:
+// total items, % packed, % placed. Both percentages round to
+// integers and treat 0-item cards as 0% (rather than NaN).
+
+export type SetupItemShape = {
+  packed: boolean;
+  placed: boolean;
+};
+
+export type SetupCardShape = {
+  items: SetupItemShape[];
+};
+
+export type SetupRollups = {
+  itemCount: number;
+  packedCount: number;
+  placedCount: number;
+  percentPacked: number;
+  percentPlaced: number;
+};
+
+export function setupRollups(card: SetupCardShape): SetupRollups {
+  const itemCount = card.items.length;
+  const packedCount = card.items.filter((i) => i.packed).length;
+  const placedCount = card.items.filter((i) => i.placed).length;
+  const percentPacked = itemCount === 0 ? 0 : Math.round((packedCount / itemCount) * 100);
+  const percentPlaced = itemCount === 0 ? 0 : Math.round((placedCount / itemCount) * 100);
+  return { itemCount, packedCount, placedCount, percentPacked, percentPlaced };
 }

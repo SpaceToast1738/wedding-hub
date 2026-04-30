@@ -486,6 +486,9 @@ model BookSubsection {
   // v1.32.0: BAR card — drinks plan with per-category items + per-
   // head sanity check.
   barCard    BookBarCard?
+  // v1.33.0: SETUP card — per-space spatial walkthrough. One card
+  // per physical space (Ceremony room / Reception room / etc.).
+  setupCard  BookSetupCard?
   // v1.30.5: subsection-level task link removed; replaced by section-
   // level link on the parent BookSection (see BookSection.tasks).
   updatedAt  DateTime    @updatedAt
@@ -496,6 +499,7 @@ model BookSubsection {
 // v1.26.0: card-kind discriminator on BookSubsection.
 // v1.31.0: + BUILD.
 // v1.32.0: + MENU, BAR.
+// v1.33.0: + SETUP.
 enum BookSubsectionKind {
   TEXT
   FIELD
@@ -505,6 +509,7 @@ enum BookSubsectionKind {
   BUILD
   MENU
   BAR
+  SETUP
 }
 
 // v1.26.0: FIELD card — list of typed fields. Values stored on
@@ -726,6 +731,41 @@ model BookBarItem {
   // | "Evening" | "Late night" | free text. Used for grouping in the
   // view, also threads through the audit log summary.
   timing          String?
+
+  @@index([cardId])
+}
+
+// v1.33.0: SETUP card — per-space spatial walkthrough for the
+// venue coordinator and best man. One card per physical space:
+// Ceremony room / Drinks reception / Reception room / Evening
+// setup / Pack-down. Items track what gets put where, with packed
+// + placed flags + a pack-down plan.
+model BookSetupCard {
+  id            String         @id @default(cuid())
+  subsectionId  String         @unique
+  subsection    BookSubsection @relation(fields: [subsectionId], references: [id], onDelete: Cascade)
+  space         String?        // venue room / area name (free text)
+  setupStartsAt String?        // free-text time, e.g. "10:00am"
+  setupOwner    String?        // "Paintbox Blooms" | "Bridesmaids" | "Best man's car"
+  notes         String?        @db.Text
+  items         BookSetupItem[]
+}
+
+model BookSetupItem {
+  id           String        @id @default(cuid())
+  cardId       String
+  card         BookSetupCard @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  name         String
+  quantity     Int?
+  location     String?       // "Top of aisle" | "Round-table centre" | etc.
+  // Free-text but auto-completes from existing Supplier.name in the
+  // editor — read-time string match for the cross-module reference.
+  source       String?
+  packed       Boolean       @default(false)
+  placed       Boolean       @default(false)
+  packDownPlan String?
+  notes        String?
+  order        Int           @default(0)
 
   @@index([cardId])
 }

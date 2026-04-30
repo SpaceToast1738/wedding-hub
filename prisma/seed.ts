@@ -145,25 +145,34 @@ async function seedBookSections() {
   // and still appear at the bottom of the hub. The user can delete
   // them via the UI later if they want a clean 7-card hub. Their
   // content (if any subsections were added) is preserved.
+  // v1.33.0: venue split — `venue-spaces` (per-physical-space SETUP
+  // cards) and `venue-decor` (BUILD cards + printed signage + florist
+  // brief) inserted at orders 3 + 4. Existing sections shift down two
+  // slots; the upsert's `update: { order }` re-numbers them on re-run.
+  // The legacy `venue` section stays at order 2 with whatever
+  // subsections live under it — the /book index hides empty legacy
+  // sections.
   const sections = [
     // Prototype-aligned set
     { slug: "wedding-party",     title: "Wedding Party",             order: 1 },
     { slug: "venue",             title: "Venue, Décor & Setup",      order: 2 },
-    { slug: "food-drink",        title: "Food & Drink",              order: 3 },
+    { slug: "venue-spaces",      title: "Venue — Spaces",            order: 3 },
+    { slug: "venue-decor",       title: "Venue — Décor",             order: 4 },
+    { slug: "food-drink",        title: "Food & Drink",              order: 5 },
     // Photography is a special section — `/book/photography` resolves
     // to a dedicated route with a checklist UI rather than the generic
     // subsection editor. The BookSection row exists so it appears as a
     // card on /book.
-    { slug: "photography",       title: "Photography & Videography", order: 4 },
-    { slug: "guest-experience",  title: "Guest Experience",          order: 5 },
-    { slug: "legal-admin",       title: "Legal & Admin",             order: 6 },
-    { slug: "accommodation",     title: "Accommodation",             order: 7 },
+    { slug: "photography",       title: "Photography & Videography", order: 6 },
+    { slug: "guest-experience",  title: "Guest Experience",          order: 7 },
+    { slug: "legal-admin",       title: "Legal & Admin",             order: 8 },
+    { slug: "accommodation",     title: "Accommodation",             order: 9 },
     // Legacy v1.4.0 sections — pushed to the bottom of the order so
     // the prototype's 7 lead. Kept (rather than deleted) because they
     // may carry user-added subsection content from prior versions.
-    { slug: "ceremony",          title: "Ceremony",                  order: 8 },
-    { slug: "reception",         title: "Reception",                 order: 9 },
-    { slug: "logistics",         title: "Logistics",                 order: 10 },
+    { slug: "ceremony",          title: "Ceremony",                  order: 10 },
+    { slug: "reception",         title: "Reception",                 order: 11 },
+    { slug: "logistics",         title: "Logistics",                 order: 12 },
   ];
   for (const s of sections) {
     await db.bookSection.upsert({
@@ -482,6 +491,105 @@ async function seedFoodDrinkCards() {
   console.log(`  ✓ menu + bar cards seeded`);
 }
 
+// v1.33.0: seed venue-spaces with five SETUP cards (Ceremony room,
+// Drinks reception, Reception room, Evening setup, Pack-down) and
+// venue-decor with the non-BUILD subsections (printed signage,
+// florist brief, photo booth, décor inspiration). BUILD cards from
+// v1.31.0 stay where the v1.31.0 seeder put them (under the legacy
+// `venue` section); the user can move them via UI when convenient.
+async function seedVenueSpacesAndDecor() {
+  const spaces = await db.bookSection.findUnique({ where: { slug: "venue-spaces" } });
+  const decor = await db.bookSection.findUnique({ where: { slug: "venue-decor" } });
+  if (!spaces || !decor) {
+    console.log(`  · venue-spaces / venue-decor not found; skipping seed`);
+    return;
+  }
+
+  // venue-spaces: SETUP cards. Idempotent — skip when ANY subsection
+  // already exists under the section (user-added content protected).
+  const spacesCount = await db.bookSubsection.count({ where: { sectionId: spaces.id } });
+  if (spacesCount === 0) {
+    const cards = [
+      { slug: "ceremony-room", title: "Ceremony room", space: "Ceremony room", setupStartsAt: "10:00am", setupOwner: "Paintbox Blooms" },
+      { slug: "drinks-reception", title: "Drinks reception", space: "Garden lawn", setupStartsAt: "1:30pm", setupOwner: "Venue staff" },
+      { slug: "reception-room", title: "Reception room", space: "Main hall", setupStartsAt: "11:00am", setupOwner: "Bridesmaids + venue" },
+      { slug: "evening-setup", title: "Evening setup", space: "Main hall", setupStartsAt: "5:30pm", setupOwner: "Best man + venue" },
+      { slug: "pack-down", title: "Pack-down", space: "Whole venue", setupStartsAt: "11:00pm", setupOwner: "Bridesmaids + groomsmen" },
+    ];
+    let order = 0;
+    for (const c of cards) {
+      const sub = await db.bookSubsection.create({
+        data: {
+          sectionId: spaces.id,
+          slug: c.slug,
+          title: c.title,
+          kind: "SETUP",
+          order: order++,
+        },
+      });
+      await db.bookSetupCard.create({
+        data: {
+          subsectionId: sub.id,
+          space: c.space,
+          setupStartsAt: c.setupStartsAt,
+          setupOwner: c.setupOwner,
+        },
+      });
+    }
+    console.log(`  ✓ ${cards.length} setup cards seeded under venue-spaces`);
+  } else {
+    console.log(`  ✓ venue-spaces subsections already present (${spacesCount}); skipping seed`);
+  }
+
+  // venue-decor: non-BUILD seed (the BUILD cards stay where the
+  // v1.31.0 seeder put them, under legacy `venue`).
+  const decorCount = await db.bookSubsection.count({ where: { sectionId: decor.id } });
+  if (decorCount === 0) {
+    const subs = [
+      {
+        slug: "printed-signage",
+        title: "Printed signage (table numbers, menus)",
+        kind: "FIELD" as const,
+        body: null,
+      },
+      {
+        slug: "florist-brief",
+        title: "Florist brief",
+        kind: "TEXT" as const,
+        body: "Paintbox Blooms — eucalyptus + ivory roses · scope: bouquets, buttonholes, top-table arrangement, ceremony arch.",
+      },
+      {
+        slug: "photo-booth",
+        title: "Photo booth",
+        kind: "FIELD" as const,
+        body: null,
+      },
+      {
+        slug: "decor-inspiration",
+        title: "Décor inspiration",
+        kind: "TEXT" as const,
+        body: "Pinterest mood board · soft palette, candles in mason jars, bistro lighting overhead.",
+      },
+    ];
+    let order = 0;
+    for (const s of subs) {
+      await db.bookSubsection.create({
+        data: {
+          sectionId: decor.id,
+          slug: s.slug,
+          title: s.title,
+          kind: s.kind,
+          body: s.body,
+          order: order++,
+        },
+      });
+    }
+    console.log(`  ✓ ${subs.length} venue-decor subsections seeded`);
+  } else {
+    console.log(`  ✓ venue-decor subsections already present (${decorCount}); skipping seed`);
+  }
+}
+
 async function main() {
   console.log("Seeding Wedding Hub…");
   await seedUsersAndPermissions();
@@ -494,6 +602,7 @@ async function main() {
   await seedNavTags();
   await seedBuildCards();
   await seedFoodDrinkCards();
+  await seedVenueSpacesAndDecor();
   console.log("Done.");
 }
 

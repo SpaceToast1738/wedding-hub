@@ -6,6 +6,7 @@ import { BookFieldsCard } from "./BookFieldsCard";
 import { BookMenuCard } from "./BookMenuCard";
 import { BookOutfitCardEditor } from "./BookOutfitCard";
 import { BookRecipeCard } from "./BookRecipeCard";
+import { BookSetupCard } from "./BookSetupCard";
 import { BookShotListCard } from "./BookShotListCard";
 import { SubsectionEditor } from "./SubsectionEditor";
 
@@ -31,7 +32,7 @@ type Sub = {
   body: string | null;
   fields: unknown;
   visibility: "EVERYONE" | "COUPLE_ONLY";
-  kind: "TEXT" | "FIELD" | "RECIPE" | "SHOT_LIST" | "OUTFIT" | "BUILD" | "MENU" | "BAR";
+  kind: "TEXT" | "FIELD" | "RECIPE" | "SHOT_LIST" | "OUTFIT" | "BUILD" | "MENU" | "BAR" | "SETUP";
   fieldDefs: Array<{
     id: string;
     label: string;
@@ -121,6 +122,28 @@ type Sub = {
     }>;
     /** Server-supplied confirmed-adult count (from /guests RSVPs). */
     confirmedAdults: number | null;
+  } | null;
+  // v1.33.0: SETUP card eager-loaded data + supplier names for the
+  // `source` autocomplete on each item row.
+  setupCard: {
+    id: string;
+    space: string | null;
+    setupStartsAt: string | null;
+    setupOwner: string | null;
+    notes: string | null;
+    items: Array<{
+      id: string;
+      name: string;
+      quantity: number | null;
+      location: string | null;
+      source: string | null;
+      packed: boolean;
+      placed: boolean;
+      packDownPlan: string | null;
+      notes: string | null;
+      order: number;
+    }>;
+    supplierNames: string[];
   } | null;
   // v1.31.0: BUILD card eager-loaded data.
   // v1.31.1: + budgetLineId + budgetLine snapshot.
@@ -307,6 +330,36 @@ export function CardRouter({
             items: bc.items,
           }}
           confirmedAdults={bc.confirmedAdults}
+        />
+      );
+    }
+    case "SETUP": {
+      const sc = sub.setupCard ?? {
+        id: "",
+        space: null,
+        setupStartsAt: null,
+        setupOwner: null,
+        notes: null,
+        items: [],
+        supplierNames: [],
+      };
+      return (
+        <BookSetupCard
+          subsectionId={sub.id}
+          slug={sub.slug}
+          title={sub.title}
+          visibility={sub.visibility}
+          canEdit={canEdit}
+          isCouple={isCouple}
+          card={{
+            id: sc.id,
+            space: sc.space,
+            setupStartsAt: sc.setupStartsAt,
+            setupOwner: sc.setupOwner,
+            notes: sc.notes,
+            items: sc.items,
+          }}
+          supplierNames={sc.supplierNames}
         />
       );
     }
