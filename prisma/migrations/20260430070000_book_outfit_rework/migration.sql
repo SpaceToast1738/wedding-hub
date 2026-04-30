@@ -24,6 +24,13 @@
 -- 2+-child cards — they stay where they are. The seed re-run on
 -- next deploy picks them up.
 
+-- 0. The data migration below uses gen_random_bytes() from pgcrypto
+--    to mint cuid-shaped IDs for new BookSection / BookSubsection /
+--    BookOutfitCard rows. Stock Postgres 16 ships pgcrypto but does
+--    not pre-load it (the CI test image is bare). Idempotent IF NOT
+--    EXISTS keeps re-runs and richer environments happy.
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
 -- 1. Schema additions on BookOutfitCard.
 ALTER TABLE "BookOutfitCard" ADD COLUMN "personName"       TEXT;
 ALTER TABLE "BookOutfitCard" ADD COLUMN "role"             TEXT;

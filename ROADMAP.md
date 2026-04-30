@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.35.0** | 2026-04-30 | [Wedding Book OUTFIT rework (P5) — one card per wedding-party member with fitting timeline / cost / paid status / per-item composition / photos · Wedding Party split into People (OUTFIT cards) + Day-of (TEXT/FIELD timeline)](#2026-04-30--v1350--wedding-book-outfit-rework-p5--wedding-party-split) |
+| **v1.35.1** | 2026-04-30 | [Migration fix — `CREATE EXTENSION pgcrypto` so `gen_random_bytes()` works in CI's bare Postgres image](#2026-04-30--v1351--migration-fix-pgcrypto) |
+| v1.35.0 | 2026-04-30 | [Wedding Book OUTFIT rework (P5) — one card per wedding-party member with fitting timeline / cost / paid status / per-item composition / photos · Wedding Party split into People (OUTFIT cards) + Day-of (TEXT/FIELD timeline)](#2026-04-30--v1350--wedding-book-outfit-rework-p5--wedding-party-split) |
 | v1.34.0 | 2026-04-30 | [Wedding Book LEGAL card (P4) — document checklist with deadlines + file attachments · Legal split into Before / Day / After (additive) · FieldLabel + Label lifted to shared `bookCardUi.tsx`](#2026-04-30--v1340--wedding-book-legal-card-p4--legal-split) |
 | v1.33.2 | 2026-04-30 | [BOOK-EXPANSION-PLAN.md gains a temporary edit-row layout rule (§10a) so P4–P8 ship correct widths from day one](#2026-04-30--v1332--edit-row-layout-rule-pinned-into-the-card-creation-plan) |
 | v1.33.1 | 2026-04-30 | [Edit-row layout pass — BUILD / BAR / SETUP cards switch to two-row grids with per-cell labels so name / supplier / £ all get usable width](#2026-04-30--v1331--edit-row-layout-pass) |
@@ -739,6 +740,14 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-30 · v1.35.1 — Migration fix (pgcrypto)
+
+CI flagged v1.35.0's data migration as failing on the integration-test Postgres image: `function gen_random_bytes(integer) does not exist`. Stock Postgres 16 ships pgcrypto but does **not** pre-load it — the CI test image is bare. Production never ran the broken migration (it died at the migrate-deploy step before reaching anything destructive), so this is a cleanup ship.
+
+Fix: prepend `CREATE EXTENSION IF NOT EXISTS pgcrypto;` to migration `20260430070000_book_outfit_rework`. Idempotent — `IF NOT EXISTS` is a no-op on environments that already have the extension. Re-running the failed CI job picks up the patched migration and replays cleanly.
+
+Files: [prisma/migrations/20260430070000_book_outfit_rework/migration.sql](prisma/migrations/20260430070000_book_outfit_rework/migration.sql).
 
 ### 2026-04-30 · v1.35.0 — Wedding Book OUTFIT rework (P5) + Wedding Party split
 
