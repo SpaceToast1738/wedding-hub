@@ -52,7 +52,7 @@
  *      defaults (and any couple-edited content is gone).
  */
 
-import { db } from "../src/lib/db";
+import { PrismaClient } from "@prisma/client";
 import {
   seedAccommodationCards,
   seedBuildCards,
@@ -63,6 +63,11 @@ import {
   seedWeddingPartyPeopleAndDayof,
   seedWeddingPartySubsections,
 } from "../prisma/seed";
+
+// Local PrismaClient — mirrors prisma/seed.ts. Doesn't import from
+// src/lib/db so this script can run inside the production image
+// (where src/ is bundled into Next standalone, not as raw JS).
+const db = new PrismaClient();
 
 const TARGET_SECTIONS: Array<{ slug: string; title: string; order: number }> = [
   { slug: "wedding-party-people", title: "Wedding Party — People", order: 1 },

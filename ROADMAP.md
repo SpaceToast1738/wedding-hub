@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.38.2** | 2026-04-30 | [`scripts/reset-book.ts` — destructive Book module reset gated on `CONFIRM_RESET_BOOK=yes`. Wipes + re-seeds every section + subpage; leaves users / tasks / guests / payments untouched.](#2026-04-30--v1382--book-module-reset-script) |
+| **v1.38.3** | 2026-04-30 | [Operator scripts run in production — Dockerfile transpiles `seed-samples-only` + `reset-book` to `scripts-build/`; scripts use a local `PrismaClient` instead of `src/lib/db` so they don't depend on the Next standalone bundle. Invoke with `node scripts-build/scripts/<name>.js`.](#2026-04-30--v1383--operator-scripts-in-production-image) |
+| v1.38.2 | 2026-04-30 | [`scripts/reset-book.ts` — destructive Book module reset gated on `CONFIRM_RESET_BOOK=yes`. Wipes + re-seeds every section + subpage; leaves users / tasks / guests / payments untouched.](#2026-04-30--v1382--book-module-reset-script) |
 | v1.38.1 | 2026-04-30 | [`scripts/seed-samples-only.ts` — fills empty Book sections + subpages on prod without touching users / tasks / schedule / guests / seating. Section seeders refactored to be importable.](#2026-04-30--v1381--samples-only-prod-backfill-script) |
 | v1.38.0 | 2026-04-30 | [Wedding Book closes the arc (P7b/B + P8) — SHOT_LIST gains category / time budget / **guest-list link** · FIELD gains group / helpText / required / numeric + date ranges · RECIPE gains servingsBase + structured `BookRecipeStep` (Json→rows migration) + day-before tag · Post-wedding section seeded · Production backfill script · Guest detail "Photos to capture" reverse query](#2026-04-30--v1380--wedding-book-arc-closes-p7bb--p8) |
 | v1.37.5 | 2026-04-30 | [Cross-module wiring (P7b/Part C) — Today widgets for legal deadlines / outfit milestones / open decisions · Guest detail surfaces meal-choice deep-links + accommodation · Budget shows DIY-card linkbacks · Supplier shows "used in setup" rows](#2026-04-30--v1375--cross-module-wiring-p7b-part-c) |
@@ -748,6 +749,32 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-30 · v1.38.3 — Operator scripts in the production image
+
+User-flagged after v1.38.2 promotion: `docker exec wedding-hub-web-1 npx tsx scripts/reset-book.ts` failed with `ENOENT: no such file or directory, mkdir '/home/node/.npm'` — the production image runs as the `node` user (no write access to `/home/node/.npm`), `tsx` is a devDependency that's pruned in the runtime image, and the `scripts/` directory was never bundled into the image anyway.
+
+Two fixes:
+
+1. **Scripts use a local `PrismaClient`** instead of importing `db` from `src/lib/db`. The runtime image holds a Next standalone bundle, not the raw `src/` tree, so the `../src/lib/db` import wouldn't resolve at runtime. Mirroring `prisma/seed.ts`'s shape (which already constructs its own client) keeps both scripts self-contained.
+
+2. **Dockerfile transpiles + bundles the operator scripts.** The existing `npx tsc prisma/seed.ts` pattern is extended to a second `tsc` invocation that takes `prisma/seed.ts scripts/seed-samples-only.ts scripts/reset-book.ts` together, with `--rootDir .` so the relative tree is preserved. Output lands in `/app/scripts-build/`. The runner stage `COPY`s `scripts-build/` wholesale so the `require("../prisma/seed")` inside the operator scripts resolves to the co-located `scripts-build/prisma/seed.js`.
+
+After this image rebuilds, the production invocation becomes:
+
+```bash
+# Non-destructive:
+docker exec wedding-hub-web-1 \
+  node scripts-build/scripts/seed-samples-only.js
+
+# Destructive (env flag mandatory):
+docker exec -e CONFIRM_RESET_BOOK=yes wedding-hub-web-1 \
+  node scripts-build/scripts/reset-book.js
+```
+
+No more npm registry calls at runtime, no `tsx` requirement, no `/home/node/.npm` permission issues.
+
+Files: [Dockerfile](Dockerfile) · [scripts/seed-samples-only.ts](scripts/seed-samples-only.ts) · [scripts/reset-book.ts](scripts/reset-book.ts).
 
 ### 2026-04-30 · v1.38.2 — Book module reset script
 

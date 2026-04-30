@@ -37,6 +37,20 @@ RUN npx tsc prisma/seed.ts \
       --resolveJsonModule \
       --skipLibCheck
 
+# v1.38.3: transpile the operator scripts (seed-samples-only +
+# reset-book) the same way. Both scripts import from prisma/seed and
+# need to live alongside the transpiled seed.js so the relative-path
+# require() resolves at runtime.
+RUN npx tsc prisma/seed.ts scripts/seed-samples-only.ts scripts/reset-book.ts \
+      --outDir scripts-build \
+      --module commonjs \
+      --moduleResolution node \
+      --target es2022 \
+      --esModuleInterop \
+      --resolveJsonModule \
+      --skipLibCheck \
+      --rootDir .
+
 # ─── Stage 3: runner ───────────────────────────────────────────────────────
 FROM node:20-alpine AS runner
 WORKDIR /app
@@ -68,6 +82,14 @@ COPY --from=builder --chown=node:node /app/node_modules/.prisma ./node_modules/.
 
 # Transpiled seed script (plain JS, no tsx required at runtime)
 COPY --from=builder --chown=node:node /app/prisma-build/seed.js ./prisma/seed.js
+
+# v1.38.3: transpiled operator scripts (seed-samples-only +
+# reset-book). The builder stage transpiled them into
+# /app/scripts-build/{prisma,scripts}/, preserving the relative tree
+# so the `require("../prisma/seed")` inside scripts/*.js resolves
+# cleanly. Copy the whole tree wholesale into /app/scripts-build/
+# in the runner; entrypoint usage is `node scripts-build/scripts/<x>.js`.
+COPY --from=builder --chown=node:node /app/scripts-build ./scripts-build
 
 # Symlink for `npx prisma` / `node ./node_modules/prisma/build/index.js`
 COPY --chown=node:node docker/entrypoint.sh /usr/local/bin/entrypoint.sh
