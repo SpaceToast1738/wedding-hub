@@ -2544,9 +2544,23 @@ async function main() {
   console.log("Done.");
 }
 
-main()
-  .catch((err) => {
-    console.error(err);
-    process.exit(1);
-  })
-  .finally(() => db.$disconnect());
+// v1.38.6: only run main() when this file is invoked directly
+// (`node prisma/seed.js` or `tsx prisma/seed.ts`). When imported by
+// the operator scripts (scripts/reset-book.ts, scripts/seed-samples-
+// only.ts) the import would otherwise trigger main() to run in
+// parallel with the importing script's own main() — same Prisma
+// client, two concurrent transactions, P2002 unique-constraint
+// violations.
+//
+// `require.main === module` is the standard CJS guard. The Dockerfile
+// transpiles seed.ts to CommonJS, so this works at runtime. In dev
+// (`tsx prisma/seed.ts`) it also resolves correctly because tsx
+// preserves the same semantics.
+if (require.main === module) {
+  main()
+    .catch((err) => {
+      console.error(err);
+      process.exit(1);
+    })
+    .finally(() => db.$disconnect());
+}

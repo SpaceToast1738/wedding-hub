@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.38.5** | 2026-04-30 | [Book index hides empty legacy sections · BUILD seed targets `venue-decor` not legacy `venue` · stop seeding legacy `wedding-party` (the v1.35.0 split made it duplicate)](#2026-04-30--v1385--book-index--seed-de-duplication) |
+| **v1.38.6** | 2026-04-30 | [Critical: `prisma/seed.ts` had an unguarded `main()` call at the bottom that fired whenever the file was imported. Operator scripts (`reset-book.ts`, `seed-samples-only.ts`) import section seeders from it — so every operator-script run kicked off the full seed in parallel, hitting P2002 unique-constraint violations.](#2026-04-30--v1386--seed-ts-double-run-fix) |
+| v1.38.5 | 2026-04-30 | [Book index hides empty legacy sections · BUILD seed targets `venue-decor` not legacy `venue` · stop seeding legacy `wedding-party` (the v1.35.0 split made it duplicate)](#2026-04-30--v1385--book-index--seed-de-duplication) |
 | v1.38.4 | 2026-04-30 | [Wedding Book seed overhaul — every card kind now gets a fully-populated example (OUTFIT items + dates, SETUP items, LEGAL items + name-change checklist, FIELD defs everywhere, RECIPE cocktail, MENU kids/evening/late-night, BUILD welcome bags + favours, plus new Photography + Guest Experience seeders). All 12 card kinds covered.](#2026-04-30--v1384--wedding-book-seed-overhaul) |
 | v1.38.3 | 2026-04-30 | [Operator scripts run in production — Dockerfile transpiles `seed-samples-only` + `reset-book` to `scripts-build/`; scripts use a local `PrismaClient` instead of `src/lib/db` so they don't depend on the Next standalone bundle. Invoke with `node scripts-build/scripts/<name>.js`.](#2026-04-30--v1383--operator-scripts-in-production-image) |
 | v1.38.2 | 2026-04-30 | [`scripts/reset-book.ts` — destructive Book module reset gated on `CONFIRM_RESET_BOOK=yes`. Wipes + re-seeds every section + subpage; leaves users / tasks / guests / payments untouched.](#2026-04-30--v1382--book-module-reset-script) |
@@ -751,6 +752,32 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-30 · v1.38.6 — seed.ts double-run fix
+
+User-flagged on the v1.38.5 production reset run: `reset-book.js` errored with `Unique constraint failed on the fields: (sectionId, slug)` mid-way through `seedFoodDrinkCards`. Symptom in the log: section-creation messages from reset-book interleaved with `user bryony@example.com`, `wedding settings`, `8 schedule events`, `4 sample tasks` — output reset-book itself never produces.
+
+Root cause: `prisma/seed.ts` had an unconditional `main()` call at the bottom of the file:
+
+```ts
+main().catch(...).finally(() => db.$disconnect());
+```
+
+Whenever a file imports anything from `../prisma/seed` — which both `scripts/reset-book.ts` and `scripts/seed-samples-only.ts` do — the import triggers seed.ts to load, which fires that bottom `main()`. The full seed (users / settings / schedule / tasks / households / sections / nav tags / etc.) starts running in parallel with the operator script's own `main()`. Two `Promise` chains, same `PrismaClient`, both calling `bookSubsection.create` for the same `(sectionId, slug)` → P2002.
+
+Fix: guard the call with the standard CommonJS `require.main === module` check so `main()` only fires when seed.js is invoked as the entry point (`node prisma/seed.js` or `tsx prisma/seed.ts`), not when imported by another module.
+
+```ts
+if (require.main === module) {
+  main().catch(...).finally(() => db.$disconnect());
+}
+```
+
+After this fix, `reset-book.js` and `seed-samples-only.js` only run their own `main()`. No parallel full-seed. No P2002.
+
+The two earlier reset attempts that errored mid-way leave the production DB in a partial state — re-run reset-book once after pulling the new image and it'll recover cleanly.
+
+Files: [prisma/seed.ts](prisma/seed.ts) (one-line guard at the bottom).
 
 ### 2026-04-30 · v1.38.5 — Book index + seed de-duplication
 
