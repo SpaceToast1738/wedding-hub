@@ -1,31 +1,91 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { notify } from "@/lib/notify";
 import {
   copyBuildMaterialsToBudget,
-  createBuildMaterial,
   createBuildSession,
-  deleteBuildMaterial,
   deleteBuildSession,
-  reorderBuildMaterials,
-  toggleBuildMaterialFlag,
-  updateBuildCard,
-  updateBuildMaterial,
+  saveBuildCard,
+  unlinkBuildBudgetLine,
   updateBuildSession,
+  type BuildSavePayload,
 } from "../actions";
 import { buildRollups, type BuildCardShape } from "@/lib/book-cards";
 import { CardChrome } from "./CardChrome";
 
-// v1.31.0: BUILD card editor — DIY production tracker. One card per
-// project. Header shows units done / quantity, hours logged /
-// estimated, status pill, target date with days-remaining countdown,
-// plus a prototype-blocker banner when target's < 30 days off and
-// the prototype isn't ticked. Materials and sessions are inline-
-// edited via per-row server-action calls (no client buffer + dirty-
-// check; each interaction round-trips).
+// v1.31.0 → v1.31.1: BUILD card editor with a single Edit / View
+// state.
+//
+//   - View mode (default): pretty read-only display. Header rollups +
+//     materials table + sessions log.
+//   - Edit mode: every header field becomes editable, materials gain
+//     inline edit + reorder + delete + add-row affordances. Single
+//     "Save changes" + "Cancel" at the bottom.
+//
+// Sessions sit OUTSIDE the edit toggle — they're append-only quick
+// log actions and don't need to be batched into the edit flow. "+ Log
+// session" + per-row trash icon are always available when canEdit.
+//
+// Cost is entered as £ pounds-and-pence (decimal, two-place) and
+// stored as integer pence — the conversion happens in this component.
+//
+// Budget link: when card.budgetLineId is set, view mode shows a small
+// "Linked to Budget · £X.XX" pill with a "View →" deep-link and a
+// quiet × to unlink (couple/admin only).
+
+const STATUS_OPTIONS = ["Designing", "Prototyping", "Producing", "Done"];
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+const STATUS_TONE: Record<string, string> = {
+  Designing: "bg-canvas border-border-soft text-ink-secondary",
+  Prototyping: "bg-info/10 border-info/30 text-info",
+  Producing: "bg-marigold-100 border-marigold-700/30 text-marigold-700",
+  Done: "bg-moss-50 border-moss-300 text-moss-700",
+};
+
+type Material = {
+  id: string;
+  name: string;
+  quantity: number | null;
+  unit: string | null;
+  supplier: string | null;
+  costPence: number | null;
+  ordered: boolean;
+  arrived: boolean;
+  notes: string | null;
+  order: number;
+};
+
+type Session = {
+  id: string;
+  date: Date;
+  minutes: number;
+  unitsCompleted: number | null;
+  notes: string | null;
+};
+
+type CardData = {
+  id: string;
+  quantityNeeded: number | null;
+  targetDate: Date | null;
+  status: string | null;
+  prototypeDone: boolean;
+  prototypeNotes: string | null;
+  estimatedMinutesPerUnit: number | null;
+  notes: string | null;
+  budgetLineId: string | null;
+  budgetLine: {
+    id: string;
+    description: string;
+    estimated: number | null; // pre-converted to a plain number on the server
+  } | null;
+  materials: Material[];
+  sessions: Session[];
+};
 
 type BuildCardProps = {
   subsectionId: string;
@@ -34,47 +94,35 @@ type BuildCardProps = {
   visibility: "EVERYONE" | "COUPLE_ONLY";
   canEdit: boolean;
   isCouple: boolean;
-  card: {
-    id: string;
-    quantityNeeded: number | null;
-    targetDate: Date | null;
-    status: string | null;
-    prototypeDone: boolean;
-    prototypeNotes: string | null;
-    estimatedMinutesPerUnit: number | null;
-    notes: string | null;
-    materials: Array<{
-      id: string;
-      name: string;
-      quantity: number | null;
-      unit: string | null;
-      supplier: string | null;
-      costPence: number | null;
-      ordered: boolean;
-      arrived: boolean;
-      notes: string | null;
-      order: number;
-    }>;
-    sessions: Array<{
-      id: string;
-      date: Date;
-      minutes: number;
-      unitsCompleted: number | null;
-      notes: string | null;
-    }>;
-  };
+  card: CardData;
 };
 
-const STATUS_OPTIONS = ["Designing", "Prototyping", "Producing", "Done"];
-const MS_PER_DAY = 24 * 60 * 60 * 1000;
-
-function formatGBP(pence: number): string {
+function formatGBPFromPence(pence: number | null | undefined): string {
+  if (pence == null) return "—";
   return `£${(pence / 100).toFixed(2)}`;
+}
+
+function poundsStringToPence(s: string): number | null {
+  const trimmed = s.trim();
+  if (trimmed === "") return null;
+  const cleaned = trimmed.replace(/£/g, "").replace(/,/g, "");
+  const n = Number(cleaned);
+  if (!Number.isFinite(n) || n < 0) return null;
+  return Math.round(n * 100);
+}
+
+function penceToPoundsString(pence: number | null | undefined): string {
+  if (pence == null) return "";
+  return (pence / 100).toFixed(2);
 }
 
 function isoDate(d: Date | null): string {
   if (!d) return "";
   return d.toISOString().slice(0, 10);
+}
+
+function newMaterialId(): string {
+  return `new-${Math.random().toString(36).slice(2, 10)}`;
 }
 
 export function BookBuildCard({
@@ -88,27 +136,56 @@ export function BookBuildCard({
 }: BuildCardProps) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
+  const [editing, setEditing] = useState(false);
 
-  const cardForRollup: BuildCardShape = {
-    quantityNeeded: card.quantityNeeded,
-    estimatedMinutesPerUnit: card.estimatedMinutesPerUnit,
-    prototypeDone: card.prototypeDone,
-    targetDate: card.targetDate,
-    materials: card.materials,
-    sessions: card.sessions,
-  };
-  const r = buildRollups(cardForRollup);
+  // ── Draft state — only relevant in edit mode. Reset whenever
+  // the underlying card prop changes (after a save/revalidate).
+  const [draft, setDraft] = useState(() => buildDraft(card));
+  useEffect(() => {
+    setDraft(buildDraft(card));
+  }, [card]);
 
-  const daysToTarget =
-    card.targetDate
-      ? Math.round((card.targetDate.getTime() - Date.now()) / MS_PER_DAY)
-      : null;
+  function cancel() {
+    setDraft(buildDraft(card));
+    setEditing(false);
+  }
 
-  function saveHeader(formData: FormData) {
+  function save() {
+    const payload: BuildSavePayload = {
+      quantityNeeded: draft.quantityNeeded,
+      targetDate: draft.targetDate || null,
+      status: draft.status || null,
+      prototypeDone: draft.prototypeDone,
+      prototypeNotes: draft.prototypeNotes || null,
+      estimatedMinutesPerUnit: draft.estimatedMinutesPerUnit,
+      notes: draft.notes || null,
+      materials: draft.materials.map((m) => ({
+        id: m.id,
+        name: m.name.trim(),
+        quantity: m.quantity,
+        unit: m.unit || null,
+        supplier: m.supplier || null,
+        costPence: m.costPence,
+        ordered: m.ordered,
+        arrived: m.arrived,
+        notes: m.notes || null,
+      })),
+    };
+    // Validate locally — empty material names are the most common
+    // mistake. Refuse to save if any name is blank.
+    const blank = payload.materials.findIndex((m) => !m.name);
+    if (blank >= 0) {
+      notify("error", `Material #${blank + 1} needs a name.`);
+      return;
+    }
     startTransition(async () => {
-      const res = await updateBuildCard(subsectionId, formData);
-      if (res.ok) notify("success", "Build card saved");
-      else notify("error", res.error);
+      const res = await saveBuildCard(subsectionId, payload);
+      if (res.ok) {
+        notify("success", "Saved");
+        setEditing(false);
+      } else {
+        notify("error", res.error);
+      }
     });
   }
 
@@ -116,13 +193,58 @@ export function BookBuildCard({
     startTransition(async () => {
       const res = await copyBuildMaterialsToBudget(card.id);
       if (res.ok) {
-        notify("success", `Budget line created (${formatGBP(r.materialsTotalPence)})`);
-        router.push(`/budget`);
+        notify(
+          "success",
+          card.budgetLineId
+            ? "Budget line updated"
+            : "Budget line created — review on /budget",
+        );
+        if (!card.budgetLineId) router.push("/budget");
       } else {
         notify("error", res.error);
       }
     });
   }
+
+  function unlinkBudget() {
+    if (!confirm("Unlink this card from the Budget line? The line itself stays on /budget.")) return;
+    startTransition(async () => {
+      const res = await unlinkBuildBudgetLine(card.id);
+      if (res.ok) notify("success", "Unlinked");
+      else notify("error", res.error);
+    });
+  }
+
+  // ── Rollups computed from current state (draft when editing,
+  // saved card otherwise) so the header reacts live to edits.
+  const cardForRollup: BuildCardShape = editing
+    ? {
+        quantityNeeded: draft.quantityNeeded,
+        estimatedMinutesPerUnit: draft.estimatedMinutesPerUnit,
+        prototypeDone: draft.prototypeDone,
+        targetDate: draft.targetDate ? new Date(draft.targetDate) : null,
+        materials: draft.materials,
+        sessions: card.sessions,
+      }
+    : {
+        quantityNeeded: card.quantityNeeded,
+        estimatedMinutesPerUnit: card.estimatedMinutesPerUnit,
+        prototypeDone: card.prototypeDone,
+        targetDate: card.targetDate,
+        materials: card.materials,
+        sessions: card.sessions,
+      };
+  const r = buildRollups(cardForRollup);
+
+  const targetDateValue = editing
+    ? draft.targetDate
+      ? new Date(draft.targetDate)
+      : null
+    : card.targetDate;
+  const daysToTarget =
+    targetDateValue
+      ? Math.round((targetDateValue.getTime() - Date.now()) / MS_PER_DAY)
+      : null;
 
   return (
     <CardChrome
@@ -134,127 +256,58 @@ export function BookBuildCard({
       isCouple={isCouple}
       kindBadge="Build"
     >
-      {/* Prototype-blocker banner */}
+      {/* Prototype-blocker banner — shown in both view + edit modes */}
       {r.prototypeBlocker && (
-        <div className="mb-3 px-3 py-2 bg-marigold-100 border border-marigold-700/30 rounded-sm text-xs text-marigold-700">
-          ⚠ Prototype not done with target date inside 30 days.
+        <div className="mb-4 px-3 py-2 bg-marigold-100 border border-marigold-700/30 rounded-md text-xs text-marigold-700 flex items-baseline gap-2">
+          <span aria-hidden>⚠</span>
+          <span>
+            Prototype not done — target&apos;s only {daysToTarget} day{daysToTarget === 1 ? "" : "s"} away.
+          </span>
         </div>
       )}
 
-      {/* Header strip — rollups */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3 text-xs">
-        <Stat label="Units" value={`${r.unitsDone}${card.quantityNeeded ? ` / ${card.quantityNeeded}` : ""}`} />
+      {/* Top stat strip — always visible, always read-only display */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
+        <Stat
+          label="Units"
+          value={`${r.unitsDone}${r.unitsDone || (editing ? draft.quantityNeeded : card.quantityNeeded) ? ` / ${(editing ? draft.quantityNeeded : card.quantityNeeded) ?? "?"}` : ""}`}
+        />
         <Stat
           label="Hours"
           value={`${r.hoursLogged}${r.hoursEstimated != null ? ` / ${r.hoursEstimated}` : ""}`}
         />
-        <Stat label="Materials" value={formatGBP(r.materialsTotalPence)} />
+        <Stat label="Materials" value={formatGBPFromPence(r.materialsTotalPence)} />
         <Stat
           label="Target"
           value={
-            card.targetDate
-              ? `${card.targetDate.toLocaleDateString("en-GB", { day: "numeric", month: "short" })}${
-                  daysToTarget !== null ? ` (${daysToTarget}d)` : ""
-                }`
+            targetDateValue
+              ? `${targetDateValue.toLocaleDateString("en-GB", { day: "numeric", month: "short" })}${daysToTarget != null ? ` (${daysToTarget}d)` : ""}`
               : "—"
           }
         />
       </div>
 
-      {/* Status + prototype quick row */}
-      {canEdit ? (
-        <form action={saveHeader} className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-3 items-end">
-          <div>
-            <label className="block text-[10px] uppercase tracking-wider text-ink-tertiary font-bold mb-1">
-              Status
-            </label>
-            <select
-              name="status"
-              defaultValue={card.status ?? ""}
-              className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2 py-1 text-ink-primary outline-none"
-            >
-              <option value="">—</option>
-              {STATUS_OPTIONS.map((s) => (
-                <option key={s} value={s}>{s}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="block text-[10px] uppercase tracking-wider text-ink-tertiary font-bold mb-1">
-              Quantity needed
-            </label>
-            <input
-              type="number"
-              name="quantityNeeded"
-              min={0}
-              defaultValue={card.quantityNeeded ?? ""}
-              className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2 py-1 text-ink-primary outline-none focus:border-moss-500"
-            />
-          </div>
-          <div>
-            <label className="block text-[10px] uppercase tracking-wider text-ink-tertiary font-bold mb-1">
-              Target date
-            </label>
-            <input
-              type="date"
-              name="targetDate"
-              defaultValue={isoDate(card.targetDate)}
-              className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2 py-1 text-ink-primary outline-none focus:border-moss-500"
-            />
-          </div>
-          <div className="sm:col-span-3 grid grid-cols-1 sm:grid-cols-3 gap-2">
-            <div>
-              <label className="block text-[10px] uppercase tracking-wider text-ink-tertiary font-bold mb-1">
-                Est minutes / unit
-              </label>
-              <input
-                type="number"
-                name="estimatedMinutesPerUnit"
-                min={0}
-                defaultValue={card.estimatedMinutesPerUnit ?? ""}
-                className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2 py-1 text-ink-primary outline-none focus:border-moss-500"
-              />
-            </div>
-            <label className="flex items-center gap-2 text-sm self-end pb-1">
-              <input
-                type="checkbox"
-                name="prototypeDone"
-                defaultChecked={card.prototypeDone}
-              />
-              <span>Prototype done</span>
-            </label>
-            <div className="self-end">
-              <Button type="submit" variant="primary" size="sm" disabled={pending}>
-                Save header
-              </Button>
-            </div>
-          </div>
-        </form>
+      {/* Status pill + budget link — always visible */}
+      <div className="flex items-center flex-wrap gap-2 mb-4">
+        <StatusPill status={editing ? draft.status : card.status} />
+        {!editing && card.budgetLine && (
+          <BudgetPill
+            line={card.budgetLine}
+            onUnlink={canEdit ? unlinkBudget : undefined}
+            pending={pending}
+          />
+        )}
+      </div>
+
+      {/* Body — switches between view + edit */}
+      {editing ? (
+        <EditBody draft={draft} setDraft={setDraft} pending={pending} />
       ) : (
-        <div className="text-xs text-ink-tertiary mb-3">
-          Status: {card.status ?? "—"} · Prototype: {card.prototypeDone ? "done" : "not done"}
-        </div>
+        <ViewBody card={card} />
       )}
 
-      {/* Materials */}
-      <Materials
-        cardId={card.id}
-        materials={card.materials}
-        canEdit={canEdit}
-        pending={pending}
-        onMutate={(fn) => startTransition(fn)}
-      />
-
-      {/* Copy to Budget */}
-      {canEdit && card.materials.length > 0 && (
-        <div className="mt-2 flex justify-end">
-          <Button variant="ghost" size="sm" onClick={copyToBudget} disabled={pending}>
-            Copy materials total to Budget →
-          </Button>
-        </div>
-      )}
-
-      {/* Sessions */}
+      {/* Sessions — view + edit modes both show; new-session form
+          stays accessible without entering Edit mode. */}
       <Sessions
         cardId={card.id}
         sessions={card.sessions}
@@ -262,271 +315,567 @@ export function BookBuildCard({
         pending={pending}
         onMutate={(fn) => startTransition(fn)}
       />
+
+      {/* Footer action bar */}
+      {canEdit && (
+        <div className="flex items-center justify-between gap-2 mt-4 pt-3 border-t border-border-soft">
+          <div className="flex gap-2">
+            {!editing && card.materials.length > 0 && (
+              <Button variant="ghost" size="sm" onClick={copyToBudget} disabled={pending}>
+                {card.budgetLineId ? "Update Budget line" : "Copy total to Budget →"}
+              </Button>
+            )}
+          </div>
+          <div className="flex gap-2">
+            {editing ? (
+              <>
+                <Button variant="ghost" size="sm" onClick={cancel} disabled={pending}>
+                  Cancel
+                </Button>
+                <Button variant="primary" size="sm" onClick={save} disabled={pending}>
+                  Save changes
+                </Button>
+              </>
+            ) : (
+              <Button variant="primary" size="sm" onClick={() => setEditing(true)}>
+                Edit
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
     </CardChrome>
   );
 }
 
+// ── Helpers — view layout pieces ─────────────────────────────────
+
 function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="bg-canvas/40 border border-border-soft rounded-sm px-2 py-1.5">
+    <div className="bg-canvas/40 border border-border-soft rounded-md px-3 py-2">
       <div className="text-[10px] uppercase tracking-wider text-ink-tertiary font-bold">
         {label}
       </div>
-      <div className="text-sm text-ink-primary tabular-nums truncate">{value}</div>
-    </div>
-  );
-}
-
-function Materials({
-  cardId,
-  materials,
-  canEdit,
-  pending,
-  onMutate,
-}: {
-  cardId: string;
-  materials: BuildCardProps["card"]["materials"];
-  canEdit: boolean;
-  pending: boolean;
-  onMutate: (fn: () => void) => void;
-}) {
-  const [adding, setAdding] = useState(false);
-  return (
-    <div className="mt-4">
-      <div className="flex items-baseline justify-between mb-1">
-        <strong className="text-[10px] uppercase tracking-wider text-ink-tertiary font-bold">
-          Materials ({materials.length})
-        </strong>
-        {canEdit && !adding && (
-          <Button variant="ghost" size="sm" onClick={() => setAdding(true)}>
-            + Add material
-          </Button>
-        )}
+      <div className="text-sm text-ink-primary tabular-nums truncate font-medium">
+        {value || "—"}
       </div>
-      {adding && (
-        <MaterialForm
-          cardId={cardId}
-          onCancel={() => setAdding(false)}
-          onDone={() => setAdding(false)}
-          pending={pending}
-          onMutate={onMutate}
-        />
-      )}
-      {materials.length === 0 && !adding ? (
-        <p className="text-xs text-ink-tertiary italic">No materials yet.</p>
-      ) : (
-        <ul className="divide-y divide-border-soft text-sm border border-border-soft rounded-sm">
-          {materials.map((m) => (
-            <MaterialRow
-              key={m.id}
-              material={m}
-              canEdit={canEdit}
-              pending={pending}
-              onMutate={onMutate}
-            />
-          ))}
-        </ul>
-      )}
     </div>
   );
 }
 
-function MaterialRow({
-  material,
-  canEdit,
-  pending,
-  onMutate,
-}: {
-  material: BuildCardProps["card"]["materials"][number];
-  canEdit: boolean;
-  pending: boolean;
-  onMutate: (fn: () => void) => void;
-}) {
-  const [editing, setEditing] = useState(false);
-  function toggle(flag: "ordered" | "arrived", value: boolean) {
-    onMutate(async () => {
-      const res = await toggleBuildMaterialFlag(material.id, flag, value);
-      if (!res.ok) notify("error", res.error);
-    });
-  }
-  function remove() {
-    if (!confirm(`Remove "${material.name}"?`)) return;
-    onMutate(async () => {
-      const res = await deleteBuildMaterial(material.id);
-      if (!res.ok) notify("error", res.error);
-    });
-  }
-  function reorder(delta: number) {
-    onMutate(async () => {
-      const res = await reorderBuildMaterials(material.id, delta);
-      if (!res.ok) notify("error", res.error);
-    });
-  }
-  if (editing) {
+function StatusPill({ status }: { status: string | null }) {
+  if (!status) {
     return (
-      <li className="px-3 py-2 bg-canvas/30">
-        <MaterialForm
-          cardId={material.id}
-          isEdit
-          initial={material}
-          onCancel={() => setEditing(false)}
-          onDone={() => setEditing(false)}
-          pending={pending}
-          onMutate={onMutate}
-        />
-      </li>
+      <span className="text-[11px] uppercase tracking-wider text-ink-tertiary border border-dashed border-border-soft rounded-full px-2 py-0.5">
+        No status
+      </span>
     );
   }
+  const tone = STATUS_TONE[status] ?? STATUS_TONE.Designing;
   return (
-    <li className="flex items-baseline gap-2 px-3 py-1.5 text-xs">
-      <span className="flex-1 text-ink-primary truncate">
-        {material.name}
-        {material.quantity != null && ` · ${material.quantity}${material.unit ? ` ${material.unit}` : ""}`}
-        {material.supplier && ` · ${material.supplier}`}
-      </span>
-      <span className="text-ink-tertiary tabular-nums w-16 text-right">
-        {material.costPence != null ? formatGBP(material.costPence) : ""}
-      </span>
-      <label className="flex items-center gap-1">
-        <input
-          type="checkbox"
-          checked={material.ordered}
-          disabled={!canEdit || pending}
-          onChange={(e) => toggle("ordered", e.target.checked)}
-        />
-        <span className="text-[10px] text-ink-tertiary">Ord</span>
+    <span className={`text-[11px] uppercase tracking-wider rounded-full px-2 py-0.5 border ${tone}`}>
+      {status}
+    </span>
+  );
+}
+
+function BudgetPill({
+  line,
+  onUnlink,
+  pending,
+}: {
+  line: { id: string; description: string; estimated: number | null };
+  onUnlink?: () => void;
+  pending: boolean;
+}) {
+  return (
+    <span className="inline-flex items-center gap-1 text-[11px] bg-moss-50 border border-moss-300 text-moss-700 rounded-full px-2 py-0.5">
+      <span>Linked to Budget · {line.estimated != null ? `£${line.estimated.toFixed(2)}` : "—"}</span>
+      <Link
+        href="/budget"
+        className="underline hover:text-moss-500"
+        title={`On Budget: ${line.description}`}
+      >
+        view →
+      </Link>
+      {onUnlink && (
+        <button
+          type="button"
+          onClick={onUnlink}
+          disabled={pending}
+          aria-label="Unlink Budget"
+          title="Unlink Budget"
+          className="text-moss-700/60 hover:text-danger leading-none"
+        >
+          ×
+        </button>
+      )}
+    </span>
+  );
+}
+
+// ── View body ────────────────────────────────────────────────────
+
+function ViewBody({ card }: { card: CardData }) {
+  return (
+    <>
+      {/* Materials read-only */}
+      <Section title="Materials" count={card.materials.length}>
+        {card.materials.length === 0 ? (
+          <Empty hint="No materials added yet." />
+        ) : (
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-[10px] uppercase tracking-wider text-ink-tertiary font-bold border-b border-border-soft">
+                <Th align="left">Material</Th>
+                <Th align="right">Qty</Th>
+                <Th align="left">Unit</Th>
+                <Th align="left">Supplier</Th>
+                <Th align="right">Cost</Th>
+                <Th align="center">Ord</Th>
+                <Th align="center">Arr</Th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border-soft">
+              {card.materials.map((m) => (
+                <tr key={m.id}>
+                  <td className="py-1.5 px-2 text-ink-primary">{m.name}</td>
+                  <td className="py-1.5 px-2 text-ink-secondary tabular-nums text-right">
+                    {m.quantity ?? ""}
+                  </td>
+                  <td className="py-1.5 px-2 text-ink-secondary">{m.unit ?? ""}</td>
+                  <td className="py-1.5 px-2 text-ink-secondary">{m.supplier ?? ""}</td>
+                  <td className="py-1.5 px-2 text-ink-secondary tabular-nums text-right">
+                    {formatGBPFromPence(m.costPence)}
+                  </td>
+                  <td className="py-1.5 px-2 text-center">
+                    {m.ordered ? <span className="text-moss-700" aria-label="ordered">●</span> : <span className="text-ink-tertiary/40">○</span>}
+                  </td>
+                  <td className="py-1.5 px-2 text-center">
+                    {m.arrived ? <span className="text-moss-700" aria-label="arrived">●</span> : <span className="text-ink-tertiary/40">○</span>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </Section>
+
+      {(card.notes || card.prototypeNotes) && (
+        <Section title="Notes">
+          {card.prototypeNotes && (
+            <div className="mb-2">
+              <div className="text-[10px] uppercase tracking-wider text-ink-tertiary font-bold">
+                Prototype
+              </div>
+              <p className="text-sm text-ink-secondary whitespace-pre-wrap">
+                {card.prototypeNotes}
+              </p>
+            </div>
+          )}
+          {card.notes && (
+            <p className="text-sm text-ink-secondary whitespace-pre-wrap">{card.notes}</p>
+          )}
+        </Section>
+      )}
+    </>
+  );
+}
+
+function Section({
+  title,
+  count,
+  children,
+}: {
+  title: string;
+  count?: number;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="mt-4">
+      <div className="flex items-baseline gap-2 mb-1.5">
+        <strong className="text-[11px] uppercase tracking-wider text-ink-tertiary font-bold">
+          {title}
+        </strong>
+        {count !== undefined && (
+          <span className="text-[10px] text-ink-tertiary tabular-nums">{count}</span>
+        )}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function Empty({ hint }: { hint: string }) {
+  return <p className="text-xs text-ink-tertiary italic">{hint}</p>;
+}
+
+function Th({ align, children }: { align: "left" | "right" | "center"; children: React.ReactNode }) {
+  return (
+    <th className={`py-1.5 px-2 font-bold ${align === "left" ? "text-left" : align === "right" ? "text-right" : "text-center"}`}>
+      {children}
+    </th>
+  );
+}
+
+// ── Edit body ────────────────────────────────────────────────────
+
+type Draft = {
+  quantityNeeded: number | null;
+  targetDate: string;
+  status: string;
+  prototypeDone: boolean;
+  prototypeNotes: string;
+  estimatedMinutesPerUnit: number | null;
+  notes: string;
+  materials: Material[];
+};
+
+function buildDraft(card: CardData): Draft {
+  return {
+    quantityNeeded: card.quantityNeeded,
+    targetDate: isoDate(card.targetDate),
+    status: card.status ?? "",
+    prototypeDone: card.prototypeDone,
+    prototypeNotes: card.prototypeNotes ?? "",
+    estimatedMinutesPerUnit: card.estimatedMinutesPerUnit,
+    notes: card.notes ?? "",
+    materials: card.materials.map((m) => ({ ...m })),
+  };
+}
+
+function EditBody({
+  draft,
+  setDraft,
+  pending,
+}: {
+  draft: Draft;
+  setDraft: (d: Draft) => void;
+  pending: boolean;
+}) {
+  function patch(p: Partial<Draft>) {
+    setDraft({ ...draft, ...p });
+  }
+  function patchMaterial(idx: number, p: Partial<Material>) {
+    const next = [...draft.materials];
+    next[idx] = { ...next[idx]!, ...p };
+    setDraft({ ...draft, materials: next });
+  }
+  function addMaterial() {
+    setDraft({
+      ...draft,
+      materials: [
+        ...draft.materials,
+        {
+          id: newMaterialId(),
+          name: "",
+          quantity: null,
+          unit: null,
+          supplier: null,
+          costPence: null,
+          ordered: false,
+          arrived: false,
+          notes: null,
+          order: draft.materials.length,
+        },
+      ],
+    });
+  }
+  function removeMaterial(idx: number) {
+    setDraft({ ...draft, materials: draft.materials.filter((_, i) => i !== idx) });
+  }
+  function moveMaterial(idx: number, delta: -1 | 1) {
+    const j = idx + delta;
+    if (j < 0 || j >= draft.materials.length) return;
+    const next = [...draft.materials];
+    [next[idx], next[j]] = [next[j]!, next[idx]!];
+    setDraft({ ...draft, materials: next });
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Header fields */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <Field label="Status" hint="Where you are in the build journey.">
+          <select
+            value={draft.status}
+            onChange={(e) => patch({ status: e.target.value })}
+            disabled={pending}
+            className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2 py-1.5 text-ink-primary outline-none focus:border-moss-500"
+          >
+            <option value="">— pick a status —</option>
+            {STATUS_OPTIONS.map((s) => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Quantity needed" hint="How many you're making in total.">
+          <input
+            type="number"
+            min={0}
+            value={draft.quantityNeeded ?? ""}
+            onChange={(e) =>
+              patch({ quantityNeeded: e.target.value === "" ? null : Number(e.target.value) })
+            }
+            disabled={pending}
+            placeholder="e.g. 14"
+            className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2 py-1.5 text-ink-primary outline-none focus:border-moss-500"
+          />
+        </Field>
+        <Field label="Target date" hint="When the build needs to be done by.">
+          <input
+            type="date"
+            value={draft.targetDate}
+            onChange={(e) => patch({ targetDate: e.target.value })}
+            disabled={pending}
+            className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2 py-1.5 text-ink-primary outline-none focus:border-moss-500"
+          />
+        </Field>
+        <Field label="Estimated minutes per unit" hint="Roughly how long one takes.">
+          <input
+            type="number"
+            min={0}
+            value={draft.estimatedMinutesPerUnit ?? ""}
+            onChange={(e) =>
+              patch({ estimatedMinutesPerUnit: e.target.value === "" ? null : Number(e.target.value) })
+            }
+            disabled={pending}
+            placeholder="e.g. 10"
+            className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2 py-1.5 text-ink-primary outline-none focus:border-moss-500"
+          />
+        </Field>
+        <label className="flex items-center gap-2 text-sm self-end pb-1.5">
+          <input
+            type="checkbox"
+            checked={draft.prototypeDone}
+            onChange={(e) => patch({ prototypeDone: e.target.checked })}
+            disabled={pending}
+          />
+          <span>Prototype done</span>
+        </label>
+      </div>
+
+      {/* Materials editor */}
+      <div>
+        <div className="flex items-baseline justify-between mb-1.5">
+          <strong className="text-[11px] uppercase tracking-wider text-ink-tertiary font-bold">
+            Materials ({draft.materials.length})
+          </strong>
+          <Button variant="ghost" size="sm" onClick={addMaterial} disabled={pending}>
+            + Add material
+          </Button>
+        </div>
+        {draft.materials.length === 0 ? (
+          <Empty hint="Add at least one material — what you'll need to make this." />
+        ) : (
+          <ul className="divide-y divide-border-soft border border-border-soft rounded-md">
+            {draft.materials.map((m, idx) => (
+              <MaterialEditRow
+                key={m.id}
+                material={m}
+                isFirst={idx === 0}
+                isLast={idx === draft.materials.length - 1}
+                pending={pending}
+                onChange={(p) => patchMaterial(idx, p)}
+                onRemove={() => removeMaterial(idx)}
+                onMoveUp={() => moveMaterial(idx, -1)}
+                onMoveDown={() => moveMaterial(idx, 1)}
+              />
+            ))}
+          </ul>
+        )}
+      </div>
+
+      {/* Notes */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <Field label="Prototype notes" hint="What worked, what to change before producing.">
+          <textarea
+            value={draft.prototypeNotes}
+            onChange={(e) => patch({ prototypeNotes: e.target.value })}
+            disabled={pending}
+            rows={3}
+            placeholder="e.g. Try wider ribbon. Pre-bend wire."
+            className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2 py-1.5 text-ink-primary outline-none focus:border-moss-500 resize-y"
+          />
+        </Field>
+        <Field label="Notes" hint="Anything else worth remembering.">
+          <textarea
+            value={draft.notes}
+            onChange={(e) => patch({ notes: e.target.value })}
+            disabled={pending}
+            rows={3}
+            placeholder="e.g. Storage: spare bedroom. Pickup before 10:00."
+            className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2 py-1.5 text-ink-primary outline-none focus:border-moss-500 resize-y"
+          />
+        </Field>
+      </div>
+    </div>
+  );
+}
+
+function Field({
+  label,
+  hint,
+  children,
+}: {
+  label: string;
+  hint?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div>
+      <label className="block text-[10px] uppercase tracking-wider text-ink-tertiary font-bold mb-1">
+        {label}
       </label>
-      <label className="flex items-center gap-1">
+      {children}
+      {hint && <p className="mt-1 text-[11px] text-ink-tertiary">{hint}</p>}
+    </div>
+  );
+}
+
+function MaterialEditRow({
+  material,
+  isFirst,
+  isLast,
+  pending,
+  onChange,
+  onRemove,
+  onMoveUp,
+  onMoveDown,
+}: {
+  material: Material;
+  isFirst: boolean;
+  isLast: boolean;
+  pending: boolean;
+  onChange: (p: Partial<Material>) => void;
+  onRemove: () => void;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
+}) {
+  const [costStr, setCostStr] = useState(penceToPoundsString(material.costPence));
+  // Sync costStr if the material is replaced wholesale (e.g. from
+  // setDraft after a parent prop change). Tracked on `id` because
+  // we want to reset only when the row identity changes, not on
+  // every typed-character costPence change.
+  useEffect(() => {
+    setCostStr(penceToPoundsString(material.costPence));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [material.id]);
+
+  function commitCost(s: string) {
+    const pence = poundsStringToPence(s);
+    onChange({ costPence: pence });
+  }
+
+  return (
+    <li className="px-3 py-2.5 bg-canvas/30">
+      <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-start">
         <input
-          type="checkbox"
-          checked={material.arrived}
-          disabled={!canEdit || pending}
-          onChange={(e) => toggle("arrived", e.target.checked)}
+          value={material.name}
+          onChange={(e) => onChange({ name: e.target.value })}
+          disabled={pending}
+          placeholder="Name (e.g. Mason jars)"
+          className="sm:col-span-4 text-sm bg-surface border border-border-soft rounded-sm px-2 py-1 text-ink-primary outline-none focus:border-moss-500"
         />
-        <span className="text-[10px] text-ink-tertiary">Arr</span>
-      </label>
-      {canEdit && (
-        <>
+        <input
+          type="number"
+          step="any"
+          min={0}
+          value={material.quantity ?? ""}
+          onChange={(e) =>
+            onChange({ quantity: e.target.value === "" ? null : Number(e.target.value) })
+          }
+          disabled={pending}
+          placeholder="Qty"
+          className="sm:col-span-1 text-sm bg-surface border border-border-soft rounded-sm px-2 py-1 text-ink-primary outline-none focus:border-moss-500 tabular-nums"
+        />
+        <input
+          value={material.unit ?? ""}
+          onChange={(e) => onChange({ unit: e.target.value })}
+          disabled={pending}
+          placeholder="Unit (ea, m, stems)"
+          className="sm:col-span-2 text-sm bg-surface border border-border-soft rounded-sm px-2 py-1 text-ink-primary outline-none focus:border-moss-500"
+        />
+        <input
+          value={material.supplier ?? ""}
+          onChange={(e) => onChange({ supplier: e.target.value })}
+          disabled={pending}
+          placeholder="Supplier (e.g. Hobbycraft)"
+          className="sm:col-span-3 text-sm bg-surface border border-border-soft rounded-sm px-2 py-1 text-ink-primary outline-none focus:border-moss-500"
+        />
+        <div className="sm:col-span-2 relative">
+          <span className="absolute left-2 top-1/2 -translate-y-1/2 text-ink-tertiary text-sm pointer-events-none">£</span>
+          <input
+            type="text"
+            inputMode="decimal"
+            value={costStr}
+            onChange={(e) => setCostStr(e.target.value)}
+            onBlur={() => commitCost(costStr)}
+            disabled={pending}
+            placeholder="0.00"
+            className="w-full text-sm bg-surface border border-border-soft rounded-sm pl-5 pr-2 py-1 text-ink-primary outline-none focus:border-moss-500 tabular-nums text-right"
+          />
+        </div>
+      </div>
+      <div className="flex items-center justify-between gap-2 mt-2 text-xs">
+        <div className="flex gap-3">
+          <label className="flex items-center gap-1.5">
+            <input
+              type="checkbox"
+              checked={material.ordered}
+              onChange={(e) => onChange({ ordered: e.target.checked })}
+              disabled={pending}
+            />
+            <span className="text-ink-secondary">Ordered</span>
+          </label>
+          <label className="flex items-center gap-1.5">
+            <input
+              type="checkbox"
+              checked={material.arrived}
+              onChange={(e) => onChange({ arrived: e.target.checked })}
+              disabled={pending}
+            />
+            <span className="text-ink-secondary">Arrived</span>
+          </label>
+        </div>
+        <div className="flex gap-1">
           <button
             type="button"
-            onClick={() => reorder(-1)}
-            className="text-[10px] text-ink-tertiary hover:text-ink-primary px-1"
-            disabled={pending}
+            onClick={onMoveUp}
+            disabled={pending || isFirst}
+            className="text-ink-tertiary hover:text-ink-primary disabled:opacity-30 px-1"
             aria-label="Move up"
+            title="Move up"
           >
             ↑
           </button>
           <button
             type="button"
-            onClick={() => reorder(1)}
-            className="text-[10px] text-ink-tertiary hover:text-ink-primary px-1"
-            disabled={pending}
+            onClick={onMoveDown}
+            disabled={pending || isLast}
+            className="text-ink-tertiary hover:text-ink-primary disabled:opacity-30 px-1"
             aria-label="Move down"
+            title="Move down"
           >
             ↓
           </button>
           <button
             type="button"
-            onClick={() => setEditing(true)}
-            className="text-[10px] text-ink-tertiary hover:text-ink-primary px-1"
+            onClick={onRemove}
             disabled={pending}
-          >
-            edit
-          </button>
-          <button
-            type="button"
-            onClick={remove}
-            className="text-[10px] text-ink-tertiary hover:text-danger px-1"
-            disabled={pending}
+            className="text-ink-tertiary hover:text-danger px-1"
             aria-label="Remove"
+            title="Remove material"
           >
             ×
           </button>
-        </>
-      )}
+        </div>
+      </div>
     </li>
   );
 }
 
-function MaterialForm({
-  cardId,
-  isEdit,
-  initial,
-  onCancel,
-  onDone,
-  pending,
-  onMutate,
-}: {
-  cardId: string;
-  isEdit?: boolean;
-  initial?: BuildCardProps["card"]["materials"][number];
-  onCancel: () => void;
-  onDone: () => void;
-  pending: boolean;
-  onMutate: (fn: () => void) => void;
-}) {
-  function submit(formData: FormData) {
-    onMutate(async () => {
-      const res = isEdit
-        ? await updateBuildMaterial(cardId, formData)
-        : await createBuildMaterial(cardId, formData);
-      if (res.ok) {
-        notify("success", isEdit ? "Material updated" : "Material added");
-        onDone();
-      } else {
-        notify("error", res.error);
-      }
-    });
-  }
-  return (
-    <form action={submit} className="grid grid-cols-1 sm:grid-cols-6 gap-1.5 mb-2 px-2 py-2 bg-canvas/40 border border-border-soft rounded-sm">
-      <input
-        name="name"
-        defaultValue={initial?.name ?? ""}
-        required
-        autoFocus
-        placeholder="Name"
-        className="sm:col-span-2 text-xs bg-surface border border-border-soft rounded-sm px-2 py-1 text-ink-primary outline-none focus:border-moss-500"
-      />
-      <input
-        name="quantity"
-        type="number"
-        step="any"
-        defaultValue={initial?.quantity ?? ""}
-        placeholder="Qty"
-        className="text-xs bg-surface border border-border-soft rounded-sm px-2 py-1 text-ink-primary outline-none focus:border-moss-500"
-      />
-      <input
-        name="unit"
-        defaultValue={initial?.unit ?? ""}
-        placeholder="Unit"
-        className="text-xs bg-surface border border-border-soft rounded-sm px-2 py-1 text-ink-primary outline-none focus:border-moss-500"
-      />
-      <input
-        name="supplier"
-        defaultValue={initial?.supplier ?? ""}
-        placeholder="Supplier"
-        className="text-xs bg-surface border border-border-soft rounded-sm px-2 py-1 text-ink-primary outline-none focus:border-moss-500"
-      />
-      <input
-        name="costPence"
-        type="number"
-        min={0}
-        defaultValue={initial?.costPence ?? ""}
-        placeholder="Cost (pence)"
-        className="text-xs bg-surface border border-border-soft rounded-sm px-2 py-1 text-ink-primary outline-none focus:border-moss-500"
-      />
-      <div className="sm:col-span-6 flex justify-end gap-2">
-        <Button type="button" variant="ghost" size="sm" onClick={onCancel} disabled={pending}>
-          Cancel
-        </Button>
-        <Button type="submit" variant="primary" size="sm" disabled={pending}>
-          {isEdit ? "Save" : "Add"}
-        </Button>
-      </div>
-    </form>
-  );
-}
+// ── Sessions — outside the edit toggle ────────────────────────────
 
 function Sessions({
   cardId,
@@ -536,18 +885,15 @@ function Sessions({
   onMutate,
 }: {
   cardId: string;
-  sessions: BuildCardProps["card"]["sessions"];
+  sessions: Session[];
   canEdit: boolean;
   pending: boolean;
   onMutate: (fn: () => void) => void;
 }) {
   const [adding, setAdding] = useState(false);
   return (
-    <div className="mt-4">
-      <div className="flex items-baseline justify-between mb-1">
-        <strong className="text-[10px] uppercase tracking-wider text-ink-tertiary font-bold">
-          Sessions ({sessions.length})
-        </strong>
+    <Section title="Sessions" count={sessions.length}>
+      <div className="flex justify-end mb-1.5">
         {canEdit && !adding && (
           <Button variant="ghost" size="sm" onClick={() => setAdding(true)}>
             + Log session
@@ -564,9 +910,9 @@ function Sessions({
         />
       )}
       {sessions.length === 0 && !adding ? (
-        <p className="text-xs text-ink-tertiary italic">No sessions yet.</p>
-      ) : (
-        <ul className="divide-y divide-border-soft text-sm border border-border-soft rounded-sm">
+        <Empty hint="No sessions logged yet." />
+      ) : sessions.length > 0 ? (
+        <ul className="divide-y divide-border-soft text-sm border border-border-soft rounded-md">
           {sessions.map((s) => (
             <SessionRow
               key={s.id}
@@ -577,8 +923,8 @@ function Sessions({
             />
           ))}
         </ul>
-      )}
-    </div>
+      ) : null}
+    </Section>
   );
 }
 
@@ -588,7 +934,7 @@ function SessionRow({
   pending,
   onMutate,
 }: {
-  session: BuildCardProps["card"]["sessions"][number];
+  session: Session;
   canEdit: boolean;
   pending: boolean;
   onMutate: (fn: () => void) => void;
@@ -665,7 +1011,7 @@ function SessionForm({
 }: {
   cardId: string;
   isEdit?: boolean;
-  initial?: BuildCardProps["card"]["sessions"][number];
+  initial?: Session;
   onCancel: () => void;
   onDone: () => void;
   pending: boolean;
@@ -685,7 +1031,10 @@ function SessionForm({
     });
   }
   return (
-    <form action={submit} className="grid grid-cols-1 sm:grid-cols-5 gap-1.5 mb-2 px-2 py-2 bg-canvas/40 border border-border-soft rounded-sm">
+    <form
+      action={submit}
+      className="grid grid-cols-1 sm:grid-cols-5 gap-1.5 mb-2 px-2 py-2 bg-canvas/40 border border-border-soft rounded-md"
+    >
       <input
         name="date"
         type="date"
@@ -713,7 +1062,7 @@ function SessionForm({
       <input
         name="notes"
         defaultValue={initial?.notes ?? ""}
-        placeholder="Notes"
+        placeholder="Notes (optional)"
         className="sm:col-span-2 text-xs bg-surface border border-border-soft rounded-sm px-2 py-1 text-ink-primary outline-none focus:border-moss-500"
       />
       <div className="sm:col-span-5 flex justify-end gap-2">

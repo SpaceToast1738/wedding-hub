@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.31.0** | 2026-04-30 | [Wedding Book BUILD card (P1) — DIY production tracker with materials list, sessions log, prototype-blocker warning, copy-to-Budget action](#2026-04-30--v1310--wedding-book-build-card-p1) |
+| **v1.31.1** | 2026-04-30 | [BUILD card UX pass — single Edit/View states · live Budget link · `/diy` overview page · £-input · clearer field hints · status-disappear bug fixed](#2026-04-30--v1311--build-card-ux-pass) |
+| v1.31.0 | 2026-04-30 | [Wedding Book BUILD card (P1) — DIY production tracker with materials list, sessions log, prototype-blocker warning, copy-to-Budget action](#2026-04-30--v1310--wedding-book-build-card-p1) |
 | v1.30.6 | 2026-04-30 | [Track `BOOK-EXPANSION-PLAN.md` in the repo (docs only) — sets the v1.31.0–v1.38.0 arc](#2026-04-30--v1306--track-book-expansion-plan-in-the-repo) |
 | v1.30.5 | 2026-04-29 | [Schema cleanup + Topics multi-select · drop legacy `PhotographyShot` and `ScheduleEvent.audience` · combined Wedding Book section + NavTag picker on tasks · NavTag CRUD in Settings · audit-rule standing add + first-pass enrichment](#2026-04-29--v1305--schema-cleanup--topics-multi-select--audit-rule) |
 | v1.30.0 | 2026-04-29 | [Tasks ↔ Wedding Book subsection link · picker on task forms + drawer · Linked tasks panel under each card on `/book/[slug]` with per-card search](#2026-04-29--v1300--tasks--wedding-book-subsection-link) |
@@ -700,6 +701,49 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-30 · v1.31.1 — BUILD card UX pass
+
+User feedback round on v1.31.0. Six items, all addressed:
+
+1. **Confusing Qty / Unit labels** — clearer copy. "Qty" is now the row count (small numeric input); "Unit" has a "ea, m, stems" placeholder. Helper hint under each header field explains what it's for ("How many you're making in total" etc.).
+2. **Pounds-and-pence cost input** — replaced the raw pence number input with a £ symbol + decimal text input. Stored as integer pence under the hood; display + entry both in £x.xx.
+3. **Live link to Budget line** — new `BookBuildCard.budgetLineId` FK to `BudgetLine` (additive migration, `onDelete: SetNull`). The "Copy materials total to Budget" action now stores the FK on the card and on subsequent clicks **updates the existing line in place** instead of creating a duplicate. View mode shows a moss-green pill: "Linked to Budget · £X.XX [view →] [×]". The × unlinks the card from the line (line stays on `/budget`; couple can delete it there if they want).
+4. **Status disappearing on save bug** — root cause was the v1.31.0 header form using `<form action>` with `defaultValue` on the `<select>`, which doesn't update after re-render of an uncontrolled input. Refactored the entire BUILD card to controlled React state with a single Edit / Save / Cancel flow.
+5. **Single Edit / Save / Cancel flow** — the user feedback on UX. Card now has two distinct modes:
+   - **View mode** — pretty read-only display. Stat strip + status pill + budget pill + materials table (read-only) + notes. Single "Edit" button bottom-right plus "Copy total to Budget" / "Update Budget line" left side.
+   - **Edit mode** — every header field becomes editable, materials gain inline edit + reorder + delete + add-row affordances, all field hints visible. Single "Save changes" + "Cancel" buttons bottom-right.
+   - Sessions sit *outside* the edit toggle — they're append-only quick log actions. "+ Log session" + per-row trash icon are always available when the user can edit.
+6. **`/diy` overview page** — new top-level page (added to nav under People group) listing every BUILD card across the Wedding Book. Each row shows status pill + section + target date + units done/needed + hours + materials total + ordered/arrived percentages. Done cards go to the bottom; everything else sorts by target date (sooner first). Top-line totals strip: project count, units done, hours logged, total materials spend. Click any row to deep-link into the source section anchored at that card.
+
+**Schema:** `BookBuildCard.budgetLineId String?` (nullable FK to `BudgetLine`, `onDelete: SetNull`, indexed). `BudgetLine.buildCards` back-relation. Migration `20260430010000_book_build_budget_link`, additive only.
+
+**Server actions:**
+- `copyBuildMaterialsToBudget` rewritten — first call creates the line and stores its FK; later calls update in place.
+- New `unlinkBuildBudgetLine` — clears the FK, leaves the line.
+- New `saveBuildCard(subsectionId, payload)` — single bulk save replacing the per-row create/update/delete actions for everything except sessions. Server reconciles materials in a transaction: rows with `id` starting `new-` → create; existing ids → update; existing ids missing from payload → delete; positions in the array become the `order` field. Audit logs a single update with `{ headerChanged, materialsAdded, materialsRemoved, materialsUpdated }`.
+- Per-row material actions kept as exports for any future inline-edit surface; not used by the editor any more.
+
+**Visual polish:**
+- Status options rendered as coloured tone pills: Designing (neutral), Prototyping (blue), Producing (marigold), Done (moss).
+- Stat strip cards use bigger fonts, more breathing room, distinct background.
+- Materials table read-mode shows ●/○ for ordered/arrived flags instead of checkbox stubs.
+- Edit-mode material rows have a single grid layout (12-column) with checkboxes on a separate sub-row.
+- Budget pill has a green tone matching the ordering/arrived ●.
+
+**Files:**
+- `prisma/schema.prisma` — `BookBuildCard.budgetLineId` + relation + index, `BudgetLine.buildCards` back-relation.
+- New: `prisma/migrations/20260430010000_book_build_budget_link/migration.sql`.
+- `src/app/(app)/book/actions.ts` — rewrote `copyBuildMaterialsToBudget`, added `unlinkBuildBudgetLine` + `saveBuildCard`.
+- `src/app/(app)/book/[slug]/BookBuildCard.tsx` — full rewrite with View/Edit modes, controlled state, £-input, helper hints, budget pill.
+- `src/app/(app)/book/[slug]/CardRouter.tsx` — extended `Sub.buildCard` shape with `budgetLineId` + `budgetLine` snapshot.
+- `src/app/(app)/book/[slug]/page.tsx` — eager-load `buildCard.budgetLine`; coerce Decimal `estimated` to plain number before crossing the client boundary.
+- New: `src/app/(app)/diy/page.tsx` — overview page.
+- `src/components/shell/nav-config.ts` — `/diy` entry under the People group.
+
+**Verification:** typecheck + lint + 243 unit tests + clean `.next` build green; new `/diy` route built (109 kB shared + 181 B page).
+
+**Next:** v1.32.0 P2 — MENU + BAR cards.
 
 ### 2026-04-30 · v1.31.0 — Wedding Book BUILD card (P1)
 

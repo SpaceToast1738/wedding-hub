@@ -389,6 +389,8 @@ model BudgetLine {
   payments    Payment[]
   notes       String?
   order       Int            @default(0)
+  // v1.31.1: BUILD cards back-relation for the materials-total link.
+  buildCards  BookBuildCard[]
   createdAt   DateTime       @default(now())
   updatedAt   DateTime       @updatedAt
 }
@@ -585,8 +587,17 @@ model BookBuildCard {
   prototypeNotes           String?        @db.Text
   estimatedMinutesPerUnit  Int?
   notes                    String?        @db.Text
+  // v1.31.1: optional FK to BudgetLine. Set by "Copy materials total
+  // to Budget" — the action both creates the line and stores the link
+  // here so subsequent re-clicks update the existing line instead of
+  // duplicating. SetNull cascade so deleting a budget line doesn't
+  // cascade-delete the build card; the card just loses its link.
+  budgetLineId             String?
+  budgetLine               BudgetLine?    @relation(fields: [budgetLineId], references: [id], onDelete: SetNull)
   materials                BookBuildMaterial[]
   sessions                 BookBuildSession[]
+
+  @@index([budgetLineId])
 }
 
 model BookBuildMaterial {

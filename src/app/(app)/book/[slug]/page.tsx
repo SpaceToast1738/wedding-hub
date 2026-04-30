@@ -34,6 +34,9 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
             include: {
               materials: { orderBy: { order: "asc" } },
               sessions: { orderBy: { date: "desc" } },
+              budgetLine: {
+                select: { id: true, description: true, estimated: true },
+              },
             },
           },
         },
@@ -111,14 +114,38 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
               This section has no pages yet. {editable && "Add one above."}
             </p>
           ) : (
-            section.subsections.map((s) => (
-              <CardRouter
-                key={s.id}
-                sub={s}
-                canEdit={editable}
-                isCouple={user.isCouple}
-              />
-            ))
+            section.subsections.map((sRaw) => {
+              // v1.31.1: Coerce BUILD card's BudgetLine.estimated
+              // (Prisma Decimal) to a plain number before crossing
+              // the client boundary. CardRouter's `Sub` type expects
+              // `estimated: number | null`.
+              const s = {
+                ...sRaw,
+                buildCard: sRaw.buildCard
+                  ? {
+                      ...sRaw.buildCard,
+                      budgetLine: sRaw.buildCard.budgetLine
+                        ? {
+                            id: sRaw.buildCard.budgetLine.id,
+                            description: sRaw.buildCard.budgetLine.description,
+                            estimated:
+                              sRaw.buildCard.budgetLine.estimated == null
+                                ? null
+                                : Number(sRaw.buildCard.budgetLine.estimated),
+                          }
+                        : null,
+                    }
+                  : null,
+              };
+              return (
+                <CardRouter
+                  key={s.id}
+                  sub={s}
+                  canEdit={editable}
+                  isCouple={user.isCouple}
+                />
+              );
+            })
           )}
         </div>
       </div>

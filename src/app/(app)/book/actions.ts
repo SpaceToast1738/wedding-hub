@@ -944,10 +944,11 @@ export async function deleteBuildSession(id: string): Promise<BookActionResult> 
   }
 }
 
-// v1.31.0: one-click "Copy materials total to Budget". Creates a draft
-// BudgetLine in a "DIY production" category (find-or-create) with the
-// rolled-up cost. No auto-sync — the user reviews on /budget. Returns
-// the new BudgetLine id so the caller can deep-link.
+// v1.31.0 / v1.31.1: one-click "Copy materials total to Budget". On
+// first call, creates a BudgetLine in a "DIY production" category
+// (find-or-create) and stores its id on BookBuildCard.budgetLineId. On
+// subsequent calls, updates the existing line in place — no duplicates.
+// No auto-sync; only fires when the user clicks the button.
 export async function copyBuildMaterialsToBudget(
   cardId: string,
 ): Promise<BookActionResult & { budgetLineId?: string }> {
@@ -962,44 +963,288 @@ export async function copyBuildMaterialsToBudget(
       (sum, m) => sum + (m.costPence ?? 0),
       0,
     );
-    // Find or create the "DIY production" BudgetCategory.
-    let category = await db.budgetCategory.findFirst({
-      where: { name: "DIY production" },
-    });
-    if (!category) {
-      const last = await db.budgetCategory.findFirst({ orderBy: { order: "desc" } });
-      category = await db.budgetCategory.create({
-        data: { name: "DIY production", order: (last?.order ?? -1) + 1 },
+    const estimated = (totalPence / 100).toFixed(2);
+    const notesLine = `from BUILD card · ${card.materials.length} material(s)`;
+
+    // Inner helper hoisted — TS doesn't narrow closures over parameter
+    // `card` after the early null-return, so the helper takes the
+    // values it needs explicitly.
+    async function createNewBudgetLine(
+      description: string,
+      estimatedDecimal: string,
+      notes: string,
+    ): Promise<string> {
+      let category = await db.budgetCategory.findFirst({
+        where: { name: "DIY production" },
+      });
+      if (!category) {
+        const last = await db.budgetCategory.findFirst({ orderBy: { order: "desc" } });
+        category = await db.budgetCategory.create({
+          data: { name: "DIY production", order: (last?.order ?? -1) + 1 },
+        });
+      }
+      const lastLine = await db.budgetLine.findFirst({
+        where: { categoryId: category.id },
+        orderBy: { order: "desc" },
+      });
+      const created = await db.budgetLine.create({
+        data: {
+          categoryId: category.id,
+          description,
+          estimated: estimatedDecimal,
+          notes,
+          order: (lastLine?.order ?? -1) + 1,
+        },
+      });
+      return created.id;
+    }
+
+    let budgetLineId: string;
+    let isUpdate = false;
+    if (card.budgetLineId) {
+      // Existing link — update the line in place.
+      const existing = await db.budgetLine.findUnique({
+        where: { id: card.budgetLineId },
+      });
+      if (existing) {
+        await db.budgetLine.update({
+          where: { id: card.budgetLineId },
+          data: {
+            description: card.subsection.title,
+            estimated,
+            notes: notesLine,
+          },
+        });
+        budgetLineId = existing.id;
+        isUpdate = true;
+      } else {
+        // Link points at a deleted line; fall through to create a new one.
+        budgetLineId = await createNewBudgetLine(card.subsection.title, estimated, notesLine);
+      }
+    } else {
+      budgetLineId = await createNewBudgetLine(card.subsection.title, estimated, notesLine);
+    }
+    if (!isUpdate) {
+      await db.bookBuildCard.update({
+        where: { id: cardId },
+        data: { budgetLineId },
       });
     }
-    const lastLine = await db.budgetLine.findFirst({
-      where: { categoryId: category.id },
-      orderBy: { order: "desc" },
-    });
-    const created = await db.budgetLine.create({
-      data: {
-        categoryId: category.id,
-        description: card.subsection.title,
-        estimated: (totalPence / 100).toFixed(2),
-        notes: `from BUILD card · ${card.materials.length} material(s)`,
-        order: (lastLine?.order ?? -1) + 1,
-      },
-    });
     await audit(user, {
-      action: "build-copy-to-budget",
+      action: isUpdate ? "build-update-budget-line" : "build-copy-to-budget",
       entity: "BookSubsection",
       entityId: card.subsectionId,
       metadata: {
         cardTitle: card.subsection.title,
         materialCount: card.materials.length,
         totalPence,
-        budgetLineId: created.id,
+        budgetLineId,
       },
     });
     revalidatePath("/budget");
+    revalidatePath("/diy");
     await revalidateBookSubsection(card.subsectionId);
-    return { ok: true, budgetLineId: created.id };
+    return { ok: true, budgetLineId };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "Couldn't copy to budget" };
+  }
+}
+
+// v1.31.1: clear the BudgetLine link on a BUILD card. Doesn't touch
+// the BudgetLine itself — the line stays on /budget, just isn't
+// auto-synced from this card any more. Couple/admin can delete the
+// orphan line via /budget if they want.
+export async function unlinkBuildBudgetLine(
+  cardId: string,
+): Promise<BookActionResult> {
+  const user = await requireEdit("book");
+  try {
+    const card = await db.bookBuildCard.findUnique({
+      where: { id: cardId },
+      include: { subsection: true },
+    });
+    if (!card) return { ok: false, error: "Build card not found" };
+    if (!card.budgetLineId) return { ok: true };
+    const previousLineId = card.budgetLineId;
+    await db.bookBuildCard.update({
+      where: { id: cardId },
+      data: { budgetLineId: null },
+    });
+    await audit(user, {
+      action: "build-unlink-budget",
+      entity: "BookSubsection",
+      entityId: card.subsectionId,
+      metadata: {
+        cardTitle: card.subsection.title,
+        previousBudgetLineId: previousLineId,
+      },
+    });
+    await revalidateBookSubsection(card.subsectionId);
+    revalidatePath("/diy");
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Couldn't unlink" };
+  }
+}
+
+// v1.31.1: single bulk save for the BUILD card editor. Replaces the
+// per-row create/update/delete actions with one round-trip on Save —
+// the editor builds a payload of the entire card state (header +
+// materials), the server reconciles in a transaction:
+//   - Header fields applied directly.
+//   - Materials: rows whose id starts "new-" → create; existing ids
+//     → update; existing rows whose id is NOT in the payload → delete.
+// Sessions stay on the per-row actions (they're append-only quick log
+// affordances, not part of the bulk edit form).
+
+const buildMaterialPayloadSchema = z.object({
+  // "new-XXX" or a real cuid; server uses the prefix to discriminate.
+  id: z.string().min(1).max(50),
+  name: z.string().min(1).max(120),
+  quantity: z.number().min(0).nullable(),
+  unit: z.string().max(40).nullable(),
+  supplier: z.string().max(120).nullable(),
+  costPence: z.number().int().min(0).nullable(),
+  ordered: z.boolean(),
+  arrived: z.boolean(),
+  notes: z.string().max(2000).nullable(),
+});
+
+const buildSavePayloadSchema = z.object({
+  quantityNeeded: z.number().int().min(0).nullable(),
+  targetDate: z.string().nullable(), // ISO yyyy-mm-dd or empty
+  status: z.string().max(40).nullable(),
+  prototypeDone: z.boolean(),
+  prototypeNotes: z.string().max(2000).nullable(),
+  estimatedMinutesPerUnit: z.number().int().min(0).nullable(),
+  notes: z.string().max(4000).nullable(),
+  materials: z.array(buildMaterialPayloadSchema),
+});
+
+export type BuildSavePayload = z.infer<typeof buildSavePayloadSchema>;
+
+export async function saveBuildCard(
+  subsectionId: string,
+  payload: BuildSavePayload,
+): Promise<BookActionResult> {
+  const user = await requireEdit("book");
+  try {
+    const parsed = buildSavePayloadSchema.parse(payload);
+    const before = await db.bookBuildCard.findUnique({
+      where: { subsectionId },
+      include: { subsection: true, materials: true },
+    });
+    if (!before) return { ok: false, error: "Build card not found" };
+
+    // Build header data + diff.
+    const targetDate = parsed.targetDate ? new Date(parsed.targetDate) : null;
+    if (parsed.targetDate && targetDate && isNaN(targetDate.getTime())) {
+      return { ok: false, error: "Invalid target date" };
+    }
+    const headerChanged: string[] = [];
+    if (parsed.quantityNeeded !== before.quantityNeeded) headerChanged.push("quantityNeeded");
+    if ((targetDate?.getTime() ?? null) !== (before.targetDate?.getTime() ?? null)) headerChanged.push("targetDate");
+    if (parsed.status !== before.status) headerChanged.push("status");
+    if (parsed.prototypeDone !== before.prototypeDone) headerChanged.push("prototypeDone");
+    if (parsed.prototypeNotes !== before.prototypeNotes) headerChanged.push("prototypeNotes");
+    if (parsed.estimatedMinutesPerUnit !== before.estimatedMinutesPerUnit) headerChanged.push("estimatedMinutesPerUnit");
+    if (parsed.notes !== before.notes) headerChanged.push("notes");
+
+    // Reconcile materials.
+    const beforeIds = new Set(before.materials.map((m) => m.id));
+    const incomingIds = new Set(parsed.materials.map((m) => m.id).filter((id) => !id.startsWith("new-")));
+    const toDelete = [...beforeIds].filter((id) => !incomingIds.has(id));
+    const toCreate = parsed.materials.filter((m) => m.id.startsWith("new-"));
+    const toUpdate = parsed.materials.filter((m) => !m.id.startsWith("new-"));
+
+    await db.$transaction(async (tx) => {
+      // Header
+      await tx.bookBuildCard.update({
+        where: { subsectionId },
+        data: {
+          quantityNeeded: parsed.quantityNeeded,
+          targetDate,
+          status: parsed.status || null,
+          prototypeDone: parsed.prototypeDone,
+          prototypeNotes: parsed.prototypeNotes || null,
+          estimatedMinutesPerUnit: parsed.estimatedMinutesPerUnit,
+          notes: parsed.notes || null,
+        },
+      });
+      // Deletes
+      if (toDelete.length > 0) {
+        await tx.bookBuildMaterial.deleteMany({
+          where: { id: { in: toDelete } },
+        });
+      }
+      // Updates
+      for (const m of toUpdate) {
+        await tx.bookBuildMaterial.update({
+          where: { id: m.id },
+          data: {
+            name: m.name,
+            quantity: m.quantity,
+            unit: m.unit || null,
+            supplier: m.supplier || null,
+            costPence: m.costPence,
+            ordered: m.ordered,
+            arrived: m.arrived,
+            notes: m.notes || null,
+          },
+        });
+      }
+      // Creates — preserve incoming order from the payload by tracking
+      // the next order sequentially after the highest existing.
+      let orderCounter = before.materials.reduce((max, m) => Math.max(max, m.order), -1);
+      for (const m of toCreate) {
+        orderCounter += 1;
+        await tx.bookBuildMaterial.create({
+          data: {
+            cardId: before.id,
+            name: m.name,
+            quantity: m.quantity,
+            unit: m.unit || null,
+            supplier: m.supplier || null,
+            costPence: m.costPence,
+            ordered: m.ordered,
+            arrived: m.arrived,
+            notes: m.notes || null,
+            order: orderCounter,
+          },
+        });
+      }
+      // Reorder updates: rewrite the order field for everything in the
+      // payload to match the position in the array. This handles the
+      // user dragging materials around in the editor.
+      for (let i = 0; i < parsed.materials.length; i++) {
+        const m = parsed.materials[i]!;
+        if (!m.id.startsWith("new-")) {
+          await tx.bookBuildMaterial.update({
+            where: { id: m.id },
+            data: { order: i },
+          });
+        }
+      }
+    });
+
+    await audit(user, {
+      action: "build-save",
+      entity: "BookSubsection",
+      entityId: subsectionId,
+      metadata: {
+        cardTitle: before.subsection.title,
+        status: parsed.status,
+        materialsAdded: toCreate.length,
+        materialsRemoved: toDelete.length,
+        materialsUpdated: toUpdate.length,
+        materialsTotal: parsed.materials.length,
+        headerChanged,
+      },
+    });
+    await revalidateBookSubsection(subsectionId);
+    revalidatePath("/diy");
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Couldn't save build card" };
   }
 }

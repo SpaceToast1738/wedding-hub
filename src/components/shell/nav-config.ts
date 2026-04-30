@@ -40,6 +40,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/seating", label: "Seating",      icon: "⊛" },
       { href: "/songs",   label: "Songs",        icon: "♪" },
       { href: "/book",    label: "Wedding Book", icon: "◧" },
+      { href: "/diy",     label: "DIY",          icon: "✂" },
     ],
   },
   {

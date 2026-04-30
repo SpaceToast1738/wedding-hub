@@ -69,6 +69,7 @@ type Sub = {
     }>;
   } | null;
   // v1.31.0: BUILD card eager-loaded data.
+  // v1.31.1: + budgetLineId + budgetLine snapshot.
   buildCard: {
     id: string;
     quantityNeeded: number | null;
@@ -78,6 +79,12 @@ type Sub = {
     prototypeNotes: string | null;
     estimatedMinutesPerUnit: number | null;
     notes: string | null;
+    budgetLineId: string | null;
+    budgetLine: {
+      id: string;
+      description: string;
+      estimated: number | null;
+    } | null;
     materials: Array<{
       id: string;
       name: string;
@@ -194,6 +201,8 @@ export function CardRouter({
         prototypeNotes: null,
         estimatedMinutesPerUnit: null,
         notes: null,
+        budgetLineId: null,
+        budgetLine: null,
         materials: [],
         sessions: [],
       };
