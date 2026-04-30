@@ -42,7 +42,6 @@ import {
   seedPostWeddingSection,
   seedVenueSpacesAndDecor,
   seedWeddingPartyPeopleAndDayof,
-  seedWeddingPartySubsections,
 } from "../prisma/seed";
 
 // Local PrismaClient — mirrors prisma/seed.ts. Doesn't import from
@@ -103,10 +102,12 @@ async function main() {
   // Section-level seeders. Each one is per-section skip-if-content-
   // exists, so re-runs and populated sections are no-ops.
   console.log("\n→ Filling empty sections with sample subpages…");
-  await seedWeddingPartySubsections();
+  // v1.38.5: skip legacy seedWeddingPartySubsections — duplicates
+  // wedding-party-people / -dayof. venue-decor seeder runs before
+  // BUILD so non-BUILD subsections land first (see seed.ts main()).
+  await seedVenueSpacesAndDecor();
   await seedBuildCards();
   await seedFoodDrinkCards();
-  await seedVenueSpacesAndDecor();
   await seedLegalSections();
   await seedWeddingPartyPeopleAndDayof();
   await seedAccommodationCards();

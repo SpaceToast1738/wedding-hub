@@ -87,7 +87,7 @@ export default async function BookHubPage() {
   if (!(await canView(user, "book"))) redirect("/");
   const editable = await canEdit(user, "book");
 
-  const [sections, shotCounts] = await Promise.all([
+  const [allSections, shotCounts] = await Promise.all([
     db.bookSection.findMany({
       // v1.24.0: hide COUPLE_ONLY sections from non-couple users.
       // Mirrors the C1/v1.14.0 subsection filter that's applied at
@@ -102,6 +102,23 @@ export default async function BookHubPage() {
     // total to show captured/total progress.
     db.bookShot.findMany({ select: { captured: true } }),
   ]);
+  // v1.38.5: hide deprecated / legacy sections from the index when
+  // they have zero subsections. The split phases (P3 / P4 / P5) kept
+  // the legacy slugs around so existing user content survives, but
+  // empty ones add no value to the index — they just clutter. If the
+  // couple has authored content under a legacy slug, the section
+  // still renders so the content remains discoverable.
+  const LEGACY_SLUGS = new Set([
+    "wedding-party",
+    "venue",
+    "legal-admin",
+    "ceremony",
+    "reception",
+    "logistics",
+  ]);
+  const sections = allSections.filter(
+    (s) => !(LEGACY_SLUGS.has(s.slug) && s._count.subsections === 0),
+  );
   const shotsTotal = shotCounts.length;
   const shotsCaptured = shotCounts.filter((s) => s.captured).length;
 

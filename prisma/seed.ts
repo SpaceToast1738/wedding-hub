@@ -274,20 +274,27 @@ async function seedWeddingSettings() {
   console.log(`  ✓ wedding settings (${data.coupleLabel})`);
 }
 
-// v1.31.0: seed three sample BUILD cards under the legacy `venue`
-// section (P3 will move them into `venue-decor` once that section
-// exists). Idempotent: skips when there's already at least one
-// BookBuildCard in the DB. Real cards added via the UI are never
-// overwritten by re-seed.
+// v1.31.0: seed three sample BUILD cards.
+// v1.38.5: target `venue-decor` (the v1.33.0 split target) instead
+// of legacy `venue` — the original P1 seeder pre-dated the venue
+// split and never got migrated, leaving the BUILD cards orphaned
+// under the deprecated section. Idempotent: skips when there's
+// already at least one BookBuildCard in the DB. Real cards added
+// via the UI are never overwritten by re-seed.
 export async function seedBuildCards() {
   const existing = await db.bookBuildCard.count();
   if (existing > 0) {
     console.log(`  ✓ build cards already present (${existing}); skipping seed`);
     return;
   }
-  const venue = await db.bookSection.findUnique({ where: { slug: "venue" } });
+  // Prefer venue-decor; fall back to legacy venue for installs that
+  // still have it. The BookSection seeder creates venue-decor on
+  // every fresh seed, so the fallback is theoretical safety.
+  const venue =
+    (await db.bookSection.findUnique({ where: { slug: "venue-decor" } })) ??
+    (await db.bookSection.findUnique({ where: { slug: "venue" } }));
   if (!venue) {
-    console.log(`  · no 'venue' section found; skipping build seed`);
+    console.log(`  · no 'venue-decor' or 'venue' section found; skipping build seed`);
     return;
   }
   const drafts = [
@@ -2512,11 +2519,22 @@ async function main() {
   await seedSampleTasks();
   await seedSampleHouseholds();
   await seedBookSections();
-  await seedWeddingPartySubsections();
+  // v1.38.5: stop seeding the legacy `wedding-party` section. The
+  // v1.35.0 split moved its content to `wedding-party-people` +
+  // `wedding-party-dayof`; running both seeders fills the legacy
+  // section with content that duplicates the new sections. The
+  // BookSection row stays in seedBookSections for back-compat with
+  // existing prod databases, but no fresh content goes in.
+  // await seedWeddingPartySubsections();  // removed — see comment above
   await seedNavTags();
+  // v1.38.5: venue-decor seeder must run before the BUILD seeder so
+  // its non-BUILD subsections (Printed signage / Florist brief / etc.)
+  // land first. The BUILD seeder appends without colliding because it
+  // checks per-slug; but if it ran first, venue-decor would be
+  // non-empty and the decor seeder would skip-if-content-exists.
+  await seedVenueSpacesAndDecor();
   await seedBuildCards();
   await seedFoodDrinkCards();
-  await seedVenueSpacesAndDecor();
   await seedLegalSections();
   await seedWeddingPartyPeopleAndDayof();
   await seedAccommodationCards();

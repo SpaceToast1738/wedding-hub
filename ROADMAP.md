@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.38.4** | 2026-04-30 | [Wedding Book seed overhaul — every card kind now gets a fully-populated example (OUTFIT items + dates, SETUP items, LEGAL items + name-change checklist, FIELD defs everywhere, RECIPE cocktail, MENU kids/evening/late-night, BUILD welcome bags + favours, plus new Photography + Guest Experience seeders). All 12 card kinds covered.](#2026-04-30--v1384--wedding-book-seed-overhaul) |
+| **v1.38.5** | 2026-04-30 | [Book index hides empty legacy sections · BUILD seed targets `venue-decor` not legacy `venue` · stop seeding legacy `wedding-party` (the v1.35.0 split made it duplicate)](#2026-04-30--v1385--book-index--seed-de-duplication) |
+| v1.38.4 | 2026-04-30 | [Wedding Book seed overhaul — every card kind now gets a fully-populated example (OUTFIT items + dates, SETUP items, LEGAL items + name-change checklist, FIELD defs everywhere, RECIPE cocktail, MENU kids/evening/late-night, BUILD welcome bags + favours, plus new Photography + Guest Experience seeders). All 12 card kinds covered.](#2026-04-30--v1384--wedding-book-seed-overhaul) |
 | v1.38.3 | 2026-04-30 | [Operator scripts run in production — Dockerfile transpiles `seed-samples-only` + `reset-book` to `scripts-build/`; scripts use a local `PrismaClient` instead of `src/lib/db` so they don't depend on the Next standalone bundle. Invoke with `node scripts-build/scripts/<name>.js`.](#2026-04-30--v1383--operator-scripts-in-production-image) |
 | v1.38.2 | 2026-04-30 | [`scripts/reset-book.ts` — destructive Book module reset gated on `CONFIRM_RESET_BOOK=yes`. Wipes + re-seeds every section + subpage; leaves users / tasks / guests / payments untouched.](#2026-04-30--v1382--book-module-reset-script) |
 | v1.38.1 | 2026-04-30 | [`scripts/seed-samples-only.ts` — fills empty Book sections + subpages on prod without touching users / tasks / schedule / guests / seating. Section seeders refactored to be importable.](#2026-04-30--v1381--samples-only-prod-backfill-script) |
@@ -750,6 +751,20 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-30 · v1.38.5 — Book index + seed de-duplication
+
+User-flagged after v1.38.4: "Wedding party is duplicated?" — and the screenshot showed the `/book` index displaying both the new `wedding-party-people` / `-dayof` sections AND the legacy `wedding-party` section with five seeded subpages, plus four other empty legacy sections (Legal & Admin, Ceremony, Reception, Logistics) cluttering the bottom row.
+
+Three fixes:
+
+1. **`/book` index hides empty legacy sections.** A `LEGACY_SLUGS` set covers the six deprecated slugs (`wedding-party`, `venue`, `legal-admin`, `ceremony`, `reception`, `logistics`); any with `_count.subsections === 0` falls out of the index render. If the couple has authored content under a legacy slug, it still renders so the content remains discoverable.
+2. **Stop seeding the legacy `wedding-party` section.** `seedWeddingPartySubsections` is removed from `main()` and from both operator scripts. The BookSection row stays in `seedBookSections` (back-compat with prod databases that may have couple-authored content under it), but no fresh content gets written. The v1.35.0 split moved everything into `wedding-party-people` + `-dayof`.
+3. **BUILD seeder targets `venue-decor`.** The original P1 (v1.31.0) seeder predated the v1.33.0 venue split and never got migrated; it was still pointing at legacy `venue`. Fix: target `venue-decor` first, fall back to `venue` only for installs that still have it. Also reordered `main()` so `seedVenueSpacesAndDecor` runs before `seedBuildCards` — otherwise BUILD would populate venue-decor first and the decor seeder's skip-if-content-exists guard would skip its non-BUILD subpages (Printed signage, Florist brief, Photo booth, Décor inspiration).
+
+Net effect on a fresh seed (or `reset-book.js` run): legacy `wedding-party`, `venue`, `legal-admin`, `ceremony`, `reception`, `logistics` all stay empty and disappear from the index. The new sections are the only ones visible. BUILD cards land under `venue-decor` alongside the printed-signage / florist / photo-booth / décor-inspiration subpages.
+
+Files: [src/app/(app)/book/page.tsx](src/app/(app)/book/page.tsx) · [prisma/seed.ts](prisma/seed.ts) · [scripts/seed-samples-only.ts](scripts/seed-samples-only.ts) · [scripts/reset-book.ts](scripts/reset-book.ts).
 
 ### 2026-04-30 · v1.38.4 — Wedding Book seed overhaul
 
