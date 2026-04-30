@@ -1,7 +1,9 @@
 "use client";
 
+import { BookBarCard } from "./BookBarCard";
 import { BookBuildCard } from "./BookBuildCard";
 import { BookFieldsCard } from "./BookFieldsCard";
+import { BookMenuCard } from "./BookMenuCard";
 import { BookOutfitCardEditor } from "./BookOutfitCard";
 import { BookRecipeCard } from "./BookRecipeCard";
 import { BookShotListCard } from "./BookShotListCard";
@@ -29,7 +31,7 @@ type Sub = {
   body: string | null;
   fields: unknown;
   visibility: "EVERYONE" | "COUPLE_ONLY";
-  kind: "TEXT" | "FIELD" | "RECIPE" | "SHOT_LIST" | "OUTFIT" | "BUILD";
+  kind: "TEXT" | "FIELD" | "RECIPE" | "SHOT_LIST" | "OUTFIT" | "BUILD" | "MENU" | "BAR";
   fieldDefs: Array<{
     id: string;
     label: string;
@@ -67,6 +69,55 @@ type Sub = {
       notes: string | null;
       order: number;
     }>;
+  } | null;
+  // v1.32.0: MENU card eager-loaded data + server-computed live counts.
+  menuCard: {
+    id: string;
+    serviceType: string | null;
+    serviceTime: string | null;
+    pricePerHeadPence: number | null;
+    confirmedHeadcount: number | null;
+    notes: string | null;
+    courses: Array<{
+      id: string;
+      courseLabel: string;
+      order: number;
+      options: Array<{
+        id: string;
+        label: string;
+        description: string | null;
+        dietary: string[];
+        isVegetarianMain: boolean;
+        isKidsMeal: boolean;
+        order: number;
+      }>;
+    }>;
+    /** courseId → optionId → guest pick count, computed server-side. */
+    optionCounts: Record<string, Record<string, number>>;
+    allergenAggregate: Record<string, number>;
+    totalConfirmed: number;
+  } | null;
+  // v1.32.0: BAR card eager-loaded data.
+  barCard: {
+    id: string;
+    barType: string | null;
+    tabLimitPence: number | null;
+    toastDrink: string | null;
+    corkagePence: number | null;
+    notes: string | null;
+    items: Array<{
+      id: string;
+      category: string;
+      name: string;
+      quantityPlanned: number | null;
+      unit: string | null;
+      supplier: string | null;
+      costPence: number | null;
+      notes: string | null;
+      order: number;
+    }>;
+    /** Server-supplied confirmed-adult count (from /guests RSVPs). */
+    confirmedAdults: number | null;
   } | null;
   // v1.31.0: BUILD card eager-loaded data.
   // v1.31.1: + budgetLineId + budgetLine snapshot.
@@ -188,6 +239,74 @@ export function CardRouter({
           isCouple={isCouple}
         />
       );
+    case "MENU": {
+      const mc = sub.menuCard ?? {
+        id: "",
+        serviceType: null,
+        serviceTime: null,
+        pricePerHeadPence: null,
+        confirmedHeadcount: null,
+        notes: null,
+        courses: [],
+        optionCounts: {},
+        allergenAggregate: {},
+        totalConfirmed: 0,
+      };
+      return (
+        <BookMenuCard
+          subsectionId={sub.id}
+          slug={sub.slug}
+          title={sub.title}
+          visibility={sub.visibility}
+          canEdit={canEdit}
+          isCouple={isCouple}
+          card={{
+            id: mc.id,
+            serviceType: mc.serviceType,
+            serviceTime: mc.serviceTime,
+            pricePerHeadPence: mc.pricePerHeadPence,
+            confirmedHeadcount: mc.confirmedHeadcount,
+            notes: mc.notes,
+            courses: mc.courses,
+          }}
+          optionCounts={mc.optionCounts}
+          allergenAggregate={mc.allergenAggregate}
+          totalConfirmed={mc.totalConfirmed}
+        />
+      );
+    }
+    case "BAR": {
+      const bc = sub.barCard ?? {
+        id: "",
+        barType: null,
+        tabLimitPence: null,
+        toastDrink: null,
+        corkagePence: null,
+        notes: null,
+        items: [],
+        confirmedAdults: null,
+      };
+      return (
+        <BookBarCard
+          subsectionId={sub.id}
+          slug={sub.slug}
+          title={sub.title}
+          visibility={sub.visibility}
+          canEdit={canEdit}
+          isCouple={isCouple}
+          card={{
+            id: bc.id,
+            barType: bc.barType,
+            tabLimitPence: bc.tabLimitPence,
+            toastDrink: bc.toastDrink,
+            corkagePence: bc.corkagePence,
+            notes: bc.notes,
+            items: bc.items,
+          }}
+          confirmedAdults={bc.confirmedAdults}
+        />
+      );
+    }
     case "BUILD": {
       // Defensive default if buildCard is missing — shouldn't happen
       // because createBookSubsection seeds it, but legacy rows pre-

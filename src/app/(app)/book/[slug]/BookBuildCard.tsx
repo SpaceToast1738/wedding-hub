@@ -254,7 +254,7 @@ export function BookBuildCard({
       visibility={visibility}
       canEdit={canEdit}
       isCouple={isCouple}
-      kindBadge="Build"
+      kindBadge="DIY"
     >
       {/* Prototype-blocker banner — shown in both view + edit modes */}
       {r.prototypeBlocker && (

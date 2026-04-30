@@ -6,8 +6,8 @@
 // lock the contract without setup; mirrors the v1.11.0 csv-merge and
 // v1.15.0 custom-fields patterns.
 
-// v1.31.0: + BUILD.
-export const BOOK_CARD_KINDS = ["TEXT", "FIELD", "RECIPE", "SHOT_LIST", "OUTFIT", "BUILD"] as const;
+// v1.31.0: + BUILD. v1.32.0: + MENU, BAR.
+export const BOOK_CARD_KINDS = ["TEXT", "FIELD", "RECIPE", "SHOT_LIST", "OUTFIT", "BUILD", "MENU", "BAR"] as const;
 export type BookCardKind = (typeof BOOK_CARD_KINDS)[number];
 
 // Display metadata for each card kind — used by the picker UI and
@@ -39,8 +39,16 @@ export const BOOK_CARD_KIND_META: Record<
     description: "Per-person outfits — items, supplier, status, notes.",
   },
   BUILD: {
-    label: "Build",
+    label: "DIY",
     description: "Track a DIY project end-to-end — materials, sessions, status.",
+  },
+  MENU: {
+    label: "Menu",
+    description: "Food service composition — courses, options, dietary tags.",
+  },
+  BAR: {
+    label: "Bar",
+    description: "Drinks plan — items by category, per-head sanity check.",
   },
 };
 
@@ -349,4 +357,176 @@ export function buildRollups(card: BuildCardShape, now: Date = new Date()): Buil
     percentMaterialsArrived,
     prototypeBlocker,
   };
+}
+
+// ─── MENU card (v1.32.0) ──────────────────────────────────────────
+//
+// Live counts of how many guests have selected each option. We
+// match by case-insensitive label equality against
+// Guest.mealStarter / mealMain / mealDessert (CSV-imported free text)
+// scoped to the course label. The structured MealOption FK exists
+// in the legacy schema but is unwired; relying on it would silently
+// undercount real guest data.
+
+export type MenuOptionShape = {
+  id: string;
+  label: string;
+  dietary: string[];
+  isVegetarianMain: boolean;
+  isKidsMeal: boolean;
+};
+
+export type MenuCourseShape = {
+  id: string;
+  courseLabel: string;
+  options: MenuOptionShape[];
+};
+
+export type MenuCardShape = {
+  pricePerHeadPence?: number | null;
+  confirmedHeadcount?: number | null;
+  courses: MenuCourseShape[];
+};
+
+export type GuestMealRow = {
+  attending?: boolean | null;
+  isChild?: boolean;
+  mealStarter?: string | null;
+  mealMain?: string | null;
+  mealDessert?: string | null;
+  dietary?: string[];
+};
+
+export type MenuRollups = {
+  totalConfirmed: number; // sum of confirmed adults + confirmed children
+  pricePence: number; // confirmed × pricePerHeadPence (0 if either is null)
+  perCourseCounts: Record<string /* courseId */, Record<string /* optionId */, number>>;
+  /** Allergen / dietary tag → number of selected guests */
+  allergenAggregate: Record<string, number>;
+};
+
+const MEAL_FIELD_BY_COURSE_PREFIX: Array<{ prefix: string; field: keyof GuestMealRow }> = [
+  { prefix: "starter", field: "mealStarter" },
+  { prefix: "main", field: "mealMain" },
+  { prefix: "dessert", field: "mealDessert" },
+];
+
+function fieldForCourseLabel(courseLabel: string): keyof GuestMealRow | null {
+  const lower = courseLabel.toLowerCase();
+  for (const { prefix, field } of MEAL_FIELD_BY_COURSE_PREFIX) {
+    if (lower.includes(prefix)) return field;
+  }
+  // Late-night / canapés / etc. don't have a guest field; counts stay 0.
+  return null;
+}
+
+export function menuRollups(
+  card: MenuCardShape,
+  guests: GuestMealRow[],
+): MenuRollups {
+  const attending = guests.filter((g) => g.attending !== false);
+  const totalConfirmed = card.confirmedHeadcount ?? attending.length;
+  const pricePence =
+    card.pricePerHeadPence != null && totalConfirmed > 0
+      ? card.pricePerHeadPence * totalConfirmed
+      : 0;
+
+  const perCourseCounts: Record<string, Record<string, number>> = {};
+  const allergenAggregate: Record<string, number> = {};
+
+  for (const course of card.courses) {
+    perCourseCounts[course.id] = {};
+    const field = fieldForCourseLabel(course.courseLabel);
+    for (const option of course.options) {
+      perCourseCounts[course.id]![option.id] = 0;
+    }
+    if (!field) continue;
+    for (const guest of attending) {
+      const raw = guest[field];
+      if (typeof raw !== "string" || !raw.trim()) continue;
+      const normalised = raw.trim().toLowerCase();
+      const match = course.options.find(
+        (o) => o.label.trim().toLowerCase() === normalised,
+      );
+      if (match) {
+        perCourseCounts[course.id]![match.id] = (perCourseCounts[course.id]![match.id] ?? 0) + 1;
+        // Record this guest's dietary tags against the option's allergens
+        // to surface "X guests have a dietary tag" — but only against
+        // options they actually selected (cleaner than counting tags
+        // across all guests).
+        for (const tag of guest.dietary ?? []) {
+          const t = tag.trim();
+          if (!t) continue;
+          allergenAggregate[t] = (allergenAggregate[t] ?? 0) + 1;
+        }
+      }
+    }
+  }
+  return { totalConfirmed, pricePence, perCourseCounts, allergenAggregate };
+}
+
+// ─── BAR card (v1.32.0) ──────────────────────────────────────────
+
+export type BarItemShape = {
+  category: string;
+  quantityPlanned?: number | null;
+  unit?: string | null;
+  costPence?: number | null;
+};
+
+export type BarCardShape = {
+  items: BarItemShape[];
+};
+
+export type BarRollups = {
+  totalCostPence: number;
+  perCategory: Record<
+    string,
+    { totalCostPence: number; itemCount: number; bottlesPlanned: number }
+  >;
+  /** "low" | "high" | "ok" | "unknown" — bottles per adult.
+   *  unknown when there's no confirmed adult count or no bottle items. */
+  perHeadFlag: "low" | "high" | "ok" | "unknown";
+  bottlesPerAdult: number | null;
+};
+
+const BAR_LOW_THRESHOLD = 0.5;
+const BAR_HIGH_THRESHOLD = 1.5;
+
+function isBottleUnit(unit: string | null | undefined): boolean {
+  if (!unit) return false;
+  const u = unit.toLowerCase();
+  return u === "bottle" || u === "bottles" || u === "btl" || u === "btls";
+}
+
+export function barRollups(
+  card: BarCardShape,
+  confirmedAdults: number | null,
+): BarRollups {
+  const perCategory: Record<
+    string,
+    { totalCostPence: number; itemCount: number; bottlesPlanned: number }
+  > = {};
+  let totalCostPence = 0;
+  let totalBottles = 0;
+  for (const item of card.items) {
+    const cat = item.category || "Uncategorised";
+    if (!perCategory[cat]) perCategory[cat] = { totalCostPence: 0, itemCount: 0, bottlesPlanned: 0 };
+    perCategory[cat]!.itemCount += 1;
+    perCategory[cat]!.totalCostPence += item.costPence ?? 0;
+    totalCostPence += item.costPence ?? 0;
+    if (isBottleUnit(item.unit) && item.quantityPlanned != null) {
+      perCategory[cat]!.bottlesPlanned += item.quantityPlanned;
+      totalBottles += item.quantityPlanned;
+    }
+  }
+  let perHeadFlag: BarRollups["perHeadFlag"] = "unknown";
+  let bottlesPerAdult: number | null = null;
+  if (confirmedAdults && confirmedAdults > 0 && totalBottles > 0) {
+    bottlesPerAdult = totalBottles / confirmedAdults;
+    if (bottlesPerAdult < BAR_LOW_THRESHOLD) perHeadFlag = "low";
+    else if (bottlesPerAdult > BAR_HIGH_THRESHOLD) perHeadFlag = "high";
+    else perHeadFlag = "ok";
+  }
+  return { totalCostPence, perCategory, perHeadFlag, bottlesPerAdult };
 }

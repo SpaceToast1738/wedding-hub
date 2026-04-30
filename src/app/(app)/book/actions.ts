@@ -102,6 +102,24 @@ export async function createBookSubsection(formData: FormData) {
     // editor renders an empty Materials list and Sessions log; the
     // header shows "—" until the user fills anything in.
     await db.bookBuildCard.create({ data: { subsectionId: created.id } });
+  } else if (parsed.kind === BookSubsectionKind.MENU) {
+    // v1.32.0: MENU card seeds with three placeholder courses
+    // (Starter / Main / Dessert) so the editor renders something
+    // actionable on first open. Courses are reorderable + deletable
+    // via the editor; opinionated defaults aren't a lock-in.
+    const menu = await db.bookMenuCard.create({ data: { subsectionId: created.id } });
+    await db.bookMenuCourse.createMany({
+      data: [
+        { cardId: menu.id, courseLabel: "Starter", order: 0 },
+        { cardId: menu.id, courseLabel: "Main", order: 1 },
+        { cardId: menu.id, courseLabel: "Dessert", order: 2 },
+      ],
+    });
+  } else if (parsed.kind === BookSubsectionKind.BAR) {
+    // v1.32.0: BAR card child seeds with all-null fields. Empty
+    // items list. Categories are free-text on each item, so we
+    // don't pre-seed any.
+    await db.bookBarCard.create({ data: { subsectionId: created.id } });
   }
   // FIELD card seeds the value bag lazily — fields stays null until
   // the user adds the first def + value.
@@ -1246,5 +1264,307 @@ export async function saveBuildCard(
     return { ok: true };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "Couldn't save build card" };
+  }
+}
+
+// ── v1.32.0: MENU card actions ─────────────────────────────────────
+//
+// Single bulk-save server action that takes the full card state
+// (header + courses + options). Server reconciles in a transaction:
+//   - Header fields applied directly.
+//   - Courses: rows whose id starts "new-" → create; existing → update;
+//     existing missing from payload → delete (cascades options).
+//   - Options: same shape, scoped to their (possibly newly-created)
+//     course. Order field rewritten from the payload's array index.
+// Audit-aware metadata per the v1.30.5 standing rule.
+
+const menuOptionPayloadSchema = z.object({
+  id: z.string().min(1).max(50),
+  label: z.string().min(1).max(160),
+  description: z.string().max(2000).nullable(),
+  dietary: z.array(z.string().max(40)),
+  isVegetarianMain: z.boolean(),
+  isKidsMeal: z.boolean(),
+});
+
+const menuCoursePayloadSchema = z.object({
+  id: z.string().min(1).max(50),
+  courseLabel: z.string().min(1).max(60),
+  options: z.array(menuOptionPayloadSchema),
+});
+
+const menuSavePayloadSchema = z.object({
+  serviceType: z.string().max(60).nullable(),
+  serviceTime: z.string().max(60).nullable(),
+  pricePerHeadPence: z.number().int().min(0).nullable(),
+  confirmedHeadcount: z.number().int().min(0).nullable(),
+  notes: z.string().max(4000).nullable(),
+  courses: z.array(menuCoursePayloadSchema),
+});
+
+export type MenuSavePayload = z.infer<typeof menuSavePayloadSchema>;
+
+export async function saveMenuCard(
+  subsectionId: string,
+  payload: MenuSavePayload,
+): Promise<BookActionResult> {
+  const user = await requireEdit("book");
+  try {
+    const parsed = menuSavePayloadSchema.parse(payload);
+    const before = await db.bookMenuCard.findUnique({
+      where: { subsectionId },
+      include: {
+        subsection: true,
+        courses: { include: { options: true } },
+      },
+    });
+    if (!before) return { ok: false, error: "Menu card not found" };
+
+    const headerChanged: string[] = [];
+    if (parsed.serviceType !== before.serviceType) headerChanged.push("serviceType");
+    if (parsed.serviceTime !== before.serviceTime) headerChanged.push("serviceTime");
+    if (parsed.pricePerHeadPence !== before.pricePerHeadPence) headerChanged.push("pricePerHeadPence");
+    if (parsed.confirmedHeadcount !== before.confirmedHeadcount) headerChanged.push("confirmedHeadcount");
+    if (parsed.notes !== before.notes) headerChanged.push("notes");
+
+    const beforeCourseIds = new Set(before.courses.map((c) => c.id));
+    const incomingCourseIds = new Set(
+      parsed.courses.map((c) => c.id).filter((id) => !id.startsWith("new-")),
+    );
+    const coursesToDelete = [...beforeCourseIds].filter((id) => !incomingCourseIds.has(id));
+
+    let coursesAdded = 0;
+    let coursesUpdated = 0;
+    let optionsAdded = 0;
+    let optionsRemoved = 0;
+    let optionsUpdated = 0;
+
+    await db.$transaction(async (tx) => {
+      // Header.
+      await tx.bookMenuCard.update({
+        where: { subsectionId },
+        data: {
+          serviceType: parsed.serviceType,
+          serviceTime: parsed.serviceTime,
+          pricePerHeadPence: parsed.pricePerHeadPence,
+          confirmedHeadcount: parsed.confirmedHeadcount,
+          notes: parsed.notes,
+        },
+      });
+      // Drop courses missing from payload (cascades options).
+      if (coursesToDelete.length > 0) {
+        await tx.bookMenuCourse.deleteMany({ where: { id: { in: coursesToDelete } } });
+      }
+      // Reconcile courses + their options.
+      for (let courseIdx = 0; courseIdx < parsed.courses.length; courseIdx++) {
+        const c = parsed.courses[courseIdx]!;
+        let courseId = c.id;
+        if (c.id.startsWith("new-")) {
+          const created = await tx.bookMenuCourse.create({
+            data: {
+              cardId: before.id,
+              courseLabel: c.courseLabel,
+              order: courseIdx,
+            },
+          });
+          courseId = created.id;
+          coursesAdded += 1;
+        } else {
+          await tx.bookMenuCourse.update({
+            where: { id: c.id },
+            data: { courseLabel: c.courseLabel, order: courseIdx },
+          });
+          coursesUpdated += 1;
+        }
+        // Reconcile options for this course.
+        const beforeCourse = before.courses.find((bc) => bc.id === c.id);
+        const beforeOptionIds = new Set(beforeCourse?.options.map((o) => o.id) ?? []);
+        const incomingOptionIds = new Set(
+          c.options.map((o) => o.id).filter((id) => !id.startsWith("new-")),
+        );
+        const optionsToDelete = [...beforeOptionIds].filter((id) => !incomingOptionIds.has(id));
+        if (optionsToDelete.length > 0) {
+          await tx.bookMenuOption.deleteMany({ where: { id: { in: optionsToDelete } } });
+          optionsRemoved += optionsToDelete.length;
+        }
+        for (let optIdx = 0; optIdx < c.options.length; optIdx++) {
+          const o = c.options[optIdx]!;
+          if (o.id.startsWith("new-")) {
+            await tx.bookMenuOption.create({
+              data: {
+                courseId,
+                label: o.label,
+                description: o.description,
+                dietary: o.dietary,
+                isVegetarianMain: o.isVegetarianMain,
+                isKidsMeal: o.isKidsMeal,
+                order: optIdx,
+              },
+            });
+            optionsAdded += 1;
+          } else {
+            await tx.bookMenuOption.update({
+              where: { id: o.id },
+              data: {
+                label: o.label,
+                description: o.description,
+                dietary: o.dietary,
+                isVegetarianMain: o.isVegetarianMain,
+                isKidsMeal: o.isKidsMeal,
+                order: optIdx,
+              },
+            });
+            optionsUpdated += 1;
+          }
+        }
+      }
+    });
+
+    await audit(user, {
+      action: "menu-save",
+      entity: "BookSubsection",
+      entityId: subsectionId,
+      metadata: {
+        cardTitle: before.subsection.title,
+        serviceType: parsed.serviceType,
+        confirmedHeadcount: parsed.confirmedHeadcount,
+        coursesAdded,
+        coursesUpdated,
+        coursesRemoved: coursesToDelete.length,
+        optionsAdded,
+        optionsUpdated,
+        optionsRemoved,
+        headerChanged,
+      },
+    });
+    await revalidateBookSubsection(subsectionId);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Couldn't save menu card" };
+  }
+}
+
+// ── v1.32.0: BAR card actions ──────────────────────────────────────
+
+const barItemPayloadSchema = z.object({
+  id: z.string().min(1).max(50),
+  category: z.string().min(1).max(60),
+  name: z.string().min(1).max(160),
+  quantityPlanned: z.number().min(0).nullable(),
+  unit: z.string().max(40).nullable(),
+  supplier: z.string().max(120).nullable(),
+  costPence: z.number().int().min(0).nullable(),
+  notes: z.string().max(2000).nullable(),
+});
+
+const barSavePayloadSchema = z.object({
+  barType: z.string().max(60).nullable(),
+  tabLimitPence: z.number().int().min(0).nullable(),
+  toastDrink: z.string().max(60).nullable(),
+  corkagePence: z.number().int().min(0).nullable(),
+  notes: z.string().max(4000).nullable(),
+  items: z.array(barItemPayloadSchema),
+});
+
+export type BarSavePayload = z.infer<typeof barSavePayloadSchema>;
+
+export async function saveBarCard(
+  subsectionId: string,
+  payload: BarSavePayload,
+): Promise<BookActionResult> {
+  const user = await requireEdit("book");
+  try {
+    const parsed = barSavePayloadSchema.parse(payload);
+    const before = await db.bookBarCard.findUnique({
+      where: { subsectionId },
+      include: { subsection: true, items: true },
+    });
+    if (!before) return { ok: false, error: "Bar card not found" };
+
+    const headerChanged: string[] = [];
+    if (parsed.barType !== before.barType) headerChanged.push("barType");
+    if (parsed.tabLimitPence !== before.tabLimitPence) headerChanged.push("tabLimitPence");
+    if (parsed.toastDrink !== before.toastDrink) headerChanged.push("toastDrink");
+    if (parsed.corkagePence !== before.corkagePence) headerChanged.push("corkagePence");
+    if (parsed.notes !== before.notes) headerChanged.push("notes");
+
+    const beforeIds = new Set(before.items.map((i) => i.id));
+    const incomingIds = new Set(parsed.items.map((i) => i.id).filter((id) => !id.startsWith("new-")));
+    const toDelete = [...beforeIds].filter((id) => !incomingIds.has(id));
+    const toCreate = parsed.items.filter((i) => i.id.startsWith("new-"));
+    const toUpdate = parsed.items.filter((i) => !i.id.startsWith("new-"));
+
+    await db.$transaction(async (tx) => {
+      await tx.bookBarCard.update({
+        where: { subsectionId },
+        data: {
+          barType: parsed.barType,
+          tabLimitPence: parsed.tabLimitPence,
+          toastDrink: parsed.toastDrink,
+          corkagePence: parsed.corkagePence,
+          notes: parsed.notes,
+        },
+      });
+      if (toDelete.length > 0) {
+        await tx.bookBarItem.deleteMany({ where: { id: { in: toDelete } } });
+      }
+      for (const i of toUpdate) {
+        await tx.bookBarItem.update({
+          where: { id: i.id },
+          data: {
+            category: i.category,
+            name: i.name,
+            quantityPlanned: i.quantityPlanned,
+            unit: i.unit,
+            supplier: i.supplier,
+            costPence: i.costPence,
+            notes: i.notes,
+          },
+        });
+      }
+      let orderCounter = before.items.reduce((max, i) => Math.max(max, i.order), -1);
+      for (const i of toCreate) {
+        orderCounter += 1;
+        await tx.bookBarItem.create({
+          data: {
+            cardId: before.id,
+            category: i.category,
+            name: i.name,
+            quantityPlanned: i.quantityPlanned,
+            unit: i.unit,
+            supplier: i.supplier,
+            costPence: i.costPence,
+            notes: i.notes,
+            order: orderCounter,
+          },
+        });
+      }
+      // Rewrite order from payload position.
+      for (let idx = 0; idx < parsed.items.length; idx++) {
+        const i = parsed.items[idx]!;
+        if (!i.id.startsWith("new-")) {
+          await tx.bookBarItem.update({ where: { id: i.id }, data: { order: idx } });
+        }
+      }
+    });
+
+    await audit(user, {
+      action: "bar-save",
+      entity: "BookSubsection",
+      entityId: subsectionId,
+      metadata: {
+        cardTitle: before.subsection.title,
+        barType: parsed.barType,
+        itemsAdded: toCreate.length,
+        itemsUpdated: toUpdate.length,
+        itemsRemoved: toDelete.length,
+        itemsTotal: parsed.items.length,
+        headerChanged,
+      },
+    });
+    await revalidateBookSubsection(subsectionId);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Couldn't save bar card" };
   }
 }

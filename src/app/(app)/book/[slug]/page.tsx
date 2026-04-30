@@ -8,6 +8,7 @@ import { AddSubsectionToggle } from "./AddSubsectionToggle";
 import { CardRouter } from "./CardRouter";
 import { SectionVisibilityToggle } from "./SectionVisibilityToggle";
 import { LinkedTasksPanel } from "./LinkedTasksPanel";
+import { menuRollups } from "@/lib/book-cards";
 
 export default async function BookSectionPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
@@ -39,6 +40,18 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
               },
             },
           },
+          // v1.32.0: MENU + BAR cards.
+          menuCard: {
+            include: {
+              courses: {
+                orderBy: { order: "asc" },
+                include: { options: { orderBy: { order: "asc" } } },
+              },
+            },
+          },
+          barCard: {
+            include: { items: { orderBy: { order: "asc" } } },
+          },
         },
       },
     },
@@ -64,6 +77,31 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
       dueDate: true,
     },
   });
+
+  // v1.32.0: MENU live counts + BAR per-head sanity. Both pull from
+  // /guests; cheap because it runs once for the whole section, not
+  // per-card. Skipped entirely when the section has no MENU or BAR
+  // cards.
+  const hasMenu = section.subsections.some((s) => s.kind === "MENU");
+  const hasBar = section.subsections.some((s) => s.kind === "BAR");
+  const guestMealRows = hasMenu
+    ? await db.guest.findMany({
+        where: { archived: false, attending: true },
+        select: {
+          attending: true,
+          isChild: true,
+          mealStarter: true,
+          mealMain: true,
+          mealDessert: true,
+          dietary: true,
+        },
+      })
+    : [];
+  const confirmedAdults = hasBar
+    ? await db.guest.count({
+        where: { archived: false, attending: true, isChild: false },
+      })
+    : null;
 
   return (
     <>
@@ -119,23 +157,60 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
               // (Prisma Decimal) to a plain number before crossing
               // the client boundary. CardRouter's `Sub` type expects
               // `estimated: number | null`.
+              // v1.32.0: precompute MENU live counts + thread BAR
+              // confirmedAdults so the editors render purely off
+              // their props (no client-side guest fetch).
+              const buildCard = sRaw.buildCard
+                ? {
+                    ...sRaw.buildCard,
+                    budgetLine: sRaw.buildCard.budgetLine
+                      ? {
+                          id: sRaw.buildCard.budgetLine.id,
+                          description: sRaw.buildCard.budgetLine.description,
+                          estimated:
+                            sRaw.buildCard.budgetLine.estimated == null
+                              ? null
+                              : Number(sRaw.buildCard.budgetLine.estimated),
+                        }
+                      : null,
+                  }
+                : null;
+              const menuCard = sRaw.menuCard
+                ? (() => {
+                    const r = menuRollups(
+                      {
+                        pricePerHeadPence: sRaw.menuCard.pricePerHeadPence,
+                        confirmedHeadcount: sRaw.menuCard.confirmedHeadcount,
+                        courses: sRaw.menuCard.courses.map((c) => ({
+                          id: c.id,
+                          courseLabel: c.courseLabel,
+                          options: c.options.map((o) => ({
+                            id: o.id,
+                            label: o.label,
+                            dietary: o.dietary,
+                            isVegetarianMain: o.isVegetarianMain,
+                            isKidsMeal: o.isKidsMeal,
+                          })),
+                        })),
+                      },
+                      guestMealRows,
+                    );
+                    return {
+                      ...sRaw.menuCard,
+                      optionCounts: r.perCourseCounts,
+                      allergenAggregate: r.allergenAggregate,
+                      totalConfirmed: r.totalConfirmed,
+                    };
+                  })()
+                : null;
+              const barCard = sRaw.barCard
+                ? { ...sRaw.barCard, confirmedAdults }
+                : null;
               const s = {
                 ...sRaw,
-                buildCard: sRaw.buildCard
-                  ? {
-                      ...sRaw.buildCard,
-                      budgetLine: sRaw.buildCard.budgetLine
-                        ? {
-                            id: sRaw.buildCard.budgetLine.id,
-                            description: sRaw.buildCard.budgetLine.description,
-                            estimated:
-                              sRaw.buildCard.budgetLine.estimated == null
-                                ? null
-                                : Number(sRaw.buildCard.budgetLine.estimated),
-                          }
-                        : null,
-                    }
-                  : null,
+                buildCard,
+                menuCard,
+                barCard,
               };
               return (
                 <CardRouter

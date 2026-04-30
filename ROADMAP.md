@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.31.1** | 2026-04-30 | [BUILD card UX pass — single Edit/View states · live Budget link · `/diy` overview page · £-input · clearer field hints · status-disappear bug fixed](#2026-04-30--v1311--build-card-ux-pass) |
+| **v1.32.0** | 2026-04-30 | [Wedding Book MENU + BAR cards (P2) — food service composition with live guest selection counts, drinks plan with per-head sanity check · BUILD label renamed to "DIY" · audit log viewer now renders human sentences via `formatAuditAction`](#2026-04-30--v1320--wedding-book-menu--bar-cards-p2) |
+| v1.31.1 | 2026-04-30 | [BUILD card UX pass — single Edit/View states · live Budget link · `/diy` overview page · £-input · clearer field hints · status-disappear bug fixed](#2026-04-30--v1311--build-card-ux-pass) |
 | v1.31.0 | 2026-04-30 | [Wedding Book BUILD card (P1) — DIY production tracker with materials list, sessions log, prototype-blocker warning, copy-to-Budget action](#2026-04-30--v1310--wedding-book-build-card-p1) |
 | v1.30.6 | 2026-04-30 | [Track `BOOK-EXPANSION-PLAN.md` in the repo (docs only) — sets the v1.31.0–v1.38.0 arc](#2026-04-30--v1306--track-book-expansion-plan-in-the-repo) |
 | v1.30.5 | 2026-04-29 | [Schema cleanup + Topics multi-select · drop legacy `PhotographyShot` and `ScheduleEvent.audience` · combined Wedding Book section + NavTag picker on tasks · NavTag CRUD in Settings · audit-rule standing add + first-pass enrichment](#2026-04-29--v1305--schema-cleanup--topics-multi-select--audit-rule) |
@@ -621,7 +622,7 @@ UI. Don't ship piecemeal.
 
 - **Server actions** live in `actions.ts` next to the page they serve, gated by `requireEdit("section")`, mutating via Prisma, then `revalidatePath` for the relevant routes.
 - **Audit log** every server action that mutates user-visible state. Sign-in already audits.
-- **Audit-aware feature design (v1.30.5).** After each feature request, scan for audit / activity-list opportunities. When adding an audit row, enrich its `metadata` with the relevant snapshot fields (titles, key IDs, counts, changed-field names) so the row reads usefully without re-joining the originating entity. Logging only `{ entity, entityId }` is the minimum, not the target.
+- **Audit-aware feature design (v1.30.5, refined v1.32.0).** After each feature request, scan for audit / activity-list opportunities. When adding an audit row, enrich its `metadata` with the relevant snapshot fields (titles, key IDs, counts, changed-field names) so the row reads usefully without re-joining the originating entity. **The "what" must be human-readable** — the AuditLogPanel renders rows via `formatAuditAction` ([src/lib/audit-format.ts](src/lib/audit-format.ts)), which either auto-formats from `action + entity + metadata` for known patterns or uses an explicit `metadata.summary` string. Either pattern-match a new action code in the formatter, or supply `metadata.summary` directly. Never ship a new audit call that produces "verb-noun book subsection" in the log viewer.
 - **Permission section keys** must match the union in [src/lib/permissions.ts](src/lib/permissions.ts) (`SECTIONS` const).
 - **Couple-only routes** are gated in two places — middleware (defence-in-depth) and the page itself (`if (!user.isCouple) redirect("/")`).
 - **Forms** use plain `<form action={serverAction}>` with a small client wrapper for `useTransition`-driven pending state. No client-side form libraries in Phase A–C.
@@ -701,6 +702,64 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-30 · v1.32.0 — Wedding Book MENU + BAR cards (P2)
+
+Second phase of the [Book expansion arc](BOOK-EXPANSION-PLAN.md). Two new card kinds, plus three out-of-band corrections that landed alongside.
+
+**MENU card** — food service composition. One card per service (wedding breakfast / kids / evening / late-night). Per-course list of options with allergen tags + vegetarian-main / kids-meal flags. Live counts of guest selections per option, computed server-side at render time by case-insensitive label matching against `Guest.mealStarter / mealMain / mealDessert` (no FK to legacy `MealOption` — that table was unwired, free-text from CSV import is the honest source). Allergen aggregation surfaces dietary tags only against guests who matched ≥1 option. Header shows service type, confirmed headcount, per-head price, total cost.
+
+**BAR card** — drinks plan. One card with items grouped by free-text `category` (Reception drink / Wine / Beer / Soft / Spirits…). Per-head sanity check: flags **low** (< 0.5 bottles/adult), **high** (> 1.5), **ok** (in range), **unknown** (no bottle items or no confirmed adult count) — matched on unit `bottle/bottles/btl`. Header shows bar type, tab limit / corkage, total cost, bottles-per-adult.
+
+**Schema:** `MENU` and `BAR` added to `BookSubsectionKind`. Five new tables — `BookMenuCard` + `BookMenuCourse` + `BookMenuOption`, `BookBarCard` + `BookBarItem`. Migration `20260430020000_book_menu_bar_cards`, additive only.
+
+**Pure helpers** in [src/lib/book-cards.ts](src/lib/book-cards.ts):
+- `menuRollups(card, guests)` → `{ totalConfirmed, pricePence, perCourseCounts, allergenAggregate }`. 8 unit tests covering label-match + dietary-aggregation + course/field skipping.
+- `barRollups(card, confirmedAdults)` → `{ totalCostPence, perCategory, perHeadFlag, bottlesPerAdult }`. 8 unit tests covering boundary at 0.5 / 1.5, unknown branches, multi-category totals.
+
+**Server actions** — `saveMenuCard` + `saveBarCard`. Both follow the v1.31.1 single-bulk-save pattern: payload of full card state; transactional reconcile (rows with `id` starting `new-` create; existing update; missing delete; positions become `order`). All audit-enriched.
+
+**Editors** — `BookMenuCard.tsx` + `BookBarCard.tsx`. Both follow the v1.31.1 View / Edit toggle: pretty read-only display + single Edit / Save / Cancel flow. £ pounds-and-pence inputs (shared via [bookCardUi.ts](src/app/(app)/book/[slug]/bookCardUi.ts)). Helper hints under every header field.
+
+**Seed:** `seedFoodDrinkCards()` adds two cards under `food-drink`:
+- "Wedding breakfast" — MENU, 3 courses × 2 options (with realistic dietary tags), £85/head, plated.
+- "Drinks & bar" — BAR, 5 sample items across Reception drink / Wine / Beer / Soft, £2,000 tab limit, Prosecco toast.
+
+Both idempotent — re-seed never overwrites real cards.
+
+**Out-of-band corrections shipped this release:**
+
+1. **BUILD card label renamed "Build" → "DIY"** in user-facing strings (kindBadge on the card and the picker label in `BOOK_CARD_KIND_META`). Schema names (`BookSubsectionKind.BUILD`, `BookBuildCard`) unchanged — internal naming.
+
+2. **Audit log viewer now renders human sentences.** New helper [src/lib/audit-format.ts](src/lib/audit-format.ts) `formatAuditAction({ action, entity, metadata })` turns terse codes into readable phrases:
+   - "Saved DIY card 'Centerpieces' — added 2 materials, marked prototype done"
+   - "Saved menu 'Wedding breakfast' — added 1 option"
+   - "Created task 'Confirm final guest count'"
+   - "Updated nav tag 'Music'"
+   - 30+ pattern matches across BUILD / MENU / BAR / Task / ScheduleEvent / NavTag / BookSubsection / BookSection plus generic CRUD verbs. `metadata.summary` if explicitly supplied takes precedence. `AuditLogPanel` updated to call the helper.
+
+3. **Standing rule refined.** ROADMAP "Audit-aware feature design" now requires the "what" to be human-readable — either pattern-match a new action code in the formatter or supply `metadata.summary` directly. User memory note updated accordingly.
+
+**Files:**
+- `prisma/schema.prisma` — MENU + BAR enum values, 5 new tables, BookSubsection back-relations.
+- `prisma/seed.ts` — `seedFoodDrinkCards()` + main() call.
+- New: `prisma/migrations/20260430020000_book_menu_bar_cards/migration.sql`.
+- New: `src/app/(app)/book/[slug]/BookMenuCard.tsx`, `BookBarCard.tsx`.
+- New: `src/app/(app)/book/[slug]/bookCardUi.ts` — shared £-input + new-row-id helpers.
+- `src/app/(app)/book/[slug]/CardRouter.tsx` — MENU + BAR cases.
+- `src/app/(app)/book/[slug]/page.tsx` — eager-load menuCard + barCard, server-side rollups, guest meal fetch.
+- `src/app/(app)/book/actions.ts` — `saveMenuCard` + `saveBarCard` + new createBookSubsection branches.
+- `src/lib/book-cards.ts` — `BOOK_CARD_KINDS` + `BOOK_CARD_KIND_META` extended; rollup helpers.
+- New: `src/lib/audit-format.ts`.
+- `src/app/(app)/settings/AuditLogPanel.tsx` — uses `formatAuditAction`.
+- New: `tests/unit/menu-bar-rollups.test.ts` — 16 cases.
+- ROADMAP standing rules block.
+
+**Verification:** typecheck + lint clean, 259 unit tests pass (16 new for MENU/BAR), clean `.next` build green.
+
+**Open question handled inline:** §12 cake — RECIPE vs FIELD. Defaulted as RECIPE in seed if confirmed DIY; couple can toggle the seed kind via UI when they decide on a baker. No migration needed for that swap.
+
+**Next:** v1.33.0 P3 — SETUP card + Venue → Spaces / Décor split.
 
 ### 2026-04-30 · v1.31.1 — BUILD card UX pass
 

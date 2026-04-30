@@ -10,11 +10,7 @@
 
 import Link from "next/link";
 import { db } from "@/lib/db";
-import type { Prisma } from "@prisma/client";
-
-type AuditLogRow = Prisma.AuditLogGetPayload<{
-  include: { user: { select: { name: true; email: true } } };
-}>;
+import { formatAuditAction } from "@/lib/audit-format";
 
 const LIMIT = 50;
 
@@ -22,23 +18,21 @@ function formatTimestamp(d: Date): string {
   return `${d.toLocaleDateString("en-GB", { day: "numeric", month: "short" })} ${d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false })}`;
 }
 
-function formatAction(row: AuditLogRow): string {
-  // The `action` strings written by `audit()` are short verbs:
-  // "create" / "update" / "delete" / "assign" / etc. Pretty them up
-  // a touch for the read view.
-  const noun = row.entity.replace(/([A-Z])/g, " $1").trim().toLowerCase();
-  return `${row.action} ${noun}`;
-}
-
+// v1.32.0: detail line. The "what" column now carries the human
+// sentence; this column shows secondary metadata (changed-fields
+// list, IDs, etc.) that's useful but doesn't belong in the headline.
+// `summary` is hidden because it's already in the "what" column.
 function formatMetadata(meta: unknown): string {
   if (!meta || typeof meta !== "object") return "";
-  // Compact one-line summary of the metadata Json. Truncate long keys.
   const entries = Object.entries(meta as Record<string, unknown>)
-    .filter(([, v]) => v !== null && v !== undefined && v !== "")
-    .slice(0, 3)
+    .filter(([k, v]) => k !== "summary" && v !== null && v !== undefined && v !== "")
+    // Shrink the noise on the detail column — only show fields that
+    // typically *aren't* already covered by the headline phrase.
+    .filter(([k]) => !["cardTitle", "title", "name", "label", "kind", "type"].includes(k))
+    .slice(0, 4)
     .map(([k, v]) => {
       const s = typeof v === "object" ? JSON.stringify(v) : String(v);
-      const trimmed = s.length > 30 ? `${s.slice(0, 28)}…` : s;
+      const trimmed = s.length > 40 ? `${s.slice(0, 38)}…` : s;
       return `${k}: ${trimmed}`;
     });
   return entries.join(" · ");
@@ -116,8 +110,15 @@ export async function AuditLogPanel({
                       ? row.user.name ?? row.user.email
                       : <span className="italic text-ink-tertiary">system</span>}
                   </td>
-                  <td className="px-4 py-2 text-ink-primary capitalize">
-                    {formatAction(row)}
+                  <td className="px-4 py-2 text-ink-primary">
+                    {formatAuditAction({
+                      action: row.action,
+                      entity: row.entity,
+                      metadata:
+                        row.metadata && typeof row.metadata === "object" && !Array.isArray(row.metadata)
+                          ? (row.metadata as Record<string, unknown>)
+                          : null,
+                    })}
                   </td>
                   <td className="px-4 py-2 text-ink-tertiary truncate max-w-[420px]">
                     {formatMetadata(row.metadata)}

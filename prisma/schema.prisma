@@ -479,6 +479,13 @@ model BookSubsection {
   // v1.31.0: BUILD card — DIY production tracker with materials +
   // sessions. One card per project (centerpieces, place cards, etc.).
   buildCard  BookBuildCard?
+  // v1.32.0: MENU card — food service composition (one per service:
+  // wedding breakfast / kids / evening / late-night). Courses + options
+  // with allergen tags.
+  menuCard   BookMenuCard?
+  // v1.32.0: BAR card — drinks plan with per-category items + per-
+  // head sanity check.
+  barCard    BookBarCard?
   // v1.30.5: subsection-level task link removed; replaced by section-
   // level link on the parent BookSection (see BookSection.tasks).
   updatedAt  DateTime    @updatedAt
@@ -488,6 +495,7 @@ model BookSubsection {
 
 // v1.26.0: card-kind discriminator on BookSubsection.
 // v1.31.0: + BUILD.
+// v1.32.0: + MENU, BAR.
 enum BookSubsectionKind {
   TEXT
   FIELD
@@ -495,6 +503,8 @@ enum BookSubsectionKind {
   SHOT_LIST
   OUTFIT
   BUILD
+  MENU
+  BAR
 }
 
 // v1.26.0: FIELD card — list of typed fields. Values stored on
@@ -627,6 +637,85 @@ model BookBuildSession {
   notes           String?
   loggedById      String?
   createdAt       DateTime       @default(now())
+
+  @@index([cardId])
+}
+
+// v1.32.0: MENU card — food service composition. One card per
+// service (wedding breakfast / kids / evening / late-night), with a
+// per-course list of options (each option carries dietary tags +
+// vegetarian-main / kids-meal flags). Live counts in the editor are
+// computed at render time by label-matching against
+// Guest.mealStarter / mealMain / mealDessert (no FK — the existing
+// MealOption table is unwired per the v0.x comment, so we honour
+// the messy free-text reality the CSV import produces).
+model BookMenuCard {
+  id                  String          @id @default(cuid())
+  subsectionId        String          @unique
+  subsection          BookSubsection  @relation(fields: [subsectionId], references: [id], onDelete: Cascade)
+  serviceType         String?         // "Plated" | "Buffet" | "Family-style" | "Canapés"
+  serviceTime         String?
+  pricePerHeadPence   Int?
+  confirmedHeadcount  Int?
+  notes               String?         @db.Text
+  courses             BookMenuCourse[]
+}
+
+model BookMenuCourse {
+  id           String         @id @default(cuid())
+  cardId       String
+  card         BookMenuCard   @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  courseLabel  String         // "Starter" | "Main" | "Dessert" | "Late-night"
+  order        Int            @default(0)
+  options      BookMenuOption[]
+
+  @@index([cardId])
+}
+
+model BookMenuOption {
+  id               String         @id @default(cuid())
+  courseId         String
+  course           BookMenuCourse @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  label            String
+  description      String?        @db.Text
+  // Free-text dietary tags ("V", "VG", "GF", "DF", "Nuts"…). Not
+  // enum-bound on purpose — the wedding crowd brings their own list.
+  dietary          String[]       @default([])
+  isVegetarianMain Boolean        @default(false)
+  isKidsMeal       Boolean        @default(false)
+  order            Int            @default(0)
+
+  @@index([courseId])
+}
+
+// v1.32.0: BAR card — single card holding the overall drinks plan.
+// Items grouped by category (Reception drink / Wine / Beer / Soft /
+// Spirits…). Per-head sanity check at render time flags if planned
+// quantity is outside [0.5, 1.5] bottles per confirmed adult.
+model BookBarCard {
+  id            String        @id @default(cuid())
+  subsectionId  String        @unique
+  subsection    BookSubsection @relation(fields: [subsectionId], references: [id], onDelete: Cascade)
+  barType       String?       // "Open bar" | "Drinks tab to £X" | "Cash bar" | "Wine + toast only"
+  tabLimitPence Int?
+  toastDrink    String?       // "Champagne" | "Prosecco" | "Sparkling elderflower"
+  corkagePence  Int?
+  notes         String?       @db.Text
+  items         BookBarItem[]
+}
+
+model BookBarItem {
+  id              String       @id @default(cuid())
+  cardId          String
+  card            BookBarCard  @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  category        String       // "Reception drink" | "Wine" | "Beer" | "Soft" | "Spirits"
+  name            String
+  quantityPlanned Float?
+  unit            String?
+  supplier        String?
+  costPence       Int?
+  notes           String?
+  order           Int          @default(0)
 
   @@index([cardId])
 }

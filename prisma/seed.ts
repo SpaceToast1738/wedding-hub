@@ -343,6 +343,140 @@ async function seedBuildCards() {
   console.log(`  ✓ ${drafts.length} sample build cards`);
 }
 
+// v1.32.0: seed sample MENU + BAR cards under the Food & Drink
+// section. Idempotent: skips when there's already at least one
+// BookMenuCard or BookBarCard in the DB. Real cards added via the
+// UI are never overwritten by re-seed.
+async function seedFoodDrinkCards() {
+  const existingMenu = await db.bookMenuCard.count();
+  const existingBar = await db.bookBarCard.count();
+  if (existingMenu > 0 && existingBar > 0) {
+    console.log(`  ✓ menu + bar cards already present; skipping seed`);
+    return;
+  }
+  const fnd = await db.bookSection.findUnique({ where: { slug: "food-drink" } });
+  if (!fnd) {
+    console.log(`  · no 'food-drink' section found; skipping menu+bar seed`);
+    return;
+  }
+  const last = await db.bookSubsection.findFirst({
+    where: { sectionId: fnd.id },
+    orderBy: { order: "desc" },
+  });
+  let nextOrder = (last?.order ?? -1) + 1;
+
+  // Wedding breakfast — 3 courses × 2 options.
+  if (existingMenu === 0) {
+    const breakfastSlug = "wedding-breakfast";
+    const breakfastExisting = await db.bookSubsection.findUnique({
+      where: { sectionId_slug: { sectionId: fnd.id, slug: breakfastSlug } },
+    });
+    if (!breakfastExisting) {
+      const sub = await db.bookSubsection.create({
+        data: {
+          sectionId: fnd.id,
+          slug: breakfastSlug,
+          title: "Wedding breakfast",
+          kind: "MENU",
+          order: nextOrder++,
+        },
+      });
+      const card = await db.bookMenuCard.create({
+        data: {
+          subsectionId: sub.id,
+          serviceType: "Plated",
+          serviceTime: "1:30pm wedding breakfast",
+          pricePerHeadPence: 8500,
+        },
+      });
+      const courses = [
+        {
+          courseLabel: "Starter",
+          options: [
+            { label: "Tomato soup", description: "Roasted vine tomato, basil oil", dietary: ["V", "GF"] },
+            { label: "Prawn cocktail", description: "Marie rose, baby gem", dietary: [] },
+          ],
+        },
+        {
+          courseLabel: "Main",
+          options: [
+            { label: "Roast beef", description: "Yorkshire pud, red wine jus", dietary: [] },
+            { label: "Mushroom wellington", description: "Wild mushroom, puff pastry", dietary: ["V"], isVegetarianMain: true },
+          ],
+        },
+        {
+          courseLabel: "Dessert",
+          options: [
+            { label: "Sticky toffee pudding", description: "Vanilla ice cream", dietary: [] },
+            { label: "Lemon posset", description: "Shortbread", dietary: ["V"] },
+          ],
+        },
+      ];
+      let courseOrder = 0;
+      for (const c of courses) {
+        const courseRow = await db.bookMenuCourse.create({
+          data: { cardId: card.id, courseLabel: c.courseLabel, order: courseOrder++ },
+        });
+        let optionOrder = 0;
+        for (const o of c.options) {
+          await db.bookMenuOption.create({
+            data: {
+              courseId: courseRow.id,
+              label: o.label,
+              description: o.description,
+              dietary: o.dietary,
+              isVegetarianMain: ("isVegetarianMain" in o && o.isVegetarianMain) === true,
+              order: optionOrder++,
+            },
+          });
+        }
+      }
+    }
+  }
+
+  // Bar plan — sample items by category.
+  if (existingBar === 0) {
+    const barSlug = "drinks-and-bar";
+    const barExisting = await db.bookSubsection.findUnique({
+      where: { sectionId_slug: { sectionId: fnd.id, slug: barSlug } },
+    });
+    if (!barExisting) {
+      const sub = await db.bookSubsection.create({
+        data: {
+          sectionId: fnd.id,
+          slug: barSlug,
+          title: "Drinks & bar",
+          kind: "BAR",
+          order: nextOrder++,
+        },
+      });
+      const bar = await db.bookBarCard.create({
+        data: {
+          subsectionId: sub.id,
+          barType: "Drinks tab",
+          tabLimitPence: 200000,
+          toastDrink: "Prosecco",
+        },
+      });
+      const items = [
+        { category: "Reception drink", name: "Prosecco", quantityPlanned: 30, unit: "bottles", costPence: 30000 },
+        { category: "Wine", name: "House white (Pinot grigio)", quantityPlanned: 25, unit: "bottles", costPence: 25000 },
+        { category: "Wine", name: "House red (Merlot)", quantityPlanned: 20, unit: "bottles", costPence: 20000 },
+        { category: "Beer", name: "Bottled lager", quantityPlanned: 60, unit: "bottles", costPence: 18000 },
+        { category: "Soft", name: "Soft drinks selection", quantityPlanned: 24, unit: "L", costPence: 4800 },
+      ];
+      let itemOrder = 0;
+      for (const i of items) {
+        await db.bookBarItem.create({
+          data: { ...i, cardId: bar.id, order: itemOrder++ },
+        });
+      }
+    }
+  }
+
+  console.log(`  ✓ menu + bar cards seeded`);
+}
+
 async function main() {
   console.log("Seeding Wedding Hub…");
   await seedUsersAndPermissions();
@@ -354,6 +488,7 @@ async function main() {
   await seedWeddingPartySubsections();
   await seedNavTags();
   await seedBuildCards();
+  await seedFoodDrinkCards();
   console.log("Done.");
 }
 
