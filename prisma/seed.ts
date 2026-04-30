@@ -458,12 +458,17 @@ async function seedFoodDrinkCards() {
           toastDrink: "Prosecco",
         },
       });
+      // v1.32.2: items mix bottle-priced lines and a per-head toast
+      // (£2.50/head × 1 drink) so the editor demonstrates both
+      // pricing modes from first run.
       const items = [
-        { category: "Reception drink", name: "Prosecco", quantityPlanned: 30, unit: "bottles", costPence: 30000 },
-        { category: "Wine", name: "House white (Pinot grigio)", quantityPlanned: 25, unit: "bottles", costPence: 25000 },
-        { category: "Wine", name: "House red (Merlot)", quantityPlanned: 20, unit: "bottles", costPence: 20000 },
-        { category: "Beer", name: "Bottled lager", quantityPlanned: 60, unit: "bottles", costPence: 18000 },
-        { category: "Soft", name: "Soft drinks selection", quantityPlanned: 24, unit: "L", costPence: 4800 },
+        { category: "Reception drink", name: "Welcome bubbly", timing: "Reception", quantityPlanned: 30, unit: "bottles", costPence: 30000, pricePerHeadPence: null },
+        { category: "Wine", name: "House white (Pinot grigio)", timing: "Dinner", quantityPlanned: 25, unit: "bottles", costPence: 25000, pricePerHeadPence: null },
+        { category: "Wine", name: "House red (Merlot)", timing: "Dinner", quantityPlanned: 20, unit: "bottles", costPence: 20000, pricePerHeadPence: null },
+        { category: "Beer", name: "Bottled lager", timing: "Evening", quantityPlanned: 60, unit: "bottles", costPence: 18000, pricePerHeadPence: null },
+        { category: "Soft", name: "Soft drinks selection", timing: "Reception", quantityPlanned: 24, unit: "L", costPence: 4800, pricePerHeadPence: null },
+        // Per-head toast: £2.50 a drink × adults × 1 drink/head
+        { category: "Reception drink", name: "Toast — Prosecco", timing: "Toast", quantityPlanned: 1, unit: null, costPence: null, pricePerHeadPence: 250 },
       ];
       let itemOrder = 0;
       for (const i of items) {

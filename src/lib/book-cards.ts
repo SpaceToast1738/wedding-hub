@@ -472,6 +472,10 @@ export type BarItemShape = {
   quantityPlanned?: number | null;
   unit?: string | null;
   costPence?: number | null;
+  // v1.32.2: per-head pricing. When set, the line is costed per
+  // cover and `quantityPlanned` is interpreted as drinks per head.
+  pricePerHeadPence?: number | null;
+  timing?: string | null;
 };
 
 export type BarCardShape = {
@@ -499,6 +503,28 @@ function isBottleUnit(unit: string | null | undefined): boolean {
   return u === "bottle" || u === "bottles" || u === "btl" || u === "btls";
 }
 
+/**
+ * Compute the total cost for a single bar item.
+ *
+ *   - Per-head pricing (v1.32.2): pricePerHeadPence × adults ×
+ *     (quantityPlanned ?? 1). When confirmedAdults is null we can't
+ *     compute the per-head sum — falls back to 0 contribution to keep
+ *     the totals stable when the head count is unknown. costPence is
+ *     ignored in this mode.
+ *   - Bottle / fixed pricing: just costPence.
+ */
+export function barItemTotalPence(
+  item: BarItemShape,
+  confirmedAdults: number | null,
+): number {
+  if (item.pricePerHeadPence != null) {
+    if (!confirmedAdults || confirmedAdults <= 0) return 0;
+    const drinksPerHead = item.quantityPlanned ?? 1;
+    return Math.round(item.pricePerHeadPence * confirmedAdults * drinksPerHead);
+  }
+  return item.costPence ?? 0;
+}
+
 export function barRollups(
   card: BarCardShape,
   confirmedAdults: number | null,
@@ -513,9 +539,16 @@ export function barRollups(
     const cat = item.category || "Uncategorised";
     if (!perCategory[cat]) perCategory[cat] = { totalCostPence: 0, itemCount: 0, bottlesPlanned: 0 };
     perCategory[cat]!.itemCount += 1;
-    perCategory[cat]!.totalCostPence += item.costPence ?? 0;
-    totalCostPence += item.costPence ?? 0;
-    if (isBottleUnit(item.unit) && item.quantityPlanned != null) {
+    const lineTotal = barItemTotalPence(item, confirmedAdults);
+    perCategory[cat]!.totalCostPence += lineTotal;
+    totalCostPence += lineTotal;
+    // Per-head items don't add to the bottle-count sanity check —
+    // they're already accounted for in cost terms.
+    if (
+      item.pricePerHeadPence == null &&
+      isBottleUnit(item.unit) &&
+      item.quantityPlanned != null
+    ) {
       perCategory[cat]!.bottlesPlanned += item.quantityPlanned;
       totalBottles += item.quantityPlanned;
     }

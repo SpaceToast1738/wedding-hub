@@ -4,7 +4,7 @@ import { useEffect, useState, useTransition } from "react";
 import { Button } from "@/components/ui/Button";
 import { notify } from "@/lib/notify";
 import { saveBarCard, type BarSavePayload } from "../actions";
-import { barRollups, type BarRollups } from "@/lib/book-cards";
+import { barItemTotalPence, barRollups, type BarRollups } from "@/lib/book-cards";
 import { CardChrome } from "./CardChrome";
 import {
   formatGBPFromPence,
@@ -19,6 +19,10 @@ import {
 
 const BAR_TYPE_OPTIONS = ["Open bar", "Drinks tab", "Cash bar", "Wine + toast only"];
 const PRESET_CATEGORIES = ["Reception drink", "Wine", "Beer", "Spirits", "Soft", "Coffee/Tea"];
+// v1.32.2: serving moments — used as a datalist for the `timing`
+// field and to order the view-mode timing groups. Free text in the
+// schema, but these are the common-case choices.
+const PRESET_TIMINGS = ["Reception", "Toast", "Dinner", "Evening", "Late night"];
 
 type Item = {
   id: string;
@@ -30,6 +34,9 @@ type Item = {
   costPence: number | null;
   notes: string | null;
   order: number;
+  // v1.32.2
+  pricePerHeadPence: number | null;
+  timing: string | null;
 };
 
 type CardData = {
@@ -101,8 +108,10 @@ export function BookBarCard({
         quantityPlanned: i.quantityPlanned,
         unit: i.unit || null,
         supplier: i.supplier || null,
-        costPence: i.costPence,
+        costPence: i.pricePerHeadPence != null ? null : i.costPence,
         notes: i.notes || null,
+        pricePerHeadPence: i.pricePerHeadPence,
+        timing: i.timing || null,
       })),
     };
     startTransition(async () => {
@@ -182,7 +191,12 @@ export function BookBarCard({
       {editing ? (
         <EditBody draft={draft} setDraft={setDraft} pending={pending} />
       ) : (
-        <ViewBody card={card} orderedCategories={orderedCategories} rollups={r} />
+        <ViewBody
+          card={card}
+          orderedCategories={orderedCategories}
+          rollups={r}
+          confirmedAdults={confirmedAdults}
+        />
       )}
 
       {canEdit && (
@@ -213,14 +227,72 @@ function ViewBody({
   card,
   orderedCategories,
   rollups,
+  confirmedAdults,
 }: {
   card: CardData;
   orderedCategories: string[];
   rollups: BarRollups;
+  confirmedAdults: number | null;
 }) {
   if (card.items.length === 0) {
     return <p className="text-xs text-ink-tertiary italic">No items yet.</p>;
   }
+  // v1.32.2: if any item has a timing label, group by timing first
+  // (Reception → Toast → Dinner → Evening → Late night → other).
+  // Otherwise, fall back to the category grouping that's been there
+  // since v1.32.0.
+  const anyTimings = card.items.some((i) => i.timing && i.timing.trim());
+  if (anyTimings) {
+    const usedTimings = Array.from(
+      new Set(card.items.map((i) => (i.timing && i.timing.trim()) || "Other")),
+    );
+    const orderedTimings = [
+      ...PRESET_TIMINGS.filter((t) => usedTimings.includes(t)),
+      ...usedTimings.filter((t) => !PRESET_TIMINGS.includes(t)).sort(),
+    ];
+    return (
+      <div className="space-y-4">
+        {orderedTimings.map((timing) => {
+          const items = card.items.filter(
+            (i) => ((i.timing && i.timing.trim()) || "Other") === timing,
+          );
+          if (items.length === 0) return null;
+          const groupTotal = items.reduce(
+            (sum, item) => sum + barItemTotalPence(item, confirmedAdults),
+            0,
+          );
+          return (
+            <div key={timing}>
+              <div className="flex items-baseline gap-2 mb-1.5">
+                <strong className="text-sm font-semibold text-ink-primary">{timing}</strong>
+                <span className="text-[10px] text-ink-tertiary tabular-nums">
+                  {items.length} item{items.length === 1 ? "" : "s"} · {formatGBPFromPence(groupTotal)}
+                </span>
+              </div>
+              <ul className="divide-y divide-border-soft border border-border-soft rounded-md text-sm">
+                {items.map((item) => (
+                  <ItemViewRow
+                    key={item.id}
+                    item={item}
+                    confirmedAdults={confirmedAdults}
+                  />
+                ))}
+              </ul>
+            </div>
+          );
+        })}
+        {card.notes && (
+          <div className="pt-2">
+            <strong className="block text-[10px] uppercase tracking-wider text-ink-tertiary font-bold mb-1">
+              Notes
+            </strong>
+            <p className="text-sm text-ink-secondary whitespace-pre-wrap">{card.notes}</p>
+          </div>
+        )}
+      </div>
+    );
+  }
+  // No timing labels — fall back to category grouping.
   return (
     <div className="space-y-4">
       {orderedCategories.map((cat) => {
@@ -239,26 +311,7 @@ function ViewBody({
             </div>
             <ul className="divide-y divide-border-soft border border-border-soft rounded-md text-sm">
               {items.map((item) => (
-                <li key={item.id} className="px-3 py-1.5 flex items-baseline gap-2">
-                  <span className="flex-1 text-ink-primary">
-                    {item.name}
-                    {item.quantityPlanned != null && (
-                      <>
-                        {" · "}
-                        <span className="text-ink-secondary">
-                          {item.quantityPlanned}
-                          {item.unit ? ` ${item.unit}` : ""}
-                        </span>
-                      </>
-                    )}
-                    {item.supplier && (
-                      <span className="text-ink-tertiary"> · {item.supplier}</span>
-                    )}
-                  </span>
-                  <span className="text-ink-secondary tabular-nums w-20 text-right">
-                    {formatGBPFromPence(item.costPence)}
-                  </span>
-                </li>
+                <ItemViewRow key={item.id} item={item} confirmedAdults={confirmedAdults} />
               ))}
             </ul>
           </div>
@@ -273,6 +326,53 @@ function ViewBody({
         </div>
       )}
     </div>
+  );
+}
+
+function ItemViewRow({
+  item,
+  confirmedAdults,
+}: {
+  item: Item;
+  confirmedAdults: number | null;
+}) {
+  const isPerHead = item.pricePerHeadPence != null;
+  const lineTotal = barItemTotalPence(item, confirmedAdults);
+  return (
+    <li className="px-3 py-1.5 flex items-baseline gap-2">
+      <span className="flex-1 text-ink-primary">
+        {item.name}
+        {isPerHead ? (
+          <>
+            {" · "}
+            <span className="text-ink-secondary">
+              {formatGBPFromPence(item.pricePerHeadPence)}/head
+              {item.quantityPlanned != null && item.quantityPlanned !== 1
+                ? ` × ${item.quantityPlanned} drinks`
+                : ""}
+            </span>
+          </>
+        ) : (
+          item.quantityPlanned != null && (
+            <>
+              {" · "}
+              <span className="text-ink-secondary">
+                {item.quantityPlanned}
+                {item.unit ? ` ${item.unit}` : ""}
+              </span>
+            </>
+          )
+        )}
+        {item.supplier && <span className="text-ink-tertiary"> · {item.supplier}</span>}
+      </span>
+      <span className="text-ink-secondary tabular-nums w-24 text-right">
+        {isPerHead && (!confirmedAdults || confirmedAdults <= 0) ? (
+          <span className="text-[11px] text-ink-tertiary italic">need RSVP count</span>
+        ) : (
+          formatGBPFromPence(lineTotal)
+        )}
+      </span>
+    </li>
   );
 }
 
@@ -330,6 +430,8 @@ function EditBody({
           costPence: null,
           notes: null,
           order: draft.items.length,
+          pricePerHeadPence: null,
+          timing: null,
         },
       ],
     });
@@ -461,11 +563,25 @@ function ItemEditRow({
   onMoveUp: () => void;
   onMoveDown: () => void;
 }) {
+  const isPerHead = item.pricePerHeadPence != null;
   const [costStr, setCostStr] = useState(penceToPoundsString(item.costPence));
+  const [perHeadStr, setPerHeadStr] = useState(penceToPoundsString(item.pricePerHeadPence));
   useEffect(() => {
     setCostStr(penceToPoundsString(item.costPence));
+    setPerHeadStr(penceToPoundsString(item.pricePerHeadPence));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [item.id]);
+
+  // Toggling between fixed-cost and per-head pricing modes.
+  function setPricingMode(mode: "fixed" | "perHead") {
+    if (mode === "fixed") {
+      onChange({ pricePerHeadPence: null });
+    } else {
+      // Switching to per-head — null out the fixed costPence so it
+      // doesn't appear stale; the per-head field becomes the truth.
+      onChange({ costPence: null, pricePerHeadPence: item.pricePerHeadPence ?? 0 });
+    }
+  }
 
   return (
     <li className="px-3 py-2.5 bg-canvas/30">
@@ -493,6 +609,19 @@ function ItemEditRow({
           className="sm:col-span-3 text-sm bg-surface border border-border-soft rounded-sm px-2 py-1 text-ink-primary outline-none focus:border-moss-500"
         />
         <input
+          value={item.timing ?? ""}
+          onChange={(e) => onChange({ timing: e.target.value || null })}
+          disabled={pending}
+          list={`bar-timings-${item.id}`}
+          placeholder="When (e.g. Toast)"
+          className="sm:col-span-2 text-sm bg-surface border border-border-soft rounded-sm px-2 py-1 text-ink-primary outline-none focus:border-moss-500"
+        />
+        <datalist id={`bar-timings-${item.id}`}>
+          {PRESET_TIMINGS.map((t) => (
+            <option key={t} value={t} />
+          ))}
+        </datalist>
+        <input
           type="number"
           step="any"
           min={0}
@@ -501,65 +630,127 @@ function ItemEditRow({
             onChange({ quantityPlanned: e.target.value === "" ? null : Number(e.target.value) })
           }
           disabled={pending}
-          placeholder="Qty"
+          placeholder={isPerHead ? "drinks/head" : "Qty"}
+          title={isPerHead ? "Drinks per head" : "Quantity"}
           className="sm:col-span-1 text-sm bg-surface border border-border-soft rounded-sm px-2 py-1 text-ink-primary outline-none focus:border-moss-500 tabular-nums"
         />
-        <input
-          value={item.unit ?? ""}
-          onChange={(e) => onChange({ unit: e.target.value })}
-          disabled={pending}
-          placeholder="Unit (bottles, L)"
-          className="sm:col-span-2 text-sm bg-surface border border-border-soft rounded-sm px-2 py-1 text-ink-primary outline-none focus:border-moss-500"
-        />
-        <input
-          value={item.supplier ?? ""}
-          onChange={(e) => onChange({ supplier: e.target.value })}
-          disabled={pending}
-          placeholder="Supplier"
-          className="sm:col-span-2 text-sm bg-surface border border-border-soft rounded-sm px-2 py-1 text-ink-primary outline-none focus:border-moss-500"
-        />
-        <div className="sm:col-span-1 relative">
-          <span className="absolute left-2 top-1/2 -translate-y-1/2 text-ink-tertiary text-sm pointer-events-none">£</span>
+        {isPerHead ? (
           <input
-            type="text"
-            inputMode="decimal"
-            value={costStr}
-            onChange={(e) => setCostStr(e.target.value)}
-            onBlur={() => onChange({ costPence: poundsStringToPence(costStr) })}
+            value=""
+            disabled
+            placeholder="—"
+            className="sm:col-span-1 text-sm bg-canvas/40 border border-border-soft rounded-sm px-2 py-1 text-ink-tertiary outline-none"
+          />
+        ) : (
+          <input
+            value={item.unit ?? ""}
+            onChange={(e) => onChange({ unit: e.target.value })}
             disabled={pending}
-            placeholder="0.00"
-            className="w-full text-sm bg-surface border border-border-soft rounded-sm pl-5 pr-2 py-1 text-ink-primary outline-none focus:border-moss-500 tabular-nums text-right"
+            placeholder="Unit"
+            className="sm:col-span-1 text-sm bg-surface border border-border-soft rounded-sm px-2 py-1 text-ink-primary outline-none focus:border-moss-500"
+          />
+        )}
+        {isPerHead ? (
+          <div className="sm:col-span-2 relative">
+            <span className="absolute left-2 top-1/2 -translate-y-1/2 text-ink-tertiary text-sm pointer-events-none">£</span>
+            <input
+              type="text"
+              inputMode="decimal"
+              value={perHeadStr}
+              onChange={(e) => setPerHeadStr(e.target.value)}
+              onBlur={() =>
+                onChange({ pricePerHeadPence: poundsStringToPence(perHeadStr) ?? 0 })
+              }
+              disabled={pending}
+              placeholder="0.00"
+              title="Price per head"
+              className="w-full text-sm bg-surface border border-border-soft rounded-sm pl-5 pr-9 py-1 text-ink-primary outline-none focus:border-moss-500 tabular-nums text-right"
+            />
+            <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-ink-tertiary pointer-events-none">/hd</span>
+          </div>
+        ) : (
+          <div className="sm:col-span-2 relative">
+            <span className="absolute left-2 top-1/2 -translate-y-1/2 text-ink-tertiary text-sm pointer-events-none">£</span>
+            <input
+              type="text"
+              inputMode="decimal"
+              value={costStr}
+              onChange={(e) => setCostStr(e.target.value)}
+              onBlur={() => onChange({ costPence: poundsStringToPence(costStr) })}
+              disabled={pending}
+              placeholder="0.00"
+              title="Total cost"
+              className="w-full text-sm bg-surface border border-border-soft rounded-sm pl-5 pr-2 py-1 text-ink-primary outline-none focus:border-moss-500 tabular-nums text-right"
+            />
+          </div>
+        )}
+      </div>
+      <div className="flex items-center justify-between gap-2 mt-2">
+        <div className="flex items-center gap-1 text-[11px]">
+          <span className="text-ink-tertiary uppercase tracking-wider font-bold">Pricing</span>
+          <button
+            type="button"
+            onClick={() => setPricingMode("fixed")}
+            disabled={pending}
+            className={[
+              "px-2 py-0.5 rounded-full border",
+              !isPerHead
+                ? "bg-moss-50 border-moss-300 text-moss-700 font-semibold"
+                : "bg-canvas border-border-soft text-ink-tertiary hover:border-moss-300",
+            ].join(" ")}
+          >
+            Total
+          </button>
+          <button
+            type="button"
+            onClick={() => setPricingMode("perHead")}
+            disabled={pending}
+            className={[
+              "px-2 py-0.5 rounded-full border",
+              isPerHead
+                ? "bg-moss-50 border-moss-300 text-moss-700 font-semibold"
+                : "bg-canvas border-border-soft text-ink-tertiary hover:border-moss-300",
+            ].join(" ")}
+          >
+            Per head
+          </button>
+          <input
+            value={item.supplier ?? ""}
+            onChange={(e) => onChange({ supplier: e.target.value })}
+            disabled={pending}
+            placeholder="Supplier (optional)"
+            className="ml-3 text-xs bg-surface border border-border-soft rounded-sm px-2 py-0.5 text-ink-primary outline-none focus:border-moss-500"
           />
         </div>
-      </div>
-      <div className="flex items-center justify-end gap-1 mt-2">
-        <button
-          type="button"
-          onClick={onMoveUp}
-          disabled={pending || isFirst}
-          className="text-[10px] text-ink-tertiary hover:text-ink-primary disabled:opacity-30 px-1"
-          aria-label="Move up"
-        >
-          ↑
-        </button>
-        <button
-          type="button"
-          onClick={onMoveDown}
-          disabled={pending || isLast}
-          className="text-[10px] text-ink-tertiary hover:text-ink-primary disabled:opacity-30 px-1"
-          aria-label="Move down"
-        >
-          ↓
-        </button>
-        <button
-          type="button"
-          onClick={onRemove}
-          disabled={pending}
-          className="text-[10px] text-ink-tertiary hover:text-danger px-1"
-          aria-label="Remove"
-        >
-          ×
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={onMoveUp}
+            disabled={pending || isFirst}
+            className="text-[10px] text-ink-tertiary hover:text-ink-primary disabled:opacity-30 px-1"
+            aria-label="Move up"
+          >
+            ↑
+          </button>
+          <button
+            type="button"
+            onClick={onMoveDown}
+            disabled={pending || isLast}
+            className="text-[10px] text-ink-tertiary hover:text-ink-primary disabled:opacity-30 px-1"
+            aria-label="Move down"
+          >
+            ↓
+          </button>
+          <button
+            type="button"
+            onClick={onRemove}
+            disabled={pending}
+            className="text-[10px] text-ink-tertiary hover:text-danger px-1"
+            aria-label="Remove"
+          >
+            ×
+          </button>
+        </div>
       </div>
     </li>
   );

@@ -213,4 +213,113 @@ describe("barRollups", () => {
     );
     expect(r.perHeadFlag).toBe("unknown");
   });
+
+  // v1.32.2: per-head pricing.
+
+  it("computes per-head item total as price × adults × drinksPerHead", () => {
+    // £2.50/head × 100 adults × 1 drink = £250
+    const r = barRollups(
+      {
+        items: [
+          {
+            category: "Reception drink",
+            timing: "Toast",
+            quantityPlanned: 1,
+            pricePerHeadPence: 250,
+          },
+        ],
+      },
+      100,
+    );
+    expect(r.totalCostPence).toBe(25000);
+  });
+
+  it("respects drinksPerHead > 1 on per-head items", () => {
+    // £4.00/head × 80 adults × 2 drinks = £640
+    const r = barRollups(
+      {
+        items: [
+          {
+            category: "Reception drink",
+            quantityPlanned: 2,
+            pricePerHeadPence: 400,
+          },
+        ],
+      },
+      80,
+    );
+    expect(r.totalCostPence).toBe(64000);
+  });
+
+  it("defaults drinksPerHead to 1 when quantityPlanned is null on per-head items", () => {
+    const r = barRollups(
+      {
+        items: [
+          {
+            category: "Toast",
+            quantityPlanned: null,
+            pricePerHeadPence: 250,
+          },
+        ],
+      },
+      100,
+    );
+    expect(r.totalCostPence).toBe(25000);
+  });
+
+  it("per-head item ignores costPence when pricePerHeadPence is set", () => {
+    const r = barRollups(
+      {
+        items: [
+          {
+            category: "Reception drink",
+            quantityPlanned: 1,
+            pricePerHeadPence: 250,
+            costPence: 999999, // intentionally wild — should be ignored
+          },
+        ],
+      },
+      100,
+    );
+    expect(r.totalCostPence).toBe(25000);
+  });
+
+  it("contributes 0 to total when confirmedAdults is null on per-head items", () => {
+    const r = barRollups(
+      {
+        items: [{ category: "Toast", quantityPlanned: 1, pricePerHeadPence: 250 }],
+      },
+      null,
+    );
+    expect(r.totalCostPence).toBe(0);
+  });
+
+  it("per-head items do NOT count toward the bottles-per-adult sanity check", () => {
+    // 60 bottles + a per-head toast at £2.50 — toast doesn't move the bottle ratio.
+    const r = barRollups(
+      {
+        items: [
+          { category: "Wine", quantityPlanned: 60, unit: "bottles", costPence: 30000 },
+          { category: "Toast", quantityPlanned: 1, unit: "drinks", pricePerHeadPence: 250 },
+        ],
+      },
+      100,
+    );
+    expect(r.bottlesPerAdult).toBe(0.6);
+    expect(r.perHeadFlag).toBe("ok");
+  });
+
+  it("mixed bottles + per-head items both contribute to total cost", () => {
+    const r = barRollups(
+      {
+        items: [
+          { category: "Wine", quantityPlanned: 60, unit: "bottles", costPence: 30000 },
+          { category: "Toast", quantityPlanned: 1, pricePerHeadPence: 250 },
+        ],
+      },
+      100,
+    );
+    // 30000 (wine) + 25000 (toast at £2.50 × 100 × 1) = 55000
+    expect(r.totalCostPence).toBe(55000);
+  });
 });

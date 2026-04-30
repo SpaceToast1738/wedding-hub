@@ -115,6 +115,9 @@ type Sub = {
       costPence: number | null;
       notes: string | null;
       order: number;
+      // v1.32.2: per-head pricing + timing label.
+      pricePerHeadPence: number | null;
+      timing: string | null;
     }>;
     /** Server-supplied confirmed-adult count (from /guests RSVPs). */
     confirmedAdults: number | null;

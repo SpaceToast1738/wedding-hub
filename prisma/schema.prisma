@@ -716,6 +716,16 @@ model BookBarItem {
   costPence       Int?
   notes           String?
   order           Int          @default(0)
+  // v1.32.2: per-head pricing for drinks costed per cover (e.g.
+  // £2.50/head for the toast). When set, costPence is treated as
+  // optional / informational and the line total is computed as
+  // pricePerHeadPence × confirmedAdults × (quantityPlanned ?? 1)
+  // — quantityPlanned is read as "drinks per head" in this mode.
+  pricePerHeadPence Int?
+  // v1.32.2: serving moment label — "Reception" | "Toast" | "Dinner"
+  // | "Evening" | "Late night" | free text. Used for grouping in the
+  // view, also threads through the audit log summary.
+  timing          String?
 
   @@index([cardId])
 }

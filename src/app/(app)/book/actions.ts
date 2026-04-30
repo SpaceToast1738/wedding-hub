@@ -1455,6 +1455,9 @@ const barItemPayloadSchema = z.object({
   supplier: z.string().max(120).nullable(),
   costPence: z.number().int().min(0).nullable(),
   notes: z.string().max(2000).nullable(),
+  // v1.32.2: per-head pricing + serving moment.
+  pricePerHeadPence: z.number().int().min(0).nullable(),
+  timing: z.string().max(60).nullable(),
 });
 
 const barSavePayloadSchema = z.object({
@@ -1519,6 +1522,8 @@ export async function saveBarCard(
             supplier: i.supplier,
             costPence: i.costPence,
             notes: i.notes,
+            pricePerHeadPence: i.pricePerHeadPence,
+            timing: i.timing,
           },
         });
       }
@@ -1535,6 +1540,8 @@ export async function saveBarCard(
             supplier: i.supplier,
             costPence: i.costPence,
             notes: i.notes,
+            pricePerHeadPence: i.pricePerHeadPence,
+            timing: i.timing,
             order: orderCounter,
           },
         });

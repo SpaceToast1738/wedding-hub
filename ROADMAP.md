@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.32.1** | 2026-04-30 | [Audit log: 30-day retention sweep + search box on the Settings viewer](#2026-04-30--v1321--audit-log-retention--search) |
+| **v1.32.2** | 2026-04-30 | [BAR card: per-head pricing + serving timing — handles £2.50/head toast drinks; view groups by timing when set](#2026-04-30--v1322--bar-per-head-pricing--timing) |
+| v1.32.1 | 2026-04-30 | [Audit log: 30-day retention sweep + search box on the Settings viewer](#2026-04-30--v1321--audit-log-retention--search) |
 | v1.32.0 | 2026-04-30 | [Wedding Book MENU + BAR cards (P2) — food service composition with live guest selection counts, drinks plan with per-head sanity check · BUILD label renamed to "DIY" · audit log viewer now renders human sentences via `formatAuditAction`](#2026-04-30--v1320--wedding-book-menu--bar-cards-p2) |
 | v1.31.1 | 2026-04-30 | [BUILD card UX pass — single Edit/View states · live Budget link · `/diy` overview page · £-input · clearer field hints · status-disappear bug fixed](#2026-04-30--v1311--build-card-ux-pass) |
 | v1.31.0 | 2026-04-30 | [Wedding Book BUILD card (P1) — DIY production tracker with materials list, sessions log, prototype-blocker warning, copy-to-Budget action](#2026-04-30--v1310--wedding-book-build-card-p1) |
@@ -703,6 +704,46 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-30 · v1.32.2 — BAR per-head pricing + timing
+
+User-asked while reviewing v1.32.0/.1 in the wild: drinks have a per-head amount that varies by time of day — e.g. £2.50/head for the toast drink, separate from bottle-priced lines for dinner wine.
+
+Two additions to `BookBarItem`, both nullable / additive:
+
+- **`pricePerHeadPence`** — when set, the line is costed per cover; `quantityPlanned` becomes "drinks per head"; line total = `pricePerHeadPence × confirmedAdults × (quantityPlanned ?? 1)`. `costPence` is ignored in this mode (the editor nulls it out when toggling to per-head).
+- **`timing`** — free-text serving moment (Reception / Toast / Dinner / Evening / Late night by default, datalist-style). Used to group items in the view when any are set.
+
+**Editor:**
+- New "Pricing" toggle on each item row: **Total** / **Per head**. Toggling switches the £ input between fixed-cost and per-head input. Suffix `/hd` appears on the per-head input. Quantity column relabels to "drinks/head" when per-head is active.
+- New `When` column on each row with a datalist of preset timings.
+- Supplier moves to the row's secondary line (next to the pricing toggle) to keep the primary 12-column grid clean.
+
+**View mode:**
+- If any item has a timing label, items group **by timing** (Reception → Toast → Dinner → Evening → Late night → other), with a per-group cost subtotal.
+- If no timings are set, falls back to the v1.32.0 category grouping.
+- Per-head items render as `Toast drink · £2.50/head × 1 drinks · £250.00 (line)` with a `need RSVP count` hint when `confirmedAdults` is null.
+
+**Pure helpers + tests:**
+- New `barItemTotalPence(item, confirmedAdults)` exported from [src/lib/book-cards.ts](src/lib/book-cards.ts) — single source of truth for line totals (per-head vs fixed). Reused by both the BAR editor view and `barRollups`.
+- Per-head items are explicitly excluded from the bottles-per-adult sanity check (still bottles-only).
+- 7 new test cases covering per-head computations: drinks-per-head defaulting, costPence ignored when per-head set, mixed bottles + per-head totals, sanity check stability.
+
+**Schema migration:** `prisma/migrations/20260430040000_book_bar_item_per_head/migration.sql` — adds two nullable columns. Existing items render unchanged.
+
+**Seed update:** the sample BAR card now includes a sixth item — "Toast — Prosecco" at £2.50/head, timing "Toast" — so a fresh seed demonstrates both pricing modes side by side. Existing items gain timing labels (Reception / Dinner / Evening) so the timing-grouped view exercises immediately.
+
+**Files:**
+- `prisma/schema.prisma` — `BookBarItem.pricePerHeadPence` + `timing`.
+- New: `prisma/migrations/20260430040000_book_bar_item_per_head/migration.sql`.
+- `prisma/seed.ts` — per-head toast item + timing labels.
+- `src/lib/book-cards.ts` — `barItemTotalPence()` helper, `barRollups` updated to use it.
+- `src/app/(app)/book/[slug]/BookBarCard.tsx` — `Item` shape extended; `ViewBody` timing-grouped branch; `ItemEditRow` pricing toggle + per-head £ input + timing field + datalist.
+- `src/app/(app)/book/[slug]/CardRouter.tsx` — `BookBarCard.items[]` shape extended.
+- `src/app/(app)/book/actions.ts` — `barItemPayloadSchema` extended; `saveBarCard` writes the new fields.
+- `tests/unit/menu-bar-rollups.test.ts` — 7 new per-head cases.
+
+**Verification:** typecheck + lint clean, 266 unit tests pass (+7 for per-head), clean `.next` build green.
 
 ### 2026-04-30 · v1.32.1 — Audit log retention + search
 
