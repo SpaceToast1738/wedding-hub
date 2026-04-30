@@ -45,14 +45,36 @@ export async function createPlaylist(formData: FormData) {
       order: (last?.order ?? -1) + 1,
     },
   });
-  await audit(user, { action: "create", entity: "Playlist", entityId: created.id });
+  await audit(user, {
+    action: "create",
+    entity: "Playlist",
+    entityId: created.id,
+    metadata: {
+      name: created.name,
+      category: created.category,
+      isBlockList: created.isBlockList,
+    },
+  });
   revalidatePath("/songs");
 }
 
 export async function deletePlaylist(id: string) {
   const user = await requireEdit("songs");
+  const before = await db.playlist.findUnique({
+    where: { id },
+    include: { _count: { select: { songs: true } } },
+  });
   await db.playlist.delete({ where: { id } });
-  await audit(user, { action: "delete", entity: "Playlist", entityId: id });
+  await audit(user, {
+    action: "delete",
+    entity: "Playlist",
+    entityId: id,
+    metadata: {
+      name: before?.name ?? null,
+      category: before?.category ?? null,
+      songCount: before?._count.songs ?? 0,
+    },
+  });
   revalidatePath("/songs");
 }
 
@@ -74,14 +96,43 @@ export async function createSong(formData: FormData) {
       order: (last?.order ?? -1) + 1,
     },
   });
-  await audit(user, { action: "create", entity: "Song", entityId: created.id });
+  // Lookup playlist name once so the audit row reads as
+  // "Added <song> to <playlist>" rather than just an id.
+  const playlist = await db.playlist.findUnique({
+    where: { id: parsed.playlistId },
+    select: { name: true },
+  });
+  await audit(user, {
+    action: "create",
+    entity: "Song",
+    entityId: created.id,
+    metadata: {
+      title: created.title,
+      artist: created.artist,
+      playlistId: created.playlistId,
+      playlistName: playlist?.name ?? null,
+    },
+  });
   revalidatePath("/songs");
 }
 
 export async function deleteSong(id: string) {
   const user = await requireEdit("songs");
+  const before = await db.song.findUnique({
+    where: { id },
+    include: { playlist: { select: { name: true } } },
+  });
   await db.song.delete({ where: { id } });
-  await audit(user, { action: "delete", entity: "Song", entityId: id });
+  await audit(user, {
+    action: "delete",
+    entity: "Song",
+    entityId: id,
+    metadata: {
+      title: before?.title ?? null,
+      artist: before?.artist ?? null,
+      playlistName: before?.playlist.name ?? null,
+    },
+  });
   revalidatePath("/songs");
 }
 
@@ -105,7 +156,22 @@ export async function moveSong(id: string, delta: -1 | 1) {
     db.song.update({ where: { id: a.id }, data: { order: b.order } }),
     db.song.update({ where: { id: b.id }, data: { order: a.order } }),
   ]);
-  await audit(user, { action: "reorder", entity: "Song", entityId: id });
+  // Lookup the song + playlist for the audit row.
+  const songSnap = await db.song.findUnique({
+    where: { id },
+    include: { playlist: { select: { name: true } } },
+  });
+  await audit(user, {
+    action: "reorder",
+    entity: "Song",
+    entityId: id,
+    metadata: {
+      title: songSnap?.title ?? null,
+      playlistName: songSnap?.playlist.name ?? null,
+      delta,
+      newOrder: songSnap?.order ?? null,
+    },
+  });
   revalidatePath("/songs");
 }
 
@@ -130,7 +196,16 @@ export async function setPlaylistSpotifyUrl(input: { playlistId: string; url: st
       where: { id: parsed.playlistId },
       data: { spotifyId: null, spotifyUrl: null, lastSyncError: null },
     });
-    await audit(user, { action: "spotify_unlink", entity: "Playlist", entityId: parsed.playlistId });
+    const pl = await db.playlist.findUnique({
+      where: { id: parsed.playlistId },
+      select: { name: true },
+    });
+    await audit(user, {
+      action: "spotify_unlink",
+      entity: "Playlist",
+      entityId: parsed.playlistId,
+      metadata: { playlistName: pl?.name ?? null },
+    });
     revalidatePath("/songs");
     return { ok: true as const };
   }

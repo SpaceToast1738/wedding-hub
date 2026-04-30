@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.38.6** | 2026-04-30 | [Critical: `prisma/seed.ts` had an unguarded `main()` call at the bottom that fired whenever the file was imported. Operator scripts (`reset-book.ts`, `seed-samples-only.ts`) import section seeders from it — so every operator-script run kicked off the full seed in parallel, hitting P2002 unique-constraint violations.](#2026-04-30--v1386--seed-ts-double-run-fix) |
+| **v1.39.0** | 2026-04-30 | [Audit-log enrichment sweep across non-Book modules — budget / seating / songs / guests / suppliers / payments / files / tasks all now emit snapshot fields + `changedFields` diff per the v1.30.5 standing rule. ~34 bare audits enriched. 29 new audit-format tests, 392 total.](#2026-04-30--v1390--audit-log-enrichment-sweep) |
+| v1.38.6 | 2026-04-30 | [Critical: `prisma/seed.ts` had an unguarded `main()` call at the bottom that fired whenever the file was imported. Operator scripts (`reset-book.ts`, `seed-samples-only.ts`) import section seeders from it — so every operator-script run kicked off the full seed in parallel, hitting P2002 unique-constraint violations.](#2026-04-30--v1386--seed-ts-double-run-fix) |
 | v1.38.5 | 2026-04-30 | [Book index hides empty legacy sections · BUILD seed targets `venue-decor` not legacy `venue` · stop seeding legacy `wedding-party` (the v1.35.0 split made it duplicate)](#2026-04-30--v1385--book-index--seed-de-duplication) |
 | v1.38.4 | 2026-04-30 | [Wedding Book seed overhaul — every card kind now gets a fully-populated example (OUTFIT items + dates, SETUP items, LEGAL items + name-change checklist, FIELD defs everywhere, RECIPE cocktail, MENU kids/evening/late-night, BUILD welcome bags + favours, plus new Photography + Guest Experience seeders). All 12 card kinds covered.](#2026-04-30--v1384--wedding-book-seed-overhaul) |
 | v1.38.3 | 2026-04-30 | [Operator scripts run in production — Dockerfile transpiles `seed-samples-only` + `reset-book` to `scripts-build/`; scripts use a local `PrismaClient` instead of `src/lib/db` so they don't depend on the Next standalone bundle. Invoke with `node scripts-build/scripts/<name>.js`.](#2026-04-30--v1383--operator-scripts-in-production-image) |
@@ -752,6 +753,44 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-30 · v1.39.0 — Audit-log enrichment sweep
+
+First post-arc backlog item shipped — the audit-log enrichment sweep across modules the Book Expansion arc didn't touch. Per the v1.30.5 standing rule "every audit row should carry snapshot fields + a `changedFields` diff on updates"; before this ship, 34 of the ~70 audit calls outside the Book module were still bare `{ entity, entityId }` only.
+
+**Heatmap before / after:**
+
+| Module | Total audits | Was enriched | Now enriched |
+|---|---|---|---|
+| budget | 5 | 0 | 5 |
+| seating | 10 | 3 | 10 |
+| songs | 9 | 3 | 9 |
+| guests | 12 | 6 | 12 |
+| suppliers | 12 | 6 | 12 |
+| payments | 4 | 1 | 4 |
+| files | 4 | 3 | 4 |
+| tasks | 6 | 5 | 6 |
+| schedule | 3 | 3 | 3 |
+| **total** | **65** | **30** | **65** |
+
+**Per-module changes:**
+
+- **Budget** — money-sensitive. Every action now logs description + amount + category. Updates carry a `changedFields` diff (description / categoryId / estimated / actual / paid / supplierId / notes). Deletes snapshot the line/category before the row goes.
+- **Seating** — Table create/delete logs name + capacity + occupied count. Position / capacity / notes / checklist updates carry table name + done-count / item-count where relevant. Seat assign/unassign logs `guestName` + `tableName` + `seatIndex` (so the audit reads "Seated Bryony at Top table seat 3"). CeremonySeating update gets totalSeats + changedFields. WeddingSettings seating-checklist / seating-notes log itemCount / doneCount / cleared.
+- **Songs** — Playlist create/delete logs name + songCount + category. Song create/delete logs title + playlistName + artist. Song reorder logs delta + new order.
+- **Guests** — Household create/update/delete logs name + side + guestCount. Guest create logs full identity snapshot. Guest update reuses the existing `changed` field-diff (which `lastEditedFields` already tracked) and includes it in the audit. Guest rsvp + restore now carry firstName + lastName.
+- **Suppliers** — Supplier create logs name + category + status. Update has `changedFields` diff. Status change logs `previousStatus` so the audit shows "BOOKED (was QUOTED)". Delete snapshots cascade counts (contacts / contracts / payments). SupplierContact / SupplierContract / SupplierCommunication delete actions snapshot supplier name + relevant fields before the row goes.
+- **Payments** — Money-sensitive surface. Create/update/delete logs description + amount + supplierName. Update has `changedFields`. Status change logs previous + new status alongside description + amount.
+- **Files** — Delete now snapshots name / sizeBytes / folder / visibility (upload was already enriched).
+- **Tasks** — answer action now snapshots question title + type + `hadPreviousAnswer` flag + `cleared` (so re-opening a question by clearing the answer shows distinctly from answering it).
+
+**audit-format.ts** gains 14 new entity-specific patterns covering BudgetLine / BudgetCategory / Payment / Table / Seat / CeremonySeating / WeddingSettings / Playlist / Song / Household / Guest / Supplier / SupplierContact / SupplierContract / SupplierCommunication / File. Money values format with `Intl` (`£5,000`); `changedFields` diffs render inline (`— description, amount`); cascade counts surface in the deletes (`(3 lines cascade-deleted)`).
+
+**29 new unit tests** covering each new pattern + at least one delete case + one changedFields case per entity. Total test count 363 → 392.
+
+**Verification gate:** typecheck + lint + 392 unit tests + production build all green.
+
+Files: [src/app/(app)/budget/actions.ts](src/app/(app)/budget/actions.ts) · [src/app/(app)/seating/actions.ts](src/app/(app)/seating/actions.ts) · [src/app/(app)/songs/actions.ts](src/app/(app)/songs/actions.ts) · [src/app/(app)/guests/actions.ts](src/app/(app)/guests/actions.ts) · [src/app/(app)/suppliers/actions.ts](src/app/(app)/suppliers/actions.ts) · [src/app/(app)/payments/actions.ts](src/app/(app)/payments/actions.ts) · [src/app/(app)/files/actions.ts](src/app/(app)/files/actions.ts) · [src/app/(app)/tasks/actions.ts](src/app/(app)/tasks/actions.ts) · [src/lib/audit-format.ts](src/lib/audit-format.ts) · [tests/unit/audit-format-enrichment.test.ts](tests/unit/audit-format-enrichment.test.ts).
 
 ### 2026-04-30 · v1.38.6 — seed.ts double-run fix
 

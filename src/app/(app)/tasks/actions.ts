@@ -226,6 +226,12 @@ export async function setTaskStatus(id: string, status: TaskStatus) {
 
 export async function answerQuestion(id: string, answer: string) {
   const user = await requireEdit("questions");
+  // Read before so the audit row captures the question title + whether
+  // an answer was added or cleared.
+  const before = await db.task.findUnique({
+    where: { id },
+    select: { title: true, type: true, questionAnswer: true },
+  });
   await db.task.update({
     where: { id },
     data: {
@@ -233,7 +239,18 @@ export async function answerQuestion(id: string, answer: string) {
       status: answer.trim() ? TaskStatus.DONE : TaskStatus.OPEN,
     },
   });
-  await audit(user, { action: "answer", entity: "Task", entityId: id });
+  await audit(user, {
+    action: "answer",
+    entity: "Task",
+    entityId: id,
+    metadata: {
+      title: before?.title ?? null,
+      type: before?.type ?? null,
+      hadPreviousAnswer: !!before?.questionAnswer?.trim(),
+      cleared: !answer.trim(),
+      answerLength: answer.length,
+    },
+  });
   revalidatePath("/questions");
   revalidatePath("/tasks");
   revalidatePath("/");

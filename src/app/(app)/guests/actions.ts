@@ -117,7 +117,12 @@ export async function createHousehold(formData: FormData) {
   const created = await db.household.create({
     data: { name: parsed.name, side: parsed.side, notes: parsed.notes ?? null },
   });
-  await audit(user, { action: "create", entity: "Household", entityId: created.id });
+  await audit(user, {
+    action: "create",
+    entity: "Household",
+    entityId: created.id,
+    metadata: { name: created.name, side: created.side },
+  });
   revalidatePath("/guests");
 }
 
@@ -128,18 +133,43 @@ export async function updateHousehold(id: string, formData: FormData) {
     side: formData.get("side") || Side.BOTH,
     notes: formData.get("notes") || null,
   });
-  await db.household.update({
-    where: { id },
-    data: { name: parsed.name, side: parsed.side, notes: parsed.notes ?? null },
+  // Read before for the changedFields diff.
+  const before = await db.household.findUnique({ where: { id } });
+  const next = { name: parsed.name, side: parsed.side, notes: parsed.notes ?? null };
+  await db.household.update({ where: { id }, data: next });
+  const changedFields: string[] = [];
+  if (before) {
+    if (before.name !== next.name) changedFields.push("name");
+    if (before.side !== next.side) changedFields.push("side");
+    if (before.notes !== next.notes) changedFields.push("notes");
+  }
+  await audit(user, {
+    action: "update",
+    entity: "Household",
+    entityId: id,
+    metadata: { name: next.name, changedFields },
   });
-  await audit(user, { action: "update", entity: "Household", entityId: id });
   revalidatePath("/guests");
 }
 
 export async function deleteHousehold(id: string) {
   const user = await requireEdit("guests");
+  // Snapshot name + guest count before delete.
+  const before = await db.household.findUnique({
+    where: { id },
+    include: { _count: { select: { guests: true } } },
+  });
   await db.household.delete({ where: { id } });
-  await audit(user, { action: "delete", entity: "Household", entityId: id });
+  await audit(user, {
+    action: "delete",
+    entity: "Household",
+    entityId: id,
+    metadata: {
+      name: before?.name ?? null,
+      side: before?.side ?? null,
+      guestCount: before?._count.guests ?? 0,
+    },
+  });
   revalidatePath("/guests");
 }
 
@@ -180,7 +210,19 @@ export async function createGuest(formData: FormData) {
     },
   });
   await syncPlusOne(created.id);
-  await audit(user, { action: "create", entity: "Guest", entityId: created.id });
+  await audit(user, {
+    action: "create",
+    entity: "Guest",
+    entityId: created.id,
+    metadata: {
+      firstName: created.firstName,
+      lastName: created.lastName,
+      side: created.side,
+      rsvp: created.rsvp,
+      isChild: created.isChild,
+      plusOneAllowed: created.plusOneAllowed,
+    },
+  });
   revalidatePath("/guests");
   revalidatePath("/");
 }
@@ -277,7 +319,20 @@ export async function updateGuest(id: string, formData: FormData) {
   // the row is itself a +1 (parentGuestId set), so it's safe to call
   // unconditionally.
   await syncPlusOne(id);
-  await audit(user, { action: "update", entity: "Guest", entityId: id });
+  // v1.39.0: enrich with name + the actual changed field names. The
+  // diffEditedFields call above already computed `changed` for the
+  // last-edited-fields stamp; reuse that list here so the audit row
+  // and the lastEditedFields map agree.
+  await audit(user, {
+    action: "update",
+    entity: "Guest",
+    entityId: id,
+    metadata: {
+      firstName: nextValues.firstName,
+      lastName: nextValues.lastName,
+      changedFields: changed,
+    },
+  });
   revalidatePath("/guests");
   revalidatePath("/");
 }
@@ -295,7 +350,22 @@ export async function setGuestRsvp(id: string, rsvp: RsvpStatus) {
   // RSVP. (A +1's own RSVP can be set independently via this same
   // action, but the next host RSVP change will overwrite it.)
   await syncPlusOne(id);
-  await audit(user, { action: "rsvp", entity: "Guest", entityId: id, metadata: { rsvp } });
+  // Add name to the RSVP audit so the log reads as "Set RSVP for
+  // <name> to attending" rather than just an id.
+  const guest = await db.guest.findUnique({
+    where: { id },
+    select: { firstName: true, lastName: true },
+  });
+  await audit(user, {
+    action: "rsvp",
+    entity: "Guest",
+    entityId: id,
+    metadata: {
+      rsvp,
+      firstName: guest?.firstName ?? null,
+      lastName: guest?.lastName ?? null,
+    },
+  });
   revalidatePath("/guests");
   revalidatePath("/");
 }
@@ -353,7 +423,19 @@ export async function restoreGuest(id: string) {
       data: { archived: false },
     }),
   ]);
-  await audit(user, { action: "restore", entity: "Guest", entityId: id });
+  const restored = await db.guest.findUnique({
+    where: { id },
+    select: { firstName: true, lastName: true },
+  });
+  await audit(user, {
+    action: "restore",
+    entity: "Guest",
+    entityId: id,
+    metadata: {
+      firstName: restored?.firstName ?? null,
+      lastName: restored?.lastName ?? null,
+    },
+  });
   revalidatePath("/guests");
   revalidatePath("/");
 }

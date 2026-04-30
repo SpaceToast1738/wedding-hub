@@ -49,7 +49,16 @@ export async function createSupplier(formData: FormData) {
       amountAgreed: parseAmount(parsed.amountAgreed ?? null),
     },
   });
-  await audit(user, { action: "create", entity: "Supplier", entityId: created.id });
+  await audit(user, {
+    action: "create",
+    entity: "Supplier",
+    entityId: created.id,
+    metadata: {
+      name: created.name,
+      category: created.category,
+      status: created.status,
+    },
+  });
   revalidatePath("/suppliers");
 }
 
@@ -63,32 +72,90 @@ export async function updateSupplier(id: string, formData: FormData) {
     notes: formData.get("notes") || null,
     amountAgreed: formData.get("amountAgreed") || null,
   });
-  await db.supplier.update({
-    where: { id },
-    data: {
-      name: parsed.name,
-      category: parsed.category,
-      status: parsed.status,
-      website: parsed.website ?? null,
-      notes: parsed.notes ?? null,
-      amountAgreed: parseAmount(parsed.amountAgreed ?? null),
+  // Read before for changedFields diff.
+  const before = await db.supplier.findUnique({ where: { id } });
+  const next = {
+    name: parsed.name,
+    category: parsed.category,
+    status: parsed.status,
+    website: parsed.website ?? null,
+    notes: parsed.notes ?? null,
+    amountAgreed: parseAmount(parsed.amountAgreed ?? null),
+  };
+  await db.supplier.update({ where: { id }, data: next });
+  const changedFields: string[] = [];
+  if (before) {
+    if (before.name !== next.name) changedFields.push("name");
+    if (before.category !== next.category) changedFields.push("category");
+    if (before.status !== next.status) changedFields.push("status");
+    if (before.website !== next.website) changedFields.push("website");
+    if (before.notes !== next.notes) changedFields.push("notes");
+    const beforeAmount = before.amountAgreed == null ? null : Number(before.amountAgreed.toString());
+    if (beforeAmount !== next.amountAgreed) changedFields.push("amountAgreed");
+  }
+  await audit(user, {
+    action: "update",
+    entity: "Supplier",
+    entityId: id,
+    metadata: {
+      name: next.name,
+      changedFields,
     },
   });
-  await audit(user, { action: "update", entity: "Supplier", entityId: id });
   revalidatePath("/suppliers");
 }
 
 export async function setSupplierStatus(id: string, status: SupplierStatus) {
   const user = await requireEdit("suppliers");
+  const before = await db.supplier.findUnique({
+    where: { id },
+    select: { name: true, status: true },
+  });
   await db.supplier.update({ where: { id }, data: { status } });
-  await audit(user, { action: "status", entity: "Supplier", entityId: id, metadata: { status } });
+  await audit(user, {
+    action: "status",
+    entity: "Supplier",
+    entityId: id,
+    metadata: {
+      name: before?.name ?? null,
+      previousStatus: before?.status ?? null,
+      status,
+    },
+  });
   revalidatePath("/suppliers");
 }
 
 export async function deleteSupplier(id: string) {
   const user = await requireEdit("suppliers");
+  // Snapshot before delete.
+  const before = await db.supplier.findUnique({
+    where: { id },
+    include: {
+      _count: {
+        select: {
+          contacts: true,
+          contracts: true,
+          communications: true,
+          payments: true,
+          tasks: true,
+        },
+      },
+    },
+  });
   await db.supplier.delete({ where: { id } });
-  await audit(user, { action: "delete", entity: "Supplier", entityId: id });
+  await audit(user, {
+    action: "delete",
+    entity: "Supplier",
+    entityId: id,
+    metadata: {
+      name: before?.name ?? null,
+      category: before?.category ?? null,
+      status: before?.status ?? null,
+      contactCount: before?._count.contacts ?? 0,
+      contractCount: before?._count.contracts ?? 0,
+      paymentCount: before?._count.payments ?? 0,
+    },
+  });
   revalidatePath("/suppliers");
 }
 
@@ -133,15 +200,45 @@ export async function createSupplierContact(formData: FormData) {
       },
     }),
   ]);
-  await audit(user, { action: "create", entity: "SupplierContact", metadata: { supplierId: parsed.supplierId } });
+  // Lookup supplier name for the audit row. Cheap — single field.
+  const supplier = await db.supplier.findUnique({
+    where: { id: parsed.supplierId },
+    select: { name: true },
+  });
+  await audit(user, {
+    action: "create",
+    entity: "SupplierContact",
+    metadata: {
+      supplierId: parsed.supplierId,
+      supplierName: supplier?.name ?? null,
+      contactName: parsed.name,
+      role: parsed.role ?? null,
+      primary: !!parsed.primary,
+    },
+  });
   revalidatePath(`/suppliers/${parsed.supplierId}`);
   revalidatePath("/today/day-of");
 }
 
 export async function deleteSupplierContact(id: string, supplierId: string) {
   const user = await requireEdit("suppliers");
+  // Snapshot the contact before delete so the audit reads usefully.
+  const before = await db.supplierContact.findUnique({
+    where: { id },
+    include: { supplier: { select: { name: true } } },
+  });
   await db.supplierContact.delete({ where: { id } });
-  await audit(user, { action: "delete", entity: "SupplierContact", entityId: id });
+  await audit(user, {
+    action: "delete",
+    entity: "SupplierContact",
+    entityId: id,
+    metadata: {
+      supplierId,
+      supplierName: before?.supplier.name ?? null,
+      contactName: before?.name ?? null,
+      role: before?.role ?? null,
+    },
+  });
   revalidatePath(`/suppliers/${supplierId}`);
   revalidatePath("/today/day-of");
 }
@@ -237,8 +334,23 @@ export async function createSupplierCommunication(formData: FormData) {
 
 export async function deleteSupplierCommunication(id: string, supplierId: string) {
   const user = await requireEdit("suppliers");
+  // Snapshot the comm before delete so the audit row reads usefully.
+  const before = await db.supplierCommunication.findUnique({
+    where: { id },
+    include: { supplier: { select: { name: true } } },
+  });
   await db.supplierCommunication.delete({ where: { id } });
-  await audit(user, { action: "delete", entity: "SupplierCommunication", entityId: id });
+  await audit(user, {
+    action: "delete",
+    entity: "SupplierCommunication",
+    entityId: id,
+    metadata: {
+      supplierId,
+      supplierName: before?.supplier.name ?? null,
+      channel: before?.channel ?? null,
+      summaryLength: before?.summary?.length ?? 0,
+    },
+  });
   revalidatePath(`/suppliers/${supplierId}`);
 }
 
@@ -270,19 +382,45 @@ export async function createSupplierContract(formData: FormData) {
       notes: parsed.notes ?? null,
     },
   });
+  // Lookup supplier name for the audit row.
+  const supplier = await db.supplier.findUnique({
+    where: { id: parsed.supplierId },
+    select: { name: true },
+  });
   await audit(user, {
     action: "create",
     entity: "SupplierContract",
     entityId: created.id,
-    metadata: { supplierId: parsed.supplierId },
+    metadata: {
+      supplierId: parsed.supplierId,
+      supplierName: supplier?.name ?? null,
+      signed: created.signed,
+      signedAt: created.signedAt,
+      amount: created.amount == null ? null : Number(created.amount.toString()),
+    },
   });
   revalidatePath(`/suppliers/${parsed.supplierId}`);
 }
 
 export async function deleteSupplierContract(id: string, supplierId: string) {
   const user = await requireEdit("suppliers");
+  // Snapshot before delete.
+  const before = await db.supplierContract.findUnique({
+    where: { id },
+    include: { supplier: { select: { name: true } } },
+  });
   await db.supplierContract.delete({ where: { id } });
-  await audit(user, { action: "delete", entity: "SupplierContract", entityId: id });
+  await audit(user, {
+    action: "delete",
+    entity: "SupplierContract",
+    entityId: id,
+    metadata: {
+      supplierId,
+      supplierName: before?.supplier.name ?? null,
+      signed: before?.signed ?? null,
+      amount: before?.amount == null ? null : Number(before.amount.toString()),
+    },
+  });
   revalidatePath(`/suppliers/${supplierId}`);
 }
 

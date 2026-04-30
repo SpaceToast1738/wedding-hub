@@ -52,14 +52,42 @@ export async function createTable(formData: FormData) {
       index: i,
     })),
   });
-  await audit(user, { action: "create", entity: "Table", entityId: table.id });
+  await audit(user, {
+    action: "create",
+    entity: "Table",
+    entityId: table.id,
+    metadata: {
+      name: table.name,
+      shape: table.shape,
+      capacity: table.capacity,
+    },
+  });
   revalidatePath("/seating");
 }
 
 export async function deleteTable(id: string) {
   const user = await requireEdit("seating");
+  // Snapshot name + occupancy before delete so the audit row reads
+  // usefully even after the table is gone.
+  const before = await db.table.findUnique({
+    where: { id },
+    include: {
+      seats: { include: { guest: { select: { id: true } } } },
+    },
+  });
+  const occupiedCount = before?.seats.filter((s) => s.guest).length ?? 0;
   await db.table.delete({ where: { id } });
-  await audit(user, { action: "delete", entity: "Table", entityId: id });
+  await audit(user, {
+    action: "delete",
+    entity: "Table",
+    entityId: id,
+    metadata: {
+      name: before?.name ?? null,
+      shape: before?.shape ?? null,
+      capacity: before?.capacity ?? null,
+      occupiedCount,
+    },
+  });
   revalidatePath("/seating");
 }
 
@@ -214,7 +242,37 @@ export async function assignGuestToSeat(seatId: string, guestId: string | null) 
   } else {
     await db.guest.updateMany({ where: { tableSeatId: seatId }, data: { tableSeatId: null } });
   }
-  await audit(user, { action: "assign", entity: "Seat", entityId: seatId, metadata: { guestId } });
+  // v1.39.0: enrich the audit with guest + seat snapshot fields so
+  // the log reads as "Seated <Guest> at <Table> seat 3" rather than
+  // bare ids. We look up the guest's name + table info post-write
+  // because the relevant join wasn't loaded above.
+  let guestName: string | null = null;
+  let tableName: string | null = null;
+  let seatIndex: number | null = null;
+  const seat = await db.seat.findUnique({
+    where: { id: seatId },
+    include: { table: { select: { name: true } } },
+  });
+  tableName = seat?.table.name ?? null;
+  seatIndex = seat?.index ?? null;
+  if (guestId) {
+    const g = await db.guest.findUnique({
+      where: { id: guestId },
+      select: { firstName: true, lastName: true },
+    });
+    guestName = g ? [g.firstName, g.lastName].filter(Boolean).join(" ") : null;
+  }
+  await audit(user, {
+    action: guestId ? "assign" : "unassign",
+    entity: "Seat",
+    entityId: seatId,
+    metadata: {
+      guestId,
+      guestName,
+      tableName,
+      seatIndex,
+    },
+  });
   revalidatePath("/seating");
 }
 
@@ -223,8 +281,20 @@ const notesSchema = z.string().max(2000);
 export async function updateTableNotes(id: string, notes: string) {
   const user = await requireEdit("seating");
   const parsed = notesSchema.parse(notes);
-  await db.table.update({ where: { id }, data: { notes: parsed === "" ? null : parsed } });
-  await audit(user, { action: "notes", entity: "Table", entityId: id });
+  const updated = await db.table.update({
+    where: { id },
+    data: { notes: parsed === "" ? null : parsed },
+  });
+  await audit(user, {
+    action: "notes",
+    entity: "Table",
+    entityId: id,
+    metadata: {
+      tableName: updated.name,
+      notesLength: parsed.length,
+      cleared: parsed === "",
+    },
+  });
   revalidatePath("/seating");
 }
 
@@ -246,14 +316,25 @@ export async function updateTableChecklist(id: string, items: ChecklistItem[]) {
   const parsed = checklistSchema.parse(items);
   // Prisma's Nullable Json input wants the explicit `JsonNull` token
   // when clearing — passing JS `null` is a TS error since v5.
-  await db.table.update({
+  const updated = await db.table.update({
     where: { id },
     data: {
       checklist:
         parsed.length === 0 ? Prisma.JsonNull : (parsed as Prisma.InputJsonValue),
     },
   });
-  await audit(user, { action: "checklist", entity: "Table", entityId: id });
+  const doneCount = parsed.filter((i) => i.done).length;
+  await audit(user, {
+    action: "checklist",
+    entity: "Table",
+    entityId: id,
+    metadata: {
+      tableName: updated.name,
+      itemCount: parsed.length,
+      doneCount,
+      cleared: parsed.length === 0,
+    },
+  });
   revalidatePath("/seating");
 }
 
@@ -286,7 +367,17 @@ export async function updateSeatingChecklist(items: ChecklistItem[]) {
         parsed.length === 0 ? Prisma.JsonNull : (parsed as Prisma.InputJsonValue),
     },
   });
-  await audit(user, { action: "seating-checklist", entity: "WeddingSettings", entityId: "1" });
+  const doneCount = parsed.filter((i) => i.done).length;
+  await audit(user, {
+    action: "seating-checklist",
+    entity: "WeddingSettings",
+    entityId: "1",
+    metadata: {
+      itemCount: parsed.length,
+      doneCount,
+      cleared: parsed.length === 0,
+    },
+  });
   revalidatePath("/seating");
 }
 
@@ -311,7 +402,15 @@ export async function updateSeatingNotes(notes: string) {
       seatingNotes: parsed === "" ? null : parsed,
     },
   });
-  await audit(user, { action: "seating-notes", entity: "WeddingSettings", entityId: "1" });
+  await audit(user, {
+    action: "seating-notes",
+    entity: "WeddingSettings",
+    entityId: "1",
+    metadata: {
+      notesLength: parsed.length,
+      cleared: parsed === "",
+    },
+  });
   revalidatePath("/seating");
 }
 
@@ -345,6 +444,9 @@ export async function updateCeremonySeating(formData: FormData): Promise<SaveRes
       notes: formData.get("notes") ?? "",
     });
     const notes = parsed.notes && parsed.notes !== "" ? parsed.notes : null;
+    // Read before so the audit log can diff old → new on the fields
+    // the user actually changed.
+    const before = await db.ceremonySeating.findUnique({ where: { id: 1 } });
     await db.ceremonySeating.upsert({
       where: { id: 1 },
       update: {
@@ -363,7 +465,31 @@ export async function updateCeremonySeating(formData: FormData): Promise<SaveRes
         notes,
       },
     });
-    await audit(user, { action: "update", entity: "CeremonySeating", entityId: "1" });
+    const changedFields: string[] = [];
+    if (before) {
+      if (before.leftRows !== parsed.leftRows) changedFields.push("leftRows");
+      if (before.leftSeatsRow !== parsed.leftSeatsRow) changedFields.push("leftSeatsRow");
+      if (before.rightRows !== parsed.rightRows) changedFields.push("rightRows");
+      if (before.rightSeatsRow !== parsed.rightSeatsRow) changedFields.push("rightSeatsRow");
+      if (before.notes !== notes) changedFields.push("notes");
+    } else {
+      changedFields.push("created");
+    }
+    const totalSeats =
+      parsed.leftRows * parsed.leftSeatsRow + parsed.rightRows * parsed.rightSeatsRow;
+    await audit(user, {
+      action: "update",
+      entity: "CeremonySeating",
+      entityId: "1",
+      metadata: {
+        leftRows: parsed.leftRows,
+        leftSeatsRow: parsed.leftSeatsRow,
+        rightRows: parsed.rightRows,
+        rightSeatsRow: parsed.rightSeatsRow,
+        totalSeats,
+        changedFields,
+      },
+    });
     revalidatePath("/seating/ceremony");
     return { ok: true };
   } catch (err) {

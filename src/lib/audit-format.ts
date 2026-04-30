@@ -325,6 +325,217 @@ export function formatAuditAction(row: AuditRow): string {
     }
   }
 
+  // ── v1.39.0: enriched-audit patterns for non-Book modules ─────────
+
+  // Budget — money-sensitive surface, show amounts where useful.
+  if (row.entity === "BudgetLine") {
+    const desc = asString(meta.description);
+    if (a === "create") {
+      const cat = asString(meta.categoryName);
+      return `Added budget line ${quoted(desc)}${cat ? ` (${cat})` : ""}`;
+    }
+    if (a === "update") {
+      const changed = Array.isArray(meta.changedFields)
+        ? (meta.changedFields as unknown[]).filter((f) => typeof f === "string")
+        : [];
+      return `Updated budget line ${quoted(desc)}${changed.length > 0 ? ` — ${changed.join(", ")}` : ""}`;
+    }
+    if (a === "delete") {
+      const cat = asString(meta.categoryName);
+      return `Deleted budget line ${quoted(desc)}${cat ? ` from ${cat}` : ""}`;
+    }
+  }
+  if (row.entity === "BudgetCategory") {
+    const n = asString(meta.name);
+    if (a === "create") return `Added budget category ${quoted(n)}`;
+    if (a === "delete") {
+      const lc = asNumber(meta.lineCount) ?? 0;
+      return `Deleted budget category ${quoted(n)}${lc > 0 ? ` (${pluralise(lc, "line", "lines")} cascade-deleted)` : ""}`;
+    }
+  }
+
+  // Payment — money sensitive, snapshot amount + supplier in deletes.
+  if (row.entity === "Payment") {
+    const desc = asString(meta.description);
+    const supplier = asString(meta.supplierName);
+    const amt = asNumber(meta.amount);
+    const amtStr = amt != null ? ` (£${amt.toLocaleString("en-GB")})` : "";
+    if (a === "create") return `Added payment ${quoted(desc)}${amtStr}${supplier ? ` to ${supplier}` : ""}`;
+    if (a === "update") {
+      const changed = Array.isArray(meta.changedFields)
+        ? (meta.changedFields as unknown[]).filter((f) => typeof f === "string")
+        : [];
+      return `Updated payment ${quoted(desc)}${changed.length > 0 ? ` — ${changed.join(", ")}` : ""}`;
+    }
+    if (a === "status") {
+      const status = asString(meta.status);
+      const prev = asString(meta.previousStatus);
+      return `Set payment ${quoted(desc)} to ${status ?? "?"}${prev && prev !== status ? ` (was ${prev})` : ""}${supplier ? ` — ${supplier}` : ""}`;
+    }
+    if (a === "delete") return `Deleted payment ${quoted(desc)}${amtStr}${supplier ? ` (${supplier})` : ""}`;
+  }
+
+  // Seating
+  if (row.entity === "Table") {
+    const n = asString(meta.tableName) ?? asString(meta.name);
+    if (a === "create") {
+      const cap = asNumber(meta.capacity);
+      return `Added seating table ${quoted(n)}${cap != null ? ` (${pluralise(cap, "seat", "seats")})` : ""}`;
+    }
+    if (a === "delete") {
+      const occ = asNumber(meta.occupiedCount) ?? 0;
+      return `Deleted seating table ${quoted(n)}${occ > 0 ? ` (${pluralise(occ, "guest", "guests")} unseated)` : ""}`;
+    }
+    if (a === "position") return `Moved seating table ${quoted(n)}`;
+    if (a === "capacity") {
+      const from = asNumber(meta.from);
+      const to = asNumber(meta.to);
+      return `Resized seating table ${quoted(n)} ${from ?? "?"} → ${to ?? "?"}`;
+    }
+    if (a === "notes") {
+      const cleared = meta.cleared === true;
+      return cleared ? `Cleared notes on seating table ${quoted(n)}` : `Updated notes on seating table ${quoted(n)}`;
+    }
+    if (a === "checklist") {
+      const cleared = meta.cleared === true;
+      const itemCount = asNumber(meta.itemCount) ?? 0;
+      const doneCount = asNumber(meta.doneCount) ?? 0;
+      if (cleared) return `Cleared checklist on seating table ${quoted(n)}`;
+      return `Updated checklist on seating table ${quoted(n)} — ${doneCount}/${itemCount} done`;
+    }
+  }
+  if (row.entity === "Seat") {
+    const guestName = asString(meta.guestName);
+    const tableName = asString(meta.tableName);
+    const seatIndex = asNumber(meta.seatIndex);
+    const seatLabel = seatIndex != null && tableName
+      ? `${tableName} seat ${seatIndex + 1}`
+      : tableName ?? "seat";
+    if (a === "assign") return `Seated ${quoted(guestName)} at ${seatLabel}`;
+    if (a === "unassign") return `Cleared ${seatLabel}`;
+  }
+  if (row.entity === "CeremonySeating" && a === "update") {
+    const total = asNumber(meta.totalSeats);
+    const changed = Array.isArray(meta.changedFields)
+      ? (meta.changedFields as unknown[]).filter((f) => typeof f === "string")
+      : [];
+    return `Updated ceremony layout${total != null ? ` (${total} seats)` : ""}${changed.length > 0 ? ` — ${changed.join(", ")}` : ""}`;
+  }
+  if (row.entity === "WeddingSettings") {
+    if (a === "seating-checklist") {
+      const cleared = meta.cleared === true;
+      const itemCount = asNumber(meta.itemCount) ?? 0;
+      const doneCount = asNumber(meta.doneCount) ?? 0;
+      if (cleared) return `Cleared seating checklist`;
+      return `Updated seating checklist — ${doneCount}/${itemCount} done`;
+    }
+    if (a === "seating-notes") {
+      const cleared = meta.cleared === true;
+      return cleared ? `Cleared seating notes` : `Updated seating notes`;
+    }
+  }
+
+  // Songs
+  if (row.entity === "Playlist") {
+    const n = asString(meta.name) ?? asString(meta.playlistName);
+    if (a === "create") return `Added playlist ${quoted(n)}`;
+    if (a === "delete") {
+      const sc = asNumber(meta.songCount) ?? 0;
+      return `Deleted playlist ${quoted(n)}${sc > 0 ? ` (${pluralise(sc, "song", "songs")})` : ""}`;
+    }
+    if (a === "spotify_unlink") return `Unlinked Spotify from playlist ${quoted(n)}`;
+  }
+  if (row.entity === "Song") {
+    const t = asString(meta.title);
+    const pl = asString(meta.playlistName);
+    if (a === "create") return `Added song ${quoted(t)}${pl ? ` to ${pl}` : ""}`;
+    if (a === "delete") return `Removed song ${quoted(t)}${pl ? ` from ${pl}` : ""}`;
+    if (a === "reorder") {
+      const delta = asNumber(meta.delta) ?? 0;
+      return `Reordered song ${quoted(t)}${pl ? ` in ${pl}` : ""}${delta < 0 ? " (up)" : delta > 0 ? " (down)" : ""}`;
+    }
+  }
+
+  // Household + Guest enrichment
+  if (row.entity === "Household") {
+    const n = asString(meta.name);
+    if (a === "create") return `Added household ${quoted(n)}`;
+    if (a === "update") {
+      const changed = Array.isArray(meta.changedFields)
+        ? (meta.changedFields as unknown[]).filter((f) => typeof f === "string")
+        : [];
+      return `Updated household ${quoted(n)}${changed.length > 0 ? ` — ${changed.join(", ")}` : ""}`;
+    }
+    if (a === "delete") {
+      const gc = asNumber(meta.guestCount) ?? 0;
+      return `Deleted household ${quoted(n)}${gc > 0 ? ` (${pluralise(gc, "guest", "guests")} cascade-deleted)` : ""}`;
+    }
+  }
+  if (row.entity === "Guest") {
+    const fn = asString(meta.firstName);
+    const ln = asString(meta.lastName);
+    const fullName = [fn, ln].filter(Boolean).join(" ").trim() || null;
+    if (a === "create") return `Added guest ${quoted(fullName)}`;
+    if (a === "update") {
+      const changed = Array.isArray(meta.changedFields)
+        ? (meta.changedFields as unknown[]).filter((f) => typeof f === "string")
+        : [];
+      return `Updated guest ${quoted(fullName)}${changed.length > 0 ? ` — ${changed.join(", ")}` : ""}`;
+    }
+    if (a === "rsvp") {
+      const rsvp = asString(meta.rsvp);
+      return `Set RSVP for ${quoted(fullName)} to ${rsvp?.toLowerCase() ?? "?"}`;
+    }
+    if (a === "restore") return `Restored guest ${quoted(fullName)}`;
+  }
+
+  // Supplier + sub-resources
+  if (row.entity === "Supplier") {
+    const n = asString(meta.name);
+    if (a === "create") {
+      const cat = asString(meta.category);
+      return `Added supplier ${quoted(n)}${cat ? ` (${cat})` : ""}`;
+    }
+    if (a === "update") {
+      const changed = Array.isArray(meta.changedFields)
+        ? (meta.changedFields as unknown[]).filter((f) => typeof f === "string")
+        : [];
+      return `Updated supplier ${quoted(n)}${changed.length > 0 ? ` — ${changed.join(", ")}` : ""}`;
+    }
+    if (a === "status") {
+      const status = asString(meta.status);
+      const prev = asString(meta.previousStatus);
+      return `Set supplier ${quoted(n)} status to ${status?.toLowerCase() ?? "?"}${prev && prev !== status ? ` (was ${prev.toLowerCase()})` : ""}`;
+    }
+    if (a === "delete") return `Deleted supplier ${quoted(n)}`;
+  }
+  if (row.entity === "SupplierContact") {
+    const cn = asString(meta.contactName);
+    const sn = asString(meta.supplierName);
+    if (a === "create") return `Added contact ${quoted(cn)}${sn ? ` to ${sn}` : ""}`;
+    if (a === "delete") return `Removed contact ${quoted(cn)}${sn ? ` from ${sn}` : ""}`;
+  }
+  if (row.entity === "SupplierContract") {
+    const sn = asString(meta.supplierName);
+    if (a === "create") {
+      const amt = asNumber(meta.amount);
+      const signed = meta.signed === true;
+      return `Added ${signed ? "signed " : ""}contract for ${sn ?? "(unknown supplier)"}${amt != null ? ` (£${amt.toLocaleString("en-GB")})` : ""}`;
+    }
+    if (a === "delete") return `Deleted contract for ${sn ?? "(unknown supplier)"}`;
+  }
+  if (row.entity === "SupplierCommunication") {
+    const sn = asString(meta.supplierName);
+    const ch = asString(meta.channel);
+    if (a === "delete") return `Removed ${ch ?? ""} log${sn ? ` for ${sn}` : ""}`.replace(/\s+/g, " ").trim();
+  }
+
+  // File enrichment
+  if (row.entity === "File") {
+    const n = asString(meta.name);
+    if (a === "delete") return `Deleted file ${quoted(n)}`;
+  }
+
   // Generic CRUD verbs against any entity.
   const nounLabel = entityLabel(row.entity);
   const VERBS: Record<string, string> = {

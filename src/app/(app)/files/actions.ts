@@ -139,7 +139,17 @@ export async function deleteFile(id: string) {
   if (!file) return;
 
   await db.file.delete({ where: { id } });
-  await audit(user, { action: "delete", entity: "File", entityId: id });
+  await audit(user, {
+    action: "delete",
+    entity: "File",
+    entityId: id,
+    metadata: {
+      name: file.name,
+      sizeBytes: file.sizeBytes,
+      folder: file.folder,
+      visibility: file.visibility,
+    },
+  });
 
   try {
     const fullPath = resolveStoredPath(file.storedPath);

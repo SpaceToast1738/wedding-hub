@@ -51,8 +51,25 @@ export async function createPayment(formData: FormData) {
       supplierId: parsed.supplierId || null,
       notes: parsed.notes ?? null,
     },
+    include: { supplier: { select: { name: true } } },
   });
-  await audit(user, { action: "create", entity: "Payment", entityId: created.id });
+  // v1.39.0: enrich with description + amount + supplier so the audit
+  // log reads as "Created payment 'Venue balance' £5,000 (Alveston Manor)".
+  // Money-sensitive surface — explicit snapshot helps reconcile any
+  // disputed entries against payment receipts.
+  await audit(user, {
+    action: "create",
+    entity: "Payment",
+    entityId: created.id,
+    metadata: {
+      description: created.description,
+      amount: Number(created.amount.toString()),
+      status: created.status,
+      dueDate: created.dueDate,
+      supplierId: created.supplierId,
+      supplierName: created.supplier?.name ?? null,
+    },
+  });
   revalidatePath("/payments");
 }
 
@@ -68,25 +85,57 @@ export async function updatePayment(id: string, formData: FormData) {
     supplierId: formData.get("supplierId") || null,
     notes: formData.get("notes") || null,
   });
-  await db.payment.update({
+  // Read before for the changedFields diff. Capture the supplier name
+  // for the audit even when nothing changed (provides context).
+  const before = await db.payment.findUnique({
     where: { id },
-    data: {
-      description: parsed.description,
-      amount: parseAmount(parsed.amount),
-      status: parsed.status,
-      dueDate: parseDate(parsed.dueDate),
-      paidDate: parseDate(parsed.paidDate),
-      method: parsed.method ?? null,
-      supplierId: parsed.supplierId || null,
-      notes: parsed.notes ?? null,
+    include: { supplier: { select: { name: true } } },
+  });
+  const next = {
+    description: parsed.description,
+    amount: parseAmount(parsed.amount),
+    status: parsed.status,
+    dueDate: parseDate(parsed.dueDate),
+    paidDate: parseDate(parsed.paidDate),
+    method: parsed.method ?? null,
+    supplierId: parsed.supplierId || null,
+    notes: parsed.notes ?? null,
+  };
+  await db.payment.update({ where: { id }, data: next });
+  const changedFields: string[] = [];
+  if (before) {
+    if (before.description !== next.description) changedFields.push("description");
+    if (Number(before.amount.toString()) !== next.amount) changedFields.push("amount");
+    if (before.status !== next.status) changedFields.push("status");
+    if ((before.dueDate?.getTime() ?? null) !== (next.dueDate?.getTime() ?? null))
+      changedFields.push("dueDate");
+    if ((before.paidDate?.getTime() ?? null) !== (next.paidDate?.getTime() ?? null))
+      changedFields.push("paidDate");
+    if (before.method !== next.method) changedFields.push("method");
+    if (before.supplierId !== next.supplierId) changedFields.push("supplierId");
+    if (before.notes !== next.notes) changedFields.push("notes");
+  }
+  await audit(user, {
+    action: "update",
+    entity: "Payment",
+    entityId: id,
+    metadata: {
+      description: next.description,
+      amount: next.amount,
+      supplierName: before?.supplier?.name ?? null,
+      changedFields,
     },
   });
-  await audit(user, { action: "update", entity: "Payment", entityId: id });
   revalidatePath("/payments");
 }
 
 export async function setPaymentStatus(id: string, status: PaymentStatus) {
   const user = await requireEdit("payments");
+  // Snapshot for the audit — needed for the human-readable summary.
+  const before = await db.payment.findUnique({
+    where: { id },
+    include: { supplier: { select: { name: true } } },
+  });
   await db.payment.update({
     where: { id },
     data: {
@@ -94,14 +143,41 @@ export async function setPaymentStatus(id: string, status: PaymentStatus) {
       paidDate: status === PaymentStatus.PAID ? new Date() : null,
     },
   });
-  await audit(user, { action: "status", entity: "Payment", entityId: id, metadata: { status } });
+  await audit(user, {
+    action: "status",
+    entity: "Payment",
+    entityId: id,
+    metadata: {
+      status,
+      previousStatus: before?.status ?? null,
+      description: before?.description ?? null,
+      amount: before?.amount == null ? null : Number(before.amount.toString()),
+      supplierName: before?.supplier?.name ?? null,
+    },
+  });
   revalidatePath("/payments");
   revalidatePath("/");
 }
 
 export async function deletePayment(id: string) {
   const user = await requireEdit("payments");
+  // Snapshot before delete — money-sensitive, log richly.
+  const before = await db.payment.findUnique({
+    where: { id },
+    include: { supplier: { select: { name: true } } },
+  });
   await db.payment.delete({ where: { id } });
-  await audit(user, { action: "delete", entity: "Payment", entityId: id });
+  await audit(user, {
+    action: "delete",
+    entity: "Payment",
+    entityId: id,
+    metadata: {
+      description: before?.description ?? null,
+      amount: before?.amount == null ? null : Number(before.amount.toString()),
+      status: before?.status ?? null,
+      dueDate: before?.dueDate ?? null,
+      supplierName: before?.supplier?.name ?? null,
+    },
+  });
   revalidatePath("/payments");
 }
