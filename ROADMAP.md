@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.30.5** | 2026-04-29 | [Schema cleanup + Topics multi-select · drop legacy `PhotographyShot` and `ScheduleEvent.audience` · combined Wedding Book section + NavTag picker on tasks · NavTag CRUD in Settings · audit-rule standing add + first-pass enrichment](#2026-04-29--v1305--schema-cleanup--topics-multi-select--audit-rule) |
+| **v1.30.6** | 2026-04-30 | [Track `BOOK-EXPANSION-PLAN.md` in the repo (docs only) — sets the v1.31.0–v1.38.0 arc](#2026-04-30--v1306--track-book-expansion-plan-in-the-repo) |
+| v1.30.5 | 2026-04-29 | [Schema cleanup + Topics multi-select · drop legacy `PhotographyShot` and `ScheduleEvent.audience` · combined Wedding Book section + NavTag picker on tasks · NavTag CRUD in Settings · audit-rule standing add + first-pass enrichment](#2026-04-29--v1305--schema-cleanup--topics-multi-select--audit-rule) |
 | v1.30.0 | 2026-04-29 | [Tasks ↔ Wedding Book subsection link · picker on task forms + drawer · Linked tasks panel under each card on `/book/[slug]` with per-card search](#2026-04-29--v1300--tasks--wedding-book-subsection-link) |
 | v1.29.0 | 2026-04-29 | [Task grouping: None / Assignee / Category / Supplier / Priority / Status · localStorage-persisted dropdown beside Sort · sectioned headers with counts](#2026-04-29--v1290--task-grouping) |
 | v1.28.0 | 2026-04-29 | [Task ↔ Supplier link · supplier picker on Task / Question / Decision forms · Linked tasks section on supplier detail · `?supplier=` deep-link from supplier page](#2026-04-29--v1280--task--supplier-link) |
@@ -227,6 +228,17 @@ than the original Phase F1 plan accounted for once OUTFIT was added.
 The user feedback was always specific and actionable so each
 iteration was cheap; in hindsight the seating canvas + the Wedding
 Book just had more surface area than the original plan modelled.
+
+### Wedding Book expansion (v1.31.0 → v1.38.0)
+
+Comprehensive rebuild of the Wedding Book module — 12 sections, 12
+card kinds, Tiptap WYSIWYG editor for TEXT cards. Eight phases,
+each a tagged release. Full design + per-phase prompts in
+[BOOK-EXPANSION-PLAN.md](BOOK-EXPANSION-PLAN.md). Tracked in the
+repo from v1.30.6.
+
+While this arc is in flight, the items below remain queued for
+v1.39.0+ unless a hotfix forces an out-of-band ship.
 
 ### Shovel-ready next (no design pass needed)
 
@@ -687,6 +699,34 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-30 · v1.30.6 — Track Book expansion plan in the repo
+
+Docs-only release. Adds [BOOK-EXPANSION-PLAN.md](BOOK-EXPANSION-PLAN.md) to the repo so future Claude sessions see it on `git status` rather than relying on a working-tree-only file.
+
+The doc defines an eight-phase rebuild of the Wedding Book module: **12 sections (9 active + 3 legacy) and 12 card kinds (5 existing + 7 new), plus a Tiptap WYSIWYG editor for TEXT cards** with a deliberately small mark set. Each phase ships as one tagged release v1.31.0 → v1.38.0:
+
+| Phase | Version | Headline |
+|---|---|---|
+| P1 | v1.31.0 | BUILD card (DIY production tracker) |
+| P2 | v1.32.0 | MENU + BAR cards (Food & Drink rebuild) |
+| P3 | v1.33.0 | SETUP card + Venue → Spaces / Décor split |
+| P4 | v1.34.0 | LEGAL card + Legal → Before / Day / After split |
+| P5 | v1.35.0 | OUTFIT rework (one-card-per-person) + Wedding Party split |
+| P6 | v1.36.0 | STAY + LODGING_GUIDE cards (Accommodation rebuild) |
+| P7 | v1.37.0 | TEXT WYSIWYG + FIELD/RECIPE/SHOT_LIST upgrades + cross-module wiring |
+| P8 | v1.38.0 | Seed refresh + Post-wedding section + production backfill |
+
+Two reconciliations against current state, captured in the planning notes:
+
+- **Task ↔ Book linking is now m2m at BookSection level (v1.30.5)**, not single-FK at BookSubsection level (v1.30.0). Every reference to `Task.bookSubsectionId` in the Book plan reads as "the existing Topics multi-select wires up automatically when new sections are added".
+- **Audit-aware feature design is a standing rule** (v1.30.5). Every server action in P1–P8 emits enriched audit metadata (snapshot fields + `changedFields` diff on updates), not just `{ entity, entityId }`.
+
+Sequencing decision: Book plan first, existing backlog (audit log enrichment sweep, permission-group model, ceremony group colours, numeric auth, production-promotion lag) all defer to v1.39.0+.
+
+**Files:** `BOOK-EXPANSION-PLAN.md` (new, ~1300 lines), `ROADMAP.md` (this entry), `package.json` (bump).
+
+**Verification:** typecheck + lint + 232 unit tests + clean `.next` build all green. No code changed.
 
 ### 2026-04-29 · v1.30.5 — Schema cleanup · Topics multi-select · audit rule
 
