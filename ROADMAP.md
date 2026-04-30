@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.38.1** | 2026-04-30 | [`scripts/seed-samples-only.ts` — fills empty Book sections + subpages on prod without touching users / tasks / schedule / guests / seating. Section seeders refactored to be importable.](#2026-04-30--v1381--samples-only-prod-backfill-script) |
+| **v1.38.2** | 2026-04-30 | [`scripts/reset-book.ts` — destructive Book module reset gated on `CONFIRM_RESET_BOOK=yes`. Wipes + re-seeds every section + subpage; leaves users / tasks / guests / payments untouched.](#2026-04-30--v1382--book-module-reset-script) |
+| v1.38.1 | 2026-04-30 | [`scripts/seed-samples-only.ts` — fills empty Book sections + subpages on prod without touching users / tasks / schedule / guests / seating. Section seeders refactored to be importable.](#2026-04-30--v1381--samples-only-prod-backfill-script) |
 | v1.38.0 | 2026-04-30 | [Wedding Book closes the arc (P7b/B + P8) — SHOT_LIST gains category / time budget / **guest-list link** · FIELD gains group / helpText / required / numeric + date ranges · RECIPE gains servingsBase + structured `BookRecipeStep` (Json→rows migration) + day-before tag · Post-wedding section seeded · Production backfill script · Guest detail "Photos to capture" reverse query](#2026-04-30--v1380--wedding-book-arc-closes-p7bb--p8) |
 | v1.37.5 | 2026-04-30 | [Cross-module wiring (P7b/Part C) — Today widgets for legal deadlines / outfit milestones / open decisions · Guest detail surfaces meal-choice deep-links + accommodation · Budget shows DIY-card linkbacks · Supplier shows "used in setup" rows](#2026-04-30--v1375--cross-module-wiring-p7b-part-c) |
 | v1.37.2 | 2026-04-30 | [TEXT card list / blockquote rendering fix — Tailwind v4 has no `@tailwindcss/typography`, so `prose` was a no-op and bullets / numbers / quote borders all disappeared](#2026-04-30--v1372--text-card-list--blockquote-rendering-fix) |
@@ -747,6 +748,32 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-30 · v1.38.2 — Book module reset script
+
+User request after the v1.38.1 ship: a script that **resets the Book section** end-to-end. Use case: the v1.38.0 promotion brought twelve sections of new structure, and the couple may want to throw out whatever's currently there and start from a clean seed-default state rather than fix it in place.
+
+`scripts/reset-book.ts` — gated on `CONFIRM_RESET_BOOK=yes` env var (no `--yes` flag, no interactive prompt — explicit env required so accidental shell-history re-runs don't fire it). Prints a count summary of what's about to be deleted, then runs `db.bookSection.deleteMany({})` (cascades pull every Book row down with it), recreates the 12 BookSection rows at correct order, and re-runs the eight section-level seeders that v1.38.1 exported.
+
+What it deletes: every Book row — sections, subsections, every per-kind card (FIELD / RECIPE / SHOT_LIST / OUTFIT / BUILD / MENU / BAR / SETUP / LEGAL / STAY / LODGING_GUIDE) and their child rows.
+
+What it leaves alone: **users, permissions, sessions, tasks, guests, households, seating, song requests, schedule events, suppliers, contracts, payments, budget categories, budget lines, files, audit logs.** The Task ↔ BookSection m2m link rows go away (re-link via the Tasks page after); BudgetLine.buildCards back-references go to zero until new BUILD cards re-link via "Copy materials total to Budget".
+
+Always preceded by a backup recommendation in the script's preamble:
+
+```bash
+docker compose exec db pg_dump -U postgres wedding_hub \
+  > wedding-hub-pre-book-reset.sql
+```
+
+Then to actually run:
+
+```bash
+docker compose exec -e CONFIRM_RESET_BOOK=yes web \
+  npx tsx scripts/reset-book.ts
+```
+
+Files: [scripts/reset-book.ts](scripts/reset-book.ts).
 
 ### 2026-04-30 · v1.38.1 — Samples-only prod backfill script
 
