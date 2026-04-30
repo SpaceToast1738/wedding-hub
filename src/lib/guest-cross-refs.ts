@@ -55,6 +55,60 @@ export function findStaysForGuest(
     });
 }
 
+// ─── findShotsForGuest (v1.38.0 P7b/B) ──────────────────────────
+//
+// Reverse query for SHOT_LIST cards listing this guest in the
+// `guestIds` forward link. Same shape + sorting convention as
+// findStaysForGuest. Returns soonest-by-card-then-by-shot-order so
+// the panel reads in capture order.
+
+export type ShotForGuestShape = {
+  shotId: string;
+  shotTitle: string;
+  shotCategory: string | null;
+  shotOrder: number;
+  shotCaptured: boolean;
+  cardId: string;
+  subsectionSlug: string;
+  subsectionTitle: string;
+  sectionSlug: string;
+  guestIds: string[];
+};
+
+export type ShotForGuestHit = {
+  shotId: string;
+  shotTitle: string;
+  shotCategory: string | null;
+  shotCaptured: boolean;
+  cardId: string;
+  subsectionSlug: string;
+  subsectionTitle: string;
+  sectionSlug: string;
+};
+
+export function findShotsForGuest(
+  guestId: string,
+  shots: ShotForGuestShape[],
+): ShotForGuestHit[] {
+  return shots
+    .filter((s) => s.guestIds.includes(guestId))
+    .sort((a, b) => {
+      const c = a.subsectionTitle.localeCompare(b.subsectionTitle);
+      if (c !== 0) return c;
+      return a.shotOrder - b.shotOrder;
+    })
+    .map((s) => ({
+      shotId: s.shotId,
+      shotTitle: s.shotTitle,
+      shotCategory: s.shotCategory,
+      shotCaptured: s.shotCaptured,
+      cardId: s.cardId,
+      subsectionSlug: s.subsectionSlug,
+      subsectionTitle: s.subsectionTitle,
+      sectionSlug: s.sectionSlug,
+    }));
+}
+
 // ─── findMealChoiceLinks ──────────────────────────────────────────
 //
 // MENU cards live under the Food & Drink section (or wherever the

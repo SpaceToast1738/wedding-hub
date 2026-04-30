@@ -28,7 +28,8 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
         // v1.31.0: + buildCard.
         include: {
           fieldDefs: { orderBy: { order: "asc" } },
-          recipe: true,
+          // v1.38.0: include structured recipeSteps for the editor.
+          recipe: { include: { recipeSteps: { orderBy: { order: "asc" } } } },
           shotList: { include: { shots: { orderBy: { order: "asc" } } } },
           // v1.35.0: OUTFIT rework — pull card-level fields + items.
           outfitCard: {
@@ -157,8 +158,11 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
   // picker. Cheap — runs once per section, only when at least one
   // STAY card is present. Mirrors the LODGING_GUIDE / supplier-name
   // pattern. Archived guests excluded.
+  // v1.38.0: SHOT_LIST cards reuse the same picker shape, so a single
+  // guests fetch covers both kinds.
   const hasStay = section.subsections.some((s) => s.kind === "STAY");
-  const stayGuests = hasStay
+  const hasShotList = section.subsections.some((s) => s.kind === "SHOT_LIST");
+  const sectionGuests = hasStay || hasShotList
     ? (
         await db.guest.findMany({
           where: { archived: false },
@@ -315,9 +319,13 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
               // v1.36.0: shape STAY data — thread the guest list for
               // the linked-guest picker.
               const stayCard = sRaw.stayCard
-                ? { ...sRaw.stayCard, guests: stayGuests }
+                ? { ...sRaw.stayCard, guests: sectionGuests }
                 : null;
               const lodgingCard = sRaw.lodgingCard ?? null;
+              // v1.38.0: same guest list threads into SHOT_LIST cards.
+              const shotList = sRaw.shotList
+                ? { ...sRaw.shotList, guests: sectionGuests }
+                : null;
               const s = {
                 ...sRaw,
                 buildCard,
@@ -328,6 +336,7 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
                 outfitCard,
                 stayCard,
                 lodgingCard,
+                shotList,
               };
               return (
                 <CardRouter

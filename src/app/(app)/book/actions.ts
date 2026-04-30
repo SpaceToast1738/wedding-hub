@@ -267,11 +267,26 @@ async function revalidateBookSubsection(id: string) {
   if (sub) revalidatePath(`/book/${sub.section.slug}`);
 }
 
+// v1.38.0 (P7b/B): optional richer metadata — group label, helpText,
+// required flag, number / date range bounds. All passed in the same
+// call as label/type/options. Old callers omitting the extras still
+// work (everything defaults to null/false).
+export type BookFieldDefMeta = {
+  group?: string | null;
+  helpText?: string | null;
+  required?: boolean;
+  min?: number | null;
+  max?: number | null;
+  dateMin?: string | null;  // yyyy-mm-dd or ISO
+  dateMax?: string | null;
+};
+
 export async function addBookFieldDef(
   subsectionId: string,
   label: string,
   type: string,
   options: string[],
+  meta?: BookFieldDefMeta,
 ): Promise<BookActionResult> {
   const user = await requireEdit("book");
   try {
@@ -280,6 +295,8 @@ export async function addBookFieldDef(
       where: { subsectionId },
       orderBy: { order: "desc" },
     });
+    const dateMin = meta?.dateMin ? new Date(meta.dateMin) : null;
+    const dateMax = meta?.dateMax ? new Date(meta.dateMax) : null;
     await db.bookFieldDef.create({
       data: {
         subsectionId,
@@ -287,9 +304,26 @@ export async function addBookFieldDef(
         type: parsed.type,
         options: parsed.type === "select" ? parsed.options : [],
         order: (last?.order ?? -1) + 1,
+        group: meta?.group?.trim() || null,
+        helpText: meta?.helpText?.trim() || null,
+        required: meta?.required ?? false,
+        min: meta?.min ?? null,
+        max: meta?.max ?? null,
+        dateMin: dateMin && !Number.isNaN(dateMin.getTime()) ? dateMin : null,
+        dateMax: dateMax && !Number.isNaN(dateMax.getTime()) ? dateMax : null,
       },
     });
-    await audit(user, { action: "field-add", entity: "BookSubsection", entityId: subsectionId });
+    await audit(user, {
+      action: "field-add",
+      entity: "BookSubsection",
+      entityId: subsectionId,
+      metadata: {
+        label: parsed.label,
+        type: parsed.type,
+        group: meta?.group ?? null,
+        required: meta?.required ?? false,
+      },
+    });
     await revalidateBookSubsection(subsectionId);
     return { ok: true };
   } catch (err) {
@@ -332,6 +366,15 @@ export async function setBookFieldValue(
       type: def.type as BookFieldDefShape["type"],
       options: def.options,
       order: def.order,
+      // v1.38.0: thread richer metadata into the parser so required /
+      // min / max / dateMin / dateMax all enforce on save.
+      group: def.group,
+      helpText: def.helpText,
+      required: def.required,
+      min: def.min,
+      max: def.max,
+      dateMin: def.dateMin ? def.dateMin.toISOString().slice(0, 10) : null,
+      dateMax: def.dateMax ? def.dateMax.toISOString().slice(0, 10) : null,
     };
     const value = parseBookFieldValue(defShape, rawValue);
     const sub = await db.bookSubsection.findUnique({ where: { id: subsectionId } });
@@ -392,7 +435,148 @@ export async function updateBookRecipe(
   }
 }
 
+// ─── v1.38.0 — RECIPE card single-bulk-save ───────────────────────
+//
+// Structured-steps payload. Replaces the legacy `updateBookRecipe`
+// for new callers. The legacy call path stays in place for one
+// release as a back-compat buffer; this action takes precedence
+// when the editor saves.
+
+const recipeStepPayloadSchema = z.object({
+  id: z.string().min(1).max(50),
+  instruction: z.string().min(1).max(2000),
+  durationMinutes: z.number().int().min(0).max(2880).nullable(),
+  dayBefore: z.boolean(),
+});
+
+const recipeSavePayloadSchema = z.object({
+  ingredients: z.array(z.string().min(1).max(500)).max(80),
+  notes: z.string().max(4000).nullable(),
+  servingsBase: z.number().int().min(1).max(1000).nullable(),
+  steps: z.array(recipeStepPayloadSchema).max(80),
+});
+
+export type RecipeSavePayload = z.infer<typeof recipeSavePayloadSchema>;
+
+export async function saveRecipeCard(
+  subsectionId: string,
+  payload: RecipeSavePayload,
+): Promise<BookActionResult> {
+  const user = await requireEdit("book");
+  try {
+    const parsed = recipeSavePayloadSchema.parse(payload);
+    const before = await db.bookRecipe.findUnique({
+      where: { subsectionId },
+      include: { subsection: true, recipeSteps: true },
+    });
+    if (!before) return { ok: false, error: "Recipe card not found" };
+
+    const headerChanged: string[] = [];
+    if (JSON.stringify(parsed.ingredients) !== JSON.stringify(before.ingredients)) {
+      headerChanged.push("ingredients");
+    }
+    if (parsed.notes !== before.notes) headerChanged.push("notes");
+    if (parsed.servingsBase !== before.servingsBase) headerChanged.push("servingsBase");
+
+    const beforeIds = new Set(before.recipeSteps.map((s) => s.id));
+    const incomingIds = new Set(
+      parsed.steps.map((s) => s.id).filter((id) => !id.startsWith("new-")),
+    );
+    const toDelete = [...beforeIds].filter((id) => !incomingIds.has(id));
+    const toCreate = parsed.steps.filter((s) => s.id.startsWith("new-"));
+    const toUpdate = parsed.steps.filter((s) => !s.id.startsWith("new-"));
+
+    await db.$transaction(async (tx) => {
+      await tx.bookRecipe.update({
+        where: { subsectionId },
+        data: {
+          ingredients: parsed.ingredients as Prisma.InputJsonValue,
+          notes: parsed.notes,
+          servingsBase: parsed.servingsBase,
+          // Mirror structured steps back into the legacy `steps` Json
+          // column so the recoverability buffer stays current. Stop
+          // writing it after v1.38 → v1.39.
+          steps: parsed.steps.map((s) => s.instruction) as Prisma.InputJsonValue,
+        },
+      });
+      if (toDelete.length > 0) {
+        await tx.bookRecipeStep.deleteMany({ where: { id: { in: toDelete } } });
+      }
+      for (const s of toUpdate) {
+        await tx.bookRecipeStep.update({
+          where: { id: s.id },
+          data: {
+            instruction: s.instruction,
+            durationMinutes: s.durationMinutes,
+            dayBefore: s.dayBefore,
+          },
+        });
+      }
+      let orderCounter = before.recipeSteps.reduce((max, s) => Math.max(max, s.order), -1);
+      for (const s of toCreate) {
+        orderCounter += 1;
+        await tx.bookRecipeStep.create({
+          data: {
+            recipeId: before.id,
+            instruction: s.instruction,
+            durationMinutes: s.durationMinutes,
+            dayBefore: s.dayBefore,
+            order: orderCounter,
+          },
+        });
+      }
+      for (let idx = 0; idx < parsed.steps.length; idx++) {
+        const s = parsed.steps[idx]!;
+        if (!s.id.startsWith("new-")) {
+          await tx.bookRecipeStep.update({ where: { id: s.id }, data: { order: idx } });
+        }
+      }
+    });
+
+    await audit(user, {
+      action: "recipe-save",
+      entity: "BookSubsection",
+      entityId: subsectionId,
+      metadata: {
+        cardTitle: before.subsection.title,
+        servingsBase: parsed.servingsBase,
+        stepsAdded: toCreate.length,
+        stepsUpdated: toUpdate.length,
+        stepsRemoved: toDelete.length,
+        stepsTotal: parsed.steps.length,
+        ingredientCount: parsed.ingredients.length,
+        headerChanged,
+      },
+    });
+    await revalidateBookSubsection(subsectionId);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Couldn't save recipe card" };
+  }
+}
+
 // ─── v1.26.0 — SHOT_LIST card actions ─────────────────────────────
+
+// v1.38.0 (P7b/B): shared parser for the shot form. Reads category /
+// estimatedMinutes / guestIds[] alongside the legacy fields and
+// hands the result to validateShot.
+function parseShotFormData(fd: FormData): BookShotShape {
+  const estRaw = String(fd.get("estimatedMinutes") ?? "").trim();
+  const estimatedMinutes = estRaw === "" ? null : Number(estRaw);
+  const guestIds = fd.getAll("guestIds").map((v) => String(v));
+  return {
+    title: String(fd.get("title") ?? ""),
+    category: (fd.get("category") as string | null) || null,
+    estimatedMinutes,
+    guestIds,
+    withWhom: String(fd.get("withWhom") ?? "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean),
+    location: (fd.get("location") as string | null) || null,
+    notes: (fd.get("notes") as string | null) || null,
+  };
+}
 
 export async function addBookShot(
   shotListId: string,
@@ -400,15 +584,7 @@ export async function addBookShot(
 ): Promise<BookActionResult> {
   const user = await requireEdit("book");
   try {
-    const validated = validateShot({
-      title: String(formData.get("title") ?? ""),
-      withWhom: String(formData.get("withWhom") ?? "")
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean),
-      location: (formData.get("location") as string) || null,
-      notes: (formData.get("notes") as string) || null,
-    } as BookShotShape);
+    const validated = validateShot(parseShotFormData(formData));
     const last = await db.bookShot.findFirst({
       where: { shotListId },
       orderBy: { order: "desc" },
@@ -422,13 +598,27 @@ export async function addBookShot(
       data: {
         shotListId,
         title: validated.title,
+        category: validated.category ?? null,
+        estimatedMinutes: validated.estimatedMinutes ?? null,
         withWhom: validated.withWhom,
+        guestIds: validated.guestIds ?? [],
         location: validated.location,
         notes: validated.notes,
         order: (last?.order ?? -1) + 1,
       },
     });
-    await audit(user, { action: "shot-add", entity: "BookSubsection", entityId: list.subsectionId });
+    await audit(user, {
+      action: "shot-add",
+      entity: "BookSubsection",
+      entityId: list.subsectionId,
+      metadata: {
+        cardTitle: list.subsection.title,
+        shotTitle: validated.title,
+        category: validated.category ?? null,
+        estimatedMinutes: validated.estimatedMinutes ?? null,
+        guestCount: (validated.guestIds ?? []).length,
+      },
+    });
     await revalidateBookSubsection(list.subsectionId);
     return { ok: true };
   } catch (err) {
@@ -442,21 +632,32 @@ export async function updateBookShot(
 ): Promise<BookActionResult> {
   const user = await requireEdit("book");
   try {
-    const validated = validateShot({
-      title: String(formData.get("title") ?? ""),
-      withWhom: String(formData.get("withWhom") ?? "")
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean),
-      location: (formData.get("location") as string) || null,
-      notes: (formData.get("notes") as string) || null,
-    } as BookShotShape);
+    const validated = validateShot(parseShotFormData(formData));
     const updated = await db.bookShot.update({
       where: { id },
-      data: validated,
-      include: { shotList: true },
+      data: {
+        title: validated.title,
+        category: validated.category ?? null,
+        estimatedMinutes: validated.estimatedMinutes ?? null,
+        withWhom: validated.withWhom,
+        guestIds: validated.guestIds ?? [],
+        location: validated.location,
+        notes: validated.notes,
+      },
+      include: { shotList: { include: { subsection: true } } },
     });
-    await audit(user, { action: "shot-update", entity: "BookSubsection", entityId: updated.shotList.subsectionId });
+    await audit(user, {
+      action: "shot-update",
+      entity: "BookSubsection",
+      entityId: updated.shotList.subsectionId,
+      metadata: {
+        cardTitle: updated.shotList.subsection.title,
+        shotTitle: validated.title,
+        category: validated.category ?? null,
+        estimatedMinutes: validated.estimatedMinutes ?? null,
+        guestCount: (validated.guestIds ?? []).length,
+      },
+    });
     await revalidateBookSubsection(updated.shotList.subsectionId);
     return { ok: true };
   } catch (err) {

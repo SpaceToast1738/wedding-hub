@@ -45,24 +45,50 @@ type Sub = {
     type: string;
     options: string[];
     order: number;
+    // v1.38.0 (P7b/B): richer FIELD authoring metadata.
+    group: string | null;
+    helpText: string | null;
+    required: boolean;
+    min: number | null;
+    max: number | null;
+    dateMin: Date | null;
+    dateMax: Date | null;
   }>;
+  // v1.38.0: RECIPE gains structured `recipeSteps` rows + `servingsBase`.
+  // Legacy `steps` Json column stays one release as a buffer; the
+  // editor reads `recipeSteps` exclusively.
   recipe: {
     ingredients: unknown;
-    steps: unknown;
+    steps: unknown; // legacy json; not used by the editor
     notes: string | null;
+    servingsBase: number | null;
+    recipeSteps: Array<{
+      id: string;
+      instruction: string;
+      durationMinutes: number | null;
+      dayBefore: boolean;
+      order: number;
+    }>;
   } | null;
+  // v1.38.0: SHOT_LIST gains category + estimatedMinutes + guestIds.
+  // The page-level fetch threads in `guests` for the linked-guest
+  // multi-select picker.
   shotList: {
     id: string;
     shots: Array<{
       id: string;
       title: string;
+      category: string | null;
+      estimatedMinutes: number | null;
       withWhom: string[];
+      guestIds: string[];
       location: string | null;
       notes: string | null;
       captured: boolean;
       capturedAt: Date | null;
       order: number;
     }>;
+    guests: Array<{ id: string; name: string }>;
   } | null;
   // v1.35.0: OUTFIT rework — card-level fields hold the person +
   // fitting timeline + cost; items are per-item composition. `files`
@@ -308,7 +334,8 @@ export function CardRouter({
           slug={sub.slug}
           title={sub.title}
           ingredients={Array.isArray(sub.recipe?.ingredients) ? (sub.recipe!.ingredients as string[]) : []}
-          steps={Array.isArray(sub.recipe?.steps) ? (sub.recipe!.steps as string[]) : []}
+          steps={sub.recipe?.recipeSteps ?? []}
+          servingsBase={sub.recipe?.servingsBase ?? null}
           notes={sub.recipe?.notes ?? ""}
           visibility={sub.visibility}
           canEdit={canEdit}
@@ -323,6 +350,7 @@ export function CardRouter({
           title={sub.title}
           shotListId={sub.shotList?.id ?? ""}
           shots={sub.shotList?.shots ?? []}
+          guests={sub.shotList?.guests ?? []}
           visibility={sub.visibility}
           canEdit={canEdit}
           isCouple={isCouple}

@@ -172,6 +172,7 @@ async function seedBookSections() {
     { slug: "legal-day",         title: "Legal — On the day",        order: 9 },
     { slug: "legal-after",       title: "Legal — After",             order: 10 },
     { slug: "accommodation",     title: "Accommodation",             order: 11 },
+    { slug: "post-wedding",      title: "Post-wedding",               order: 12 },
     // Deprecated split sources — pushed to the bottom so the new
     // sections lead. Kept (not deleted) because they may carry
     // couple-edited subsections from earlier releases. The /book
@@ -1001,6 +1002,61 @@ async function seedAccommodationCards() {
   );
 }
 
+// v1.38.0 (P8): seed the Post-wedding section per BOOK-EXPANSION-PLAN
+// §8.12. Idempotent — skipped when the section already has content.
+async function seedPostWeddingSection() {
+  const section = await db.bookSection.findUnique({ where: { slug: "post-wedding" } });
+  if (!section) {
+    console.log(`  · post-wedding section not found; skipping seed`);
+    return;
+  }
+  const existing = await db.bookSubsection.count({ where: { sectionId: section.id } });
+  if (existing > 0) {
+    console.log(`  ✓ post-wedding already populated (${existing}); skipping seed`);
+    return;
+  }
+  const subs = [
+    {
+      slug: "thank-you-tracking",
+      title: "Thank-you tracking",
+      kind: "FIELD" as const,
+      body: null,
+    },
+    {
+      slug: "vendor-reviews-to-write",
+      title: "Vendor reviews to write",
+      kind: "TEXT" as const,
+      body: "List vendors here as reviews go live (CG Media, Paintbox Blooms, Slaters, Dream Wedding & Events, VistaPrint, Stratford School of Jewellery, Warwickshire Registrar).",
+    },
+    {
+      slug: "photo-video-delivery",
+      title: "Photo / video delivery",
+      kind: "FIELD" as const,
+      body: null,
+    },
+    {
+      slug: "marriage-cert-filing",
+      title: "Marriage cert filing",
+      kind: "TEXT" as const,
+      body: "See `legal-after` → Marriage certificate pickup for the actual paperwork. Track filing-elsewhere actions here (joint accounts, ID, name change) as they roll out.",
+    },
+  ];
+  let order = 0;
+  for (const s of subs) {
+    await db.bookSubsection.create({
+      data: {
+        sectionId: section.id,
+        slug: s.slug,
+        title: s.title,
+        kind: s.kind,
+        body: s.body,
+        order: order++,
+      },
+    });
+  }
+  console.log(`  ✓ post-wedding seeded (${subs.length} subsections)`);
+}
+
 async function main() {
   console.log("Seeding Wedding Hub…");
   await seedUsersAndPermissions();
@@ -1017,6 +1073,7 @@ async function main() {
   await seedLegalSections();
   await seedWeddingPartyPeopleAndDayof();
   await seedAccommodationCards();
+  await seedPostWeddingSection();
   console.log("Done.");
 }
 

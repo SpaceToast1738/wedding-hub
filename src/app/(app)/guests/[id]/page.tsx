@@ -5,7 +5,7 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { canEdit, canView } from "@/lib/permissions";
 import { requireUser } from "@/lib/actions";
-import { findMealChoiceLinks, findStaysForGuest } from "@/lib/guest-cross-refs";
+import { findMealChoiceLinks, findShotsForGuest, findStaysForGuest } from "@/lib/guest-cross-refs";
 import { GuestDetailClient } from "./GuestDetailClient";
 import { AddSongRequestInline } from "./AddSongRequestInline";
 import { CustomFieldsBlock } from "./CustomFieldsBlock";
@@ -155,6 +155,43 @@ export default async function GuestDetailPage({
       propertyName: s.propertyName,
       checkInDate: s.checkInDate,
       checkOutDate: s.checkOutDate,
+      guestIds: s.guestIds,
+    })),
+  );
+
+  // v1.38.0 (P7b/B): "Photos to capture" — SHOT_LIST shots whose
+  // guestIds includes this guest. Same forward-only convention as
+  // STAY cards. Sorted by parent-card title then per-shot order.
+  const shotRows = await db.bookShot.findMany({
+    select: {
+      id: true,
+      title: true,
+      category: true,
+      order: true,
+      captured: true,
+      guestIds: true,
+      shotList: {
+        select: {
+          id: true,
+          subsection: {
+            select: { slug: true, title: true, section: { select: { slug: true } } },
+          },
+        },
+      },
+    },
+  });
+  const shotsForGuest = findShotsForGuest(
+    guest.id,
+    shotRows.map((s) => ({
+      shotId: s.id,
+      shotTitle: s.title,
+      shotCategory: s.category,
+      shotOrder: s.order,
+      shotCaptured: s.captured,
+      cardId: s.shotList.id,
+      subsectionSlug: s.shotList.subsection.slug,
+      subsectionTitle: s.shotList.subsection.title,
+      sectionSlug: s.shotList.subsection.section.slug,
       guestIds: s.guestIds,
     })),
   );
@@ -317,6 +354,47 @@ export default async function GuestDetailPage({
               </p>
             )}
           </section>
+
+          {/* v1.38.0 (P7b/B): Photos to capture — SHOT_LIST shots
+              that list this guest in their guestIds. Hidden when
+              none. Captured shots show with strike-through. */}
+          {shotsForGuest.length > 0 && (() => {
+            const remaining = shotsForGuest.filter((s) => !s.shotCaptured).length;
+            return (
+              <section className="bg-surface border border-border-soft rounded-md shadow-sm">
+                <header className="px-4 py-3 border-b border-border-soft">
+                  <h2 className="text-sm font-semibold text-ink-primary">
+                    Photos to capture
+                    <span className="ml-2 text-[11px] font-normal text-ink-tertiary">
+                      {remaining} remaining of {shotsForGuest.length}
+                    </span>
+                  </h2>
+                </header>
+                <ul className="divide-y divide-border-soft text-sm">
+                  {shotsForGuest.map((s) => (
+                    <li key={s.shotId} className="px-4 py-2 flex items-baseline gap-2">
+                      <span className="flex-shrink-0">{s.shotCaptured ? "✓" : "○"}</span>
+                      <Link
+                        href={`/book/${s.sectionSlug}#${s.subsectionSlug}`}
+                        className={[
+                          "hover:text-moss-700 hover:underline truncate flex-1",
+                          s.shotCaptured ? "line-through text-ink-tertiary" : "text-ink-primary",
+                        ].join(" ")}
+                        title={`${s.subsectionTitle} → ${s.shotTitle}`}
+                      >
+                        {s.shotTitle}
+                      </Link>
+                      {s.shotCategory && (
+                        <span className="text-[10px] uppercase tracking-wider rounded-full px-1.5 py-0.5 bg-canvas border border-border-soft text-ink-tertiary flex-shrink-0">
+                          {s.shotCategory}
+                        </span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            );
+          })()}
 
           {/* v1.37.5 (P7b/C): Accommodation — STAY cards that list
               this guest in their guestIds. Hidden when none. */}

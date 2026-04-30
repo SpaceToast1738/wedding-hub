@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { Button } from "@/components/ui/Button";
 import { notify } from "@/lib/notify";
 import {
@@ -9,12 +9,25 @@ import {
   toggleBookShotCaptured,
   updateBookShot,
 } from "../actions";
+import { shotListRollups } from "@/lib/book-cards";
 import { CardChrome } from "./CardChrome";
+
+// v1.26.0: SHOT_LIST card editor.
+// v1.38.0 (P7b/B): adds category, estimatedMinutes, and a guest-list
+// picker. Shots render grouped by category with a time-budget rollup
+// in the card header. The form keeps the inline-add/edit shape — small
+// enough that the §10a card-editor View / Edit toggle wasn't worth
+// the refactor for this card.
+
+type GuestOpt = { id: string; name: string };
 
 type Shot = {
   id: string;
   title: string;
+  category: string | null;
+  estimatedMinutes: number | null;
   withWhom: string[];
+  guestIds: string[];
   location: string | null;
   notes: string | null;
   captured: boolean;
@@ -22,17 +35,13 @@ type Shot = {
   order: number;
 };
 
-// v1.26.0: SHOT_LIST card editor. UX ported from the existing
-// /book/photography ShotsClient — checkboxes, inline add/edit forms,
-// hover-only delete. Same shape as the bespoke photography page so
-// users familiar with that surface have zero re-learn cost.
-
 export function BookShotListCard({
   subsectionId,
   slug,
   title,
   shotListId,
   shots,
+  guests,
   visibility,
   canEdit,
   isCouple,
@@ -42,12 +51,34 @@ export function BookShotListCard({
   title: string;
   shotListId: string;
   shots: Shot[];
+  /** Global guest list, surfaced in the per-shot multi-select. */
+  guests: GuestOpt[];
   visibility: "EVERYONE" | "COUPLE_ONLY";
   canEdit: boolean;
   isCouple: boolean;
 }) {
   const [adding, setAdding] = useState(false);
-  const captured = shots.filter((s) => s.captured).length;
+
+  const r = shotListRollups(shots);
+
+  // Group shots by category for rendering. Shots with null/empty
+  // category bucket under the empty string and render last.
+  const grouped = useMemo(() => {
+    const map = new Map<string, Shot[]>();
+    for (const s of shots) {
+      const k = (s.category ?? "").trim();
+      const arr = map.get(k) ?? [];
+      arr.push(s);
+      map.set(k, arr);
+    }
+    const entries = [...map.entries()].sort((a, b) => {
+      // Empty bucket sorts last.
+      if (a[0] === "" && b[0] !== "") return 1;
+      if (b[0] === "" && a[0] !== "") return -1;
+      return a[0].localeCompare(b[0]);
+    });
+    return entries;
+  }, [shots]);
 
   return (
     <CardChrome
@@ -60,24 +91,54 @@ export function BookShotListCard({
       kindBadge="Shot list"
     >
       {shots.length > 0 && (
-        <div className="text-[11px] text-ink-tertiary tabular-nums mb-2">
-          {captured} / {shots.length} captured
+        <div className="text-[11px] text-ink-tertiary tabular-nums mb-3 flex items-baseline gap-3 flex-wrap">
+          <span>
+            {r.capturedCount} / {r.shotCount} captured ({r.percentCaptured}%)
+          </span>
+          {r.estimatedMinutesTotal != null && (
+            <span>
+              · est. {formatMinutes(r.estimatedMinutesTotal)}
+            </span>
+          )}
         </div>
       )}
       {shots.length === 0 && !canEdit ? (
         <p className="text-xs text-ink-tertiary italic">No shots yet.</p>
       ) : (
-        <ul className="divide-y divide-border-soft">
-          {shots.map((shot) => (
-            <ShotRow key={shot.id} shot={shot} canEdit={canEdit} />
-          ))}
-        </ul>
+        <div className="space-y-3">
+          {grouped.map(([category, groupShots]) => {
+            const groupCaptured = groupShots.filter((s) => s.captured).length;
+            const groupMins = groupShots.reduce(
+              (sum, s) => sum + (s.estimatedMinutes ?? 0),
+              0,
+            );
+            return (
+              <section key={category || "__none__"}>
+                <header className="flex items-baseline gap-2 mb-1.5">
+                  <strong className="text-[11px] uppercase tracking-wider text-ink-tertiary font-bold">
+                    {category || "Uncategorised"}
+                  </strong>
+                  <span className="text-[10px] text-ink-tertiary tabular-nums">
+                    {groupCaptured} / {groupShots.length}
+                    {groupMins > 0 && ` · ${formatMinutes(groupMins)}`}
+                  </span>
+                </header>
+                <ul className="divide-y divide-border-soft border border-border-soft rounded-md">
+                  {groupShots.map((shot) => (
+                    <ShotRow key={shot.id} shot={shot} guests={guests} canEdit={canEdit} />
+                  ))}
+                </ul>
+              </section>
+            );
+          })}
+        </div>
       )}
       {canEdit && (
         <div className="mt-3">
           {adding ? (
             <ShotForm
               shotListId={shotListId}
+              guests={guests}
               onClose={() => setAdding(false)}
               submitLabel="Add shot"
             />
@@ -92,9 +153,29 @@ export function BookShotListCard({
   );
 }
 
-function ShotRow({ shot, canEdit }: { shot: Shot; canEdit: boolean }) {
+function formatMinutes(m: number): string {
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  const mins = m % 60;
+  return mins === 0 ? `${h}h` : `${h}h ${mins}m`;
+}
+
+function ShotRow({
+  shot,
+  guests,
+  canEdit,
+}: {
+  shot: Shot;
+  guests: GuestOpt[];
+  canEdit: boolean;
+}) {
   const [editing, setEditing] = useState(false);
   const [pending, startTransition] = useTransition();
+
+  const guestById = new Map(guests.map((g) => [g.id, g]));
+  const linkedGuestNames = shot.guestIds
+    .map((id) => guestById.get(id)?.name)
+    .filter((n): n is string => Boolean(n));
 
   function toggle() {
     startTransition(async () => {
@@ -113,10 +194,11 @@ function ShotRow({ shot, canEdit }: { shot: Shot; canEdit: boolean }) {
 
   if (editing) {
     return (
-      <li className="py-2">
+      <li className="px-3 py-3 bg-canvas/30">
         <ShotForm
           shotId={shot.id}
           initial={shot}
+          guests={guests}
           onClose={() => setEditing(false)}
           submitLabel="Save"
         />
@@ -125,7 +207,7 @@ function ShotRow({ shot, canEdit }: { shot: Shot; canEdit: boolean }) {
   }
 
   return (
-    <li className="flex items-start gap-3 py-2 group">
+    <li className="flex items-start gap-3 px-3 py-2 group">
       <input
         type="checkbox"
         checked={shot.captured}
@@ -134,16 +216,32 @@ function ShotRow({ shot, canEdit }: { shot: Shot; canEdit: boolean }) {
         className="accent-moss-500 mt-1 flex-shrink-0"
       />
       <div className="flex-1 min-w-0">
-        <div
-          className={[
-            "text-sm",
-            shot.captured ? "line-through text-ink-tertiary" : "text-ink-primary",
-          ].join(" ")}
-        >
-          {shot.title}
+        <div className="flex items-baseline gap-2 flex-wrap">
+          <span
+            className={[
+              "text-sm",
+              shot.captured ? "line-through text-ink-tertiary" : "text-ink-primary",
+            ].join(" ")}
+          >
+            {shot.title}
+          </span>
+          {shot.estimatedMinutes != null && shot.estimatedMinutes > 0 && (
+            <span className="text-[10px] uppercase tracking-wider rounded-full px-1.5 py-0.5 bg-canvas border border-border-soft text-ink-tertiary">
+              {formatMinutes(shot.estimatedMinutes)}
+            </span>
+          )}
         </div>
         <div className="text-[11px] text-ink-tertiary mt-0.5 flex flex-wrap gap-x-2">
-          {shot.withWhom.length > 0 && <span>👥 {shot.withWhom.join(", ")}</span>}
+          {linkedGuestNames.length > 0 && (
+            <span title={`Linked guests: ${linkedGuestNames.join(", ")}`}>
+              👥 {linkedGuestNames.join(", ")}
+            </span>
+          )}
+          {shot.withWhom.length > 0 && (
+            <span title={`Free-text names: ${shot.withWhom.join(", ")}`}>
+              + {shot.withWhom.join(", ")}
+            </span>
+          )}
           {shot.location && <span>📍 {shot.location}</span>}
           {shot.notes && <span className="italic">{shot.notes}</span>}
         </div>
@@ -166,28 +264,44 @@ function ShotForm({
   shotId,
   shotListId,
   initial,
+  guests,
   onClose,
   submitLabel,
 }: {
   shotId?: string;
   shotListId?: string;
   initial?: Shot;
+  guests: GuestOpt[];
   onClose: () => void;
   submitLabel: string;
 }) {
   const [title, setTitle] = useState(initial?.title ?? "");
+  const [category, setCategory] = useState(initial?.category ?? "");
+  const [estimatedMinutes, setEstimatedMinutes] = useState(
+    initial?.estimatedMinutes != null ? String(initial.estimatedMinutes) : "",
+  );
   const [withWhom, setWithWhom] = useState(initial?.withWhom.join(", ") ?? "");
+  const [guestIds, setGuestIds] = useState<string[]>(initial?.guestIds ?? []);
   const [location, setLocation] = useState(initial?.location ?? "");
   const [notes, setNotes] = useState(initial?.notes ?? "");
   const [pending, startTransition] = useTransition();
+
+  function toggleGuest(id: string) {
+    setGuestIds((prev) =>
+      prev.includes(id) ? prev.filter((g) => g !== id) : [...prev, id],
+    );
+  }
 
   function submit() {
     if (!title.trim()) return;
     const fd = new FormData();
     fd.set("title", title);
+    fd.set("category", category);
+    fd.set("estimatedMinutes", estimatedMinutes);
     fd.set("withWhom", withWhom);
     fd.set("location", location);
     fd.set("notes", notes);
+    for (const id of guestIds) fd.append("guestIds", id);
     startTransition(async () => {
       const res = shotId
         ? await updateBookShot(shotId, fd)
@@ -210,14 +324,25 @@ function ShotForm({
         disabled={pending}
         className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2 py-1 text-ink-primary outline-none focus:border-moss-500"
       />
-      <div className="grid sm:grid-cols-2 gap-2">
+      <div className="grid sm:grid-cols-3 gap-2">
         <input
           type="text"
-          value={withWhom}
-          onChange={(e) => setWithWhom(e.target.value)}
-          placeholder="With whom (comma-separated)"
+          value={category}
+          onChange={(e) => setCategory(e.target.value)}
+          placeholder="Category (e.g. Pre-ceremony)"
+          maxLength={60}
           disabled={pending}
           className="text-sm bg-surface border border-border-soft rounded-sm px-2 py-1 text-ink-primary outline-none focus:border-moss-500"
+        />
+        <input
+          type="number"
+          value={estimatedMinutes}
+          onChange={(e) => setEstimatedMinutes(e.target.value)}
+          placeholder="Est. minutes"
+          min={0}
+          max={600}
+          disabled={pending}
+          className="text-sm bg-surface border border-border-soft rounded-sm px-2 py-1 text-ink-primary outline-none focus:border-moss-500 tabular-nums"
         />
         <input
           type="text"
@@ -229,6 +354,46 @@ function ShotForm({
           className="text-sm bg-surface border border-border-soft rounded-sm px-2 py-1 text-ink-primary outline-none focus:border-moss-500"
         />
       </div>
+      {/* Linked guests — multi-select picker */}
+      <div>
+        <div className="text-[10px] uppercase tracking-wider text-ink-tertiary font-bold mb-1">
+          Linked guests ({guestIds.length})
+        </div>
+        {guests.length === 0 ? (
+          <p className="text-xs text-ink-tertiary italic">No guests yet — add them on /guests first.</p>
+        ) : (
+          <ul className="flex flex-wrap gap-1 max-h-32 overflow-y-auto p-1 border border-border-soft rounded-sm bg-surface">
+            {guests.map((g) => {
+              const on = guestIds.includes(g.id);
+              return (
+                <li key={g.id}>
+                  <button
+                    type="button"
+                    onClick={() => toggleGuest(g.id)}
+                    disabled={pending}
+                    className={[
+                      "text-[11px] rounded-full px-2 py-0.5 border",
+                      on
+                        ? "bg-moss-50 border-moss-300 text-moss-700"
+                        : "bg-canvas border-border-soft text-ink-tertiary hover:text-ink-primary",
+                    ].join(" ")}
+                  >
+                    {g.name}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+      <input
+        type="text"
+        value={withWhom}
+        onChange={(e) => setWithWhom(e.target.value)}
+        placeholder="Other names (free-text, comma-separated — e.g. vendor, partner-of-cousin)"
+        disabled={pending}
+        className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2 py-1 text-ink-primary outline-none focus:border-moss-500"
+      />
       <input
         type="text"
         value={notes}
@@ -254,3 +419,4 @@ function ShotForm({
     </div>
   );
 }
+

@@ -542,19 +542,53 @@ model BookFieldDef {
   type         String         // "text" | "number" | "date" | "select"
   options      String[]       @default([])
   order        Int            @default(0)
+  // v1.38.0 (P7b/B): richer FIELD authoring — group label for
+  // collapsible sections, helpText shown beside the input, required
+  // flag enforced on save, and number / date range bounds. All
+  // optional + nullable so existing rows still validate.
+  group        String?
+  helpText     String?        @db.Text
+  required     Boolean        @default(false)
+  min          Float?
+  max          Float?
+  dateMin      DateTime?
+  dateMax      DateTime?
 }
 
 // v1.26.0: RECIPE card — ingredients list + steps list + notes.
 // Wedding use-cases: cocktail menus, table-centrepiece "recipes",
 // bouquet recipes. Both lists kept as Json string[] rather than per-
 // row tables — small, ordered, never queried alone.
+//
+// v1.38.0 (P7b/B): steps gain structure — `BookRecipeStep` rows hold
+// instruction + duration + day-before tag so we can compute total
+// active time + flag prep that should happen the day before.
+// `servingsBase` lets the editor offer a scale-up control (×2, ×3
+// for catered batches). Legacy `steps` Json column kept one release
+// as a recoverability buffer (matches v1.30.5 / P7a pattern).
 model BookRecipe {
   id           String         @id @default(cuid())
   subsectionId String         @unique
   subsection   BookSubsection @relation(fields: [subsectionId], references: [id], onDelete: Cascade)
   ingredients  Json           // string[]
-  steps        Json           // string[]
+  steps        Json           // string[] — legacy; backfilled into recipeSteps in v1.38.0
   notes        String?        @db.Text
+  servingsBase Int?
+  recipeSteps  BookRecipeStep[]
+}
+
+// v1.38.0: structured recipe steps. Per-row instruction + optional
+// duration + day-before flag. Sorted by `order` ascending.
+model BookRecipeStep {
+  id              String     @id @default(cuid())
+  recipeId        String
+  recipe          BookRecipe @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  order           Int        @default(0)
+  instruction     String     @db.Text
+  durationMinutes Int?
+  dayBefore       Boolean    @default(false)
+
+  @@index([recipeId])
 }
 
 // v1.26.0: SHOT_LIST card — replaces the bespoke v0.13.0
@@ -569,16 +603,28 @@ model BookShotList {
 }
 
 model BookShot {
-  id         String       @id @default(cuid())
-  shotListId String
-  shotList   BookShotList @relation(fields: [shotListId], references: [id], onDelete: Cascade)
-  title      String
-  withWhom   String[]     @default([])
-  location   String?
-  notes      String?      @db.Text
-  captured   Boolean      @default(false)
-  capturedAt DateTime?
-  order      Int          @default(0)
+  id              String       @id @default(cuid())
+  shotListId      String
+  shotList        BookShotList @relation(fields: [shotListId], references: [id], onDelete: Cascade)
+  title           String
+  // v1.38.0 (P7b/B): structured grouping + time budget.
+  // `category` is free text (e.g. "Pre-ceremony", "Family formals",
+  // "Reception"). `estimatedMinutes` rolls up into the card header.
+  category        String?
+  estimatedMinutes Int?
+  // v1.38.0: the existing `withWhom` field stays for free-text names
+  // (vendors, partner-of-cousin, etc.). `guestIds` is the array of
+  // optional Guest.id FKs — same forward-only convention as
+  // BookStayCard. Reverse query lives at render time. Editor offers
+  // a multi-select picker; the rendered card joins back to
+  // `Guest.firstName/lastName` for display.
+  withWhom        String[]     @default([])
+  guestIds        String[]     @default([])
+  location        String?
+  notes           String?      @db.Text
+  captured        Boolean      @default(false)
+  capturedAt      DateTime?
+  order           Int          @default(0)
 }
 
 // v1.26.0: OUTFIT card — list of per-person outfit rows. Free-text

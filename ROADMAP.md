@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.37.5** | 2026-04-30 | [Cross-module wiring (P7b/Part C) — Today widgets for legal deadlines / outfit milestones / open decisions · Guest detail surfaces meal-choice deep-links + accommodation · Budget shows DIY-card linkbacks · Supplier shows "used in setup" rows](#2026-04-30--v1375--cross-module-wiring-p7b-part-c) |
+| **v1.38.0** | 2026-04-30 | [Wedding Book closes the arc (P7b/B + P8) — SHOT_LIST gains category / time budget / **guest-list link** · FIELD gains group / helpText / required / numeric + date ranges · RECIPE gains servingsBase + structured `BookRecipeStep` (Json→rows migration) + day-before tag · Post-wedding section seeded · Production backfill script · Guest detail "Photos to capture" reverse query](#2026-04-30--v1380--wedding-book-arc-closes-p7bb--p8) |
+| v1.37.5 | 2026-04-30 | [Cross-module wiring (P7b/Part C) — Today widgets for legal deadlines / outfit milestones / open decisions · Guest detail surfaces meal-choice deep-links + accommodation · Budget shows DIY-card linkbacks · Supplier shows "used in setup" rows](#2026-04-30--v1375--cross-module-wiring-p7b-part-c) |
 | v1.37.2 | 2026-04-30 | [TEXT card list / blockquote rendering fix — Tailwind v4 has no `@tailwindcss/typography`, so `prose` was a no-op and bullets / numbers / quote borders all disappeared](#2026-04-30--v1372--text-card-list--blockquote-rendering-fix) |
 | v1.37.1 | 2026-04-30 | [TEXT card View / Edit toggle — toolbar no longer leaks into read mode after save (matches every other v1.31+ card)](#2026-04-30--v1371--text-card-view--edit-toggle) |
 | v1.37.0 | 2026-04-30 | [Wedding Book TEXT cards switch to Tiptap WYSIWYG (P7a) — 10-mark toolbar (Bold / Italic / Underline / H2 / H3 / lists / quote / link / undo / redo) · sanitiser allow-list with enforced `rel`+`target` on every anchor · idempotent SQL backfill for existing TEXT bodies](#2026-04-30--v1370--wedding-book-text-wysiwyg-p7a) |
@@ -745,6 +746,34 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-30 · v1.38.0 — Wedding Book arc closes (P7b/B + P8)
+
+**Final phase of the [Book Expansion arc](BOOK-EXPANSION-PLAN.md).** Combines P7b/Part B (FIELD / RECIPE / SHOT_LIST upgrades) with P8 (Post-wedding section seed + production backfill script). The Book is now feature-complete against the original plan: 12 sections (8 active + 4 deprecated), 12 card kinds (TEXT, FIELD, RECIPE, SHOT_LIST, OUTFIT, BUILD, MENU, BAR, SETUP, LEGAL, STAY, LODGING_GUIDE), TEXT cards with WYSIWYG (v1.37.0–v1.37.2), and read-time cross-module wiring on every page that asks for the data (v1.37.5).
+
+**SHOT_LIST upgrades** — biggest user-facing addition. New `category` and `estimatedMinutes` columns on `BookShot`. Editor now offers a category text input + minutes input alongside the existing fields, and the rendered card groups shots by category with a per-group capture counter and time-budget rollup. Card header shows total estimated minutes when at least one shot has an estimate. **Plus the user's specific ask**: shots gain a `guestIds: String[]` forward link to `Guest.id`, with a multi-select picker in the form. The legacy free-text `withWhom` field stays for non-guest names (vendors, partner-of-cousin). Forward-only relation per the v1.30.5 cross-module-reference rule — reverse query lives at render time on the Guest detail panel.
+
+**Guest detail "Photos to capture"** — new section on `/guests/[id]` listing every shot whose `guestIds` includes this guest. Captured shots show with strike-through; remaining count surfaces in the section header. Each row deep-links to the parent SHOT_LIST card.
+
+**FIELD upgrades** — `BookFieldDef` gains `group`, `helpText`, `required`, `min`, `max`, `dateMin`, `dateMax`. The editor renders fields grouped by `group` (collapsible-style sections); helpText shows on hover via the `ⓘ` icon; required fields show a red asterisk; the "Add field" form has a "More options" toggle exposing the new metadata. Validation enforced server-side in `parseBookFieldValue`: required values throw on empty input, numeric ranges enforce min/max, date ranges enforce dateMin/dateMax in `yyyy-mm-dd`.
+
+**RECIPE upgrades** — `BookRecipe` gains `servingsBase` and a new structured `BookRecipeStep` table (id, instruction, durationMinutes, dayBefore, order). Migration backfills existing `steps` Json arrays into the new table via a SQL `DO` block (idempotent — skips recipes that already have BookRecipeStep rows). Legacy `steps` Json column kept one release as a recoverability buffer. Editor rewritten with View / Edit toggle: header shows servings + active-time + day-before time as stat tiles; view-mode adds a `×1 / ×2 / ×3` scaling toggle; structured edit rows let the couple set per-step duration + tag prep that should happen the day before. Day-before steps render with a marigold pill in view mode.
+
+**Post-wedding section** — new `post-wedding` BookSection seeded at order 12. Four subsections per [§8.12](BOOK-EXPANSION-PLAN.md): Thank-you tracking (FIELD), Vendor reviews to write (TEXT), Photo / video delivery (FIELD), Marriage cert filing (TEXT pointer to legal-after).
+
+**Production backfill** — `scripts/backfill-v1.38.ts` ensures the new sections exist on production with the right ordering. Idempotent: re-runs are no-ops on already-migrated DBs. Doesn't touch couple-edited content. Run once after `prisma migrate deploy` finishes. The seeders in `prisma/seed.ts` are also idempotent — running the seed on a populated prod skips every section that already has subsections.
+
+**Schema migration `20260430100000_book_p7b_part_b_card_upgrades`:**
+- FIELD: 7 new nullable / defaulted columns
+- SHOT_LIST: 3 new columns (category, estimatedMinutes, guestIds)
+- RECIPE: 1 new column (servingsBase) + new BookRecipeStep table + idempotent SQL backfill
+- Post-wedding BookSection insert with `ON CONFLICT DO NOTHING`
+
+**21 new unit tests** covering shotListRollups, recipeRollups, findShotsForGuest, and the FIELD validator's required / min / max / dateMin / dateMax enforcement.
+
+**Verification gate:** typecheck + lint + 363 unit tests + production build all green on the same SHA.
+
+Files: [prisma/schema.prisma](prisma/schema.prisma) · [prisma/migrations/20260430100000_book_p7b_part_b_card_upgrades/migration.sql](prisma/migrations/20260430100000_book_p7b_part_b_card_upgrades/migration.sql) · [src/lib/book-cards.ts](src/lib/book-cards.ts) · [src/lib/guest-cross-refs.ts](src/lib/guest-cross-refs.ts) · [tests/unit/v1.38-helpers.test.ts](tests/unit/v1.38-helpers.test.ts) · [src/app/(app)/book/actions.ts](src/app/(app)/book/actions.ts) · [src/app/(app)/book/[slug]/BookFieldsCard.tsx](src/app/(app)/book/[slug]/BookFieldsCard.tsx) · [src/app/(app)/book/[slug]/BookRecipeCard.tsx](src/app/(app)/book/[slug]/BookRecipeCard.tsx) · [src/app/(app)/book/[slug]/BookShotListCard.tsx](src/app/(app)/book/[slug]/BookShotListCard.tsx) · [src/app/(app)/book/[slug]/CardRouter.tsx](src/app/(app)/book/[slug]/CardRouter.tsx) · [src/app/(app)/book/[slug]/page.tsx](src/app/(app)/book/[slug]/page.tsx) · [src/app/(app)/guests/[id]/page.tsx](src/app/(app)/guests/[id]/page.tsx) · [prisma/seed.ts](prisma/seed.ts) · [scripts/backfill-v1.38.ts](scripts/backfill-v1.38.ts).
 
 ### 2026-04-30 · v1.37.5 — Cross-module wiring (P7b / Part C)
 

@@ -77,6 +77,15 @@ export type BookFieldDefShape = {
   type: "text" | "number" | "date" | "select";
   options: string[];
   order: number;
+  // v1.38.0 (P7b/B): richer authoring metadata. All optional so
+  // existing rows still pass through validators unchanged.
+  group?: string | null;
+  helpText?: string | null;
+  required?: boolean;
+  min?: number | null;
+  max?: number | null;
+  dateMin?: string | null;  // yyyy-mm-dd
+  dateMax?: string | null;
 };
 
 // On-disk shape for FIELD card values: a record keyed by
@@ -93,9 +102,15 @@ export function parseBookFieldValue(
   def: BookFieldDefShape,
   raw: string | null | undefined,
 ): string | number | null {
-  if (raw === null || raw === undefined) return null;
+  if (raw === null || raw === undefined || String(raw).trim() === "") {
+    // v1.38.0: required-flag enforcement. Empty value is rejected
+    // when the def says required.
+    if (def.required) {
+      throw new Error(`${def.label}: required`);
+    }
+    return null;
+  }
   const trimmed = String(raw).trim();
-  if (trimmed === "") return null;
 
   switch (def.type) {
     case "text": {
@@ -109,6 +124,13 @@ export function parseBookFieldValue(
       if (Number.isNaN(n) || !Number.isFinite(n)) {
         throw new Error(`${def.label}: must be a number`);
       }
+      // v1.38.0: range enforcement (when set).
+      if (def.min != null && n < def.min) {
+        throw new Error(`${def.label}: must be ≥ ${def.min}`);
+      }
+      if (def.max != null && n > def.max) {
+        throw new Error(`${def.label}: must be ≤ ${def.max}`);
+      }
       return n;
     }
     case "date": {
@@ -116,7 +138,15 @@ export function parseBookFieldValue(
       if (Number.isNaN(d.getTime())) {
         throw new Error(`${def.label}: not a valid date`);
       }
-      return d.toISOString().slice(0, 10);
+      const iso = d.toISOString().slice(0, 10);
+      // v1.38.0: date-range enforcement (when set).
+      if (def.dateMin && iso < def.dateMin) {
+        throw new Error(`${def.label}: must be on or after ${def.dateMin}`);
+      }
+      if (def.dateMax && iso > def.dateMax) {
+        throw new Error(`${def.label}: must be on or before ${def.dateMax}`);
+      }
+      return iso;
     }
     case "select": {
       if (!def.options.includes(trimmed)) {
@@ -198,6 +228,54 @@ export function validateRecipe(input: BookRecipeShape): BookRecipeShape {
   return { ingredients, steps, notes };
 }
 
+// ─── RECIPE rollups (v1.38.0) ────────────────────────────────────
+//
+// Time budget for structured recipe steps. Splits day-before prep
+// from active (day-of) time so the couple knows what to do when.
+
+export type RecipeStepShape = {
+  durationMinutes?: number | null;
+  dayBefore?: boolean;
+};
+
+export type RecipeRollups = {
+  /** Sum of durationMinutes across NON-day-before steps. Null when
+   *  no step has a duration set. */
+  activeMinutes: number | null;
+  /** Sum of durationMinutes across day-before steps only. Null when
+   *  no day-before step has a duration set. */
+  dayBeforeMinutes: number | null;
+  /** Count of steps tagged dayBefore. */
+  dayBeforeCount: number;
+  stepCount: number;
+};
+
+export function recipeRollups(steps: RecipeStepShape[]): RecipeRollups {
+  let activeSum = 0;
+  let dayBeforeSum = 0;
+  let activeAny = false;
+  let dayBeforeAny = false;
+  let dayBeforeCount = 0;
+  for (const s of steps) {
+    if (s.dayBefore) dayBeforeCount += 1;
+    if (s.durationMinutes != null && Number.isFinite(s.durationMinutes)) {
+      if (s.dayBefore) {
+        dayBeforeSum += s.durationMinutes;
+        dayBeforeAny = true;
+      } else {
+        activeSum += s.durationMinutes;
+        activeAny = true;
+      }
+    }
+  }
+  return {
+    activeMinutes: activeAny ? activeSum : null,
+    dayBeforeMinutes: dayBeforeAny ? dayBeforeSum : null,
+    dayBeforeCount,
+    stepCount: steps.length,
+  };
+}
+
 // ─── SHOT_LIST card ───────────────────────────────────────────────
 
 export type BookShotShape = {
@@ -205,6 +283,11 @@ export type BookShotShape = {
   withWhom: string[];
   location: string | null;
   notes: string | null;
+  // v1.38.0 (P7b/B): structured grouping + time budget + guest-list
+  // forward link.
+  category?: string | null;
+  estimatedMinutes?: number | null;
+  guestIds?: string[];
 };
 
 // Comma-separated free-text → trimmed string array. Mirrors the
@@ -222,6 +305,9 @@ const SHOT_TITLE_MAX = 200;
 const SHOT_LOCATION_MAX = 200;
 const SHOT_NOTES_MAX = 2000;
 
+const SHOT_CATEGORY_MAX = 60;
+const SHOT_ESTIMATED_MAX = 600; // 10h sanity cap
+
 export function validateShot(input: BookShotShape): BookShotShape {
   const title = input.title.trim();
   if (title.length === 0) throw new Error("Shot title is required");
@@ -237,7 +323,92 @@ export function validateShot(input: BookShotShape): BookShotShape {
   if (notes && notes.length > SHOT_NOTES_MAX) {
     throw new Error(`Shot notes too long (max ${SHOT_NOTES_MAX} chars)`);
   }
-  return { title, withWhom, location, notes };
+  // v1.38.0: optional fields validated only when present so existing
+  // callers that don't pass them still pass through.
+  let category: string | null | undefined = input.category;
+  if (category != null) {
+    const trimmed = category.trim();
+    if (trimmed.length === 0) {
+      category = null;
+    } else {
+      if (trimmed.length > SHOT_CATEGORY_MAX) {
+        throw new Error(`Shot category too long (max ${SHOT_CATEGORY_MAX} chars)`);
+      }
+      category = trimmed;
+    }
+  }
+  let estimatedMinutes: number | null | undefined = input.estimatedMinutes;
+  if (estimatedMinutes != null) {
+    if (!Number.isFinite(estimatedMinutes) || estimatedMinutes < 0) {
+      throw new Error("estimatedMinutes must be ≥ 0");
+    }
+    if (estimatedMinutes > SHOT_ESTIMATED_MAX) {
+      throw new Error(`estimatedMinutes too large (max ${SHOT_ESTIMATED_MAX})`);
+    }
+    estimatedMinutes = Math.round(estimatedMinutes);
+  }
+  const guestIds = (input.guestIds ?? []).map((id) => String(id).trim()).filter((id) => id.length > 0);
+  return {
+    title,
+    withWhom,
+    location,
+    notes,
+    category: category ?? null,
+    estimatedMinutes: estimatedMinutes ?? null,
+    guestIds,
+  };
+}
+
+// ─── SHOT_LIST rollups (v1.38.0) ──────────────────────────────────
+//
+// Time-budget + capture-progress + per-category grouping for the
+// SHOT_LIST card header. Pure — caller passes shaped shots, gets
+// back numbers + a Map.
+
+export type ShotForRollup = {
+  category?: string | null;
+  estimatedMinutes?: number | null;
+  captured: boolean;
+};
+
+export type ShotListRollups = {
+  shotCount: number;
+  capturedCount: number;
+  percentCaptured: number;
+  /** Total estimated minutes across all shots (sum of non-null
+   *  `estimatedMinutes`). Null when no shot has an estimate set. */
+  estimatedMinutesTotal: number | null;
+  /** Map of category → { count, captured, estimatedMinutes }.
+   *  Shots with null/empty category bucket under the empty string. */
+  perCategory: Map<string, { count: number; captured: number; estimatedMinutes: number }>;
+};
+
+export function shotListRollups(shots: ShotForRollup[]): ShotListRollups {
+  const shotCount = shots.length;
+  const capturedCount = shots.filter((s) => s.captured).length;
+  const percentCaptured = shotCount === 0 ? 0 : Math.round((capturedCount / shotCount) * 100);
+  let estimatedSum = 0;
+  let estimatedAny = false;
+  const perCategory = new Map<string, { count: number; captured: number; estimatedMinutes: number }>();
+  for (const s of shots) {
+    const k = (s.category ?? "").trim();
+    const bucket = perCategory.get(k) ?? { count: 0, captured: 0, estimatedMinutes: 0 };
+    bucket.count += 1;
+    if (s.captured) bucket.captured += 1;
+    if (s.estimatedMinutes != null && Number.isFinite(s.estimatedMinutes)) {
+      bucket.estimatedMinutes += s.estimatedMinutes;
+      estimatedSum += s.estimatedMinutes;
+      estimatedAny = true;
+    }
+    perCategory.set(k, bucket);
+  }
+  return {
+    shotCount,
+    capturedCount,
+    percentCaptured,
+    estimatedMinutesTotal: estimatedAny ? estimatedSum : null,
+    perCategory,
+  };
 }
 
 // ─── OUTFIT card ──────────────────────────────────────────────────
