@@ -6,7 +6,7 @@ import { notify } from "@/lib/notify";
 import { saveSetupCard, type SetupSavePayload } from "../actions";
 import { setupRollups } from "@/lib/book-cards";
 import { CardChrome } from "./CardChrome";
-import { newRowId } from "./bookCardUi";
+import { FieldLabel, Label, newRowId } from "./bookCardUi";
 
 // v1.33.0: SETUP card editor — per-space spatial walkthrough.
 // View / Edit flow mirrors v1.31.1 BUILD + v1.32.0 MENU/BAR.
@@ -579,16 +579,4 @@ function Field({
   );
 }
 
-// v1.33.1: same FieldLabel + Label primitives the BAR card uses —
-// per-cell label + roomy input pair so two-row edit grids stay
-// readable.
-function FieldLabel({ className, children }: { className?: string; children: React.ReactNode }) {
-  return <div className={`${className ?? ""} flex flex-col gap-1`}>{children}</div>;
-}
-function Label({ children }: { children: React.ReactNode }) {
-  return (
-    <span className="block text-[10px] uppercase tracking-wider text-ink-tertiary font-bold">
-      {children}
-    </span>
-  );
-}
+// FieldLabel + Label imported from `./bookCardUi` (v1.34.0).

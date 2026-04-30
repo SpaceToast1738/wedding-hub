@@ -7,6 +7,7 @@ import { saveBarCard, type BarSavePayload } from "../actions";
 import { barItemTotalPence, barRollups, type BarRollups } from "@/lib/book-cards";
 import { CardChrome } from "./CardChrome";
 import {
+  FieldLabel,
   formatGBPFromPence,
   newRowId,
   penceToPoundsString,
@@ -787,24 +788,7 @@ function ItemEditRow({
 // grid cell. Uses a structural label-then-children pattern so the
 // per-cell label is always present even when a column is narrow —
 // stops the row from looking like an unrelated jumble of inputs.
-function FieldLabel({
-  className,
-  children,
-}: {
-  className?: string;
-  children: React.ReactNode;
-}) {
-  return <div className={`${className ?? ""} flex flex-col gap-1`}>{children}</div>;
-}
-
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-function Label({ children }: { children: React.ReactNode }) {
-  return (
-    <span className="block text-[10px] uppercase tracking-wider text-ink-tertiary font-bold">
-      {children}
-    </span>
-  );
-}
+// FieldLabel + Label imported from `./bookCardUi` (v1.34.0).
 
 // ── Shared layout helpers ────────────────────────────────────────
 

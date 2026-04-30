@@ -145,13 +145,12 @@ async function seedBookSections() {
   // and still appear at the bottom of the hub. The user can delete
   // them via the UI later if they want a clean 7-card hub. Their
   // content (if any subsections were added) is preserved.
-  // v1.33.0: venue split — `venue-spaces` (per-physical-space SETUP
-  // cards) and `venue-decor` (BUILD cards + printed signage + florist
-  // brief) inserted at orders 3 + 4. Existing sections shift down two
-  // slots; the upsert's `update: { order }` re-numbers them on re-run.
-  // The legacy `venue` section stays at order 2 with whatever
-  // subsections live under it — the /book index hides empty legacy
-  // sections.
+  // v1.33.0: venue split — venue-spaces / venue-decor at 3 / 4.
+  // v1.34.0: legal split — legal-before / legal-day / legal-after at
+  //   9 / 10 / 11. Legacy `legal-admin` stays at order 8 with any
+  //   user-added content; the /book index hides empty legacy sections.
+  // Existing sections shift down; the upsert's `update: { order }`
+  // re-numbers them on re-run.
   const sections = [
     // Prototype-aligned set
     { slug: "wedding-party",     title: "Wedding Party",             order: 1 },
@@ -166,13 +165,16 @@ async function seedBookSections() {
     { slug: "photography",       title: "Photography & Videography", order: 6 },
     { slug: "guest-experience",  title: "Guest Experience",          order: 7 },
     { slug: "legal-admin",       title: "Legal & Admin",             order: 8 },
-    { slug: "accommodation",     title: "Accommodation",             order: 9 },
+    { slug: "legal-before",      title: "Legal — Before the day",    order: 9 },
+    { slug: "legal-day",         title: "Legal — On the day",        order: 10 },
+    { slug: "legal-after",       title: "Legal — After",             order: 11 },
+    { slug: "accommodation",     title: "Accommodation",             order: 12 },
     // Legacy v1.4.0 sections — pushed to the bottom of the order so
     // the prototype's 7 lead. Kept (rather than deleted) because they
     // may carry user-added subsection content from prior versions.
-    { slug: "ceremony",          title: "Ceremony",                  order: 10 },
-    { slug: "reception",         title: "Reception",                 order: 11 },
-    { slug: "logistics",         title: "Logistics",                 order: 12 },
+    { slug: "ceremony",          title: "Ceremony",                  order: 13 },
+    { slug: "reception",         title: "Reception",                 order: 14 },
+    { slug: "logistics",         title: "Logistics",                 order: 15 },
   ];
   for (const s of sections) {
     await db.bookSection.upsert({
@@ -590,6 +592,158 @@ async function seedVenueSpacesAndDecor() {
   }
 }
 
+// v1.34.0: seed the three Legal sections with their per-§8.8-§8.10
+// subsections. Idempotent — skipped per-section if already populated.
+async function seedLegalSections() {
+  const before = await db.bookSection.findUnique({ where: { slug: "legal-before" } });
+  const day = await db.bookSection.findUnique({ where: { slug: "legal-day" } });
+  const after = await db.bookSection.findUnique({ where: { slug: "legal-after" } });
+  if (!before || !day || !after) {
+    console.log(`  · legal-before/-day/-after not found; skipping seed`);
+    return;
+  }
+
+  // legal-before
+  const beforeCount = await db.bookSubsection.count({ where: { sectionId: before.id } });
+  if (beforeCount === 0) {
+    let order = 0;
+    const notice = await db.bookSubsection.create({
+      data: {
+        sectionId: before.id,
+        slug: "notice-of-marriage",
+        title: "Notice of Marriage",
+        kind: "LEGAL",
+        order: order++,
+      },
+    });
+    await db.bookLegalCard.create({
+      data: {
+        subsectionId: notice.id,
+        regulator: "Warwickshire Registrar",
+        regulatorContact: "warwickshire-registrars@warwickshire.gov.uk",
+      },
+    });
+    const docs = await db.bookSubsection.create({
+      data: {
+        sectionId: before.id,
+        slug: "required-documents",
+        title: "Required documents",
+        kind: "LEGAL",
+        order: order++,
+      },
+    });
+    await db.bookLegalCard.create({
+      data: {
+        subsectionId: docs.id,
+        regulator: "Warwickshire Registrar",
+      },
+    });
+    await db.bookSubsection.create({
+      data: {
+        sectionId: before.id,
+        slug: "witnesses",
+        title: "Witnesses",
+        kind: "FIELD",
+        order: order++,
+      },
+    });
+    await db.bookSubsection.create({
+      data: {
+        sectionId: before.id,
+        slug: "insurance",
+        title: "Insurance",
+        kind: "FIELD",
+        order: order++,
+      },
+    });
+    console.log(`  ✓ legal-before seeded (4 subsections)`);
+  } else {
+    console.log(`  ✓ legal-before already present (${beforeCount}); skipping seed`);
+  }
+
+  // legal-day
+  const dayCount = await db.bookSubsection.count({ where: { sectionId: day.id } });
+  if (dayCount === 0) {
+    let order = 0;
+    await db.bookSubsection.create({
+      data: {
+        sectionId: day.id,
+        slug: "pre-ceremony-interview",
+        title: "Pre-ceremony interview",
+        kind: "FIELD",
+        order: order++,
+      },
+    });
+    await db.bookSubsection.create({
+      data: {
+        sectionId: day.id,
+        slug: "vows-reference",
+        title: "Vows reference",
+        kind: "TEXT",
+        body: "Vows go here — exchange in the registrar's room before the ceremony begins.",
+        order: order++,
+      },
+    });
+    await db.bookSubsection.create({
+      data: {
+        sectionId: day.id,
+        slug: "registration-steps",
+        title: "Registration steps",
+        kind: "TEXT",
+        body: "1. Pre-ceremony interview · 2. Ceremony · 3. Sign register · 4. Witnesses sign · 5. Marriage cert handed over.",
+        order: order++,
+      },
+    });
+    console.log(`  ✓ legal-day seeded (3 subsections)`);
+  } else {
+    console.log(`  ✓ legal-day already present (${dayCount}); skipping seed`);
+  }
+
+  // legal-after
+  const afterCount = await db.bookSubsection.count({ where: { sectionId: after.id } });
+  if (afterCount === 0) {
+    let order = 0;
+    const pickup = await db.bookSubsection.create({
+      data: {
+        sectionId: after.id,
+        slug: "marriage-certificate-pickup",
+        title: "Marriage certificate pickup",
+        kind: "LEGAL",
+        order: order++,
+      },
+    });
+    await db.bookLegalCard.create({
+      data: {
+        subsectionId: pickup.id,
+        regulator: "Warwickshire Registrar",
+      },
+    });
+    const nameChange = await db.bookSubsection.create({
+      data: {
+        sectionId: after.id,
+        slug: "name-change-checklist",
+        title: "Name change checklist",
+        kind: "LEGAL",
+        order: order++,
+      },
+    });
+    await db.bookLegalCard.create({ data: { subsectionId: nameChange.id } });
+    const copies = await db.bookSubsection.create({
+      data: {
+        sectionId: after.id,
+        slug: "certified-copies",
+        title: "Certified copies",
+        kind: "LEGAL",
+        order: order++,
+      },
+    });
+    await db.bookLegalCard.create({ data: { subsectionId: copies.id } });
+    console.log(`  ✓ legal-after seeded (3 subsections)`);
+  } else {
+    console.log(`  ✓ legal-after already present (${afterCount}); skipping seed`);
+  }
+}
+
 async function main() {
   console.log("Seeding Wedding Hub…");
   await seedUsersAndPermissions();
@@ -603,6 +757,7 @@ async function main() {
   await seedBuildCards();
   await seedFoodDrinkCards();
   await seedVenueSpacesAndDecor();
+  await seedLegalSections();
   console.log("Done.");
 }
 

@@ -16,6 +16,7 @@ import {
 } from "../actions";
 import { buildRollups, type BuildCardShape } from "@/lib/book-cards";
 import { CardChrome } from "./CardChrome";
+import { FieldLabel, Label } from "./bookCardUi";
 
 // v1.31.0 → v1.31.1: BUILD card editor with a single Edit / View
 // state.
@@ -730,19 +731,6 @@ function Field({
       {children}
       {hint && <p className="mt-1 text-[11px] text-ink-tertiary">{hint}</p>}
     </div>
-  );
-}
-
-// v1.33.1: per-cell label + input pair for the two-row materials
-// edit grid. Same shape as BAR / SETUP equivalents.
-function FieldLabel({ className, children }: { className?: string; children: React.ReactNode }) {
-  return <div className={`${className ?? ""} flex flex-col gap-1`}>{children}</div>;
-}
-function Label({ children }: { children: React.ReactNode }) {
-  return (
-    <span className="block text-[10px] uppercase tracking-wider text-ink-tertiary font-bold">
-      {children}
-    </span>
   );
 }
 

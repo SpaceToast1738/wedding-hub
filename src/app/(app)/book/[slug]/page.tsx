@@ -56,6 +56,15 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
           setupCard: {
             include: { items: { orderBy: { order: "asc" } } },
           },
+          // v1.34.0: LEGAL card + per-item file references.
+          legalCard: {
+            include: {
+              items: {
+                orderBy: { order: "asc" },
+                include: { file: { select: { id: true, name: true } } },
+              },
+            },
+          },
         },
       },
     },
@@ -116,6 +125,20 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
         (s) => s.name,
       )
     : [];
+
+  // v1.34.0: wedding date + files list for LEGAL cards' expiry flag
+  // and per-item file picker. Skipped when no LEGAL cards present.
+  const hasLegal = section.subsections.some((s) => s.kind === "LEGAL");
+  const [weddingSettings, allFiles] = hasLegal
+    ? await Promise.all([
+        db.weddingSettings.findUnique({ where: { id: 1 } }),
+        db.file.findMany({
+          orderBy: { name: "asc" },
+          select: { id: true, name: true, mimeType: true },
+        }),
+      ])
+    : [null, [] as Array<{ id: string; name: string; mimeType: string }>];
+  const legalWeddingDate = weddingSettings?.weddingDate ?? null;
 
   return (
     <>
@@ -223,12 +246,20 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
               const setupCard = sRaw.setupCard
                 ? { ...sRaw.setupCard, supplierNames }
                 : null;
+              const legalCard = sRaw.legalCard
+                ? {
+                    ...sRaw.legalCard,
+                    weddingDate: legalWeddingDate,
+                    files: allFiles,
+                  }
+                : null;
               const s = {
                 ...sRaw,
                 buildCard,
                 menuCard,
                 barCard,
                 setupCard,
+                legalCard,
               };
               return (
                 <CardRouter

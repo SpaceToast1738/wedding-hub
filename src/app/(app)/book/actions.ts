@@ -125,6 +125,11 @@ export async function createBookSubsection(formData: FormData) {
     // items list. Couple fills in space + setup time + items via
     // the editor.
     await db.bookSetupCard.create({ data: { subsectionId: created.id } });
+  } else if (parsed.kind === BookSubsectionKind.LEGAL) {
+    // v1.34.0: LEGAL card child seeds with all-null fields. Empty
+    // items list. Couple sets regulator + due date + items in the
+    // editor.
+    await db.bookLegalCard.create({ data: { subsectionId: created.id } });
   }
   // FIELD card seeds the value bag lazily — fields stays null until
   // the user adds the first def + value.
@@ -1706,5 +1711,207 @@ export async function saveSetupCard(
     return { ok: true };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "Couldn't save setup card" };
+  }
+}
+
+// ── v1.34.0: LEGAL card actions ────────────────────────────────────
+//
+// Same single-bulk-save shape as SETUP. File attach/detach are
+// per-row actions kept separate from saveLegalCard because file
+// ops carry side effects (and per-row UX is faster than re-saving
+// the whole card just to attach a single PDF).
+
+const legalItemPayloadSchema = z.object({
+  id: z.string().min(1).max(50),
+  label: z.string().min(1).max(160),
+  requiredFor: z.string().max(40).nullable(),
+  obtained: z.boolean(),
+  obtainedAt: z.string().nullable(), // ISO yyyy-mm-dd | empty
+  expiresAt: z.string().nullable(),
+  notes: z.string().max(2000).nullable(),
+});
+
+const legalSavePayloadSchema = z.object({
+  regulator: z.string().max(120).nullable(),
+  regulatorContact: z.string().max(400).nullable(),
+  dueByDate: z.string().nullable(),
+  notes: z.string().max(4000).nullable(),
+  items: z.array(legalItemPayloadSchema),
+});
+
+export type LegalSavePayload = z.infer<typeof legalSavePayloadSchema>;
+
+function parseISODate(v: string | null): Date | null {
+  if (!v) return null;
+  const d = new Date(v);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+export async function saveLegalCard(
+  subsectionId: string,
+  payload: LegalSavePayload,
+): Promise<BookActionResult> {
+  const user = await requireEdit("book");
+  try {
+    const parsed = legalSavePayloadSchema.parse(payload);
+    const before = await db.bookLegalCard.findUnique({
+      where: { subsectionId },
+      include: { subsection: true, items: true },
+    });
+    if (!before) return { ok: false, error: "Legal card not found" };
+
+    const headerChanged: string[] = [];
+    if (parsed.regulator !== before.regulator) headerChanged.push("regulator");
+    if (parsed.regulatorContact !== before.regulatorContact)
+      headerChanged.push("regulatorContact");
+    const newDue = parseISODate(parsed.dueByDate)?.getTime() ?? null;
+    const oldDue = before.dueByDate?.getTime() ?? null;
+    if (newDue !== oldDue) headerChanged.push("dueByDate");
+    if (parsed.notes !== before.notes) headerChanged.push("notes");
+
+    const beforeIds = new Set(before.items.map((i) => i.id));
+    const incomingIds = new Set(
+      parsed.items.map((i) => i.id).filter((id) => !id.startsWith("new-")),
+    );
+    const toDelete = [...beforeIds].filter((id) => !incomingIds.has(id));
+    const toCreate = parsed.items.filter((i) => i.id.startsWith("new-"));
+    const toUpdate = parsed.items.filter((i) => !i.id.startsWith("new-"));
+
+    await db.$transaction(async (tx) => {
+      await tx.bookLegalCard.update({
+        where: { subsectionId },
+        data: {
+          regulator: parsed.regulator,
+          regulatorContact: parsed.regulatorContact,
+          dueByDate: parseISODate(parsed.dueByDate),
+          notes: parsed.notes,
+        },
+      });
+      if (toDelete.length > 0) {
+        await tx.bookLegalItem.deleteMany({ where: { id: { in: toDelete } } });
+      }
+      for (const i of toUpdate) {
+        await tx.bookLegalItem.update({
+          where: { id: i.id },
+          data: {
+            label: i.label,
+            requiredFor: i.requiredFor,
+            obtained: i.obtained,
+            obtainedAt: parseISODate(i.obtainedAt),
+            expiresAt: parseISODate(i.expiresAt),
+            notes: i.notes,
+          },
+        });
+      }
+      let orderCounter = before.items.reduce((max, i) => Math.max(max, i.order), -1);
+      for (const i of toCreate) {
+        orderCounter += 1;
+        await tx.bookLegalItem.create({
+          data: {
+            cardId: before.id,
+            label: i.label,
+            requiredFor: i.requiredFor,
+            obtained: i.obtained,
+            obtainedAt: parseISODate(i.obtainedAt),
+            expiresAt: parseISODate(i.expiresAt),
+            notes: i.notes,
+            order: orderCounter,
+          },
+        });
+      }
+      for (let idx = 0; idx < parsed.items.length; idx++) {
+        const i = parsed.items[idx]!;
+        if (!i.id.startsWith("new-")) {
+          await tx.bookLegalItem.update({ where: { id: i.id }, data: { order: idx } });
+        }
+      }
+    });
+
+    await audit(user, {
+      action: "legal-save",
+      entity: "BookSubsection",
+      entityId: subsectionId,
+      metadata: {
+        cardTitle: before.subsection.title,
+        regulator: parsed.regulator,
+        itemsAdded: toCreate.length,
+        itemsUpdated: toUpdate.length,
+        itemsRemoved: toDelete.length,
+        itemsTotal: parsed.items.length,
+        headerChanged,
+      },
+    });
+    await revalidateBookSubsection(subsectionId);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Couldn't save legal card" };
+  }
+}
+
+// v1.34.0: file attachment / detachment per LEGAL item. Reuses the
+// existing /api/files/[id] download flow; the FK + cascade settings
+// on the schema mean orphaned file references can never block a
+// File deletion.
+export async function attachFileToLegalItem(
+  itemId: string,
+  fileId: string,
+): Promise<BookActionResult> {
+  const user = await requireEdit("book");
+  try {
+    const item = await db.bookLegalItem.findUnique({
+      where: { id: itemId },
+      include: { card: { include: { subsection: true } } },
+    });
+    if (!item) return { ok: false, error: "Legal item not found" };
+    const file = await db.file.findUnique({ where: { id: fileId } });
+    if (!file) return { ok: false, error: "File not found" };
+    await db.bookLegalItem.update({ where: { id: itemId }, data: { fileId } });
+    await audit(user, {
+      action: "legal-file-attach",
+      entity: "BookSubsection",
+      entityId: item.card.subsectionId,
+      metadata: {
+        cardTitle: item.card.subsection.title,
+        itemLabel: item.label,
+        fileId,
+        fileName: file.name,
+      },
+    });
+    await revalidateBookSubsection(item.card.subsectionId);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Couldn't attach file" };
+  }
+}
+
+export async function detachFileFromLegalItem(
+  itemId: string,
+): Promise<BookActionResult> {
+  const user = await requireEdit("book");
+  try {
+    const item = await db.bookLegalItem.findUnique({
+      where: { id: itemId },
+      include: { card: { include: { subsection: true } }, file: true },
+    });
+    if (!item) return { ok: false, error: "Legal item not found" };
+    if (!item.fileId) return { ok: true };
+    const previousFileId = item.fileId;
+    const previousFileName = item.file?.name ?? null;
+    await db.bookLegalItem.update({ where: { id: itemId }, data: { fileId: null } });
+    await audit(user, {
+      action: "legal-file-detach",
+      entity: "BookSubsection",
+      entityId: item.card.subsectionId,
+      metadata: {
+        cardTitle: item.card.subsection.title,
+        itemLabel: item.label,
+        previousFileId,
+        previousFileName,
+      },
+    });
+    await revalidateBookSubsection(item.card.subsectionId);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Couldn't detach file" };
   }
 }

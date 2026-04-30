@@ -6,8 +6,8 @@
 // lock the contract without setup; mirrors the v1.11.0 csv-merge and
 // v1.15.0 custom-fields patterns.
 
-// v1.31.0: + BUILD. v1.32.0: + MENU, BAR. v1.33.0: + SETUP.
-export const BOOK_CARD_KINDS = ["TEXT", "FIELD", "RECIPE", "SHOT_LIST", "OUTFIT", "BUILD", "MENU", "BAR", "SETUP"] as const;
+// v1.31.0: + BUILD. v1.32.0: + MENU, BAR. v1.33.0: + SETUP. v1.34.0: + LEGAL.
+export const BOOK_CARD_KINDS = ["TEXT", "FIELD", "RECIPE", "SHOT_LIST", "OUTFIT", "BUILD", "MENU", "BAR", "SETUP", "LEGAL"] as const;
 export type BookCardKind = (typeof BOOK_CARD_KINDS)[number];
 
 // Display metadata for each card kind — used by the picker UI and
@@ -53,6 +53,10 @@ export const BOOK_CARD_KIND_META: Record<
   SETUP: {
     label: "Setup",
     description: "Per-space spatial walkthrough — items, location, packed/placed flags.",
+  },
+  LEGAL: {
+    label: "Legal",
+    description: "Document checklist with deadlines + optional file attachments.",
   },
 };
 
@@ -598,4 +602,65 @@ export function setupRollups(card: SetupCardShape): SetupRollups {
   const percentPacked = itemCount === 0 ? 0 : Math.round((packedCount / itemCount) * 100);
   const percentPlaced = itemCount === 0 ? 0 : Math.round((placedCount / itemCount) * 100);
   return { itemCount, packedCount, placedCount, percentPacked, percentPlaced };
+}
+
+// ─── LEGAL card (v1.34.0) ────────────────────────────────────────
+//
+// Document checklist rollups. The header surfaces:
+//   - days remaining until the card-level dueByDate (negative if past)
+//   - % obtained
+//   - whether any item expires before the wedding (red flag)
+//   - whether the card-level deadline has passed (red flag)
+
+export type LegalItemShape = {
+  obtained: boolean;
+  expiresAt?: Date | null;
+};
+
+export type LegalCardShape = {
+  dueByDate?: Date | null;
+  items: LegalItemShape[];
+};
+
+export type LegalRollups = {
+  itemCount: number;
+  obtainedCount: number;
+  percentObtained: number;
+  daysToDue: number | null;
+  isOverdue: boolean;
+  expiringBeforeWedding: number;
+};
+
+const LEGAL_MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+export function legalRollups(
+  card: LegalCardShape,
+  weddingDate: Date | null,
+  now: Date = new Date(),
+): LegalRollups {
+  const itemCount = card.items.length;
+  const obtainedCount = card.items.filter((i) => i.obtained).length;
+  const percentObtained =
+    itemCount === 0 ? 0 : Math.round((obtainedCount / itemCount) * 100);
+  let daysToDue: number | null = null;
+  let isOverdue = false;
+  if (card.dueByDate) {
+    const diff = card.dueByDate.getTime() - now.getTime();
+    daysToDue = Math.round(diff / LEGAL_MS_PER_DAY);
+    isOverdue = diff < 0 && obtainedCount < itemCount;
+  }
+  let expiringBeforeWedding = 0;
+  if (weddingDate) {
+    expiringBeforeWedding = card.items.filter(
+      (i) => i.expiresAt && i.expiresAt.getTime() < weddingDate.getTime(),
+    ).length;
+  }
+  return {
+    itemCount,
+    obtainedCount,
+    percentObtained,
+    daysToDue,
+    isOverdue,
+    expiringBeforeWedding,
+  };
 }

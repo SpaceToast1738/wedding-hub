@@ -153,6 +153,24 @@ export function formatAuditAction(row: AuditRow): string {
     return `Saved menu ${quoted(title)}${parts.length ? ` — ${parts.join(", ")}` : ""}`;
   }
 
+  // LEGAL card (v1.34.0+)
+  if (a === "legal-save") {
+    const ia = asNumber(meta.itemsAdded) ?? 0;
+    const ir = asNumber(meta.itemsRemoved) ?? 0;
+    const iu = asNumber(meta.itemsUpdated) ?? 0;
+    const parts: string[] = [];
+    if (ia > 0) parts.push(`added ${pluralise(ia, "item", "items")}`);
+    if (ir > 0) parts.push(`removed ${pluralise(ir, "item", "items")}`);
+    if (iu > 0 && ia === 0 && ir === 0) parts.push(`edited ${pluralise(iu, "item", "items")}`);
+    return `Saved legal card ${quoted(title)}${parts.length ? ` — ${parts.join(", ")}` : ""}`;
+  }
+  if (a === "legal-file-attach") {
+    return `Attached ${quoted(asString(meta.fileName))} to legal item ${quoted(asString(meta.itemLabel))} (${title ?? "legal card"})`;
+  }
+  if (a === "legal-file-detach") {
+    return `Detached ${quoted(asString(meta.previousFileName))} from legal item ${quoted(asString(meta.itemLabel))} (${title ?? "legal card"})`;
+  }
+
   // SETUP card (v1.33.0+)
   if (a === "setup-save") {
     const ia = asNumber(meta.itemsAdded) ?? 0;

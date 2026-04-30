@@ -489,6 +489,9 @@ model BookSubsection {
   // v1.33.0: SETUP card — per-space spatial walkthrough. One card
   // per physical space (Ceremony room / Reception room / etc.).
   setupCard  BookSetupCard?
+  // v1.34.0: LEGAL card — document checklist with deadlines + file
+  // attachments (e.g. Notice of Marriage, marriage cert pickup).
+  legalCard  BookLegalCard?
   // v1.30.5: subsection-level task link removed; replaced by section-
   // level link on the parent BookSection (see BookSection.tasks).
   updatedAt  DateTime    @updatedAt
@@ -500,6 +503,7 @@ model BookSubsection {
 // v1.31.0: + BUILD.
 // v1.32.0: + MENU, BAR.
 // v1.33.0: + SETUP.
+// v1.34.0: + LEGAL.
 enum BookSubsectionKind {
   TEXT
   FIELD
@@ -510,6 +514,7 @@ enum BookSubsectionKind {
   MENU
   BAR
   SETUP
+  LEGAL
 }
 
 // v1.26.0: FIELD card — list of typed fields. Values stored on
@@ -770,6 +775,42 @@ model BookSetupItem {
   @@index([cardId])
 }
 
+// v1.34.0: LEGAL card — document checklist with optional per-item
+// deadlines + file attachments. One card per coherent deadline
+// group: Notice of Marriage, Required documents, Marriage cert
+// pickup, Name change checklist, etc.
+model BookLegalCard {
+  id               String          @id @default(cuid())
+  subsectionId     String          @unique
+  subsection       BookSubsection  @relation(fields: [subsectionId], references: [id], onDelete: Cascade)
+  regulator        String?         // "Warwickshire Registrar"
+  regulatorContact String?         // free text — phone, email, address
+  dueByDate        DateTime?
+  notes            String?         @db.Text
+  items            BookLegalItem[]
+}
+
+model BookLegalItem {
+  id          String          @id @default(cuid())
+  cardId      String
+  card        BookLegalCard   @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  label       String          // "Notice of Marriage — Jamie"
+  requiredFor String?         // "Bride" | "Groom" | "Both" | "Witness"
+  obtained    Boolean         @default(false)
+  obtainedAt  DateTime?
+  expiresAt   DateTime?
+  // Optional file attachment — reuses the existing File model so
+  // we get the existing 25 MB cap, signed download, and visibility
+  // gates for free.
+  fileId      String?
+  file        File?           @relation(fields: [fileId], references: [id], onDelete: SetNull)
+  notes       String?
+  order       Int             @default(0)
+
+  @@index([cardId])
+  @@index([fileId])
+}
+
 enum BookSubsectionVisibility {
   EVERYONE
   COUPLE_ONLY
@@ -852,6 +893,10 @@ model File {
   visibility   FileVisibility     @default(EVERYONE)
   uploadedById String?
   contracts    SupplierContract[]
+  // v1.34.0: legal items can attach a file (Notice of Marriage scan,
+  // marriage cert PDF, witness ID copies). SetNull on delete — files
+  // outlive their item link.
+  bookLegalItems BookLegalItem[]
   createdAt    DateTime           @default(now())
 }
 

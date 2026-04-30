@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.33.2** | 2026-04-30 | [BOOK-EXPANSION-PLAN.md gains a temporary edit-row layout rule (§10a) so P4–P8 ship correct widths from day one](#2026-04-30--v1332--edit-row-layout-rule-pinned-into-the-card-creation-plan) |
+| **v1.34.0** | 2026-04-30 | [Wedding Book LEGAL card (P4) — document checklist with deadlines + file attachments · Legal split into Before / Day / After (additive) · FieldLabel + Label lifted to shared `bookCardUi.tsx`](#2026-04-30--v1340--wedding-book-legal-card-p4--legal-split) |
+| v1.33.2 | 2026-04-30 | [BOOK-EXPANSION-PLAN.md gains a temporary edit-row layout rule (§10a) so P4–P8 ship correct widths from day one](#2026-04-30--v1332--edit-row-layout-rule-pinned-into-the-card-creation-plan) |
 | v1.33.1 | 2026-04-30 | [Edit-row layout pass — BUILD / BAR / SETUP cards switch to two-row grids with per-cell labels so name / supplier / £ all get usable width](#2026-04-30--v1331--edit-row-layout-pass) |
 | v1.33.0 | 2026-04-30 | [Wedding Book SETUP card (P3) — per-space spatial walkthrough · Venue split into Spaces / Décor (additive)](#2026-04-30--v1330--wedding-book-setup-card-p3--venue-split) |
 | v1.32.2 | 2026-04-30 | [BAR card: per-head pricing + serving timing — handles £2.50/head toast drinks; view groups by timing when set](#2026-04-30--v1322--bar-per-head-pricing--timing) |
@@ -281,6 +282,36 @@ in priority order.
   ~30 min total. Defer until both predecessors have been live one
   release. Was earmarked v1.28.0 — that slot was used for Task ↔
   Supplier instead; the cleanup is now next vacant slot.
+
+#### New asks captured 30 Apr 2026
+
+- **Tasks linkable to individual cards (inline).** *User-asked while
+  reviewing v1.33.x.* Currently Task↔Book linking is at the
+  BookSection level (v1.30.5 m2m); user wants the link at the
+  individual card / subsection level **and** for the linked tasks
+  to display **inline on each card** rather than only at the
+  section header.
+
+  Implementation candidates (decide before code):
+
+  1. **m2m Task ↔ BookSubsection alongside the existing section
+     m2m.** Adds a second relation; both coexist. Tasks can link to
+     either or both. Most flexible.
+  2. **Replace the section m2m with a subsection m2m + roll up to
+     section-level via the parent relation at read time.** Cleaner
+     schema, but it's the v1.30.0 → v1.30.5 reversal so we should
+     only do this if the section-level link genuinely isn't useful
+     anymore.
+  3. **Keep the section m2m, but bucket the existing section-level
+     LinkedTasksPanel by a new optional `metadata.cardSlug` field
+     on the link.** No new table — uses the metadata bag to scope
+     visually. Cheapest but feels hacky.
+
+  **Lean:** option 1. Tasks already carry `bookSections[]` (m2m); a
+  parallel `bookSubsections[]` is symmetric and keeps the existing
+  read paths intact. ~3 hrs once decided. The §10a edit-row layout
+  rule still applies — the inline panel goes at the bottom of the
+  card body, mirroring the section-level panel that's already there.
 
 #### New asks captured 29 Apr 2026 (need design / planning)
 
@@ -707,6 +738,57 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-30 · v1.34.0 — Wedding Book LEGAL card (P4) + Legal split
+
+Fourth phase of the [Book expansion arc](BOOK-EXPANSION-PLAN.md). New `LEGAL` card kind for document checklists with deadlines + optional file attachments, and the `legal-admin` section splits into three timeline-aligned new sections (additive — legacy stays).
+
+**LEGAL card** — one card per coherent deadline group (Notice of Marriage, Required documents, Marriage certificate pickup, Name change checklist, etc.). Header has regulator + contact + due date with days-remaining countdown. Items table has obtained checkbox + obtainedAt date + expiresAt date + optional file picker (reuses the existing `File` model — same 25 MB cap + signed-download flow as suppliers / contracts get for free).
+
+**Two banners** when state warrants them:
+
+- **⚠ Card deadline passed** — when `dueByDate` is in the past AND not every item is obtained.
+- **⚠ N items expire before the wedding** — when any item's `expiresAt` is before the wedding date (catches lapsing passports, expiring Notices of Marriage, etc.).
+
+**Schema:** `LEGAL` added to `BookSubsectionKind`. Two new tables — `BookLegalCard` (1:1 with subsection) + `BookLegalItem` (line items, with optional `fileId` FK to `File` with `onDelete: SetNull`). `File.bookLegalItems` back-relation. Migration `20260430060000_book_legal_card`, additive only.
+
+**Pure helper:** `legalRollups({ dueByDate, items }, weddingDate, now)` → `{ itemCount, obtainedCount, percentObtained, daysToDue, isOverdue, expiringBeforeWedding }`. 7 unit tests including overdue + expiry boundaries.
+
+**Server actions:** `saveLegalCard` (single bulk save) + `attachFileToLegalItem` / `detachFileFromLegalItem` (per-row file ops, kept separate so a single PDF attach doesn't re-save the whole card). All audit-enriched per the v1.30.5 standing rule. New `legal-save`, `legal-file-attach`, `legal-file-detach` patterns in [audit-format.ts](src/lib/audit-format.ts).
+
+**Editor** built against §10a's edit-row layout rule from day one — two-row grids for header + per-item, per-cell labels above every input, file picker on a third compact slot, obtained checkbox + reorder/remove on the bottom row.
+
+**Section split — additive.** Three new BookSection rows seeded:
+
+- `legal-before` (order 9) — Notice of Marriage (LEGAL), Required documents (LEGAL), Witnesses (FIELD), Insurance (FIELD).
+- `legal-day` (order 10) — Pre-ceremony interview (FIELD), Vows reference (TEXT), Registration steps (TEXT).
+- `legal-after` (order 11) — Marriage certificate pickup (LEGAL), Name change checklist (LEGAL), Certified copies (LEGAL).
+
+Legacy `legal-admin` stays at order 8 with whatever subsections live under it. The `/book` index hides empty legacy sections, so once the couple finishes moving content across `legal-admin` quietly drops off the hub. Existing sections (Accommodation, ceremony / reception / logistics legacy) shift down three slots; the seed's upsert with `update: { order }` re-numbers them on re-run.
+
+**Shared helpers (per §10a).** `FieldLabel` + `Label` primitives lifted from BUILD/BAR/SETUP into `src/app/(app)/book/[slug]/bookCardUi.tsx` (renamed from `.ts` since it now exports JSX). BUILD / BAR / SETUP refactored to import from there; LEGAL imports from there too on first build.
+
+**Files:**
+- `prisma/schema.prisma` — `LEGAL` enum value, two new tables, `BookSubsection.legalCard` + `File.bookLegalItems` back-relation.
+- New: `prisma/migrations/20260430060000_book_legal_card/migration.sql`.
+- `prisma/seed.ts` — three new BookSection rows + `seedLegalSections()` (idempotent, per-section gates).
+- `src/lib/book-cards.ts` — `BOOK_CARD_KINDS` + `BOOK_CARD_KIND_META` extended; `legalRollups()` helper.
+- `src/lib/audit-format.ts` — three new patterns.
+- `src/app/(app)/book/actions.ts` — `saveLegalCard` + `attachFileToLegalItem` + `detachFileFromLegalItem` + `createBookSubsection` LEGAL branch.
+- New: `src/app/(app)/book/[slug]/BookLegalCard.tsx`.
+- Renamed: `src/app/(app)/book/[slug]/bookCardUi.ts` → `bookCardUi.tsx` (gained `FieldLabel` + `Label`).
+- `BookBuildCard.tsx`, `BookBarCard.tsx`, `BookSetupCard.tsx` — import the shared primitives, drop local copies.
+- `src/app/(app)/book/[slug]/CardRouter.tsx` — LEGAL case + extended `Sub` type.
+- `src/app/(app)/book/[slug]/page.tsx` — eager-load `legalCard.items.file`, fetch wedding date + Files when any LEGAL card present.
+- New: `tests/unit/legal-rollups.test.ts` — 7 cases.
+
+Plus a separate **roadmap addition** (per user, while reviewing v1.33.x): "Tasks linkable to individual cards (inline)" added to the `New asks captured 30 Apr 2026` block. Three implementation candidates listed; lean is m2m `Task ↔ BookSubsection` alongside the existing m2m `Task ↔ BookSection`. ~3 hrs once decided.
+
+**Verification:** typecheck + lint clean, 278 unit tests pass (+7 LEGAL rollups), clean `.next` build green.
+
+**Future-card idea logged**: "Dance card" — pairs of dance moments with participants + optional Song FK. Captured in [BOOK-EXPANSION-PLAN.md §13](BOOK-EXPANSION-PLAN.md) (Future card ideas) for post-v1.38.0 consideration.
+
+**Next:** v1.35.0 P5 — OUTFIT rework (one card per person) + Wedding Party split. The largest phase in the arc; data migration on the existing OUTFIT cards.
 
 ### 2026-04-30 · v1.33.2 — Edit-row layout rule pinned into the card-creation plan
 

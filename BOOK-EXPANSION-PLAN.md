@@ -1405,4 +1405,35 @@ Ship: ROADMAP entry "v1.38.0 — seed refresh + Post-wedding section".
 - **File-attachment volume.** Existing 25 MB-per-file cap is fine;
   confirm disk headroom for ~10 LEGAL scans + ~10 OUTFIT photos.
 
+---
+
+## 13. Future card ideas (post-v1.38.0)
+
+Captured as they come up so we don't lose them. None of these are
+in scope for the v1.31.0 → v1.38.0 arc; revisit after the eight
+phases ship.
+
+- **Dance card** *(user-asked, 30 Apr 2026)*. A list of choreographed
+  dance moments — first dance, father/daughter, mother/son, group
+  dances, anniversary dance, etc. Each entry pairs a *moment* with
+  one or more *participants* + an optional *song* link (could FK
+  into the existing Songs / Spotify mirror so the playlist and the
+  dance card stay aligned). Could live under a new "Music & Dance"
+  section, or as one card under Reception. Schema sketch (rough,
+  not committed):
+  ```
+  BookDanceCard { id, subsectionId @unique, notes, items[] }
+  BookDanceItem {
+    id, cardId, label,            // "First dance" | "Father / daughter"
+    participants String[],        // ["Bryony", "Jamie"]
+    songId String?,               // FK to Song if linked
+    plannedTime String?,          // free text — "after speeches"
+    notes String?,
+    order Int
+  }
+  ```
+  Open questions if this gets revived: shared songs DB or per-event
+  free-text? does the playlist auto-include linked dance songs? does
+  the card surface on the day-of timeline?
+
 End of document.
