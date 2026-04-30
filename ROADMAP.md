@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.37.0** | 2026-04-30 | [Wedding Book TEXT cards switch to Tiptap WYSIWYG (P7a) — 10-mark toolbar (Bold / Italic / Underline / H2 / H3 / lists / quote / link / undo / redo) · sanitiser allow-list with enforced `rel`+`target` on every anchor · idempotent SQL backfill for existing TEXT bodies](#2026-04-30--v1370--wedding-book-text-wysiwyg-p7a) |
+| **v1.37.1** | 2026-04-30 | [TEXT card View / Edit toggle — toolbar no longer leaks into read mode after save (matches every other v1.31+ card)](#2026-04-30--v1371--text-card-view--edit-toggle) |
+| v1.37.0 | 2026-04-30 | [Wedding Book TEXT cards switch to Tiptap WYSIWYG (P7a) — 10-mark toolbar (Bold / Italic / Underline / H2 / H3 / lists / quote / link / undo / redo) · sanitiser allow-list with enforced `rel`+`target` on every anchor · idempotent SQL backfill for existing TEXT bodies](#2026-04-30--v1370--wedding-book-text-wysiwyg-p7a) |
 | v1.36.0 | 2026-04-30 | [Wedding Book STAY + LODGING_GUIDE cards (P6) — one card per accommodation booking with cost / dates / linked guests · recommended-hotels reference card with print stylesheet · Accommodation section seeded with 4 STAY + 1 LODGING_GUIDE around Stratford-upon-Avon](#2026-04-30--v1360--wedding-book-stay--lodging_guide-cards-p6) |
 | v1.35.1 | 2026-04-30 | [Migration fix — `CREATE EXTENSION pgcrypto` so `gen_random_bytes()` works in CI's bare Postgres image](#2026-04-30--v1351--migration-fix-pgcrypto) |
 | v1.35.0 | 2026-04-30 | [Wedding Book OUTFIT rework (P5) — one card per wedding-party member with fitting timeline / cost / paid status / per-item composition / photos · Wedding Party split into People (OUTFIT cards) + Day-of (TEXT/FIELD timeline)](#2026-04-30--v1350--wedding-book-outfit-rework-p5--wedding-party-split) |
@@ -742,6 +743,16 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-30 · v1.37.1 — TEXT card View / Edit toggle
+
+User-flagged on v1.37.0 review: "the save function doesnt hide the editor, you can still edit and update the text". The Tiptap editor was rendered whenever `canEdit` was true — same shape as the pre-v1.37.0 textarea — so the toolbar stayed visible after save. Other v1.31+ card kinds (BUILD / OUTFIT / BAR / MENU / SETUP / LEGAL / STAY / LODGING_GUIDE) all use an explicit View / Edit toggle from v1.31.1 onwards; TEXT was the last hold-out because the textarea didn't visibly mind being always-editable. The richer toolbar makes the inconsistency obvious.
+
+Fix: retrofit the View / Edit toggle onto SubsectionEditor. Default state is read-only — title is `<h3>`, body is `<RichTextRead>`. Clicking **Edit** swaps in `<Input>` + `<RichTextEditor>`. **Cancel** reverts the draft. **Save changes** commits and exits edit mode. Visibility / Delete buttons hide while editing so the action bar stays uncluttered.
+
+`Save changes` is now disabled (rather than hidden) when there are no pending edits — matches the other card editors so the button position doesn't jump.
+
+Files: [src/app/(app)/book/[slug]/SubsectionEditor.tsx](src/app/(app)/book/[slug]/SubsectionEditor.tsx).
 
 ### 2026-04-30 · v1.37.0 — Wedding Book TEXT WYSIWYG (P7a)
 
