@@ -57,7 +57,9 @@ import {
   seedAccommodationCards,
   seedBuildCards,
   seedFoodDrinkCards,
+  seedGuestExperienceCards,
   seedLegalSections,
+  seedPhotographyCards,
   seedPostWeddingSection,
   seedVenueSpacesAndDecor,
   seedWeddingPartyPeopleAndDayof,
@@ -136,6 +138,8 @@ async function reseed() {
   await seedLegalSections();
   await seedWeddingPartyPeopleAndDayof();
   await seedAccommodationCards();
+  await seedPhotographyCards();
+  await seedGuestExperienceCards();
   await seedPostWeddingSection();
 }
 

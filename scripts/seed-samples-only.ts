@@ -36,7 +36,9 @@ import {
   seedAccommodationCards,
   seedBuildCards,
   seedFoodDrinkCards,
+  seedGuestExperienceCards,
   seedLegalSections,
+  seedPhotographyCards,
   seedPostWeddingSection,
   seedVenueSpacesAndDecor,
   seedWeddingPartyPeopleAndDayof,
@@ -108,6 +110,8 @@ async function main() {
   await seedLegalSections();
   await seedWeddingPartyPeopleAndDayof();
   await seedAccommodationCards();
+  await seedPhotographyCards();
+  await seedGuestExperienceCards();
   await seedPostWeddingSection();
 
   console.log("\nDone. Open /book to verify all 12 section cards appear.");

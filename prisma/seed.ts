@@ -1,4 +1,4 @@
-import { PrismaClient, UserRole, PermissionLevel, RsvpStatus, Side, Priority, TaskStatus, TaskType } from "@prisma/client";
+import { PrismaClient, UserRole, PermissionLevel, RsvpStatus, Side, Priority, TaskStatus, TaskType, Prisma } from "@prisma/client";
 
 const db = new PrismaClient();
 
@@ -456,6 +456,255 @@ export async function seedFoodDrinkCards() {
     }
   }
 
+  // v1.38.4: kids menu — single MENU card with one course, two
+  // options. isKidsMeal=true on each option so the catering brief
+  // surfaces it correctly.
+  if (existingMenu === 0) {
+    const kidsSlug = "kids-menu";
+    const kidsExisting = await db.bookSubsection.findUnique({
+      where: { sectionId_slug: { sectionId: fnd.id, slug: kidsSlug } },
+    });
+    if (!kidsExisting) {
+      const sub = await db.bookSubsection.create({
+        data: {
+          sectionId: fnd.id,
+          slug: kidsSlug,
+          title: "Kids menu",
+          kind: "MENU",
+          order: nextOrder++,
+        },
+      });
+      const card = await db.bookMenuCard.create({
+        data: {
+          subsectionId: sub.id,
+          serviceType: "Plated",
+          serviceTime: "Same as wedding breakfast",
+          pricePerHeadPence: 3500,
+          notes: "For under-12s. Confirm count + ages with venue 2 weeks out.",
+        },
+      });
+      const course = await db.bookMenuCourse.create({
+        data: { cardId: card.id, courseLabel: "Kids", order: 0 },
+      });
+      const opts = [
+        { label: "Chicken goujons + chips", description: "Garden peas", dietary: [] },
+        { label: "Pasta in tomato sauce", description: "With garlic bread", dietary: ["V"] },
+      ];
+      let optOrder = 0;
+      for (const o of opts) {
+        await db.bookMenuOption.create({
+          data: {
+            courseId: course.id,
+            label: o.label,
+            description: o.description,
+            dietary: o.dietary,
+            isKidsMeal: true,
+            order: optOrder++,
+          },
+        });
+      }
+    }
+
+    // Evening buffet — one course, three options.
+    const eveningSlug = "evening-buffet";
+    const eveningExisting = await db.bookSubsection.findUnique({
+      where: { sectionId_slug: { sectionId: fnd.id, slug: eveningSlug } },
+    });
+    if (!eveningExisting) {
+      const sub = await db.bookSubsection.create({
+        data: {
+          sectionId: fnd.id,
+          slug: eveningSlug,
+          title: "Evening buffet",
+          kind: "MENU",
+          order: nextOrder++,
+        },
+      });
+      const card = await db.bookMenuCard.create({
+        data: {
+          subsectionId: sub.id,
+          serviceType: "Buffet",
+          serviceTime: "8:00pm — buffet opens",
+          pricePerHeadPence: 1800,
+          notes: "Self-serve. Caterer keeps it stocked until 9:30pm.",
+        },
+      });
+      const course = await db.bookMenuCourse.create({
+        data: { cardId: card.id, courseLabel: "Evening", order: 0 },
+      });
+      const opts = [
+        { label: "Hog roast roll", description: "With apple sauce + crackling", dietary: [] },
+        { label: "Veggie burger slider", description: "With mature cheddar", dietary: ["V"] },
+        { label: "Loaded fries", description: "Beef chilli or veggie chilli", dietary: [] },
+      ];
+      let optOrder = 0;
+      for (const o of opts) {
+        await db.bookMenuOption.create({
+          data: {
+            courseId: course.id,
+            label: o.label,
+            description: o.description,
+            dietary: o.dietary,
+            order: optOrder++,
+          },
+        });
+      }
+    }
+
+    // Late-night snack — bacon/sausage rolls, single course, single
+    // option each. Tiny + opinionated.
+    const lateNightSlug = "late-night-snack";
+    const lateNightExisting = await db.bookSubsection.findUnique({
+      where: { sectionId_slug: { sectionId: fnd.id, slug: lateNightSlug } },
+    });
+    if (!lateNightExisting) {
+      const sub = await db.bookSubsection.create({
+        data: {
+          sectionId: fnd.id,
+          slug: lateNightSlug,
+          title: "Late-night snack",
+          kind: "MENU",
+          order: nextOrder++,
+        },
+      });
+      const card = await db.bookMenuCard.create({
+        data: {
+          subsectionId: sub.id,
+          serviceType: "Tray service",
+          serviceTime: "10:30pm",
+          pricePerHeadPence: 600,
+          notes: "Soaks up the drinks. Venue staff walks the trays through the dance floor.",
+        },
+      });
+      const course = await db.bookMenuCourse.create({
+        data: { cardId: card.id, courseLabel: "Late night", order: 0 },
+      });
+      const opts = [
+        { label: "Bacon rolls", description: "Brown or red sauce on the side", dietary: [] },
+        { label: "Halloumi rolls", description: "With chilli jam", dietary: ["V"] },
+      ];
+      let optOrder = 0;
+      for (const o of opts) {
+        await db.bookMenuOption.create({
+          data: {
+            courseId: course.id,
+            label: o.label,
+            description: o.description,
+            dietary: o.dietary,
+            order: optOrder++,
+          },
+        });
+      }
+    }
+
+    // Cake — FIELD card by default (vendor track). Switch the kind to
+    // RECIPE if the couple decides to bake it themselves; the BOOK-
+    // EXPANSION-PLAN §12 flagged this as a per-couple call.
+    const cakeSlug = "cake";
+    const cakeExisting = await db.bookSubsection.findUnique({
+      where: { sectionId_slug: { sectionId: fnd.id, slug: cakeSlug } },
+    });
+    if (!cakeExisting) {
+      const sub = await db.bookSubsection.create({
+        data: {
+          sectionId: fnd.id,
+          slug: cakeSlug,
+          title: "Cake",
+          kind: "FIELD",
+          order: nextOrder++,
+        },
+      });
+      const fields: Array<{ label: string; type: "text" | "number" | "date" | "select"; options?: string[]; group?: string; helpText?: string; required?: boolean }> = [
+        { label: "Baker", type: "text", group: "Vendor", helpText: "Leave blank if DIY — and consider switching this card to RECIPE" },
+        { label: "Style", type: "text", group: "Design", helpText: "e.g. Three-tier semi-naked, white drip" },
+        { label: "Flavours", type: "text", group: "Design", helpText: "e.g. Vanilla & raspberry / lemon / chocolate" },
+        { label: "Servings", type: "number", group: "Design", helpText: "Aim for guest count + 10%" },
+        { label: "Order placed", type: "date", group: "Order" },
+        { label: "Tasting date", type: "date", group: "Order" },
+        { label: "Delivery time", type: "text", group: "Day-of", helpText: "e.g. Drop at venue 1:00pm" },
+        { label: "Cake stand", type: "text", group: "Day-of", helpText: "Provided by venue or BYO?" },
+        { label: "Cost", type: "number", group: "Order" },
+        { label: "Status", type: "select", options: ["Researching", "Tasting booked", "Ordered", "Deposit paid", "Paid in full", "Delivered"], group: "Status", required: true },
+      ];
+      let defOrder = 0;
+      for (const f of fields) {
+        await db.bookFieldDef.create({
+          data: {
+            subsectionId: sub.id,
+            label: f.label,
+            type: f.type,
+            options: f.options ?? [],
+            group: f.group ?? null,
+            helpText: f.helpText ?? null,
+            required: f.required ?? false,
+            order: defOrder++,
+          },
+        });
+      }
+    }
+
+    // Signature cocktail — one RECIPE example so users see the
+    // RECIPE card kind in the wild. Light scaling base of 8 servings.
+    const cocktailSlug = "signature-cocktail";
+    const cocktailExisting = await db.bookSubsection.findUnique({
+      where: { sectionId_slug: { sectionId: fnd.id, slug: cocktailSlug } },
+    });
+    if (!cocktailExisting) {
+      const sub = await db.bookSubsection.create({
+        data: {
+          sectionId: fnd.id,
+          slug: cocktailSlug,
+          title: "Signature cocktail — Bryony & Jamie's Spritz",
+          kind: "RECIPE",
+          order: nextOrder++,
+        },
+      });
+      const recipe = await db.bookRecipe.create({
+        data: {
+          subsectionId: sub.id,
+          ingredients: [
+            "60ml Aperol",
+            "90ml Prosecco",
+            "30ml soda water",
+            "Slice of orange",
+            "Sprig of rosemary",
+            "Ice — plenty",
+          ] as Prisma.InputJsonValue,
+          // Mirror legacy-Json column for the recoverability buffer.
+          steps: [
+            "Fill a wine glass to the brim with ice.",
+            "Pour in the Aperol, then the Prosecco, then the soda — in that order.",
+            "Stir gently with a bar spoon, twice — no more.",
+            "Garnish with the orange slice + rosemary.",
+            "Serve immediately, before the bubbles settle.",
+          ] as Prisma.InputJsonValue,
+          notes:
+            "Simple, photographable, low-ABV-ish. The rosemary garnish is the wedding signature. Pre-mix Aperol + Prosecco together day-before in batches of 8 servings if pressed for time.",
+          servingsBase: 8,
+        },
+      });
+      const recipeSteps = [
+        { instruction: "Pre-batch Aperol + Prosecco (without soda) in 8-serving jugs", durationMinutes: 5, dayBefore: true },
+        { instruction: "Fill a wine glass to the brim with ice", durationMinutes: 1, dayBefore: false },
+        { instruction: "Pour 60ml Aperol + 90ml Prosecco + 30ml soda — in that order", durationMinutes: 1, dayBefore: false },
+        { instruction: "Stir gently with a bar spoon, twice", durationMinutes: 1, dayBefore: false },
+        { instruction: "Garnish with orange slice + rosemary sprig", durationMinutes: 1, dayBefore: false },
+      ];
+      let stepOrder = 0;
+      for (const s of recipeSteps) {
+        await db.bookRecipeStep.create({
+          data: {
+            recipeId: recipe.id,
+            instruction: s.instruction,
+            durationMinutes: s.durationMinutes,
+            dayBefore: s.dayBefore,
+            order: stepOrder++,
+          },
+        });
+      }
+    }
+  }
+
   // Bar plan — sample items by category.
   if (existingBar === 0) {
     const barSlug = "drinks-and-bar";
@@ -520,16 +769,105 @@ export async function seedVenueSpacesAndDecor() {
 
   // venue-spaces: SETUP cards. Idempotent — skip when ANY subsection
   // already exists under the section (user-added content protected).
+  // v1.38.4: each SETUP card now ships with 4-7 items so the editor
+  // shows a fully-filled card on first open. Source values match
+  // existing supplier-name strings so the supplier-detail "Used in
+  // setup" cross-module surface lights up immediately.
   const spacesCount = await db.bookSubsection.count({ where: { sectionId: spaces.id } });
   if (spacesCount === 0) {
-    const cards = [
-      { slug: "ceremony-room", title: "Ceremony room", space: "Ceremony room", setupStartsAt: "10:00am", setupOwner: "Paintbox Blooms" },
-      { slug: "drinks-reception", title: "Drinks reception", space: "Garden lawn", setupStartsAt: "1:30pm", setupOwner: "Venue staff" },
-      { slug: "reception-room", title: "Reception room", space: "Main hall", setupStartsAt: "11:00am", setupOwner: "Bridesmaids + venue" },
-      { slug: "evening-setup", title: "Evening setup", space: "Main hall", setupStartsAt: "5:30pm", setupOwner: "Best man + venue" },
-      { slug: "pack-down", title: "Pack-down", space: "Whole venue", setupStartsAt: "11:00pm", setupOwner: "Bridesmaids + groomsmen" },
+    type SpaceItem = {
+      name: string;
+      quantity?: number | null;
+      location?: string | null;
+      source?: string | null;
+      packDownPlan?: string | null;
+      notes?: string | null;
+    };
+    type SpaceCard = {
+      slug: string;
+      title: string;
+      space: string;
+      setupStartsAt: string;
+      setupOwner: string;
+      items: SpaceItem[];
+    };
+    const cards: SpaceCard[] = [
+      {
+        slug: "ceremony-room",
+        title: "Ceremony room",
+        space: "Ceremony room",
+        setupStartsAt: "10:00am",
+        setupOwner: "Paintbox Blooms",
+        items: [
+          { name: "Aisle runner", quantity: 1, location: "Centre aisle", source: "VistaPrint", packDownPlan: "Roll up + return to box, pack-down crew" },
+          { name: "Ceremony arch (florist)", quantity: 1, location: "Top of aisle", source: "Paintbox Blooms", packDownPlan: "Florist returns 18:00 to dismantle" },
+          { name: "Aisle chair posies", quantity: 12, location: "End of every other row", source: "Paintbox Blooms", packDownPlan: "Move to top tables for evening — venue staff" },
+          { name: "Signing table linen", quantity: 1, location: "Front-left", source: "Venue staff" },
+          { name: "Registrar's pen", quantity: 1, location: "Signing table", notes: "Belongs to Warwickshire Registrar — handed off morning of" },
+          { name: "Order of service", quantity: 80, location: "Welcome table", source: "VistaPrint", packDownPlan: "Best man takes box of leftovers home" },
+        ],
+      },
+      {
+        slug: "drinks-reception",
+        title: "Drinks reception",
+        space: "Garden lawn",
+        setupStartsAt: "1:30pm",
+        setupOwner: "Venue staff",
+        items: [
+          { name: "Welcome drinks tray (Prosecco)", quantity: 30, location: "Top of garden steps", source: "Venue staff", notes: "30 glasses + 6 spare flutes" },
+          { name: "Soft drinks tray", quantity: 12, location: "Top of garden steps", source: "Venue staff" },
+          { name: "Lawn games (giant Jenga, croquet)", quantity: 2, location: "Far lawn", source: "Dream Wedding & Events" },
+          { name: "Photo booth backdrop", quantity: 1, location: "Pergola corner", source: "Dream Wedding & Events" },
+          { name: "Welcome sign (calligraphy)", quantity: 1, location: "Garden gate", source: "VistaPrint", packDownPlan: "Bring inside if rain forecast" },
+        ],
+      },
+      {
+        slug: "reception-room",
+        title: "Reception room",
+        space: "Main hall",
+        setupStartsAt: "11:00am",
+        setupOwner: "Bridesmaids + venue",
+        items: [
+          { name: "Centerpieces (mason jars + eucalyptus)", quantity: 14, location: "Round-table centre", source: "DIY (BUILD card)", notes: "From the Centerpieces BUILD card — see Venue — Décor" },
+          { name: "Place cards", quantity: 80, location: "Above each cover", source: "DIY (BUILD card)" },
+          { name: "Table numbers (printed)", quantity: 14, location: "Round-table centre, behind centerpiece", source: "VistaPrint" },
+          { name: "Menu cards", quantity: 80, location: "Above each plate", source: "VistaPrint" },
+          { name: "Top-table arrangement", quantity: 1, location: "Top table", source: "Paintbox Blooms" },
+          { name: "Cake stand", quantity: 1, location: "Cake table — by main entrance", source: "Venue staff" },
+          { name: "Seating chart frame", quantity: 1, location: "Reception entrance", source: "VistaPrint" },
+        ],
+      },
+      {
+        slug: "evening-setup",
+        title: "Evening setup",
+        space: "Main hall",
+        setupStartsAt: "5:30pm",
+        setupOwner: "Best man + venue",
+        items: [
+          { name: "Dance floor (LED)", quantity: 1, location: "Centre of hall (after tables move)", source: "Dream Wedding & Events" },
+          { name: "DJ booth", quantity: 1, location: "Far end, against the windows", source: "DJ — Marc Robbins" },
+          { name: "Bistro lights", quantity: 1, location: "Overhead, X-pattern", source: "Venue staff", notes: "Pre-installed; just switch on" },
+          { name: "Late-night snack station", quantity: 1, location: "Welcome table (relocated)", source: "Venue staff" },
+          { name: "Bar refresh — beer fridges", quantity: 2, location: "Behind main bar", source: "Venue staff" },
+        ],
+      },
+      {
+        slug: "pack-down",
+        title: "Pack-down",
+        space: "Whole venue",
+        setupStartsAt: "11:00pm",
+        setupOwner: "Bridesmaids + groomsmen",
+        items: [
+          { name: "Centerpieces — keep / bin / give away", quantity: 14, location: "All tables", packDownPlan: "Couple keeps 2; rest go home with guests who want them" },
+          { name: "Place cards / table numbers", quantity: 94, location: "All tables", packDownPlan: "Bridesmaids gather + bag for the couple's archive box" },
+          { name: "Photo prints / signage", quantity: 1, location: "Welcome table + entrance", packDownPlan: "Everything into the archive box — bridesmaids" },
+          { name: "Cake leftovers", quantity: 1, location: "Cake table", packDownPlan: "Box up + bring back to bridal suite" },
+          { name: "Lost property sweep", quantity: 1, location: "All rooms", packDownPlan: "Best man + groomsmen — final walkthrough at 23:30" },
+        ],
+      },
     ];
     let order = 0;
+    let totalItems = 0;
     for (const c of cards) {
       const sub = await db.bookSubsection.create({
         data: {
@@ -540,7 +878,7 @@ export async function seedVenueSpacesAndDecor() {
           order: order++,
         },
       });
-      await db.bookSetupCard.create({
+      const setupCard = await db.bookSetupCard.create({
         data: {
           subsectionId: sub.id,
           space: c.space,
@@ -548,56 +886,155 @@ export async function seedVenueSpacesAndDecor() {
           setupOwner: c.setupOwner,
         },
       });
+      let itemOrder = 0;
+      for (const it of c.items) {
+        await db.bookSetupItem.create({
+          data: {
+            cardId: setupCard.id,
+            name: it.name,
+            quantity: it.quantity ?? null,
+            location: it.location ?? null,
+            source: it.source ?? null,
+            packDownPlan: it.packDownPlan ?? null,
+            notes: it.notes ?? null,
+            order: itemOrder++,
+          },
+        });
+        totalItems += 1;
+      }
     }
-    console.log(`  ✓ ${cards.length} setup cards seeded under venue-spaces`);
+    console.log(`  ✓ ${cards.length} SETUP cards · ${totalItems} items seeded under venue-spaces`);
   } else {
     console.log(`  ✓ venue-spaces subsections already present (${spacesCount}); skipping seed`);
   }
 
   // venue-decor: non-BUILD seed (the BUILD cards stay where the
   // v1.31.0 seeder put them, under legacy `venue`).
+  // v1.38.4: FIELD cards now ship with field defs, and TEXT cards
+  // use HTML markup so the WYSIWYG renders bullets / headings.
   const decorCount = await db.bookSubsection.count({ where: { sectionId: decor.id } });
   if (decorCount === 0) {
-    const subs = [
+    type DecorSub = {
+      slug: string;
+      title: string;
+      kind: "TEXT" | "FIELD";
+      body?: string | null;
+      bodyHtml?: string | null;
+      fieldDefs?: Array<{
+        label: string;
+        type: "text" | "number" | "date" | "select";
+        options?: string[];
+        group?: string;
+        helpText?: string;
+        required?: boolean;
+      }>;
+    };
+    const subs: DecorSub[] = [
       {
         slug: "printed-signage",
         title: "Printed signage (table numbers, menus)",
-        kind: "FIELD" as const,
-        body: null,
+        kind: "FIELD",
+        fieldDefs: [
+          { label: "Vendor", type: "text", group: "Order", helpText: "Who's printing it (e.g. VistaPrint)" },
+          { label: "Order reference", type: "text", group: "Order" },
+          { label: "Order placed", type: "date", group: "Order" },
+          { label: "Expected delivery", type: "date", group: "Order", helpText: "Aim for ≥ 5 days before the wedding" },
+          { label: "Total cost", type: "number", group: "Order", helpText: "£ inclusive of postage" },
+          { label: "Table numbers", type: "number", group: "Counts", helpText: "How many table-number cards" },
+          { label: "Menu cards", type: "number", group: "Counts" },
+          { label: "Order of service", type: "number", group: "Counts" },
+          { label: "Welcome / directional signs", type: "number", group: "Counts" },
+          { label: "Status", type: "select", options: ["Designing", "Ordered", "Delivered", "Picked up"], group: "Status", required: true },
+        ],
       },
       {
         slug: "florist-brief",
         title: "Florist brief",
-        kind: "TEXT" as const,
-        body: "Paintbox Blooms — eucalyptus + ivory roses · scope: bouquets, buttonholes, top-table arrangement, ceremony arch.",
+        kind: "TEXT",
+        bodyHtml:
+          "<h2>Paintbox Blooms — scope</h2>" +
+          "<ul>" +
+          "<li><strong>Bridal bouquet</strong> — eucalyptus, ivory roses, dried lavender accents</li>" +
+          "<li><strong>Bridesmaid bouquet</strong> ×1 (Aimee) — smaller version of bridal</li>" +
+          "<li><strong>Buttonholes</strong> ×4 — Jamie, Joshua, Bryony's dad, Jamie's dad</li>" +
+          "<li><strong>Flower-girl petals</strong> — wicker basket of dried rose petals for Clara</li>" +
+          "<li><strong>Ceremony arch</strong> — natural greenery + ivory bloom focal points</li>" +
+          "<li><strong>Top-table arrangement</strong> — long, low — must not block guest sightlines</li>" +
+          "<li><strong>Aisle chair posies</strong> ×12 — every other row</li>" +
+          "</ul>" +
+          "<h2>Palette</h2>" +
+          "<p>Sage green + ivory + soft cream. <em>No</em> bright pink or red. Eucalyptus is the connecting thread.</p>" +
+          "<h2>Day-of</h2>" +
+          "<p>Drop everything to the bridal suite at <strong>13:00</strong>. Florist returns at <strong>18:00</strong> to dismantle the ceremony arch and re-purpose the aisle posies onto the top table.</p>",
       },
       {
         slug: "photo-booth",
         title: "Photo booth",
-        kind: "FIELD" as const,
-        body: null,
+        kind: "FIELD",
+        fieldDefs: [
+          { label: "Vendor", type: "text", group: "Booking", helpText: "Likely Dream Wedding & Events" },
+          { label: "Package", type: "text", group: "Booking", helpText: "Hours / props / unlimited prints / etc." },
+          { label: "Hours included", type: "number", group: "Booking" },
+          { label: "Cost", type: "number", group: "Booking" },
+          { label: "Setup time", type: "text", group: "Day-of", helpText: "When does the vendor arrive to set up" },
+          { label: "Open from", type: "text", group: "Day-of", helpText: "e.g. 7:00pm" },
+          { label: "Close at", type: "text", group: "Day-of" },
+          { label: "Backdrop / theme", type: "text", group: "Day-of" },
+          { label: "Status", type: "select", options: ["Quote requested", "Booked", "Deposit paid", "Paid in full"], group: "Status", required: true },
+        ],
       },
       {
         slug: "decor-inspiration",
         title: "Décor inspiration",
-        kind: "TEXT" as const,
-        body: "Pinterest mood board · soft palette, candles in mason jars, bistro lighting overhead.",
+        kind: "TEXT",
+        bodyHtml:
+          "<h2>Mood</h2>" +
+          "<ul>" +
+          "<li>Soft palette — sage, ivory, candlelit warmth</li>" +
+          "<li>Layered texture: linen runners, mason-jar candles, dried lavender</li>" +
+          "<li>Bistro lights overhead — they're already installed at Alveston</li>" +
+          "</ul>" +
+          "<h2>Pin links</h2>" +
+          "<ul>" +
+          "<li>Pinterest board: <em>add link</em></li>" +
+          "<li>Instagram saves: <em>add link</em></li>" +
+          "</ul>" +
+          "<blockquote>Less is more — empty horizontal space reads as 'considered', not 'forgotten'. Resist filling every gap.</blockquote>",
       },
     ];
     let order = 0;
     for (const s of subs) {
-      await db.bookSubsection.create({
+      const sub = await db.bookSubsection.create({
         data: {
           sectionId: decor.id,
           slug: s.slug,
           title: s.title,
           kind: s.kind,
-          body: s.body,
+          body: s.body ?? null,
+          bodyHtml: s.bodyHtml ?? null,
           order: order++,
         },
       });
+      if (s.fieldDefs && s.fieldDefs.length > 0) {
+        let defOrder = 0;
+        for (const d of s.fieldDefs) {
+          await db.bookFieldDef.create({
+            data: {
+              subsectionId: sub.id,
+              label: d.label,
+              type: d.type,
+              options: d.options ?? [],
+              group: d.group ?? null,
+              helpText: d.helpText ?? null,
+              required: d.required ?? false,
+              order: defOrder++,
+            },
+          });
+        }
+      }
     }
-    console.log(`  ✓ ${subs.length} venue-decor subsections seeded`);
+    const fieldCount = subs.reduce((n, s) => n + (s.fieldDefs?.length ?? 0), 0);
+    console.log(`  ✓ ${subs.length} venue-decor subsections seeded · ${fieldCount} FIELD defs`);
   } else {
     console.log(`  ✓ venue-decor subsections already present (${decorCount}); skipping seed`);
   }
@@ -615,9 +1052,13 @@ export async function seedLegalSections() {
   }
 
   // legal-before
+  // v1.38.4: LEGAL cards get items (per-person checklists), FIELD
+  // cards get field defs.
   const beforeCount = await db.bookSubsection.count({ where: { sectionId: before.id } });
   if (beforeCount === 0) {
     let order = 0;
+
+    // Notice of Marriage — items: one per person + the appointment.
     const notice = await db.bookSubsection.create({
       data: {
         sectionId: before.id,
@@ -627,13 +1068,37 @@ export async function seedLegalSections() {
         order: order++,
       },
     });
-    await db.bookLegalCard.create({
+    const noticeCard = await db.bookLegalCard.create({
       data: {
         subsectionId: notice.id,
         regulator: "Warwickshire Registrar",
-        regulatorContact: "warwickshire-registrars@warwickshire.gov.uk",
+        regulatorContact: "warwickshire-registrars@warwickshire.gov.uk · 01926 414109",
+        // Notice must be given ≥ 29 days before, valid for 12 months.
+        // Aim to give notice ~3-4 months before to absorb any reschedule.
+        dueByDate: new Date("2026-08-28T00:00:00Z"),
+        notes: "Both parties must give notice in person at their local register office. Bring documents from the 'Required documents' card.",
       },
     });
+    const noticeItems = [
+      { label: "Bryony — give notice", requiredFor: "Bride", expiresAt: new Date("2027-05-01T00:00:00Z") },
+      { label: "Jamie — give notice", requiredFor: "Groom", expiresAt: new Date("2027-05-01T00:00:00Z") },
+      { label: "Book registrar for the ceremony", requiredFor: "Both" },
+      { label: "Pay registrar fee (~£50)", requiredFor: "Both" },
+    ];
+    let nOrder = 0;
+    for (const i of noticeItems) {
+      await db.bookLegalItem.create({
+        data: {
+          cardId: noticeCard.id,
+          label: i.label,
+          requiredFor: i.requiredFor,
+          expiresAt: i.expiresAt ?? null,
+          order: nOrder++,
+        },
+      });
+    }
+
+    // Required documents — items per person.
     const docs = await db.bookSubsection.create({
       data: {
         sectionId: before.id,
@@ -643,13 +1108,36 @@ export async function seedLegalSections() {
         order: order++,
       },
     });
-    await db.bookLegalCard.create({
+    const docsCard = await db.bookLegalCard.create({
       data: {
         subsectionId: docs.id,
         regulator: "Warwickshire Registrar",
+        notes: "Originals required at the appointment — photocopies not accepted. Take both passports + proofs to the registrar interview.",
       },
     });
-    await db.bookSubsection.create({
+    const docItems = [
+      { label: "Bryony — passport (or birth cert + photo ID)", requiredFor: "Bride" },
+      { label: "Bryony — proof of address (utility bill or bank statement, dated within 3 months)", requiredFor: "Bride" },
+      { label: "Bryony — decree absolute (if previously married)", requiredFor: "Bride", notes: "Skip if not applicable" },
+      { label: "Jamie — passport (or birth cert + photo ID)", requiredFor: "Groom" },
+      { label: "Jamie — proof of address (utility bill or bank statement, dated within 3 months)", requiredFor: "Groom" },
+      { label: "Jamie — decree absolute (if previously married)", requiredFor: "Groom", notes: "Skip if not applicable" },
+    ];
+    let dOrder = 0;
+    for (const i of docItems) {
+      await db.bookLegalItem.create({
+        data: {
+          cardId: docsCard.id,
+          label: i.label,
+          requiredFor: i.requiredFor,
+          notes: i.notes ?? null,
+          order: dOrder++,
+        },
+      });
+    }
+
+    // Witnesses — FIELD with two-witness shape.
+    const witnessSub = await db.bookSubsection.create({
       data: {
         sectionId: before.id,
         slug: "witnesses",
@@ -658,7 +1146,33 @@ export async function seedLegalSections() {
         order: order++,
       },
     });
-    await db.bookSubsection.create({
+    const witnessFields: Array<{ label: string; type: "text" | "number" | "date" | "select"; group?: string; helpText?: string; required?: boolean; options?: string[] }> = [
+      { label: "Witness 1 — name", type: "text", group: "Witness 1", required: true, helpText: "Likely Joshua Dickson" },
+      { label: "Witness 1 — relation to couple", type: "text", group: "Witness 1", helpText: "e.g. Best man" },
+      { label: "Witness 1 — confirmed?", type: "select", options: ["Pending", "Confirmed", "Stepping in last-minute"], group: "Witness 1" },
+      { label: "Witness 2 — name", type: "text", group: "Witness 2", required: true, helpText: "Likely Aimee Hollingsworth" },
+      { label: "Witness 2 — relation to couple", type: "text", group: "Witness 2" },
+      { label: "Witness 2 — confirmed?", type: "select", options: ["Pending", "Confirmed", "Stepping in last-minute"], group: "Witness 2" },
+      { label: "Backup witness", type: "text", group: "Contingency", helpText: "If either witness drops out — best man / dad" },
+    ];
+    let wOrder = 0;
+    for (const f of witnessFields) {
+      await db.bookFieldDef.create({
+        data: {
+          subsectionId: witnessSub.id,
+          label: f.label,
+          type: f.type,
+          options: f.options ?? [],
+          group: f.group ?? null,
+          helpText: f.helpText ?? null,
+          required: f.required ?? false,
+          order: wOrder++,
+        },
+      });
+    }
+
+    // Insurance — FIELD.
+    const insSub = await db.bookSubsection.create({
       data: {
         sectionId: before.id,
         slug: "insurance",
@@ -667,16 +1181,45 @@ export async function seedLegalSections() {
         order: order++,
       },
     });
-    console.log(`  ✓ legal-before seeded (4 subsections)`);
+    const insFields: Array<{ label: string; type: "text" | "number" | "date" | "select"; group?: string; helpText?: string; required?: boolean; options?: string[] }> = [
+      { label: "Provider", type: "text", group: "Policy", helpText: "e.g. WeddingPlan Insurance" },
+      { label: "Policy number", type: "text", group: "Policy" },
+      { label: "Cover level", type: "text", group: "Policy", helpText: "e.g. £5k cancellation, £2k supplier failure" },
+      { label: "Premium paid", type: "number", group: "Policy" },
+      { label: "Effective from", type: "date", group: "Policy" },
+      { label: "Effective to", type: "date", group: "Policy" },
+      { label: "24h emergency contact", type: "text", group: "Policy" },
+      { label: "Status", type: "select", options: ["Researching", "Quoted", "Bought"], group: "Status", required: true },
+    ];
+    let iOrder = 0;
+    for (const f of insFields) {
+      await db.bookFieldDef.create({
+        data: {
+          subsectionId: insSub.id,
+          label: f.label,
+          type: f.type,
+          options: f.options ?? [],
+          group: f.group ?? null,
+          helpText: f.helpText ?? null,
+          required: f.required ?? false,
+          order: iOrder++,
+        },
+      });
+    }
+
+    console.log(`  ✓ legal-before seeded (4 subsections · ${noticeItems.length + docItems.length} LEGAL items · ${witnessFields.length + insFields.length} FIELD defs)`);
   } else {
     console.log(`  ✓ legal-before already present (${beforeCount}); skipping seed`);
   }
 
   // legal-day
+  // v1.38.4: Pre-ceremony interview FIELD gets defs; TEXT cards
+  // converted to HTML with numbered/bulleted lists.
   const dayCount = await db.bookSubsection.count({ where: { sectionId: day.id } });
   if (dayCount === 0) {
     let order = 0;
-    await db.bookSubsection.create({
+
+    const interviewSub = await db.bookSubsection.create({
       data: {
         sectionId: day.id,
         slug: "pre-ceremony-interview",
@@ -685,35 +1228,82 @@ export async function seedLegalSections() {
         order: order++,
       },
     });
+    const interviewFields: Array<{ label: string; type: "text" | "number" | "date" | "select"; group?: string; helpText?: string; options?: string[] }> = [
+      { label: "Time", type: "text", group: "Schedule", helpText: "Usually 30 min before the ceremony" },
+      { label: "Location", type: "text", group: "Schedule", helpText: "Registrar's room at the venue" },
+      { label: "Registrar", type: "text", group: "Officials", helpText: "Name of the lead registrar" },
+      { label: "Sub-registrar / second", type: "text", group: "Officials" },
+      { label: "Witnesses present?", type: "select", options: ["Yes — both", "Only one", "Neither yet"], group: "Officials" },
+      { label: "Music handed off?", type: "select", options: ["Pending", "Done"], group: "Logistics", helpText: "Procession / signing / recession tracks confirmed with venue" },
+      { label: "Rings handed off to registrar?", type: "select", options: ["Pending", "Done"], group: "Logistics" },
+    ];
+    let iqOrder = 0;
+    for (const f of interviewFields) {
+      await db.bookFieldDef.create({
+        data: {
+          subsectionId: interviewSub.id,
+          label: f.label,
+          type: f.type,
+          options: f.options ?? [],
+          group: f.group ?? null,
+          helpText: f.helpText ?? null,
+          order: iqOrder++,
+        },
+      });
+    }
+
     await db.bookSubsection.create({
       data: {
         sectionId: day.id,
         slug: "vows-reference",
         title: "Vows reference",
         kind: "TEXT",
-        body: "Vows go here — exchange in the registrar's room before the ceremony begins.",
+        bodyHtml:
+          "<h2>The legal vows (England & Wales civil ceremony)</h2>" +
+          "<p>The registrar leads. Each party repeats after them. <strong>Don't memorise</strong> — they prompt one phrase at a time.</p>" +
+          "<blockquote>I solemnly declare that I know not of any lawful impediment why I, <em>[full name]</em>, may not be joined in matrimony to <em>[partner's full name]</em>.</blockquote>" +
+          "<blockquote>I call upon these persons here present to witness that I, <em>[full name]</em>, do take thee, <em>[partner's full name]</em>, to be my lawful wedded <em>wife / husband</em>.</blockquote>" +
+          "<h2>Personal vows (optional, after the legal ones)</h2>" +
+          "<p>Drop personal vows here as you write them. Read aloud to each other in the rehearsal — they should fit on an index card.</p>" +
+          "<h2>Crib sheet</h2>" +
+          "<p>Print one card each. Keep with the rings.</p>",
         order: order++,
       },
     });
+
     await db.bookSubsection.create({
       data: {
         sectionId: day.id,
         slug: "registration-steps",
         title: "Registration steps",
         kind: "TEXT",
-        body: "1. Pre-ceremony interview · 2. Ceremony · 3. Sign register · 4. Witnesses sign · 5. Marriage cert handed over.",
+        bodyHtml:
+          "<h2>Order of operations</h2>" +
+          "<ol>" +
+          "<li><strong>Pre-ceremony interview</strong> — couple meets registrar 30 min before. Confirms both parties' details.</li>" +
+          "<li><strong>Ceremony</strong> — registrar leads, vows + ring exchange.</li>" +
+          "<li><strong>Sign the register</strong> — both parties sign.</li>" +
+          "<li><strong>Witnesses sign</strong> — both witnesses sign immediately after.</li>" +
+          "<li><strong>Marriage cert handed over</strong> — temporary cert at the venue, full cert posted later (see <strong>Legal — After</strong>).</li>" +
+          "</ol>" +
+          "<blockquote>If the registrar wants to take photos of the signing — only the couple + witnesses are in those, never guests. Photographer can step closer.</blockquote>",
         order: order++,
       },
     });
-    console.log(`  ✓ legal-day seeded (3 subsections)`);
+    console.log(`  ✓ legal-day seeded (3 subsections · ${interviewFields.length} FIELD defs)`);
   } else {
     console.log(`  ✓ legal-day already present (${dayCount}); skipping seed`);
   }
 
   // legal-after
+  // v1.38.4: each LEGAL card gets items so the checklist is
+  // immediately useful. Name-change covers the standard 12 places to
+  // update if either party is changing surname.
   const afterCount = await db.bookSubsection.count({ where: { sectionId: after.id } });
   if (afterCount === 0) {
     let order = 0;
+
+    // Marriage certificate pickup.
     const pickup = await db.bookSubsection.create({
       data: {
         sectionId: after.id,
@@ -723,12 +1313,34 @@ export async function seedLegalSections() {
         order: order++,
       },
     });
-    await db.bookLegalCard.create({
+    const pickupCard = await db.bookLegalCard.create({
       data: {
         subsectionId: pickup.id,
         regulator: "Warwickshire Registrar",
+        regulatorContact: "warwickshire-registrars@warwickshire.gov.uk · 01926 414109",
+        notes: "Full marriage certificate is usually posted within 2-3 weeks of the wedding. Confirm address with registrar at the interview.",
       },
     });
+    const pickupItems = [
+      { label: "Confirm postal address with registrar", requiredFor: "Both" },
+      { label: "Receive full certificate", requiredFor: "Both" },
+      { label: "Order extra certified copies (~£11 each)", notes: "Recommended: 3-5 copies for name-change paperwork" },
+      { label: "Store original in secure place (fireproof box)", requiredFor: "Both" },
+    ];
+    let pOrder = 0;
+    for (const i of pickupItems) {
+      await db.bookLegalItem.create({
+        data: {
+          cardId: pickupCard.id,
+          label: i.label,
+          requiredFor: i.requiredFor ?? null,
+          notes: i.notes ?? null,
+          order: pOrder++,
+        },
+      });
+    }
+
+    // Name change checklist.
     const nameChange = await db.bookSubsection.create({
       data: {
         sectionId: after.id,
@@ -738,7 +1350,39 @@ export async function seedLegalSections() {
         order: order++,
       },
     });
-    await db.bookLegalCard.create({ data: { subsectionId: nameChange.id } });
+    const nameChangeCard = await db.bookLegalCard.create({
+      data: {
+        subsectionId: nameChange.id,
+        notes: "If either party is changing surname. Tackle in this order — passport first because most other places ask for it as proof.",
+      },
+    });
+    const nameItems = [
+      { label: "Passport", notes: "HM Passport Office — needs marriage cert + old passport. Allow 6-10 weeks." },
+      { label: "Driving licence (DVLA)", notes: "Free if you're already due a renewal" },
+      { label: "HMRC (tax records)", notes: "Update via Personal Tax Account" },
+      { label: "Banks / building societies", notes: "List each one in turn" },
+      { label: "Pension provider", notes: "Both workplace + personal pensions" },
+      { label: "Employer (HR + IT)", notes: "Email signature, payroll, expenses" },
+      { label: "GP + dentist", notes: "Health records" },
+      { label: "Insurance — home / car / life", notes: "Update policies on renewal" },
+      { label: "Will / power of attorney", notes: "If applicable — speak to solicitor" },
+      { label: "Credit-reference agencies", notes: "Equifax, Experian, TransUnion" },
+      { label: "Loyalty / membership cards", notes: "Lower priority — Tesco Clubcard, Boots, etc." },
+      { label: "Social media + email", notes: "Lowest priority — do whenever" },
+    ];
+    let ncOrder = 0;
+    for (const i of nameItems) {
+      await db.bookLegalItem.create({
+        data: {
+          cardId: nameChangeCard.id,
+          label: i.label,
+          notes: i.notes ?? null,
+          order: ncOrder++,
+        },
+      });
+    }
+
+    // Certified copies tracker.
     const copies = await db.bookSubsection.create({
       data: {
         sectionId: after.id,
@@ -748,8 +1392,33 @@ export async function seedLegalSections() {
         order: order++,
       },
     });
-    await db.bookLegalCard.create({ data: { subsectionId: copies.id } });
-    console.log(`  ✓ legal-after seeded (3 subsections)`);
+    const copiesCard = await db.bookLegalCard.create({
+      data: {
+        subsectionId: copies.id,
+        notes: "Track which institutions you've sent certified copies to + whether they've been returned. Each copy is ~£11 from the GRO.",
+      },
+    });
+    const copyItems = [
+      { label: "Order initial batch from GRO (gov.uk)", notes: "Recommended start: 5 copies" },
+      { label: "Copy sent to passport office (returned?)", requiredFor: "Both" },
+      { label: "Copy sent to bank A (returned?)", requiredFor: "Both" },
+      { label: "Copy sent to bank B (returned?)", requiredFor: "Both" },
+      { label: "Reorder if running low", notes: "Don't let yourself get stuck mid-name-change" },
+    ];
+    let cOrder = 0;
+    for (const i of copyItems) {
+      await db.bookLegalItem.create({
+        data: {
+          cardId: copiesCard.id,
+          label: i.label,
+          requiredFor: i.requiredFor ?? null,
+          notes: i.notes ?? null,
+          order: cOrder++,
+        },
+      });
+    }
+
+    console.log(`  ✓ legal-after seeded (3 subsections · ${pickupItems.length + nameItems.length + copyItems.length} LEGAL items)`);
   } else {
     console.log(`  ✓ legal-after already present (${afterCount}); skipping seed`);
   }
@@ -772,18 +1441,134 @@ export async function seedWeddingPartyPeopleAndDayof() {
     return;
   }
 
-  // wedding-party-people — one OUTFIT card per known member.
+  // wedding-party-people — one OUTFIT card per known member, each
+  // pre-populated with realistic fitting / alterations / pickup
+  // dates around the 26 Sep 2026 wedding plus per-item composition
+  // rows (dress / shoes / accessories) so the UI shows what a
+  // fully-filled OUTFIT card looks like out of the box.
+  // v1.38.4: enriched from the v1.35.0 minimal seed.
   const peopleCount = await db.bookSubsection.count({
     where: { sectionId: people.id },
   });
   if (peopleCount === 0) {
-    const members = [
-      { personName: "Bryony", role: "Bride" },
-      { personName: "Jamie", role: "Groom" },
-      { personName: "Aimee Hollingsworth", role: "Maid of Honour" },
-      { personName: "Joshua Dickson", role: "Best Man" },
-      { personName: "Clara", role: "Flower Girl" },
-      { personName: "Torin", role: "Page Boy" },
+    type SeedItem = {
+      itemLabel: string;
+      description?: string | null;
+      supplier?: string | null;
+      status?: string | null;
+      notes?: string | null;
+    };
+    type SeedMember = {
+      personName: string;
+      role: string;
+      fittingDate?: Date | null;
+      alterationsDueBy?: Date | null;
+      pickupDate?: Date | null;
+      costPence?: number | null;
+      paidBy?: string | null;
+      paid?: boolean;
+      notes?: string | null;
+      items: SeedItem[];
+    };
+    const members: SeedMember[] = [
+      {
+        personName: "Bryony",
+        role: "Bride",
+        fittingDate: new Date("2026-08-15T10:00:00Z"),
+        alterationsDueBy: new Date("2026-09-12T00:00:00Z"),
+        pickupDate: new Date("2026-09-23T00:00:00Z"),
+        costPence: 185000,
+        paidBy: "Couple",
+        paid: false,
+        notes: "Ivory + soft sage palette. Veil to be steamed by venue staff morning of.",
+        items: [
+          { itemLabel: "Dress", description: "Ivory A-line silk, fingertip veil", supplier: "Mirror Mirror Bridal", status: "Ordered" },
+          { itemLabel: "Shoes", description: "Ivory block heel, 5cm — comfort over height", supplier: "Rachel Simpson", status: "Ordered" },
+          { itemLabel: "Veil", description: "Cathedral-length, scalloped edge", supplier: "Mirror Mirror Bridal", status: "Ordered" },
+          { itemLabel: "Jewellery", description: "Pearl drop earrings (something borrowed — Mum)", status: "Designed" },
+          { itemLabel: "Bouquet", description: "Eucalyptus + ivory roses", supplier: "Paintbox Blooms", status: "Designed" },
+        ],
+      },
+      {
+        personName: "Jamie",
+        role: "Groom",
+        fittingDate: new Date("2026-08-20T15:00:00Z"),
+        alterationsDueBy: new Date("2026-09-15T00:00:00Z"),
+        pickupDate: new Date("2026-09-24T00:00:00Z"),
+        costPence: 65000,
+        paidBy: "Self",
+        paid: false,
+        notes: "Three-piece in navy. Pocket square to match bridesmaid sage.",
+        items: [
+          { itemLabel: "Suit", description: "Navy three-piece wool", supplier: "Slaters", status: "Ordered" },
+          { itemLabel: "Shirt", description: "White, point collar, double cuff", supplier: "Slaters", status: "Ordered" },
+          { itemLabel: "Tie", description: "Sage green knit", supplier: "Slaters", status: "Ordered" },
+          { itemLabel: "Shoes", description: "Black oxford, polished by best man", supplier: "Loake (existing)", status: "Collected" },
+          { itemLabel: "Cufflinks", description: "Silver knot — gift from Bryony", status: "Designed" },
+          { itemLabel: "Buttonhole", description: "White rose + eucalyptus", supplier: "Paintbox Blooms", status: "Designed" },
+        ],
+      },
+      {
+        personName: "Aimee Hollingsworth",
+        role: "Maid of Honour",
+        fittingDate: new Date("2026-08-22T11:00:00Z"),
+        alterationsDueBy: new Date("2026-09-12T00:00:00Z"),
+        pickupDate: new Date("2026-09-23T00:00:00Z"),
+        costPence: 22000,
+        paidBy: "Self",
+        paid: true,
+        items: [
+          { itemLabel: "Dress", description: "Sage green, knee-length, halter neck", supplier: "Coast", status: "Ordered" },
+          { itemLabel: "Shoes", description: "Nude block heel — own choice", status: "Collected" },
+          { itemLabel: "Bouquet", description: "Smaller version of bridal bouquet", supplier: "Paintbox Blooms", status: "Designed" },
+        ],
+      },
+      {
+        personName: "Joshua Dickson",
+        role: "Best Man",
+        fittingDate: new Date("2026-08-20T15:30:00Z"),
+        alterationsDueBy: new Date("2026-09-15T00:00:00Z"),
+        pickupDate: new Date("2026-09-24T00:00:00Z"),
+        costPence: 60000,
+        paidBy: "Self",
+        paid: false,
+        items: [
+          { itemLabel: "Suit", description: "Navy two-piece — same fabric as Jamie", supplier: "Slaters", status: "Ordered" },
+          { itemLabel: "Shirt", description: "White point collar", supplier: "Slaters", status: "Ordered" },
+          { itemLabel: "Tie", description: "Sage green knit (matching Jamie)", supplier: "Slaters", status: "Ordered" },
+          { itemLabel: "Shoes", description: "Own black oxfords", status: "Collected" },
+          { itemLabel: "Buttonhole", description: "White rose", supplier: "Paintbox Blooms", status: "Designed" },
+        ],
+      },
+      {
+        personName: "Clara",
+        role: "Flower Girl",
+        fittingDate: new Date("2026-09-05T11:00:00Z"),
+        pickupDate: new Date("2026-09-19T00:00:00Z"),
+        costPence: 4500,
+        paidBy: "Parents",
+        paid: true,
+        notes: "Likely to grow between fitting and the day — buy slightly long, pin if needed.",
+        items: [
+          { itemLabel: "Dress", description: "Ivory tulle, sage sash to match maid of honour", supplier: "Monsoon", status: "Ordered" },
+          { itemLabel: "Shoes", description: "Ivory ballet flats", status: "Ordered" },
+          { itemLabel: "Petal basket", description: "Wicker basket + dried rose petals", supplier: "Paintbox Blooms", status: "Designed" },
+        ],
+      },
+      {
+        personName: "Torin",
+        role: "Page Boy",
+        fittingDate: new Date("2026-09-05T11:30:00Z"),
+        pickupDate: new Date("2026-09-19T00:00:00Z"),
+        costPence: 5500,
+        paidBy: "Parents",
+        paid: true,
+        items: [
+          { itemLabel: "Outfit", description: "Navy waistcoat + shorts, white shirt", supplier: "Monsoon", status: "Ordered" },
+          { itemLabel: "Tie", description: "Mini sage knit", supplier: "Slaters", status: "Ordered" },
+          { itemLabel: "Shoes", description: "Brown lace-up", status: "Ordered" },
+        ],
+      },
     ];
     let order = 0;
     for (const m of members) {
@@ -801,15 +1586,39 @@ export async function seedWeddingPartyPeopleAndDayof() {
           order: order++,
         },
       });
-      await db.bookOutfitCard.create({
+      const card = await db.bookOutfitCard.create({
         data: {
           subsectionId: sub.id,
           personName: m.personName,
           role: m.role,
+          fittingDate: m.fittingDate ?? null,
+          alterationsDueBy: m.alterationsDueBy ?? null,
+          pickupDate: m.pickupDate ?? null,
+          costPence: m.costPence ?? null,
+          paidBy: m.paidBy ?? null,
+          paid: m.paid ?? false,
+          notes: m.notes ?? null,
         },
       });
+      let itemOrder = 0;
+      for (const it of m.items) {
+        await db.bookOutfit.create({
+          data: {
+            cardId: card.id,
+            itemLabel: it.itemLabel,
+            description: it.description ?? null,
+            supplier: it.supplier ?? null,
+            status: it.status ?? null,
+            notes: it.notes ?? null,
+            order: itemOrder++,
+          },
+        });
+      }
     }
-    console.log(`  ✓ wedding-party-people seeded (${members.length} OUTFIT cards)`);
+    const itemCount = members.reduce((n, m) => n + m.items.length, 0);
+    console.log(
+      `  ✓ wedding-party-people seeded (${members.length} OUTFIT cards · ${itemCount} items)`,
+    );
   } else {
     console.log(
       `  ✓ wedding-party-people already present (${peopleCount}); skipping seed`,
@@ -817,54 +1626,144 @@ export async function seedWeddingPartyPeopleAndDayof() {
   }
 
   // wedding-party-dayof — TEXT/FIELD subsections per §8.2.
+  // v1.38.4: TEXT bodies authored as HTML so the v1.37.0 WYSIWYG
+  // viewer renders bullet lists / numbered steps cleanly. Wedding-
+  // day cars FIELD card gets six field defs so the card is useful
+  // out of the box.
   const dayofCount = await db.bookSubsection.count({
     where: { sectionId: dayof.id },
   });
   if (dayofCount === 0) {
-    const subs = [
+    type DayofSub = {
+      slug: string;
+      title: string;
+      kind: "TEXT" | "FIELD";
+      body?: string | null;
+      bodyHtml?: string | null;
+      fieldDefs?: Array<{
+        label: string;
+        type: "text" | "number" | "date" | "select";
+        options?: string[];
+        group?: string;
+        helpText?: string;
+        required?: boolean;
+      }>;
+    };
+    const subs: DayofSub[] = [
       {
         slug: "morning-prep-timeline",
         title: "Morning prep timeline",
-        kind: "TEXT" as const,
-        body: "Bridesmaids arrive at the bridal suite 11:00.\nGroomsmen arrive at the manor 12:30.\nPhotographer with the groomsmen 12:45.\nPhotographer with the bridesmaids 13:00.",
+        kind: "TEXT",
+        bodyHtml:
+          "<h2>Bride side · Bridal suite</h2>" +
+          "<ul>" +
+          "<li><strong>09:30</strong> — Hair + makeup arrive (Lily James MUA, Mel Hair Co.)</li>" +
+          "<li><strong>10:00</strong> — Bryony hair starts</li>" +
+          "<li><strong>11:00</strong> — Bridesmaids arrive at the bridal suite</li>" +
+          "<li><strong>12:00</strong> — Light lunch in the suite (sandwiches + fizz)</li>" +
+          "<li><strong>13:00</strong> — Photographer arrives, candids of the bridesmaids getting ready</li>" +
+          "<li><strong>13:30</strong> — Bryony into the dress, photographer captures first look</li>" +
+          "</ul>" +
+          "<h2>Groom side · Manor</h2>" +
+          "<ul>" +
+          "<li><strong>12:30</strong> — Groomsmen arrive at the manor</li>" +
+          "<li><strong>12:45</strong> — Photographer with the groomsmen — informal</li>" +
+          "<li><strong>13:15</strong> — Buttonholes pinned (Best man double-checks)</li>" +
+          "<li><strong>13:30</strong> — Jamie + groomsmen take seats in ceremony room</li>" +
+          "</ul>",
       },
       {
         slug: "ring-keepers",
         title: "Ring keepers",
-        kind: "TEXT" as const,
-        body: "Joshua holds both rings until the ceremony.\nHand-off in the groomsmen room at 1:30pm.\nConfirm with Aimee day-of.",
+        kind: "TEXT",
+        bodyHtml:
+          "<p><strong>Joshua Dickson (Best Man)</strong> holds both rings until the ceremony.</p>" +
+          "<ul>" +
+          "<li>Rings stay in the navy ring box (gift from Bryony's mum) — kept in left waistcoat pocket.</li>" +
+          "<li>Hand-off in the groomsmen room at <strong>13:30</strong>, just before everyone is seated.</li>" +
+          "<li>Confirm with Aimee Hollingsworth on the morning of — she carries the bride's ring during the procession.</li>" +
+          "</ul>" +
+          "<blockquote>If anything goes wrong: rings can be improvised with a pair of borrowed rings — the legal exchange is the spoken vows, not the metal. Don't panic.</blockquote>",
       },
       {
         slug: "pre-ceremony-handoffs",
         title: "Pre-ceremony hand-offs",
-        kind: "TEXT" as const,
-        body: "Bouquets to bridesmaids 13:30.\nButtonholes to groomsmen 13:00.\nFlower girl petals to Clara 13:45.",
+        kind: "TEXT",
+        bodyHtml:
+          "<p>Paintbox Blooms drops everything to the bridal suite at <strong>13:00</strong>. From there:</p>" +
+          "<ul>" +
+          "<li><strong>13:00</strong> — Buttonholes to groomsmen (best man delivers to manor)</li>" +
+          "<li><strong>13:30</strong> — Bouquets to bridesmaids in the suite</li>" +
+          "<li><strong>13:45</strong> — Flower girl petals to Clara (in the wicker basket)</li>" +
+          "<li><strong>13:50</strong> — Bryony's bouquet handed over after dress is on</li>" +
+          "</ul>",
       },
       {
         slug: "wedding-day-cars",
         title: "Wedding-day cars",
-        kind: "FIELD" as const,
+        kind: "FIELD",
         body: null,
+        fieldDefs: [
+          { label: "Bride's car", type: "text", group: "Vehicles", helpText: "Make / model / colour, e.g. White vintage Rolls" },
+          { label: "Bride's car driver", type: "text", group: "Vehicles" },
+          { label: "Driver phone", type: "text", group: "Vehicles", helpText: "Day-of contact in case of delay" },
+          { label: "Pickup time (bride)", type: "text", group: "Schedule", helpText: "e.g. 13:30 from bridal suite" },
+          { label: "Groomsmen car", type: "text", group: "Vehicles" },
+          { label: "Backup transport", type: "text", group: "Contingency", helpText: "Taxi firm + number for any cock-ups" },
+        ],
       },
       {
         slug: "stag-hen-recap",
         title: "Stag & Hen recap",
-        kind: "TEXT" as const,
-        body: "Stag · …\nHen · …",
+        kind: "TEXT",
+        bodyHtml:
+          "<h2>Stag — log here once it happens</h2>" +
+          "<ul>" +
+          "<li><strong>When</strong>: TBD</li>" +
+          "<li><strong>Where</strong>: TBD</li>" +
+          "<li><strong>Organiser</strong>: Joshua Dickson</li>" +
+          "<li><strong>Photos / video</strong>: shared album link to drop in here</li>" +
+          "</ul>" +
+          "<h2>Hen — log here once it happens</h2>" +
+          "<ul>" +
+          "<li><strong>When</strong>: TBD</li>" +
+          "<li><strong>Where</strong>: TBD</li>" +
+          "<li><strong>Organiser</strong>: Aimee Hollingsworth</li>" +
+          "<li><strong>Photos / video</strong>: shared album link</li>" +
+          "</ul>" +
+          "<p>Use this card after the events to capture anything worth remembering for the speeches.</p>",
       },
     ];
     let order = 0;
     for (const s of subs) {
-      await db.bookSubsection.create({
+      const sub = await db.bookSubsection.create({
         data: {
           sectionId: dayof.id,
           slug: s.slug,
           title: s.title,
           kind: s.kind,
-          body: s.body,
+          body: s.body ?? null,
+          bodyHtml: s.bodyHtml ?? null,
           order: order++,
         },
       });
+      if (s.fieldDefs && s.fieldDefs.length > 0) {
+        let defOrder = 0;
+        for (const d of s.fieldDefs) {
+          await db.bookFieldDef.create({
+            data: {
+              subsectionId: sub.id,
+              label: d.label,
+              type: d.type,
+              options: d.options ?? [],
+              group: d.group ?? null,
+              helpText: d.helpText ?? null,
+              required: d.required ?? false,
+              order: defOrder++,
+            },
+          });
+        }
+      }
     }
     console.log(`  ✓ wedding-party-dayof seeded (${subs.length} subsections)`);
   } else {
@@ -896,30 +1795,74 @@ export async function seedAccommodationCards() {
     return;
   }
 
-  // Four sample STAY cards (per §8.11) + one LODGING_GUIDE card.
-  const stays = [
+  // v1.38.4: STAY cards now ship with realistic check-in / check-out
+  // dates around the 26 Sep 2026 wedding, plus per-stay cost +
+  // booking ref placeholders so the full STAY card UI is visible
+  // out of the box. Couple swaps in real ref + cost when booked.
+  const stays: Array<{
+    slug: string;
+    title: string;
+    propertyName: string;
+    propertyContact?: string;
+    bookingReference?: string;
+    checkInDate: Date;
+    checkOutDate: Date;
+    costPence?: number;
+    paidBy?: string;
+    paid?: boolean;
+    occupants: string[];
+    notes?: string;
+  }> = [
     {
       slug: "bridal-suite",
       title: "Bridal Suite",
       propertyName: "Alveston Manor — Bridal Suite",
+      propertyContact: "01789 205478 · alveston.manor@example.com",
+      bookingReference: "AM-2026-09-25-BRSUITE",
+      checkInDate: new Date("2026-09-25T15:00:00Z"),
+      checkOutDate: new Date("2026-09-27T11:00:00Z"),
+      costPence: 60000,
+      paidBy: "Couple",
+      paid: false,
       occupants: ["Bryony", "Jamie"],
+      notes: "Wedding-night included in venue package — confirm.",
     },
     {
       slug: "bryony-night-before",
       title: "Bryony — night before",
       propertyName: "Alveston Manor — Bridal Suite (early check-in)",
+      propertyContact: "01789 205478",
+      bookingReference: "AM-2026-09-25-EARLY",
+      checkInDate: new Date("2026-09-25T15:00:00Z"),
+      checkOutDate: new Date("2026-09-26T11:00:00Z"),
+      costPence: 18000,
+      paidBy: "Couple",
+      paid: false,
       occupants: ["Bryony"],
+      notes: "Bridesmaids join on the morning, not for the night.",
     },
     {
       slug: "bridesmaids-night-before",
       title: "Aimee / bridesmaids — night before",
-      propertyName: "Alveston Manor — bridesmaid block",
+      propertyName: "Alveston Manor — bridesmaid twin",
+      bookingReference: "AM-2026-09-25-BM01",
+      checkInDate: new Date("2026-09-25T15:00:00Z"),
+      checkOutDate: new Date("2026-09-26T11:00:00Z"),
+      costPence: 16000,
+      paidBy: "Self",
+      paid: true,
       occupants: ["Aimee Hollingsworth"],
     },
     {
       slug: "groomsmen-night-before",
       title: "Jamie / groomsmen — night before",
-      propertyName: "Alveston Manor — groomsmen block",
+      propertyName: "Alveston Manor — groomsmen twin",
+      bookingReference: "AM-2026-09-25-GM01",
+      checkInDate: new Date("2026-09-25T15:00:00Z"),
+      checkOutDate: new Date("2026-09-26T11:00:00Z"),
+      costPence: 16000,
+      paidBy: "Self",
+      paid: false,
       occupants: ["Jamie", "Joshua Dickson"],
     },
   ];
@@ -938,7 +1881,15 @@ export async function seedAccommodationCards() {
       data: {
         subsectionId: sub.id,
         propertyName: s.propertyName,
+        propertyContact: s.propertyContact ?? null,
+        bookingReference: s.bookingReference ?? null,
+        checkInDate: s.checkInDate,
+        checkOutDate: s.checkOutDate,
+        costPence: s.costPence ?? null,
+        paidBy: s.paidBy ?? null,
+        paid: s.paid ?? false,
         occupants: s.occupants,
+        notes: s.notes ?? null,
       },
     });
   }
@@ -1002,6 +1953,418 @@ export async function seedAccommodationCards() {
   );
 }
 
+// v1.38.4: seed the Photography & Videography section. Per BOOK-
+// EXPANSION-PLAN §8.5: Brief / Engagement shoot / Shot list / Album
+// spec / Gallery delivery. SHOT_LIST gets a starter set of shots
+// grouped by category with rough time-budget estimates.
+export async function seedPhotographyCards() {
+  const section = await db.bookSection.findUnique({ where: { slug: "photography" } });
+  if (!section) {
+    console.log(`  · photography section not found; skipping seed`);
+    return;
+  }
+  const existing = await db.bookSubsection.count({ where: { sectionId: section.id } });
+  if (existing > 0) {
+    console.log(`  ✓ photography already populated (${existing}); skipping seed`);
+    return;
+  }
+
+  let order = 0;
+
+  // Brief — FIELD card with the headline contract details.
+  const briefSub = await db.bookSubsection.create({
+    data: {
+      sectionId: section.id,
+      slug: "photographer-brief",
+      title: "Photographer brief",
+      kind: "FIELD",
+      order: order++,
+    },
+  });
+  const briefFields: Array<{ label: string; type: "text" | "number" | "date" | "select"; options?: string[]; group?: string; helpText?: string; required?: boolean }> = [
+    { label: "Photographer", type: "text", group: "Vendor", helpText: "e.g. CG Media — Louis Brough", required: true },
+    { label: "Phone", type: "text", group: "Vendor" },
+    { label: "Email", type: "text", group: "Vendor" },
+    { label: "Hours of coverage", type: "number", group: "Booking", helpText: "Total hours on the day" },
+    { label: "Arrival time", type: "text", group: "Day-of", helpText: "e.g. 11:00 — bridal suite" },
+    { label: "Departure time", type: "text", group: "Day-of", helpText: "e.g. 22:00 — first dance + 30 min after" },
+    { label: "Second shooter?", type: "select", options: ["Yes", "No"], group: "Booking" },
+    { label: "Total fee", type: "number", group: "Booking", helpText: "£ inclusive" },
+    { label: "Deposit paid", type: "number", group: "Payments" },
+    { label: "Balance due date", type: "date", group: "Payments" },
+    { label: "Style", type: "text", group: "Brief", helpText: "Documentary / posed / mixed — one line" },
+    { label: "Status", type: "select", options: ["Researching", "Quoted", "Booked", "Deposit paid", "Paid in full"], group: "Status", required: true },
+  ];
+  let bdOrder = 0;
+  for (const f of briefFields) {
+    await db.bookFieldDef.create({
+      data: {
+        subsectionId: briefSub.id,
+        label: f.label,
+        type: f.type,
+        options: f.options ?? [],
+        group: f.group ?? null,
+        helpText: f.helpText ?? null,
+        required: f.required ?? false,
+        order: bdOrder++,
+      },
+    });
+  }
+
+  // Engagement shoot — FIELD card.
+  const engagementSub = await db.bookSubsection.create({
+    data: {
+      sectionId: section.id,
+      slug: "engagement-shoot",
+      title: "Engagement shoot",
+      kind: "FIELD",
+      order: order++,
+    },
+  });
+  const engagementFields: Array<{ label: string; type: "text" | "number" | "date" | "select"; options?: string[]; group?: string; helpText?: string; required?: boolean }> = [
+    { label: "Date", type: "date", group: "Schedule" },
+    { label: "Location", type: "text", group: "Schedule", helpText: "e.g. Stratford riverside + pub for golden hour" },
+    { label: "Duration", type: "number", group: "Schedule", helpText: "Hours" },
+    { label: "Outfit ideas", type: "text", group: "Brief", helpText: "Tonal palette, no logos" },
+    { label: "Gallery URL", type: "text", group: "Delivery", helpText: "Drop in once delivered" },
+    { label: "Status", type: "select", options: ["Planning", "Booked", "Shot", "Delivered"], group: "Status" },
+  ];
+  let edOrder = 0;
+  for (const f of engagementFields) {
+    await db.bookFieldDef.create({
+      data: {
+        subsectionId: engagementSub.id,
+        label: f.label,
+        type: f.type,
+        options: f.options ?? [],
+        group: f.group ?? null,
+        helpText: f.helpText ?? null,
+        order: edOrder++,
+      },
+    });
+  }
+
+  // Shot list — SHOT_LIST card with categories + estimated minutes.
+  const shotListSub = await db.bookSubsection.create({
+    data: {
+      sectionId: section.id,
+      slug: "shot-list",
+      title: "Shot list",
+      kind: "SHOT_LIST",
+      order: order++,
+    },
+  });
+  const shotList = await db.bookShotList.create({
+    data: { subsectionId: shotListSub.id },
+  });
+  const shots: Array<{
+    title: string;
+    category: string;
+    estimatedMinutes?: number;
+    location?: string;
+    withWhom?: string[];
+    notes?: string;
+  }> = [
+    // Pre-ceremony
+    { title: "Bridesmaids getting ready — candids", category: "Pre-ceremony", estimatedMinutes: 30, location: "Bridal suite", withWhom: ["Bryony", "Aimee Hollingsworth"] },
+    { title: "Dress on the hanger", category: "Pre-ceremony", estimatedMinutes: 5, location: "Bridal suite" },
+    { title: "Rings + invitation flat-lay", category: "Pre-ceremony", estimatedMinutes: 10, location: "Bridal suite" },
+    { title: "Bryony into the dress (back of dress shot)", category: "Pre-ceremony", estimatedMinutes: 15, location: "Bridal suite" },
+    { title: "First look with dad", category: "Pre-ceremony", estimatedMinutes: 10, location: "Bridal suite", notes: "Tear-jerker — leave them alone for the first 60s" },
+    { title: "Groomsmen getting ready", category: "Pre-ceremony", estimatedMinutes: 15, location: "Manor", withWhom: ["Jamie", "Joshua Dickson"] },
+    // Ceremony
+    { title: "Guests arriving + being seated", category: "Ceremony", estimatedMinutes: 10, location: "Ceremony room" },
+    { title: "Jamie's reaction as Bryony walks in", category: "Ceremony", estimatedMinutes: 5, location: "Ceremony room", notes: "Camera on Jamie's face, NOT the procession" },
+    { title: "Procession", category: "Ceremony", estimatedMinutes: 5, location: "Aisle" },
+    { title: "Vows + ring exchange", category: "Ceremony", estimatedMinutes: 10, location: "Ceremony room" },
+    { title: "First kiss", category: "Ceremony", estimatedMinutes: 2, location: "Ceremony room" },
+    { title: "Signing the register", category: "Ceremony", estimatedMinutes: 5, location: "Ceremony room", withWhom: ["Bryony", "Jamie", "Joshua Dickson", "Aimee Hollingsworth"], notes: "Witnesses sign too — keep it natural, not posed" },
+    { title: "Recessional", category: "Ceremony", estimatedMinutes: 3, location: "Aisle" },
+    // Couple portraits
+    { title: "Couple portraits — garden", category: "Couple portraits", estimatedMinutes: 25, location: "Garden lawn", withWhom: ["Bryony", "Jamie"] },
+    { title: "Couple portraits — golden hour", category: "Couple portraits", estimatedMinutes: 20, location: "Garden lawn", notes: "Steal them away just before sunset" },
+    // Family formals
+    { title: "Bryony + parents", category: "Family formals", estimatedMinutes: 5, location: "Garden steps", withWhom: ["Bryony"] },
+    { title: "Jamie + parents", category: "Family formals", estimatedMinutes: 5, location: "Garden steps", withWhom: ["Jamie"] },
+    { title: "Combined family group", category: "Family formals", estimatedMinutes: 10, location: "Garden steps", notes: "Have a list — ushers herd people" },
+    { title: "Wedding party group", category: "Family formals", estimatedMinutes: 10, location: "Garden steps", withWhom: ["Bryony", "Jamie", "Aimee Hollingsworth", "Joshua Dickson", "Clara", "Torin"] },
+    // Reception
+    { title: "Reception room — empty (before guests)", category: "Reception", estimatedMinutes: 5, location: "Main hall" },
+    { title: "Speeches — reactions + key moments", category: "Reception", estimatedMinutes: 30, location: "Main hall", notes: "Cover Bryony, Jamie, parents — both sides" },
+    { title: "Cake cutting", category: "Reception", estimatedMinutes: 5, location: "Cake table", withWhom: ["Bryony", "Jamie"] },
+    { title: "First dance", category: "Reception", estimatedMinutes: 5, location: "Dance floor", withWhom: ["Bryony", "Jamie"] },
+    { title: "Dance floor candids", category: "Reception", estimatedMinutes: 30, location: "Dance floor", notes: "Drop the formals, get the joy" },
+  ];
+  let shotOrder = 0;
+  for (const s of shots) {
+    await db.bookShot.create({
+      data: {
+        shotListId: shotList.id,
+        title: s.title,
+        category: s.category,
+        estimatedMinutes: s.estimatedMinutes ?? null,
+        withWhom: s.withWhom ?? [],
+        location: s.location ?? null,
+        notes: s.notes ?? null,
+        order: shotOrder++,
+      },
+    });
+  }
+
+  // Album spec — FIELD.
+  const albumSub = await db.bookSubsection.create({
+    data: {
+      sectionId: section.id,
+      slug: "album-spec",
+      title: "Album spec",
+      kind: "FIELD",
+      order: order++,
+    },
+  });
+  const albumFields: Array<{ label: string; type: "text" | "number" | "date" | "select"; options?: string[]; group?: string; helpText?: string }> = [
+    { label: "Format", type: "text", group: "Spec", helpText: "e.g. 12×12 fine-art lay-flat" },
+    { label: "Page count", type: "number", group: "Spec" },
+    { label: "Cover material", type: "text", group: "Spec", helpText: "Linen / leather / silk" },
+    { label: "Photo selection due", type: "date", group: "Schedule", helpText: "Couple picks from the gallery" },
+    { label: "Layout proof due", type: "date", group: "Schedule" },
+    { label: "Final delivery target", type: "date", group: "Schedule" },
+    { label: "Cost", type: "number", group: "Cost" },
+    { label: "Status", type: "select", options: ["Not started", "Selecting photos", "In layout", "Proofing", "Printing", "Delivered"], group: "Status" },
+  ];
+  let aOrder = 0;
+  for (const f of albumFields) {
+    await db.bookFieldDef.create({
+      data: {
+        subsectionId: albumSub.id,
+        label: f.label,
+        type: f.type,
+        options: f.options ?? [],
+        group: f.group ?? null,
+        helpText: f.helpText ?? null,
+        order: aOrder++,
+      },
+    });
+  }
+
+  // Gallery delivery — FIELD.
+  const gallerySub = await db.bookSubsection.create({
+    data: {
+      sectionId: section.id,
+      slug: "gallery-delivery",
+      title: "Gallery delivery",
+      kind: "FIELD",
+      order: order++,
+    },
+  });
+  const galleryFields: Array<{ label: string; type: "text" | "number" | "date" | "select"; options?: string[]; group?: string; helpText?: string }> = [
+    { label: "Sneak-peek gallery URL", type: "text", group: "Delivery", helpText: "Within 1 week of the wedding" },
+    { label: "Sneak-peek date", type: "date", group: "Delivery" },
+    { label: "Full gallery URL", type: "text", group: "Delivery", helpText: "Full edit, ~6 weeks post-wedding" },
+    { label: "Full gallery date", type: "date", group: "Delivery" },
+    { label: "Gallery password", type: "text", group: "Delivery", helpText: "If applicable — stored here for couple's records" },
+    { label: "Download deadline", type: "date", group: "Delivery", helpText: "When the gallery comes down" },
+    { label: "RAW backup location", type: "text", group: "Backup", helpText: "Where the photographer archives — usually 2 years" },
+  ];
+  let gOrder = 0;
+  for (const f of galleryFields) {
+    await db.bookFieldDef.create({
+      data: {
+        subsectionId: gallerySub.id,
+        label: f.label,
+        type: f.type,
+        options: f.options ?? [],
+        group: f.group ?? null,
+        helpText: f.helpText ?? null,
+        order: gOrder++,
+      },
+    });
+  }
+
+  console.log(`  ✓ photography seeded (${order} subsections · ${shots.length} shots)`);
+}
+
+// v1.38.4: seed the Guest Experience section. Per BOOK-EXPANSION-PLAN
+// §8.6: welcome bags / favours / order of service / welcome drinks /
+// thank-you cards. Mix of BUILD (DIY items) + FIELD (vendor tracks)
+// + TEXT (free-form notes).
+export async function seedGuestExperienceCards() {
+  const section = await db.bookSection.findUnique({ where: { slug: "guest-experience" } });
+  if (!section) {
+    console.log(`  · guest-experience section not found; skipping seed`);
+    return;
+  }
+  const existing = await db.bookSubsection.count({ where: { sectionId: section.id } });
+  if (existing > 0) {
+    console.log(`  ✓ guest-experience already populated (${existing}); skipping seed`);
+    return;
+  }
+  let order = 0;
+
+  // Welcome bags — BUILD card.
+  const bagsSub = await db.bookSubsection.create({
+    data: {
+      sectionId: section.id,
+      slug: "welcome-bags",
+      title: "Welcome bags",
+      kind: "BUILD",
+      order: order++,
+    },
+  });
+  const bagsCard = await db.bookBuildCard.create({
+    data: {
+      subsectionId: bagsSub.id,
+      quantityNeeded: 30,
+      estimatedMinutesPerUnit: 6,
+      notes: "For out-of-town guests staying at the recommended hotels. Drop at the hotel front desks the day before.",
+    },
+  });
+  const bagsMaterials = [
+    { name: "Kraft paper bags", quantity: 30, unit: "bags", costPence: 1500, supplier: "Hobbycraft" },
+    { name: "Local map / itinerary card", quantity: 30, unit: "cards", costPence: 1200, supplier: "VistaPrint" },
+    { name: "Bottled water", quantity: 30, unit: "bottles", costPence: 1500, supplier: "Tesco" },
+    { name: "Local snack (Stratford fudge)", quantity: 30, unit: "packs", costPence: 4500, supplier: "Stratford Fudge Shop" },
+    { name: "Hangover kit (paracetamol + mints)", quantity: 30, unit: "kits", costPence: 1500 },
+  ];
+  let bagMatOrder = 0;
+  for (const m of bagsMaterials) {
+    await db.bookBuildMaterial.create({
+      data: {
+        cardId: bagsCard.id,
+        name: m.name,
+        quantity: m.quantity,
+        unit: m.unit,
+        costPence: m.costPence,
+        supplier: m.supplier,
+        order: bagMatOrder++,
+      },
+    });
+  }
+
+  // Favours — BUILD card.
+  const favoursSub = await db.bookSubsection.create({
+    data: {
+      sectionId: section.id,
+      slug: "favours",
+      title: "Favours",
+      kind: "BUILD",
+      order: order++,
+    },
+  });
+  const favoursCard = await db.bookBuildCard.create({
+    data: {
+      subsectionId: favoursSub.id,
+      quantityNeeded: 80,
+      estimatedMinutesPerUnit: 3,
+      notes: "Mini jar of local honey + thank-you tag. One per place setting.",
+    },
+  });
+  const favourMaterials = [
+    { name: "Mini honey jars (50g)", quantity: 80, unit: "jars", costPence: 12000, supplier: "Stratford Honey Co." },
+    { name: "Hessian twine", quantity: 1, unit: "spool", costPence: 350 },
+    { name: "Printed thank-you tags", quantity: 80, unit: "tags", costPence: 2400, supplier: "VistaPrint" },
+  ];
+  let favMatOrder = 0;
+  for (const m of favourMaterials) {
+    await db.bookBuildMaterial.create({
+      data: {
+        cardId: favoursCard.id,
+        name: m.name,
+        quantity: m.quantity,
+        unit: m.unit,
+        costPence: m.costPence,
+        supplier: m.supplier,
+        order: favMatOrder++,
+      },
+    });
+  }
+
+  // Order of service — FIELD.
+  const oosSub = await db.bookSubsection.create({
+    data: {
+      sectionId: section.id,
+      slug: "order-of-service",
+      title: "Order of service",
+      kind: "FIELD",
+      order: order++,
+    },
+  });
+  const oosFields: Array<{ label: string; type: "text" | "number" | "date" | "select"; options?: string[]; group?: string; helpText?: string }> = [
+    { label: "Vendor", type: "text", group: "Order", helpText: "VistaPrint or local printer" },
+    { label: "Quantity", type: "number", group: "Order" },
+    { label: "Order placed", type: "date", group: "Order" },
+    { label: "Delivery date", type: "date", group: "Order" },
+    { label: "Cost", type: "number", group: "Order" },
+    { label: "Readings + readers", type: "text", group: "Content", helpText: "List the readings + who's reading each" },
+    { label: "Music", type: "text", group: "Content", helpText: "Procession / signing / recession" },
+    { label: "Status", type: "select", options: ["Drafting", "Proofread", "Ordered", "Delivered"], group: "Status" },
+  ];
+  let oOrder = 0;
+  for (const f of oosFields) {
+    await db.bookFieldDef.create({
+      data: {
+        subsectionId: oosSub.id,
+        label: f.label,
+        type: f.type,
+        options: f.options ?? [],
+        group: f.group ?? null,
+        helpText: f.helpText ?? null,
+        order: oOrder++,
+      },
+    });
+  }
+
+  // Welcome drinks reception — TEXT WYSIWYG.
+  await db.bookSubsection.create({
+    data: {
+      sectionId: section.id,
+      slug: "welcome-drinks",
+      title: "Welcome drinks reception",
+      kind: "TEXT",
+      bodyHtml:
+        "<h2>Concept</h2>" +
+        "<p>Right after the ceremony, on the garden lawn — light, sociable, photogenic.</p>" +
+        "<h2>What's served</h2>" +
+        "<ul>" +
+        "<li>Welcome bubbly (Prosecco) — see <strong>Drinks &amp; bar</strong> card</li>" +
+        "<li>Soft drink alternatives (elderflower, sparkling water)</li>" +
+        "<li>Canapés — light, finger-food, no cutlery needed</li>" +
+        "</ul>" +
+        "<h2>Logistics</h2>" +
+        "<ul>" +
+        "<li><strong>14:30</strong> — venue staff have trays out before guests come up from the ceremony</li>" +
+        "<li><strong>15:00</strong> — couple + photographer arrive for portraits between mingling</li>" +
+        "<li><strong>15:30</strong> — formal group photos called by ushers</li>" +
+        "<li><strong>16:00</strong> — move to wedding breakfast</li>" +
+        "</ul>" +
+        "<blockquote>If it rains, fall back to the conservatory — venue moves this without prompting.</blockquote>",
+      order: order++,
+    },
+  });
+
+  // Thank-you cards plan — TEXT.
+  await db.bookSubsection.create({
+    data: {
+      sectionId: section.id,
+      slug: "thank-you-cards-plan",
+      title: "Thank-you cards plan",
+      kind: "TEXT",
+      bodyHtml:
+        "<h2>Approach</h2>" +
+        "<p>Hand-written, on cards printed with one of the engagement-shoot photos. Aim to send within <strong>3 months</strong> of the wedding.</p>" +
+        "<h2>Card design</h2>" +
+        "<ul>" +
+        "<li>Front: photo from engagement shoot</li>" +
+        "<li>Back: pre-printed signature (Bryony &amp; Jamie) + space for hand-written note</li>" +
+        "<li>Vendor: VistaPrint, ~80 cards</li>" +
+        "</ul>" +
+        "<p>See the <strong>Post-wedding → Thank-you tracking</strong> card for the per-guest checklist (filled out post-wedding, with gift received and date sent).</p>",
+      order: order++,
+    },
+  });
+
+  console.log(`  ✓ guest-experience seeded (${order} subsections · 2 BUILD + 1 FIELD + 2 TEXT)`);
+}
+
 // v1.38.0 (P8): seed the Post-wedding section per BOOK-EXPANSION-PLAN
 // §8.12. Idempotent — skipped when the section already has content.
 export async function seedPostWeddingSection() {
@@ -1015,46 +2378,130 @@ export async function seedPostWeddingSection() {
     console.log(`  ✓ post-wedding already populated (${existing}); skipping seed`);
     return;
   }
-  const subs = [
+  // v1.38.4: FIELD cards get defs; TEXT cards get HTML markup.
+  type PostSub = {
+    slug: string;
+    title: string;
+    kind: "TEXT" | "FIELD";
+    body?: string | null;
+    bodyHtml?: string | null;
+    fieldDefs?: Array<{
+      label: string;
+      type: "text" | "number" | "date" | "select";
+      options?: string[];
+      group?: string;
+      helpText?: string;
+      required?: boolean;
+    }>;
+  };
+  const subs: PostSub[] = [
     {
       slug: "thank-you-tracking",
       title: "Thank-you tracking",
-      kind: "FIELD" as const,
-      body: null,
+      kind: "FIELD",
+      fieldDefs: [
+        { label: "Cards designed", type: "select", options: ["Not started", "Drafting", "Proofing", "Ordered", "Delivered"], group: "Design", required: true },
+        { label: "Vendor", type: "text", group: "Design", helpText: "e.g. VistaPrint" },
+        { label: "Quantity", type: "number", group: "Design" },
+        { label: "Order placed", type: "date", group: "Design" },
+        { label: "Cost", type: "number", group: "Design" },
+        { label: "Sending strategy", type: "text", group: "Approach", helpText: "e.g. By household, in batches of 20" },
+        { label: "Sent — first batch", type: "date", group: "Progress" },
+        { label: "Sent — second batch", type: "date", group: "Progress" },
+        { label: "Sent — final batch", type: "date", group: "Progress" },
+        { label: "All sent?", type: "select", options: ["Not yet", "Yes"], group: "Status", required: true },
+      ],
     },
     {
       slug: "vendor-reviews-to-write",
       title: "Vendor reviews to write",
-      kind: "TEXT" as const,
-      body: "List vendors here as reviews go live (CG Media, Paintbox Blooms, Slaters, Dream Wedding & Events, VistaPrint, Stratford School of Jewellery, Warwickshire Registrar).",
+      kind: "TEXT",
+      bodyHtml:
+        "<h2>Vendors to review (within 2 months)</h2>" +
+        "<ul>" +
+        "<li><strong>CG Media — Louis Brough</strong> (photography) — Google + Hitched</li>" +
+        "<li><strong>Paintbox Blooms</strong> (florist) — Google + Instagram tag</li>" +
+        "<li><strong>Slaters</strong> (suit hire) — Google</li>" +
+        "<li><strong>Dream Wedding &amp; Events</strong> (photo booth) — Hitched + Facebook</li>" +
+        "<li><strong>VistaPrint</strong> (printed signage) — site review only if asked</li>" +
+        "<li><strong>Stratford School of Jewellery</strong> (rings) — Google</li>" +
+        "<li><strong>Alveston Manor</strong> (venue) — Hitched + Google + Bridebook</li>" +
+        "<li><strong>Caterer</strong> (TBD) — Google</li>" +
+        "</ul>" +
+        "<blockquote>Tick a vendor off as the review goes live. Photographers + venue benefit most from reviews — those are the bookings other couples make based on names + ratings.</blockquote>",
     },
     {
       slug: "photo-video-delivery",
       title: "Photo / video delivery",
-      kind: "FIELD" as const,
-      body: null,
+      kind: "FIELD",
+      fieldDefs: [
+        { label: "Photographer", type: "text", group: "Photo", helpText: "Cross-ref the Photography brief" },
+        { label: "Sneak-peek delivered", type: "date", group: "Photo", helpText: "Usually within a week" },
+        { label: "Sneak-peek URL", type: "text", group: "Photo" },
+        { label: "Full gallery delivered", type: "date", group: "Photo", helpText: "Usually 6 weeks post-wedding" },
+        { label: "Full gallery URL", type: "text", group: "Photo" },
+        { label: "Gallery password", type: "text", group: "Photo" },
+        { label: "Album signed off", type: "date", group: "Photo" },
+        { label: "Album received", type: "date", group: "Photo" },
+        { label: "Videographer", type: "text", group: "Video" },
+        { label: "Highlight reel delivered", type: "date", group: "Video" },
+        { label: "Full film delivered", type: "date", group: "Video" },
+        { label: "Backup downloaded?", type: "select", options: ["Not yet", "Yes — local", "Yes — cloud", "Yes — both"], group: "Backup", required: true, helpText: "Photographer keeps RAWs ~2 years; download your own copy." },
+      ],
     },
     {
       slug: "marriage-cert-filing",
       title: "Marriage cert filing",
-      kind: "TEXT" as const,
-      body: "See `legal-after` → Marriage certificate pickup for the actual paperwork. Track filing-elsewhere actions here (joint accounts, ID, name change) as they roll out.",
+      kind: "TEXT",
+      bodyHtml:
+        "<h2>Where this lives</h2>" +
+        "<p>The actual paperwork — receiving the certificate, ordering certified copies — is in <strong>Legal — After</strong>. This card is for tracking the <em>downstream</em> filing that uses the certificate.</p>" +
+        "<h2>Filing actions</h2>" +
+        "<ul>" +
+        "<li>Joint bank account opened?</li>" +
+        "<li>Joint utilities updated?</li>" +
+        "<li>Wills updated to reflect marriage?</li>" +
+        "<li>Beneficiaries updated on pensions / insurance / ISAs?</li>" +
+        "<li>Mortgage / tenancy agreement updated to joint name?</li>" +
+        "<li>Tax codes updated (HMRC)?</li>" +
+        "</ul>" +
+        "<blockquote>Most of these need a certified copy of the marriage cert. Order 5 from GRO at the same time you collect the certificate — keeps you ahead.</blockquote>",
     },
   ];
   let order = 0;
+  let totalDefs = 0;
   for (const s of subs) {
-    await db.bookSubsection.create({
+    const sub = await db.bookSubsection.create({
       data: {
         sectionId: section.id,
         slug: s.slug,
         title: s.title,
         kind: s.kind,
-        body: s.body,
+        body: s.body ?? null,
+        bodyHtml: s.bodyHtml ?? null,
         order: order++,
       },
     });
+    if (s.fieldDefs && s.fieldDefs.length > 0) {
+      let defOrder = 0;
+      for (const d of s.fieldDefs) {
+        await db.bookFieldDef.create({
+          data: {
+            subsectionId: sub.id,
+            label: d.label,
+            type: d.type,
+            options: d.options ?? [],
+            group: d.group ?? null,
+            helpText: d.helpText ?? null,
+            required: d.required ?? false,
+            order: defOrder++,
+          },
+        });
+        totalDefs += 1;
+      }
+    }
   }
-  console.log(`  ✓ post-wedding seeded (${subs.length} subsections)`);
+  console.log(`  ✓ post-wedding seeded (${subs.length} subsections · ${totalDefs} FIELD defs)`);
 }
 
 async function main() {
@@ -1073,6 +2520,8 @@ async function main() {
   await seedLegalSections();
   await seedWeddingPartyPeopleAndDayof();
   await seedAccommodationCards();
+  await seedPhotographyCards();
+  await seedGuestExperienceCards();
   await seedPostWeddingSection();
   console.log("Done.");
 }

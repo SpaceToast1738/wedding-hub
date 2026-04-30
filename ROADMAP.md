@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.38.3** | 2026-04-30 | [Operator scripts run in production — Dockerfile transpiles `seed-samples-only` + `reset-book` to `scripts-build/`; scripts use a local `PrismaClient` instead of `src/lib/db` so they don't depend on the Next standalone bundle. Invoke with `node scripts-build/scripts/<name>.js`.](#2026-04-30--v1383--operator-scripts-in-production-image) |
+| **v1.38.4** | 2026-04-30 | [Wedding Book seed overhaul — every card kind now gets a fully-populated example (OUTFIT items + dates, SETUP items, LEGAL items + name-change checklist, FIELD defs everywhere, RECIPE cocktail, MENU kids/evening/late-night, BUILD welcome bags + favours, plus new Photography + Guest Experience seeders). All 12 card kinds covered.](#2026-04-30--v1384--wedding-book-seed-overhaul) |
+| v1.38.3 | 2026-04-30 | [Operator scripts run in production — Dockerfile transpiles `seed-samples-only` + `reset-book` to `scripts-build/`; scripts use a local `PrismaClient` instead of `src/lib/db` so they don't depend on the Next standalone bundle. Invoke with `node scripts-build/scripts/<name>.js`.](#2026-04-30--v1383--operator-scripts-in-production-image) |
 | v1.38.2 | 2026-04-30 | [`scripts/reset-book.ts` — destructive Book module reset gated on `CONFIRM_RESET_BOOK=yes`. Wipes + re-seeds every section + subpage; leaves users / tasks / guests / payments untouched.](#2026-04-30--v1382--book-module-reset-script) |
 | v1.38.1 | 2026-04-30 | [`scripts/seed-samples-only.ts` — fills empty Book sections + subpages on prod without touching users / tasks / schedule / guests / seating. Section seeders refactored to be importable.](#2026-04-30--v1381--samples-only-prod-backfill-script) |
 | v1.38.0 | 2026-04-30 | [Wedding Book closes the arc (P7b/B + P8) — SHOT_LIST gains category / time budget / **guest-list link** · FIELD gains group / helpText / required / numeric + date ranges · RECIPE gains servingsBase + structured `BookRecipeStep` (Json→rows migration) + day-before tag · Post-wedding section seeded · Production backfill script · Guest detail "Photos to capture" reverse query](#2026-04-30--v1380--wedding-book-arc-closes-p7bb--p8) |
@@ -749,6 +750,44 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-30 · v1.38.4 — Wedding Book seed overhaul
+
+User-flagged after v1.38.3: "Some sections seem like they haven't been reviewed in a while, I want to update the defaults to be a robust example".
+
+The Book seeders had been added phase-by-phase across the v1.31 → v1.38 arc and never revisited. Many sections shipped as **shells** — empty FIELD cards (no defs), empty SETUP cards (no items), empty LEGAL cards (no items), short pre-WYSIWYG TEXT bodies. Two whole sections (Photography & Videography, Guest Experience) had no seeder at all.
+
+Goal: every one of the 12 card kinds (TEXT, FIELD, RECIPE, SHOT_LIST, OUTFIT, BUILD, MENU, BAR, SETUP, LEGAL, STAY, LODGING_GUIDE) shows up as a fully-populated example out of the box. New users opening `/book/<section>` see what each card kind can carry — not blank placeholders.
+
+**Per-section changes:**
+
+- **Wedding Party — People**: 6 OUTFIT cards previously seeded with only `personName` + `role` now ship with realistic fitting / alterations / pickup dates around 26 Sep 2026, item composition rows (dress + shoes + jewellery + bouquet for Bryony; suit + shirt + tie + cufflinks + buttonhole for Jamie; etc.), per-card costs in pence, paid status, supplier names matching existing Suppliers (Slaters, Paintbox Blooms, Mirror Mirror Bridal). 6 cards × ~4-6 items = ~24 items total.
+- **Wedding Party — Day-of**: TEXT bodies converted to HTML with `<h2>`, `<ul>`, `<strong>`, `<blockquote>`. "Stag & Hen recap" got a real template instead of `…`. "Wedding-day cars" FIELD card gained 6 field defs (vehicle, driver, phone, pickup time, etc.) grouped under Vehicles / Schedule / Contingency.
+- **Venue — Spaces**: 5 SETUP cards previously empty now ship with **30 setup items** total (Ceremony room: 6 items including aisle runner, arch, posies, registrar's pen; Reception room: 7 items including centerpieces, place cards, table numbers; etc.). Source field matches existing supplier names so the `/suppliers/[id]` "Used in setup" cross-module surface lights up immediately.
+- **Venue — Décor**: 2 FIELD cards (Printed signage, Photo booth) gained ~10 field defs each grouped by Order / Design / Day-of / Status. TEXT cards (Florist brief, Décor inspiration) now use HTML headings + bullet lists.
+- **Food & Drink**: existing Wedding breakfast MENU + Drinks/bar BAR retained. **New seeders** for Kids menu (1 course × 2 options, isKidsMeal=true), Evening buffet (1 course × 3 options), Late-night snack (1 course × 2 options), Cake (FIELD card with 10 fields covering vendor / design / order / day-of / status), and a **Signature cocktail RECIPE** (Bryony & Jamie's Spritz with structured BookRecipeStep rows, servingsBase=8, day-before pre-batch step). RECIPE was the last card kind without an example seeded — now covered.
+- **Photography & Videography** *(new seeder)*: 5 subsections — Photographer brief (FIELD with 12 fields), Engagement shoot (FIELD), Shot list (SHOT_LIST with **24 shots** grouped by Pre-ceremony / Ceremony / Couple portraits / Family formals / Reception, each with estimatedMinutes + linked withWhom names), Album spec (FIELD), Gallery delivery (FIELD).
+- **Guest Experience** *(new seeder)*: 5 subsections — Welcome bags (BUILD with 5 materials), Favours (BUILD with 3 materials), Order of service (FIELD with 8 fields), Welcome drinks reception (TEXT WYSIWYG), Thank-you cards plan (TEXT WYSIWYG).
+- **Legal — Before**: Notice of Marriage card now has 4 LEGAL items (give-notice for each party + book + pay), Required documents has 6 items (passport + address + decree absolute per person), Witnesses FIELD has 7 fields, Insurance FIELD has 8 fields. Legal due-by-date set to 28 Aug 2026 (≥ 29 days before the wedding).
+- **Legal — Day**: Pre-ceremony interview FIELD has 7 fields. Vows reference + Registration steps converted to HTML with the actual legal vows, numbered procedure list, blockquote tips.
+- **Legal — After**: Marriage cert pickup has 4 items, **Name change checklist has 12 items** (passport, DVLA, HMRC, banks, pension, employer, GP/dentist, insurance, will, credit-reference agencies, loyalty cards, social media — in priority order), Certified copies tracker has 5 items.
+- **Accommodation**: 4 STAY cards now ship with check-in (25 Sep 15:00) / check-out (27 Sep 11:00) dates, costs in pence, booking-reference placeholders, occupant lists. LODGING_GUIDE retained with its 3 Stratford hotels.
+- **Post-wedding**: Thank-you tracking FIELD has 10 fields covering design / progress / status. Photo / video delivery FIELD has 12 fields including backup-downloaded toggle. Vendor reviews + Marriage cert filing converted to TEXT WYSIWYG with bulleted vendor lists + downstream filing checklist.
+
+**Cleanup**: legacy `wedding-party` seeder kept (it pre-dates the v1.35.0 split and matches the existing legacy-section policy), but the new sections lead the order. Operator scripts (`seed-samples-only.ts`, `reset-book.ts`) updated to call the two new seeders. `Prisma` namespace added to seed.ts imports for the RECIPE `InputJsonValue` cast.
+
+**Numbers:**
+- ~12 sections, ~50 subsections seeded by default (was ~32)
+- 30 SETUP items (was 0)
+- 26 LEGAL items (was 0)
+- 24 SHOT_LIST shots (was 0)
+- 8 BUILD material lists with 30+ materials total (was 3 with 3 materials)
+- Every FIELD card has defs (was 0 of 6)
+- 1 RECIPE example (was 0)
+
+**Verification gate:** typecheck + lint + 363 unit tests + production build all green.
+
+Files: [prisma/seed.ts](prisma/seed.ts) · [scripts/seed-samples-only.ts](scripts/seed-samples-only.ts) · [scripts/reset-book.ts](scripts/reset-book.ts).
 
 ### 2026-04-30 · v1.38.3 — Operator scripts in the production image
 
