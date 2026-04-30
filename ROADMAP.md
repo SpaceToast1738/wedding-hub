@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.40.0** | 2026-04-30 | [User-group model (backlog #3) — `UserGroup` table + `User.groups` m2m + four built-in virtual groups (Everyone / Couple / Wedding party-by-role / Planners-by-role) computed from `User.role`. Couple-only Settings panel for CRUD. Foundation for the Schedule attendees rework (#4).](#2026-04-30--v1400--user-group-model-backlog-3) |
+| **v1.41.0** | 2026-04-30 | [Schedule attendees rework (backlog #4) — `attendeeIds: String[]` becomes polymorphic `attendeeRefs: String[]` mixing `user:<id>` / `builtin:<slug>` / `group:<slug>` refs. Picker UI splits Groups + Individuals. Today page "Mine" filter resolves group membership server-side. Audit log shows attendee-kind breakdown.](#2026-04-30--v1410--schedule-attendees-rework-backlog-4) |
+| v1.40.0 | 2026-04-30 | [User-group model (backlog #3) — `UserGroup` table + `User.groups` m2m + four built-in virtual groups (Everyone / Couple / Wedding party-by-role / Planners-by-role) computed from `User.role`. Couple-only Settings panel for CRUD. Foundation for the Schedule attendees rework (#4).](#2026-04-30--v1400--user-group-model-backlog-3) |
 | v1.39.1 | 2026-04-30 | [Recent-activity feed on Today (couple-only) — last 10 audit rows rendered as human sentences via `formatAuditAction` + `timeAgo`. Auto-hides for non-couple users + when log is empty. Closes backlog item #2.](#2026-04-30--v1391--recent-activity-feed) |
 | v1.39.0 | 2026-04-30 | [Audit-log enrichment sweep across non-Book modules — budget / seating / songs / guests / suppliers / payments / files / tasks all now emit snapshot fields + `changedFields` diff per the v1.30.5 standing rule. ~34 bare audits enriched. 29 new audit-format tests, 392 total.](#2026-04-30--v1390--audit-log-enrichment-sweep) |
 | v1.38.6 | 2026-04-30 | [Critical: `prisma/seed.ts` had an unguarded `main()` call at the bottom that fired whenever the file was imported. Operator scripts (`reset-book.ts`, `seed-samples-only.ts`) import section seeders from it — so every operator-script run kicked off the full seed in parallel, hitting P2002 unique-constraint violations.](#2026-04-30--v1386--seed-ts-double-run-fix) |
@@ -755,6 +756,38 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-30 · v1.41.0 — Schedule attendees rework (backlog #4)
+
+Backlog item #4 — Schedule events stop tracking attendees as raw `User.id` arrays and switch to the polymorphic `attendeeRefs: String[]` pattern v1.40.0 introduced. An attendee ref is now one of:
+
+- `user:<id>` — individual user
+- `builtin:<slug>` — virtual group computed from `User.role` / `User.isCouple` (everyone / couple / wedding-party-role / planners-role)
+- `group:<slug>` — DB-backed `UserGroup` row
+
+This means the schedule editor picks at the right level of abstraction: "everyone" or "the wedding party" rather than re-enumerating individuals every time. When membership changes (a new wedding-party member joins), every event referencing `builtin:wedding-party-role` automatically picks them up — no editing required.
+
+**Schema:** additive migration `20260430120000_schedule_attendee_refs`. `ScheduleEvent.attendeeRefs: String[]` added; backfilled by SQL from existing `attendeeIds` rows (`user:<id>` per id). The legacy `attendeeIds` column stays one release as a recoverability buffer per the v1.30.5 standing pattern; new writes go to `attendeeRefs`, and the existing `attendeeIds` is cleared on every update so the two don't drift.
+
+**Pure helpers** added to `src/lib/group-members.ts`:
+
+- `resolveGroupMembers` extended to handle `user:<id>` refs (in addition to v1.40.0's `builtin:` and `group:`).
+- `resolveAttendeeRefs(event, users, customGroups)` — legacy-aware: prefers `attendeeRefs`, falls back to expanding `attendeeIds` as `user:<id>` for events that haven't been re-saved since the migration.
+- `isAttendee(event, userId, users, customGroups)` — quick membership check used by the Today page's "Mine" filter to decide whether the current user counts as an attendee through any direct or indirect ref.
+
+**13 new unit tests** covering the new ref kind, mixed-ref unions, attendeeRefs-vs-attendeeIds preference, indirect membership through built-ins / custom groups, and missing-ref tolerance.
+
+**Server actions** — `createScheduleEvent` / `updateScheduleEvent` accept either `attendeeRefs[]` (new) or `attendeeIds[]` (legacy) on the form. New input is normalised to refs; new writes target `attendeeRefs` only. Update audit metadata gains an `attendeeKinds: { user, builtin, group }` breakdown so the audit log reads as `Added schedule event "Ceremony" — 1 group, 2 individuals` rather than just an opaque count.
+
+**UI** — `EventForm` rewritten with two stacked picker rows: "Groups" (marigold chips) above "Individuals" (moss chips). Selected items have stronger fill so it's obvious whether a person was picked individually or via a group. Read views in `EventNode` + `ScheduleTable` render group refs as marigold chips with `👥` prefix to distinguish them from per-user chips at a glance.
+
+**Today page "Mine" filter** — was a client-side `attendeeIds.includes(userId)` check; now precomputed server-side via `isAttendee()`. The card receives `isMine: boolean` per event and just filters. Empty refs continue to mean "everyone" (so unfiltered events show in everyone's "Mine" view).
+
+**Seed updated** — schedule events switched from `coupleIds + partyIds + everyone` array building to declarative `attendeeRefs: ["builtin:everyone"]` etc. Cleaner; no User-id resolution needed at seed time.
+
+**Verification gate:** typecheck + lint + 446 unit tests + production build all green.
+
+Files: [prisma/schema.prisma](prisma/schema.prisma) · [prisma/migrations/20260430120000_schedule_attendee_refs/migration.sql](prisma/migrations/20260430120000_schedule_attendee_refs/migration.sql) · [src/lib/group-members.ts](src/lib/group-members.ts) · [tests/unit/group-members.test.ts](tests/unit/group-members.test.ts) · [src/app/(app)/schedule/actions.ts](src/app/(app)/schedule/actions.ts) · [src/app/(app)/schedule/EventForm.tsx](src/app/(app)/schedule/EventForm.tsx) · [src/app/(app)/schedule/EventNode.tsx](src/app/(app)/schedule/EventNode.tsx) · [src/app/(app)/schedule/ScheduleTable.tsx](src/app/(app)/schedule/ScheduleTable.tsx) · [src/app/(app)/schedule/ScheduleTimeline.tsx](src/app/(app)/schedule/ScheduleTimeline.tsx) · [src/app/(app)/schedule/ScheduleClient.tsx](src/app/(app)/schedule/ScheduleClient.tsx) · [src/app/(app)/schedule/AddEventToggle.tsx](src/app/(app)/schedule/AddEventToggle.tsx) · [src/app/(app)/schedule/page.tsx](src/app/(app)/schedule/page.tsx) · [src/app/(app)/page.tsx](src/app/(app)/page.tsx) · [src/app/(app)/TodayEventsCard.tsx](src/app/(app)/TodayEventsCard.tsx) · [src/lib/audit-format.ts](src/lib/audit-format.ts) · [tests/unit/audit-format-enrichment.test.ts](tests/unit/audit-format-enrichment.test.ts) · [prisma/seed.ts](prisma/seed.ts).
 
 ### 2026-04-30 · v1.40.0 — User-group model (backlog #3)
 

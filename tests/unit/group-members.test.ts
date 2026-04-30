@@ -4,6 +4,8 @@ import {
   BUILTIN_GROUP_SLUGS,
   displayName,
   groupsForUser,
+  isAttendee,
+  resolveAttendeeRefs,
   resolveBuiltinGroup,
   resolveGroupMembers,
   resolveGroupMembersUnion,
@@ -140,6 +142,90 @@ describe("resolveGroupMembersUnion", () => {
 
   it("returns empty for empty refs", () => {
     expect(resolveGroupMembersUnion([], USERS, CUSTOM_GROUPS)).toEqual([]);
+  });
+});
+
+describe("user: prefix resolution (v1.41.0)", () => {
+  it("resolveGroupMembers handles user:<id>", () => {
+    expect(resolveGroupMembers("user:u1", USERS, CUSTOM_GROUPS).map((u) => u.id)).toEqual(["u1"]);
+  });
+
+  it("user: returns empty for unknown id", () => {
+    expect(resolveGroupMembers("user:u-nope", USERS, CUSTOM_GROUPS)).toEqual([]);
+  });
+
+  it("resolveGroupMembersUnion mixes user/builtin/group refs", () => {
+    const refs = ["builtin:couple", "user:u3", "group:bryonys-bridesmaids"];
+    const r = resolveGroupMembersUnion(refs, USERS, CUSTOM_GROUPS);
+    // builtin:couple → u1, u2; user:u3 → u3 (already, but only once)
+    expect(r.map((u) => u.id)).toEqual(["u1", "u2", "u3"]);
+  });
+});
+
+describe("resolveAttendeeRefs", () => {
+  it("returns empty for an event with no refs and no legacy ids", () => {
+    const r = resolveAttendeeRefs({ attendeeRefs: [], attendeeIds: [] }, USERS, CUSTOM_GROUPS);
+    expect(r).toEqual([]);
+  });
+
+  it("prefers attendeeRefs when present", () => {
+    const r = resolveAttendeeRefs(
+      { attendeeRefs: ["builtin:couple"], attendeeIds: ["u3"] },
+      USERS,
+      CUSTOM_GROUPS,
+    );
+    // Should resolve to couple (u1, u2), NOT u3 from the legacy ids.
+    expect(r.map((u) => u.id).sort()).toEqual(["u1", "u2"]);
+  });
+
+  it("falls back to attendeeIds expanded as user:<id> when refs empty", () => {
+    const r = resolveAttendeeRefs(
+      { attendeeRefs: [], attendeeIds: ["u3", "u4"] },
+      USERS,
+      CUSTOM_GROUPS,
+    );
+    expect(r.map((u) => u.id)).toEqual(["u3", "u4"]);
+  });
+
+  it("handles undefined attendeeRefs / attendeeIds", () => {
+    expect(resolveAttendeeRefs({}, USERS, CUSTOM_GROUPS)).toEqual([]);
+  });
+});
+
+describe("isAttendee", () => {
+  it("returns true on direct user:<id> ref match", () => {
+    expect(
+      isAttendee({ attendeeRefs: ["user:u3"], attendeeIds: [] }, "u3", USERS, CUSTOM_GROUPS),
+    ).toBe(true);
+  });
+
+  it("returns true on indirect built-in group membership", () => {
+    expect(
+      isAttendee({ attendeeRefs: ["builtin:couple"], attendeeIds: [] }, "u1", USERS, CUSTOM_GROUPS),
+    ).toBe(true);
+  });
+
+  it("returns true on indirect custom group membership", () => {
+    expect(
+      isAttendee(
+        { attendeeRefs: ["group:bryonys-bridesmaids"], attendeeIds: [] },
+        "u3",
+        USERS,
+        CUSTOM_GROUPS,
+      ),
+    ).toBe(true);
+  });
+
+  it("returns false when user is not in any group ref", () => {
+    expect(
+      isAttendee({ attendeeRefs: ["builtin:planners-role"], attendeeIds: [] }, "u3", USERS, CUSTOM_GROUPS),
+    ).toBe(false);
+  });
+
+  it("falls back to attendeeIds when refs empty", () => {
+    expect(
+      isAttendee({ attendeeRefs: [], attendeeIds: ["u3"] }, "u3", USERS, CUSTOM_GROUPS),
+    ).toBe(true);
   });
 });
 

@@ -63,28 +63,26 @@ async function seedUsersAndPermissions() {
 
 async function seedScheduleEvents() {
   const day = "2026-09-26";
-  // v1.30.5: persona-based `audience` was dropped. Resolve real user IDs
-  // for the seeded couple + wedding-party so the events arrive with
-  // realistic `attendeeIds` instead of legacy persona strings.
-  const allUsers = await db.user.findMany({ select: { id: true, isCouple: true, role: true } });
-  const coupleIds = allUsers.filter((u) => u.isCouple).map((u) => u.id);
-  const partyIds = allUsers.filter((u) => u.role === "WEDDING_PARTY").map((u) => u.id);
-  const everyone = allUsers.map((u) => u.id);
+  // v1.41.0: switched from raw User-id arrays (`attendeeIds`) to the
+  // polymorphic ref shape (`attendeeRefs`). Built-in groups
+  // ("everyone", "couple", "wedding-party-role") let the seed stay
+  // declarative — it doesn't have to look up user ids first. The
+  // server resolves each ref to a User[] at read time.
 
   const events: Array<{
     title: string;
     startTime: string;
-    attendeeIds: string[];
+    attendeeRefs: string[];
     order: number;
   }> = [
-    { title: "Bridal suite check-in", startTime: `${day}T12:00:00Z`, attendeeIds: [...coupleIds, ...partyIds], order: 1 },
-    { title: "Arrival",               startTime: `${day}T13:00:00Z`, attendeeIds: everyone,                  order: 2 },
-    { title: "Ceremony",              startTime: `${day}T14:00:00Z`, attendeeIds: everyone,                  order: 3 },
-    { title: "Drinks Reception",      startTime: `${day}T14:30:00Z`, attendeeIds: everyone,                  order: 4 },
-    { title: "Wedding Breakfast",     startTime: `${day}T16:00:00Z`, attendeeIds: everyone,                  order: 5 },
-    { title: "Speeches",              startTime: `${day}T18:00:00Z`, attendeeIds: everyone,                  order: 6 },
-    { title: "First Dance",           startTime: `${day}T19:30:00Z`, attendeeIds: everyone,                  order: 7 },
-    { title: "Evening Buffet",        startTime: `${day}T20:00:00Z`, attendeeIds: everyone,                  order: 8 },
+    { title: "Bridal suite check-in", startTime: `${day}T12:00:00Z`, attendeeRefs: ["builtin:couple", "builtin:wedding-party-role"], order: 1 },
+    { title: "Arrival",               startTime: `${day}T13:00:00Z`, attendeeRefs: ["builtin:everyone"], order: 2 },
+    { title: "Ceremony",              startTime: `${day}T14:00:00Z`, attendeeRefs: ["builtin:everyone"], order: 3 },
+    { title: "Drinks Reception",      startTime: `${day}T14:30:00Z`, attendeeRefs: ["builtin:everyone"], order: 4 },
+    { title: "Wedding Breakfast",     startTime: `${day}T16:00:00Z`, attendeeRefs: ["builtin:everyone"], order: 5 },
+    { title: "Speeches",              startTime: `${day}T18:00:00Z`, attendeeRefs: ["builtin:everyone"], order: 6 },
+    { title: "First Dance",           startTime: `${day}T19:30:00Z`, attendeeRefs: ["builtin:everyone"], order: 7 },
+    { title: "Evening Buffet",        startTime: `${day}T20:00:00Z`, attendeeRefs: ["builtin:everyone"], order: 8 },
   ];
   for (const e of events) {
     const existing = await db.scheduleEvent.findFirst({ where: { title: e.title, startTime: new Date(e.startTime) } });
@@ -94,7 +92,7 @@ async function seedScheduleEvents() {
         title: e.title,
         startTime: new Date(e.startTime),
         location: "Alveston Manor",
-        attendeeIds: e.attendeeIds,
+        attendeeRefs: e.attendeeRefs,
         order: e.order,
       },
     });

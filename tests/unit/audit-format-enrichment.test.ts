@@ -287,6 +287,57 @@ describe("formatAuditAction — v1.39.0 enrichment", () => {
     });
   });
 
+  describe("ScheduleEvent (v1.41.0 attendee kinds)", () => {
+    it("create with mixed group + user attendees", () => {
+      expect(
+        formatAuditAction({
+          action: "create",
+          entity: "ScheduleEvent",
+          metadata: {
+            title: "Ceremony",
+            attendeeKinds: { user: 2, builtin: 1, group: 0 },
+          },
+        }),
+      ).toBe(`Added schedule event "Ceremony" — 1 group, 2 individuals`);
+    });
+
+    it("create with only groups", () => {
+      expect(
+        formatAuditAction({
+          action: "create",
+          entity: "ScheduleEvent",
+          metadata: {
+            title: "Bridal suite check-in",
+            attendeeKinds: { user: 0, builtin: 2, group: 1 },
+          },
+        }),
+      ).toBe(`Added schedule event "Bridal suite check-in" — 3 groups`);
+    });
+
+    it("create with only individuals", () => {
+      expect(
+        formatAuditAction({
+          action: "create",
+          entity: "ScheduleEvent",
+          metadata: {
+            title: "First look",
+            attendeeKinds: { user: 1, builtin: 0, group: 0 },
+          },
+        }),
+      ).toBe(`Added schedule event "First look" — 1 individual`);
+    });
+
+    it("create with no attendees omits the suffix", () => {
+      expect(
+        formatAuditAction({
+          action: "create",
+          entity: "ScheduleEvent",
+          metadata: { title: "Quiet event", attendeeKinds: { user: 0, builtin: 0, group: 0 } },
+        }),
+      ).toBe(`Added schedule event "Quiet event"`);
+    });
+  });
+
   describe("UserGroup (v1.40.0)", () => {
     it("create", () => {
       expect(

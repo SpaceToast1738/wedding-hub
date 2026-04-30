@@ -8,6 +8,7 @@ import {
   nextOutfitMilestones,
   oldestOpenDecisions,
 } from "@/lib/today-widgets";
+import { isAttendee, resolveAttendeeRefs } from "@/lib/group-members";
 import { CountdownCard } from "./CountdownCard";
 import { TodayEventsCard } from "./TodayEventsCard";
 import { TodayTaskList } from "./TodayTaskList";
@@ -30,6 +31,8 @@ export default async function TodayPage() {
     guestStats,
     dietaryRows,
     upcomingEvents,
+    allUsers,
+    customUserGroups,
     legalCardRows,
     outfitCardRows,
     decisionTaskRows,
@@ -64,6 +67,23 @@ export default async function TodayPage() {
       where: { startTime: { gte: new Date() } },
       orderBy: { startTime: "asc" },
       take: 8,
+    }),
+    // v1.41.0: users + custom groups for resolving the polymorphic
+    // attendee refs. Cheap reads (small tables); skipping
+    // conditionally would just add branching for marginal savings.
+    db.user.findMany({
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        name: true,
+        role: true,
+        isCouple: true,
+      },
+    }),
+    db.userGroup.findMany({
+      include: { members: { select: { id: true } } },
     }),
     // LEGAL cards — pull dueByDate + items.expiresAt; the Today
     // helper folds in only what's within the window.
@@ -266,20 +286,29 @@ export default async function TodayPage() {
           })()}
 
           <TodayEventsCard
-            events={upcomingEvents.map((e) => ({
-              id: e.id,
-              title: e.title,
-              startTime: e.startTime,
-              location: e.location,
-              attendeeIds: e.attendeeIds,
-              // v1.27.9: pass through the all-day flag so the card
-              // renders "All day" instead of toLocaleTimeString'ing
-              // a midnight-UTC timestamp into "01:00".
-              allDay: e.allDay,
-            }))}
-            // v1.30.5: filter "Mine" by attendee user IDs instead of
-            // the legacy persona-based role comparison.
-            currentUserId={userId}
+            events={upcomingEvents.map((e) => {
+              // v1.41.0: precompute isMine + attendeeCount server-
+              // side. Group refs need access to the full user list
+              // and custom groups; we have both here. Empty refs +
+              // empty legacy ids both treated as "everyone" (so the
+              // user is implicitly an attendee of an unfiltered
+              // event).
+              const refs =
+                e.attendeeRefs.length > 0
+                  ? e.attendeeRefs
+                  : e.attendeeIds.map((id) => `user:${id}`);
+              const noFilter = refs.length === 0;
+              const resolved = resolveAttendeeRefs(e, allUsers, customUserGroups);
+              return {
+                id: e.id,
+                title: e.title,
+                startTime: e.startTime,
+                location: e.location,
+                isMine: noFilter || isAttendee(e, userId, allUsers, customUserGroups),
+                attendeeCount: resolved.length,
+                allDay: e.allDay,
+              };
+            })}
           />
         </div>
 

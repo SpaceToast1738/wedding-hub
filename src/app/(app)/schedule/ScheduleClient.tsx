@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { ScheduleTimeline } from "./ScheduleTimeline";
 import { ScheduleTable } from "./ScheduleTable";
-import type { UserOpt } from "./EventForm";
+import type { UserOpt, GroupOpt } from "./EventForm";
 
 type Event = {
   id: string;
@@ -11,6 +11,10 @@ type Event = {
   startTime: Date;
   endTime: Date | null;
   location: string | null;
+  // v1.41.0: polymorphic attendee refs replace the v1.27.1 user-id
+  // array. Legacy attendeeIds carries through one release as a
+  // recoverability buffer; renderers expand to refs at read time.
+  attendeeRefs: string[];
   attendeeIds: string[];
   allDay: boolean;
   notes: string | null;
@@ -29,10 +33,12 @@ const VIEW_KEY = "wh_schedule_view";
 export function ScheduleClient({
   events,
   users = [],
+  groups = [],
   canEdit,
 }: {
   events: Event[];
   users?: UserOpt[];
+  groups?: GroupOpt[];
   canEdit: boolean;
 }) {
   const [view, setView] = useState<View>("timeline");
@@ -78,9 +84,19 @@ export function ScheduleClient({
       </div>
 
       {view === "table" ? (
-        <ScheduleTable events={events} users={users} canEdit={canEdit} />
+        <ScheduleTable
+          events={events}
+          users={users}
+          groups={groups}
+          canEdit={canEdit}
+        />
       ) : (
-        <ScheduleTimeline events={events} users={users} canEdit={canEdit} />
+        <ScheduleTimeline
+          events={events}
+          users={users}
+          groups={groups}
+          canEdit={canEdit}
+        />
       )}
     </>
   );

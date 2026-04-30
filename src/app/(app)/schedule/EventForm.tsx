@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 
 export type UserOpt = { id: string; name: string | null; email: string };
+export type GroupOpt = { ref: string; name: string; memberCount: number };
 
 type Initial = {
   title?: string;
@@ -14,45 +15,54 @@ type Initial = {
   endTime?: string; // HH:MM
   allDay?: boolean;
   location?: string;
-  attendeeIds?: string[];
+  // v1.41.0: polymorphic refs replace the v1.27.1 attendeeIds.
+  // Each entry is "user:<id>" | "builtin:<slug>" | "group:<slug>".
+  attendeeRefs?: string[];
   notes?: string;
 };
 
 type Props = {
   initial?: Initial;
   users?: UserOpt[];
+  /** v1.41.0: built-in + custom groups available to pick. The picker
+   *  surfaces these above the per-user chips so the couple thinks
+   *  in groups first ("everyone", "wedding party") before reaching
+   *  for individuals. */
+  groups?: GroupOpt[];
   submitLabel?: string;
   onSubmit: (formData: FormData) => Promise<void>;
   onCancel?: () => void;
 };
 
-// v1.27.1: split date + time inputs (was a single datetime-local
-// per field, which was awkward on desktop). Time fields use
-// type="time" — typeable on desktop, native picker on mobile. New
-// "All day" checkbox hides the time inputs and tags the event so
-// renderers display the date only.
-//
-// Audience field replaced by an attendee multi-select reading from
-// the actual user list (couple + planners + wedding party). The
-// legacy `audience` column stays on the schema for back-compat read
-// but is no longer surfaced in the UI.
-export function EventForm({ initial, users = [], submitLabel = "Create", onSubmit, onCancel }: Props) {
+// v1.27.1: split date + time inputs.
+// v1.41.0: attendees became polymorphic — multi-select mixes group
+// refs ("builtin:everyone", "group:after-party") with individual
+// users ("user:<id>"). Form posts `attendeeRefs[]` directly; the
+// server action accepts both shapes for one-release back-compat.
+export function EventForm({
+  initial,
+  users = [],
+  groups = [],
+  submitLabel = "Create",
+  onSubmit,
+  onCancel,
+}: Props) {
   const [pending, startTransition] = useTransition();
   const [allDay, setAllDay] = useState<boolean>(initial?.allDay ?? false);
-  const [attendeeIds, setAttendeeIds] = useState<string[]>(initial?.attendeeIds ?? []);
+  const [attendeeRefs, setAttendeeRefs] = useState<string[]>(initial?.attendeeRefs ?? []);
   const [error, setError] = useState<string | null>(null);
 
-  function toggleAttendee(userId: string) {
-    setAttendeeIds((prev) =>
-      prev.includes(userId) ? prev.filter((id) => id !== userId) : [...prev, userId],
+  function toggleRef(ref: string) {
+    setAttendeeRefs((prev) =>
+      prev.includes(ref) ? prev.filter((r) => r !== ref) : [...prev, ref],
     );
   }
 
   async function handle(formData: FormData) {
     setError(null);
     formData.set("allDay", allDay ? "true" : "false");
-    formData.delete("attendeeIds");
-    attendeeIds.forEach((id) => formData.append("attendeeIds", id));
+    formData.delete("attendeeRefs");
+    attendeeRefs.forEach((ref) => formData.append("attendeeRefs", ref));
     startTransition(async () => {
       try {
         await onSubmit(formData);
@@ -151,31 +161,69 @@ export function EventForm({ initial, users = [], submitLabel = "Create", onSubmi
         <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1.5">
           Attendees
         </label>
-        {users.length === 0 ? (
-          <p className="text-xs text-ink-tertiary italic">No users to pick from.</p>
+        {groups.length === 0 && users.length === 0 ? (
+          <p className="text-xs text-ink-tertiary italic">No users or groups to pick from.</p>
         ) : (
-          <div className="flex gap-1.5 flex-wrap">
-            {users.map((u) => {
-              const active = attendeeIds.includes(u.id);
-              const display = u.name ?? u.email.split("@")[0];
-              return (
-                <button
-                  type="button"
-                  key={u.id}
-                  onClick={() => toggleAttendee(u.id)}
-                  className={[
-                    "text-xs px-2.5 py-0.5 rounded-full border whitespace-nowrap transition-colors cursor-pointer",
-                    active
-                      ? "bg-moss-500 text-white border-moss-500 font-semibold"
-                      : "bg-canvas text-ink-secondary border-border-soft hover:border-moss-300",
-                  ].join(" ")}
-                  title={u.email}
-                >
-                  {display}
-                </button>
-              );
-            })}
-          </div>
+          <>
+            {groups.length > 0 && (
+              <div className="mb-2">
+                <div className="text-[10px] uppercase tracking-wider text-ink-tertiary mb-1">
+                  Groups
+                </div>
+                <div className="flex gap-1.5 flex-wrap">
+                  {groups.map((g) => {
+                    const active = attendeeRefs.includes(g.ref);
+                    return (
+                      <button
+                        type="button"
+                        key={g.ref}
+                        onClick={() => toggleRef(g.ref)}
+                        className={[
+                          "text-xs px-2.5 py-0.5 rounded-full border whitespace-nowrap transition-colors cursor-pointer",
+                          active
+                            ? "bg-marigold-700 text-white border-marigold-700 font-semibold"
+                            : "bg-canvas text-ink-secondary border-border-soft hover:border-marigold-300",
+                        ].join(" ")}
+                        title={g.ref}
+                      >
+                        {g.name} <span className="opacity-70">({g.memberCount})</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+            {users.length > 0 && (
+              <div>
+                <div className="text-[10px] uppercase tracking-wider text-ink-tertiary mb-1">
+                  Individuals
+                </div>
+                <div className="flex gap-1.5 flex-wrap">
+                  {users.map((u) => {
+                    const ref = `user:${u.id}`;
+                    const active = attendeeRefs.includes(ref);
+                    const display = u.name ?? u.email.split("@")[0];
+                    return (
+                      <button
+                        type="button"
+                        key={u.id}
+                        onClick={() => toggleRef(ref)}
+                        className={[
+                          "text-xs px-2.5 py-0.5 rounded-full border whitespace-nowrap transition-colors cursor-pointer",
+                          active
+                            ? "bg-moss-500 text-white border-moss-500 font-semibold"
+                            : "bg-canvas text-ink-secondary border-border-soft hover:border-moss-300",
+                        ].join(" ")}
+                        title={u.email}
+                      >
+                        {display}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
 

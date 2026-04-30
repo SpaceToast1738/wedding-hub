@@ -86,9 +86,14 @@ export function resolveBuiltinGroup(
 }
 
 /**
- * Resolve any group reference ("builtin:everyone" or "group:<slug>")
- * to the matching User[] subset. Unknown references return an empty
- * array — callers that care about the distinction should pre-validate.
+ * Resolve any group reference to the matching User[] subset.
+ * Reference shapes:
+ *   "builtin:<slug>"  — virtual group (everyone / couple / etc.)
+ *   "group:<slug>"    — DB-backed UserGroup
+ *   "user:<id>"       — individual user (v1.41.0 attendee refs)
+ *
+ * Unknown references return an empty array — callers that care about
+ * the distinction should pre-validate.
  */
 export function resolveGroupMembers(
   ref: string,
@@ -106,6 +111,11 @@ export function resolveGroupMembers(
     if (!group) return [];
     const memberIds = new Set(group.members.map((m) => m.id));
     return users.filter((u) => memberIds.has(u.id));
+  }
+  if (ref.startsWith("user:")) {
+    const id = ref.slice("user:".length);
+    const u = users.find((x) => x.id === id);
+    return u ? [u] : [];
   }
   return [];
 }
@@ -132,6 +142,53 @@ export function resolveGroupMembersUnion(
     }
   }
   return out;
+}
+
+/**
+ * v1.41.0 (backlog #4): legacy-aware attendee resolver. Schedule
+ * events store `attendeeRefs: String[]` of group references; older
+ * rows fall back to `attendeeIds: String[]` (raw User.id) — those
+ * are expanded to `user:<id>` refs on read so the rest of the app
+ * sees a single uniform shape.
+ *
+ * Returns the deduplicated User[] union for an event's attendee
+ * refs, expanding all three reference kinds. Empty input returns
+ * an empty list.
+ */
+export function resolveAttendeeRefs(
+  event: { attendeeRefs?: string[] | null; attendeeIds?: string[] | null },
+  users: UserShape[],
+  customGroups: UserGroupShape[],
+): UserShape[] {
+  const refs =
+    event.attendeeRefs && event.attendeeRefs.length > 0
+      ? event.attendeeRefs
+      : (event.attendeeIds ?? []).map((id) => `user:${id}`);
+  return resolveGroupMembersUnion(refs, users, customGroups);
+}
+
+/**
+ * v1.41.0: thin helper for the most common Today-page check —
+ * "is this user an attendee of this event?". Same legacy fallback
+ * as resolveAttendeeRefs. Cheap because we only iterate refs until
+ * we find a match.
+ */
+export function isAttendee(
+  event: { attendeeRefs?: string[] | null; attendeeIds?: string[] | null },
+  userId: string,
+  users: UserShape[],
+  customGroups: UserGroupShape[],
+): boolean {
+  const refs =
+    event.attendeeRefs && event.attendeeRefs.length > 0
+      ? event.attendeeRefs
+      : (event.attendeeIds ?? []).map((id) => `user:${id}`);
+  for (const ref of refs) {
+    if (ref === `user:${userId}`) return true;
+    const members = resolveGroupMembers(ref, users, customGroups);
+    if (members.some((u) => u.id === userId)) return true;
+  }
+  return false;
 }
 
 /**

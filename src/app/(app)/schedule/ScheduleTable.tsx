@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { Button } from "@/components/ui/Button";
-import { EventForm, type UserOpt } from "./EventForm";
+import { EventForm, type GroupOpt, type UserOpt } from "./EventForm";
 import { deleteScheduleEvent, updateScheduleEvent } from "./actions";
 import { splitDateTime } from "@/lib/format";
 import { EventMotifIcon, classifyEventMotif } from "@/components/ui/EventMotifIcon";
@@ -13,6 +13,7 @@ type Event = {
   startTime: Date;
   endTime: Date | null;
   location: string | null;
+  attendeeRefs: string[];
   attendeeIds: string[];
   allDay: boolean;
   notes: string | null;
@@ -44,10 +45,12 @@ function fmtDay(d: Date): string {
 export function ScheduleTable({
   events,
   users = [],
+  groups = [],
   canEdit,
 }: {
   events: Event[];
   users?: UserOpt[];
+  groups?: GroupOpt[];
   canEdit: boolean;
 }) {
   return (
@@ -67,7 +70,13 @@ export function ScheduleTable({
         </thead>
         <tbody>
           {events.map((e) => (
-            <Row key={e.id} event={e} users={users} canEdit={canEdit} />
+            <Row
+              key={e.id}
+              event={e}
+              users={users}
+              groups={groups}
+              canEdit={canEdit}
+            />
           ))}
         </tbody>
       </table>
@@ -78,10 +87,12 @@ export function ScheduleTable({
 function Row({
   event,
   users = [],
+  groups = [],
   canEdit,
 }: {
   event: Event;
   users?: UserOpt[];
+  groups?: GroupOpt[];
   canEdit: boolean;
 }) {
   const [editing, setEditing] = useState(false);
@@ -97,11 +108,16 @@ function Row({
   if (editing) {
     const { date: startDate, time: startTimeStr } = splitDateTime(event.startTime);
     const { date: endDate, time: endTimeStr } = splitDateTime(event.endTime);
+    const initialRefs =
+      event.attendeeRefs.length > 0
+        ? event.attendeeRefs
+        : event.attendeeIds.map((id) => `user:${id}`);
     return (
       <tr className="border-b border-border-soft last:border-b-0">
         <td colSpan={canEdit ? 5 : 4} className="p-4 bg-moss-50/30">
           <EventForm
             users={users}
+            groups={groups}
             submitLabel="Save"
             initial={{
               title: event.title,
@@ -111,7 +127,7 @@ function Row({
               endTime: endTimeStr,
               allDay: event.allDay,
               location: event.location ?? "",
-              attendeeIds: event.attendeeIds,
+              attendeeRefs: initialRefs,
               notes: event.notes ?? "",
             }}
             onSubmit={async (fd) => {
@@ -166,26 +182,47 @@ function Row({
         {event.location ?? "—"}
       </td>
       <td className="px-3 py-2.5 hidden md:table-cell">
-        {/* v1.30.5: legacy persona-`audience` fallback removed (column
-            dropped this release). Render attendees only. */}
-        {event.attendeeIds.length === 0 ? (
-          <span className="text-xs text-ink-tertiary">—</span>
-        ) : (
-          <div className="flex gap-1 flex-wrap">
-            {event.attendeeIds.map((id) => {
-              const u = users.find((x) => x.id === id);
-              const label = u?.name ?? u?.email.split("@")[0] ?? id.slice(0, 6);
-              return (
-                <span
-                  key={id}
-                  className="text-[10px] px-1.5 py-px rounded-md bg-canvas text-ink-secondary border border-border-soft"
-                >
-                  {label}
-                </span>
-              );
-            })}
-          </div>
-        )}
+        {/* v1.41.0: render polymorphic attendee refs. */}
+        {(() => {
+          const refs =
+            event.attendeeRefs.length > 0
+              ? event.attendeeRefs
+              : event.attendeeIds.map((id) => `user:${id}`);
+          if (refs.length === 0) {
+            return <span className="text-xs text-ink-tertiary">—</span>;
+          }
+          const groupByRef = new Map(groups.map((g) => [g.ref, g]));
+          return (
+            <div className="flex gap-1 flex-wrap">
+              {refs.map((ref) => {
+                if (ref.startsWith("user:")) {
+                  const id = ref.slice("user:".length);
+                  const u = users.find((x) => x.id === id);
+                  const label = u?.name ?? u?.email.split("@")[0] ?? id.slice(0, 6);
+                  return (
+                    <span
+                      key={ref}
+                      className="text-[10px] px-1.5 py-px rounded-md bg-canvas text-ink-secondary border border-border-soft"
+                    >
+                      {label}
+                    </span>
+                  );
+                }
+                const g = groupByRef.get(ref);
+                const label = g?.name ?? ref.split(":").pop() ?? ref;
+                return (
+                  <span
+                    key={ref}
+                    className="text-[10px] px-1.5 py-px rounded-md bg-marigold-100 text-marigold-700 border border-marigold-700/30"
+                    title={ref}
+                  >
+                    👥 {label}
+                  </span>
+                );
+              })}
+            </div>
+          );
+        })()}
       </td>
       {canEdit && (
         <td className="px-3 py-2.5">

@@ -10,15 +10,32 @@ const eventSchema = z.object({
   startTime: z.string().min(1),
   endTime: z.string().optional().nullable(),
   location: z.string().max(200).optional().nullable(),
-  // v1.27.1: replaces the persona-based legacy `audience` (dropped in
-  // v1.30.5). User IDs of who needs to know about / attend this event.
-  attendeeIds: z.array(z.string()).default([]),
+  // v1.41.0 (backlog #4): polymorphic attendee references replacing
+  // the v1.27.1 attendeeIds. Each entry is one of:
+  //   "user:<id>" | "builtin:<slug>" | "group:<slug>"
+  // Legacy `attendeeIds` still accepted on input for clients that
+  // haven't been redeployed yet — we promote them to user:<id> refs
+  // here so the DB writes consistently. The legacy column itself
+  // stays one release as a recoverability buffer; this action stops
+  // writing to it from this release on.
+  attendeeRefs: z.array(z.string().min(1).max(80)).default([]),
   allDay: z.boolean().default(false),
   notes: z.string().max(2000).optional().nullable(),
 });
 
 function readArray(formData: FormData, key: string): string[] {
   return formData.getAll(key).map(String).filter(Boolean);
+}
+
+// v1.41.0: read both new (attendeeRefs) and legacy (attendeeIds)
+// form fields, normalising to a single attendeeRefs array. Old
+// clients still posting attendeeIds keep working; new clients post
+// the polymorphic refs directly.
+function readAttendeeRefs(formData: FormData): string[] {
+  const refs = readArray(formData, "attendeeRefs");
+  if (refs.length > 0) return refs;
+  // Legacy fallback — promote each id to a user:<id> ref.
+  return readArray(formData, "attendeeIds").map((id) => `user:${id}`);
 }
 
 // v1.27.1: combine date + time inputs into the ISO string the schema
@@ -41,14 +58,28 @@ function eventAuditSnapshot(parsed: {
   title: string;
   startTime: string;
   allDay: boolean;
-  attendeeIds: string[];
+  attendeeRefs: string[];
 }) {
   return {
     title: parsed.title,
     startTime: parsed.startTime,
     allDay: parsed.allDay,
-    attendeeCount: parsed.attendeeIds.length,
+    attendeeCount: parsed.attendeeRefs.length,
+    // v1.41.0: surface ref-kind breakdown so the audit log shows
+    // "Saved schedule event 'Ceremony' — 1 group, 2 individuals"
+    // rather than just "3 attendees".
+    attendeeKinds: countRefKinds(parsed.attendeeRefs),
   };
+}
+
+function countRefKinds(refs: string[]): { user: number; builtin: number; group: number } {
+  const out = { user: 0, builtin: 0, group: 0 };
+  for (const r of refs) {
+    if (r.startsWith("user:")) out.user += 1;
+    else if (r.startsWith("builtin:")) out.builtin += 1;
+    else if (r.startsWith("group:")) out.group += 1;
+  }
+  return out;
 }
 
 export async function createScheduleEvent(formData: FormData) {
@@ -65,7 +96,7 @@ export async function createScheduleEvent(formData: FormData) {
     startTime: startISO,
     endTime: endISO || null,
     location: formData.get("location") || null,
-    attendeeIds: readArray(formData, "attendeeIds"),
+    attendeeRefs: readAttendeeRefs(formData),
     allDay,
     notes: formData.get("notes") || null,
   });
@@ -75,7 +106,10 @@ export async function createScheduleEvent(formData: FormData) {
       startTime: new Date(parsed.startTime),
       endTime: parsed.endTime ? new Date(parsed.endTime) : null,
       location: parsed.location ?? null,
-      attendeeIds: parsed.attendeeIds,
+      // v1.41.0: write attendeeRefs only. Legacy attendeeIds is left
+      // empty on new rows; the read path handles the fallback for
+      // pre-migration rows that haven't been re-saved yet.
+      attendeeRefs: parsed.attendeeRefs,
       allDay: parsed.allDay,
       notes: parsed.notes ?? null,
     },
@@ -104,7 +138,7 @@ export async function updateScheduleEvent(id: string, formData: FormData) {
     startTime: startISO,
     endTime: endISO || null,
     location: formData.get("location") || null,
-    attendeeIds: readArray(formData, "attendeeIds"),
+    attendeeRefs: readAttendeeRefs(formData),
     allDay,
     notes: formData.get("notes") || null,
   });
@@ -117,14 +151,18 @@ export async function updateScheduleEvent(id: string, formData: FormData) {
       startTime: new Date(parsed.startTime),
       endTime: parsed.endTime ? new Date(parsed.endTime) : null,
       location: parsed.location ?? null,
-      attendeeIds: parsed.attendeeIds,
+      attendeeRefs: parsed.attendeeRefs,
+      // v1.41.0: stop writing to legacy attendeeIds — when refs are
+      // saved, we clear the legacy column so the two don't diverge.
+      // The migration's backfill ensures all pre-existing rows have
+      // attendeeRefs populated already.
+      attendeeIds: [],
       allDay: parsed.allDay,
       notes: parsed.notes ?? null,
     },
   });
   // v1.30.5: changedFields diff. Compare each parsed field to the pre-
-  // update row. Arrays compare on JSON to avoid order false-positives —
-  // attendees rarely reorder so this is a fine proxy for "different".
+  // update row. Arrays compare on JSON to avoid order false-positives.
   const changedFields: string[] = [];
   if (before) {
     if (parsed.title !== before.title) changedFields.push("title");
@@ -135,7 +173,15 @@ export async function updateScheduleEvent(id: string, formData: FormData) {
     if ((parsed.location ?? null) !== (before.location ?? null)) changedFields.push("location");
     if (parsed.allDay !== before.allDay) changedFields.push("allDay");
     if ((parsed.notes ?? null) !== (before.notes ?? null)) changedFields.push("notes");
-    if (JSON.stringify(parsed.attendeeIds) !== JSON.stringify(before.attendeeIds)) changedFields.push("attendeeIds");
+    // Compare attendeeRefs — fall back to the legacy attendeeIds
+    // (expanded as user:<id>) for pre-migration rows.
+    const beforeRefs =
+      before.attendeeRefs.length > 0
+        ? before.attendeeRefs
+        : before.attendeeIds.map((id) => `user:${id}`);
+    if (JSON.stringify(parsed.attendeeRefs) !== JSON.stringify(beforeRefs)) {
+      changedFields.push("attendeeRefs");
+    }
   }
   await audit(user, {
     action: "update",

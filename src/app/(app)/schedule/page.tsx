@@ -7,23 +7,57 @@ import { EmptySchedule, EmptyState } from "@/components/ui/Illustrations";
 import { ScheduleClient } from "./ScheduleClient";
 import { AddEventToggle } from "./AddEventToggle";
 import { PrintScheduleButton } from "./PrintScheduleButton";
+import {
+  BUILTIN_GROUPS,
+  resolveBuiltinGroup,
+  displayName,
+} from "@/lib/group-members";
 
 export default async function SchedulePage() {
   const user = await requireUser();
   const editable = await canEdit(user, "schedule");
   const wedding = await getWeddingSettings();
 
-  const [events, users] = await Promise.all([
+  // v1.41.0 (backlog #4): pull users + custom groups so the form can
+  // render the polymorphic attendee picker. Built-in groups are
+  // computed (not stored), but their member counts depend on User
+  // rows, so we evaluate them here once and pass to the client.
+  const [events, users, customGroups] = await Promise.all([
     db.scheduleEvent.findMany({
       orderBy: [{ startTime: "asc" }, { order: "asc" }],
     }),
-    // v1.27.1: attendee picker reads from the User table (admin
-    // accounts only — guests are managed via Say I Do, not here).
     db.user.findMany({
       orderBy: [{ isCouple: "desc" }, { name: "asc" }],
-      select: { id: true, name: true, email: true },
+      select: {
+        id: true, name: true, email: true,
+        firstName: true, lastName: true, role: true, isCouple: true,
+      },
+    }),
+    db.userGroup.findMany({
+      orderBy: [{ order: "asc" }, { name: "asc" }],
+      include: { members: { select: { id: true } } },
     }),
   ]);
+  // Group options for the picker — built-ins first, then custom.
+  // Empty groups (zero members) are still selectable; the editor
+  // shows the count so the couple knows what they're picking.
+  const groupOpts = [
+    ...BUILTIN_GROUPS.map((g) => ({
+      ref: `builtin:${g.slug}`,
+      name: g.name,
+      memberCount: resolveBuiltinGroup(g.slug, users).length,
+    })),
+    ...customGroups.map((g) => ({
+      ref: `group:${g.slug}`,
+      name: g.name,
+      memberCount: g.members.length,
+    })),
+  ];
+  const userOpts = users.map((u) => ({
+    id: u.id,
+    name: displayName(u) || u.name,
+    email: u.email,
+  }));
 
   const total = events.length;
   const upcoming = events.filter((e) => e.startTime >= new Date()).length;
@@ -36,7 +70,7 @@ export default async function SchedulePage() {
         actions={
           <>
             <PrintScheduleButton />
-            {editable && <AddEventToggle users={users} />}
+            {editable && <AddEventToggle users={userOpts} groups={groupOpts} />}
           </>
         }
       />
@@ -64,11 +98,16 @@ export default async function SchedulePage() {
                 startTime: e.startTime,
                 endTime: e.endTime,
                 location: e.location,
+                // v1.41.0: attendeeRefs is the new shape; legacy
+                // attendeeIds passed alongside for one-release back-
+                // compat (reader expands missing refs from ids).
+                attendeeRefs: e.attendeeRefs,
                 attendeeIds: e.attendeeIds,
                 allDay: e.allDay,
                 notes: e.notes,
               }))}
-              users={users}
+              users={userOpts}
+              groups={groupOpts}
               canEdit={editable}
             />
           )}

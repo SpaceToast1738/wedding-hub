@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { Button } from "@/components/ui/Button";
-import { EventForm, type UserOpt } from "./EventForm";
+import { EventForm, type GroupOpt, type UserOpt } from "./EventForm";
 import { updateScheduleEvent, deleteScheduleEvent } from "./actions";
 import { splitDateTime } from "@/lib/format";
 import { EventMotifIcon, classifyEventMotif } from "@/components/ui/EventMotifIcon";
@@ -13,7 +13,9 @@ type Event = {
   startTime: Date;
   endTime: Date | null;
   location: string | null;
-  // v1.27.1: User-IDs of who should attend / be aware of this event.
+  // v1.41.0: polymorphic refs replace the v1.27.1 user-id array.
+  // Legacy attendeeIds passed through one release as a buffer.
+  attendeeRefs: string[];
   attendeeIds: string[];
   // v1.27.1: when true the time component is ignored on render.
   allDay: boolean;
@@ -23,11 +25,13 @@ type Event = {
 export function EventNode({
   event,
   users = [],
+  groups = [],
   canEdit,
   isLast,
 }: {
   event: Event;
   users?: UserOpt[];
+  groups?: GroupOpt[];
   canEdit: boolean;
   isLast: boolean;
 }) {
@@ -57,10 +61,18 @@ export function EventNode({
   if (editing) {
     const { date: startDate, time: startTimeStr } = splitDateTime(event.startTime);
     const { date: endDate, time: endTimeStr } = splitDateTime(event.endTime);
+    // v1.41.0: prefer attendeeRefs; fall back to legacy attendeeIds
+    // expanded as user:<id> for events that haven't been re-saved
+    // since the migration.
+    const initialRefs =
+      event.attendeeRefs.length > 0
+        ? event.attendeeRefs
+        : event.attendeeIds.map((id) => `user:${id}`);
     return (
       <li className={`relative bg-surface border border-moss-100 rounded-md p-4 mb-3 ${isLast ? "" : ""}`}>
         <EventForm
           users={users}
+          groups={groups}
           submitLabel="Save"
           initial={{
             title: event.title,
@@ -70,7 +82,7 @@ export function EventNode({
             endTime: endTimeStr,
             allDay: event.allDay,
             location: event.location ?? "",
-            attendeeIds: event.attendeeIds,
+            attendeeRefs: initialRefs,
             notes: event.notes ?? "",
           }}
           onSubmit={async (fd) => {
@@ -121,24 +133,49 @@ export function EventNode({
       {event.location && (
         <div className="text-xs text-ink-tertiary mt-0.5">📍 {event.location}</div>
       )}
-      {/* v1.30.5: legacy persona-`audience` fallback removed (column
-          dropped this release). Render attendees only. */}
-      {event.attendeeIds.length > 0 && (
-        <div className="flex gap-1 mt-1.5 flex-wrap">
-          {event.attendeeIds.map((id) => {
-            const u = users.find((x) => x.id === id);
-            const label = u?.name ?? u?.email.split("@")[0] ?? id.slice(0, 6);
-            return (
-              <span
-                key={id}
-                className="text-[10px] px-1.5 py-px rounded-md bg-canvas text-ink-secondary border border-border-soft"
-              >
-                {label}
-              </span>
-            );
-          })}
-        </div>
-      )}
+      {/* v1.41.0: render polymorphic attendee refs. Group refs render
+          as marigold-tinted chips with the group name; user refs
+          resolve through the users prop and show a moss chip. Legacy
+          attendeeIds expanded for events that pre-date the migration. */}
+      {(() => {
+        const refs =
+          event.attendeeRefs.length > 0
+            ? event.attendeeRefs
+            : event.attendeeIds.map((id) => `user:${id}`);
+        if (refs.length === 0) return null;
+        const groupByRef = new Map(groups.map((g) => [g.ref, g]));
+        return (
+          <div className="flex gap-1 mt-1.5 flex-wrap">
+            {refs.map((ref) => {
+              if (ref.startsWith("user:")) {
+                const id = ref.slice("user:".length);
+                const u = users.find((x) => x.id === id);
+                const label = u?.name ?? u?.email.split("@")[0] ?? id.slice(0, 6);
+                return (
+                  <span
+                    key={ref}
+                    className="text-[10px] px-1.5 py-px rounded-md bg-canvas text-ink-secondary border border-border-soft"
+                  >
+                    {label}
+                  </span>
+                );
+              }
+              // builtin: or group:
+              const g = groupByRef.get(ref);
+              const label = g?.name ?? ref.split(":").pop() ?? ref;
+              return (
+                <span
+                  key={ref}
+                  className="text-[10px] px-1.5 py-px rounded-md bg-marigold-100 text-marigold-700 border border-marigold-700/30"
+                  title={ref}
+                >
+                  👥 {label}
+                </span>
+              );
+            })}
+          </div>
+        );
+      })()}
       {event.notes && (
         <p className="text-xs text-ink-secondary mt-2 whitespace-pre-wrap">{event.notes}</p>
       )}

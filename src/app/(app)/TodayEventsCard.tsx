@@ -8,14 +8,15 @@ type EventLite = {
   title: string;
   startTime: Date;
   location: string | null;
-  // v1.30.5: replaces v1.27.x's persona-based `audience` (column dropped
-  // this release). User IDs of who's expected at the event. Empty array
-  // = everyone.
-  attendeeIds: string[];
-  // v1.27.9: when true, render "All day" instead of the time. Pre-fix
-  // all-day events showed as 01:00 / midnight depending on browser
-  // locale because we just toLocaleTimeString'd whatever was stored
-  // (midnight UTC, which renders as 01:00 in BST).
+  /** v1.41.0: precomputed server-side via `isAttendee()`. True when
+   *  the current user matches any attendee ref on the event (direct
+   *  user:<id> ref OR indirect via a builtin/group ref they belong
+   *  to). Empty attendees still treated as "everyone" → isMine = true. */
+  isMine: boolean;
+  /** v1.41.0: precomputed total attendee count (resolved unique
+   *  users across all refs). Used purely for the "N attending" line. */
+  attendeeCount: number;
+  // v1.27.9: when true, render "All day" instead of the time.
   allDay: boolean;
 };
 
@@ -31,23 +32,19 @@ function formatDate(d: Date): string {
 
 export function TodayEventsCard({
   events,
-  currentUserId,
 }: {
   events: EventLite[];
-  // v1.30.5: replaces currentUserRole. The "Mine" persona now matches
-  // attendeeIds against this user's id. Empty attendeeIds = everyone
-  // (so they always show in "Mine").
-  currentUserId: string;
 }) {
   // v1.19.0: default to "mine" — most useful default for wedding-party
   // users (Aimee/Josh) who care about the events that involve them.
   // The couple can flip to Everyone in one click.
+  // v1.41.0: filtering now uses precomputed `isMine` because the
+  // attendee list can include built-in / custom group refs that need
+  // server-side resolution. Server passes isMine; the card only
+  // renders.
   const [persona, setPersona] = useState<Persona>("mine");
 
-  const filtered =
-    persona === "everyone"
-      ? events
-      : events.filter((e) => e.attendeeIds.length === 0 || e.attendeeIds.includes(currentUserId));
+  const filtered = persona === "everyone" ? events : events.filter((e) => e.isMine);
 
   return (
     <section className="bg-surface border border-border-soft rounded-lg p-5 shadow-sm h-full flex flex-col">
@@ -85,9 +82,9 @@ export function TodayEventsCard({
               </span>
               <div className="flex-1 min-w-0">
                 <div className="text-sm text-ink-primary font-medium truncate">{e.title}</div>
-                {e.attendeeIds.length > 0 && (
+                {e.attendeeCount > 0 && (
                   <div className="text-[11px] text-ink-tertiary">
-                    {e.attendeeIds.length} attending
+                    {e.attendeeCount} attending
                   </div>
                 )}
               </div>

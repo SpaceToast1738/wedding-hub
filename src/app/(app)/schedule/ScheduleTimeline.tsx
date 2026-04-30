@@ -2,7 +2,7 @@
 
 import { Fragment } from "react";
 import { EventNode } from "./EventNode";
-import type { UserOpt } from "./EventForm";
+import type { GroupOpt, UserOpt } from "./EventForm";
 
 type Event = {
   id: string;
@@ -10,6 +10,7 @@ type Event = {
   startTime: Date;
   endTime: Date | null;
   location: string | null;
+  attendeeRefs: string[];
   attendeeIds: string[];
   allDay: boolean;
   notes: string | null;
@@ -42,32 +43,42 @@ function groupByDay(events: Event[]): Array<{ key: string; label: string; events
 export function ScheduleTimeline({
   events,
   users = [],
+  groups = [],
   canEdit,
 }: {
   events: Event[];
   users?: UserOpt[];
+  groups?: GroupOpt[];
   canEdit: boolean;
 }) {
-  const groups = groupByDay(events);
+  // v1.41.0: renamed local `groups` (day buckets) → `dayBuckets` so
+  // the new `groups` prop (attendee group options) doesn't shadow it.
+  const dayBuckets = groupByDay(events);
 
   return (
     <div className="space-y-8">
-      {groups.map((g) => (
-        <div key={g.key} className="print-break-avoid">
+      {dayBuckets.map((d) => (
+        <div key={d.key} className="print-break-avoid">
           <div className="flex items-baseline gap-3 mb-3 sticky top-0 bg-canvas/80 backdrop-blur-sm py-1 z-10">
             <h2 className="font-display text-base text-ink-primary font-semibold">
-              {g.label}
+              {d.label}
             </h2>
             <span className="text-[11px] text-ink-tertiary">
-              {g.events.length} {g.events.length === 1 ? "event" : "events"}
+              {d.events.length} {d.events.length === 1 ? "event" : "events"}
             </span>
             <div className="flex-1 border-b border-border-soft" />
           </div>
           {/* Timeline column: vertical hairline connecting nodes. */}
           <ol className="relative pl-3 ml-6 border-l border-border-soft">
-            {g.events.map((e, i) => (
+            {d.events.map((e, i) => (
               <Fragment key={e.id}>
-                <EventNode event={e} users={users} canEdit={canEdit} isLast={i === g.events.length - 1} />
+                <EventNode
+                  event={e}
+                  users={users}
+                  groups={groups}
+                  canEdit={canEdit}
+                  isLast={i === d.events.length - 1}
+                />
               </Fragment>
             ))}
           </ol>

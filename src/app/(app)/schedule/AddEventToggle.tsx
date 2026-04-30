@@ -2,13 +2,20 @@
 
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/Button";
-import { EventForm, type UserOpt } from "./EventForm";
+import { EventForm, type GroupOpt, type UserOpt } from "./EventForm";
 import { createScheduleEvent } from "./actions";
 
 // v1.27.1: opens a fixed-position popover (mirrors v1.27.0's
 // AddTaskToggle pattern) instead of an inline-expanded form. Same
 // keep-the-header-uncrowded reasoning. ESC + backdrop dismiss.
-export function AddEventToggle({ users = [] }: { users?: UserOpt[] }) {
+// v1.41.0: now also takes `groups` for the polymorphic attendee picker.
+export function AddEventToggle({
+  users = [],
+  groups = [],
+}: {
+  users?: UserOpt[];
+  groups?: GroupOpt[];
+}) {
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
@@ -51,6 +58,7 @@ export function AddEventToggle({ users = [] }: { users?: UserOpt[] }) {
             </div>
             <EventForm
               users={users}
+              groups={groups}
               submitLabel="Create"
               onSubmit={async (fd) => {
                 await createScheduleEvent(fd);

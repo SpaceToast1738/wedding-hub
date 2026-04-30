@@ -264,10 +264,25 @@ export function formatAuditAction(row: AuditRow): string {
     if (a === "answer") return `Answered question ${quoted(taskTitle)}`;
   }
 
-  // ScheduleEvent (v1.30.5)
+  // ScheduleEvent (v1.30.5+)
   if (row.entity === "ScheduleEvent") {
     const t = asString(meta.title);
-    if (a === "create") return `Added schedule event ${quoted(t)}`;
+    // v1.41.0: attendee-kind breakdown surfaces in create/update so
+    // the audit log shows "Added schedule event 'Ceremony' — 1 group,
+    // 2 individuals" rather than just "3 attendees" when the event
+    // mixes group refs + individuals.
+    function attendeeSummary(): string {
+      const k = meta.attendeeKinds as { user?: number; builtin?: number; group?: number } | undefined;
+      if (!k) return "";
+      const groupCount = (k.builtin ?? 0) + (k.group ?? 0);
+      const userCount = k.user ?? 0;
+      const parts: string[] = [];
+      if (groupCount > 0) parts.push(pluralise(groupCount, "group", "groups"));
+      if (userCount > 0) parts.push(pluralise(userCount, "individual", "individuals"));
+      if (parts.length === 0) return "";
+      return ` — ${parts.join(", ")}`;
+    }
+    if (a === "create") return `Added schedule event ${quoted(t)}${attendeeSummary()}`;
     if (a === "update") {
       const changed = Array.isArray(meta.changedFields)
         ? (meta.changedFields as unknown[]).filter((f) => typeof f === "string")

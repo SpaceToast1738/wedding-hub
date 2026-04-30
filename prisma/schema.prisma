@@ -289,7 +289,20 @@ model ScheduleEvent {
   // needs to know about / attend this event. The form renders a
   // multi-user picker; renderers show user names (resolved client-
   // side via the users prop).
+  // v1.41.0 (backlog #4): kept one release as a recoverability
+  // buffer (matches v1.30.5 / P5 / P7a pattern). New writes go to
+  // `attendeeRefs`; reads prefer attendeeRefs, fall back to expanding
+  // attendeeIds → `user:<id>` refs at render time.
   attendeeIds String[]  @default([])
+  // v1.41.0 (backlog #4): polymorphic attendee references. Each
+  // string is one of:
+  //   "user:<id>"          — individual user
+  //   "builtin:<slug>"     — virtual group computed from User.role /
+  //                          User.isCouple (everyone / couple /
+  //                          wedding-party-role / planners-role)
+  //   "group:<slug>"       — DB-backed UserGroup row by slug
+  // See src/lib/group-members.ts for the resolver helpers.
+  attendeeRefs String[] @default([])
   // v1.27.1: all-day events. When true the time component of
   // startTime/endTime is ignored — renderers display the date only.
   // Stored as midnight UTC + null endTime by convention.
