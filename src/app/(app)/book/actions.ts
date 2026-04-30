@@ -16,6 +16,7 @@ import {
   type BookRecipeShape,
   type BookShotShape,
 } from "@/lib/book-cards";
+import { sanitizeBookHtml } from "@/lib/sanitize-book-html";
 
 // v1.26.0: shared result shape — every new action returns this rather
 // than throwing, so Next production redaction can't swallow the
@@ -155,11 +156,32 @@ export async function createBookSubsection(formData: FormData) {
 export async function updateBookSubsection(id: string, formData: FormData) {
   const user = await requireEdit("book");
   const title = String(formData.get("title") ?? "").trim();
-  const body = String(formData.get("body") ?? "");
+  // v1.37.0: TEXT cards now author HTML via Tiptap. The form posts
+  // `bodyHtml` (sanitised on its way in here); the legacy `body`
+  // textarea is gone. Non-TEXT kinds don't post body at all — they
+  // store their content in per-kind tables. We accept either field
+  // for back-compat with any callers that still post `body` (none
+  // in tree, but keeps the surface non-breaking for one release).
+  const rawBodyHtml = formData.get("bodyHtml");
+  const rawBody = formData.get("body");
   if (!title) throw new Error("Title is required");
+  const data: { title: string; bodyHtml?: string | null; body?: string | null } = { title };
+  if (rawBodyHtml !== null) {
+    const cleaned = sanitizeBookHtml(String(rawBodyHtml));
+    data.bodyHtml = cleaned || null;
+  } else if (rawBody !== null) {
+    // Legacy callers posting `body` get their content escaped + wrapped
+    // through legacyBodyToHtml. The plain body column also gets
+    // updated so old read paths keep working through the buffer
+    // release.
+    const { legacyBodyToHtml } = await import("@/lib/sanitize-book-html");
+    const text = String(rawBody);
+    data.body = text || null;
+    data.bodyHtml = text ? legacyBodyToHtml(text) : null;
+  }
   const updated = await db.bookSubsection.update({
     where: { id },
-    data: { title, body: body || null },
+    data,
     include: { section: true },
   });
   await audit(user, { action: "update", entity: "BookSubsection", entityId: id });

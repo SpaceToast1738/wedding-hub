@@ -1,6 +1,6 @@
 {
   "name": "wedding-hub",
-  "version": "1.36.0",
+  "version": "1.37.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -27,11 +27,16 @@
   "dependencies": {
     "@auth/prisma-adapter": "^2.7.4",
     "@prisma/client": "^5.22.0",
+    "@tiptap/extension-link": "^3.22.5",
+    "@tiptap/extension-underline": "^3.22.5",
+    "@tiptap/react": "^3.22.5",
+    "@tiptap/starter-kit": "^3.22.5",
     "next": "15.0.4",
     "next-auth": "5.0.0-beta.25",
     "nodemailer": "^6.10.1",
     "react": "19.0.0",
     "react-dom": "19.0.0",
+    "sanitize-html": "^2.17.3",
     "zod": "^3.23.8"
   },
   "devDependencies": {
@@ -41,6 +46,7 @@
     "@types/nodemailer": "^6.4.23",
     "@types/react": "^19.0.1",
     "@types/react-dom": "^19.0.1",
+    "@types/sanitize-html": "^2.16.1",
     "@vitest/ui": "^2.1.9",
     "eslint": "^9.16.0",
     "eslint-config-next": "15.0.4",

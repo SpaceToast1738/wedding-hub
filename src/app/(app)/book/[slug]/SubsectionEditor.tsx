@@ -1,16 +1,25 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
+import { RichTextEditor, RichTextRead } from "@/components/ui/RichTextEditor";
 import { notify } from "@/lib/notify";
+import { legacyBodyToHtml } from "@/lib/sanitize-book-html";
 import { deleteBookSubsection, setBookSubsectionVisibility, updateBookSubsection } from "../actions";
+
+// v1.37.0: TEXT cards switched to a Tiptap WYSIWYG. The editor authors
+// HTML; the server sanitises on write, RichTextRead sanitises on read
+// as a belt-and-braces guard. Legacy `body` (plain text) is still
+// loaded as a one-release fallback — when bodyHtml is null but body
+// isn't, we render the body via legacyBodyToHtml.
 
 type Sub = {
   id: string;
   slug: string;
   title: string;
   body: string | null;
+  bodyHtml: string | null;
   visibility: "EVERYONE" | "COUPLE_ONLY";
 };
 
@@ -26,11 +35,20 @@ export function SubsectionEditor({
   // couple gate (server enforces this regardless of UI).
   isCouple: boolean;
 }) {
+  // Initial HTML: prefer bodyHtml (the new shape). Fall back to
+  // legacyBodyToHtml(body) for rows that haven't been re-saved
+  // since the migration. Empty when both are null.
+  const initialHtml = useMemo(() => {
+    if (sub.bodyHtml != null) return sub.bodyHtml;
+    if (sub.body != null) return legacyBodyToHtml(sub.body);
+    return "";
+  }, [sub.body, sub.bodyHtml]);
+
   const [title, setTitle] = useState(sub.title);
-  const [body, setBody] = useState(sub.body ?? "");
+  const [bodyHtml, setBodyHtml] = useState(initialHtml);
   const [visibility, setVisibility] = useState(sub.visibility);
   const [pending, startTransition] = useTransition();
-  const dirty = title !== sub.title || body !== (sub.body ?? "");
+  const dirty = title !== sub.title || bodyHtml !== initialHtml;
 
   function toggleVisibility() {
     const next = visibility === "COUPLE_ONLY" ? "EVERYONE" : "COUPLE_ONLY";
@@ -49,7 +67,7 @@ export function SubsectionEditor({
   function save() {
     const fd = new FormData();
     fd.set("title", title);
-    fd.set("body", body);
+    fd.set("bodyHtml", bodyHtml);
     startTransition(async () => {
       await updateBookSubsection(sub.id, fd);
     });
@@ -84,15 +102,16 @@ export function SubsectionEditor({
         )}
       </div>
       {canEdit ? (
-        <textarea
-          value={body}
-          onChange={(e) => setBody(e.target.value)}
-          rows={Math.max(4, body.split("\n").length + 1)}
-          className="w-full text-sm bg-canvas/50 border border-transparent rounded-sm px-2 py-1.5 outline-none hover:border-border-soft focus:border-moss-500 text-ink-secondary whitespace-pre-wrap"
+        <RichTextEditor
+          value={bodyHtml}
+          onChange={setBodyHtml}
+          disabled={pending}
           placeholder="Notes…"
         />
+      ) : initialHtml ? (
+        <RichTextRead html={initialHtml} />
       ) : (
-        <p className="text-sm text-ink-secondary whitespace-pre-wrap">{body || "—"}</p>
+        <p className="text-sm text-ink-tertiary italic">—</p>
       )}
       {canEdit && (
         <div className="flex gap-2 justify-end mt-3 pt-3 border-t border-border-soft">

@@ -33,6 +33,9 @@ type Sub = {
   slug: string;
   title: string;
   body: string | null;
+  // v1.37.0: TEXT cards now author HTML via Tiptap. `body` stays one
+  // release as a recoverability buffer; new edits write `bodyHtml`.
+  bodyHtml: string | null;
   fields: unknown;
   visibility: "EVERYONE" | "COUPLE_ONLY";
   kind: "TEXT" | "FIELD" | "RECIPE" | "SHOT_LIST" | "OUTFIT" | "BUILD" | "MENU" | "BAR" | "SETUP" | "LEGAL" | "STAY" | "LODGING_GUIDE";
@@ -274,6 +277,7 @@ export function CardRouter({
             slug: sub.slug,
             title: sub.title,
             body: sub.body,
+            bodyHtml: sub.bodyHtml,
             visibility: sub.visibility,
           }}
           canEdit={canEdit}

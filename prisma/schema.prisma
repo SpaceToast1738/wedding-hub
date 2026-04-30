@@ -460,7 +460,11 @@ model BookSubsection {
   // data hangs off the relations below.
   kind       BookSubsectionKind @default(TEXT)
   // TEXT cards use `body` for freeform markdown/notes.
+  // v1.37.0: TEXT cards now author HTML via Tiptap. `body` stays one
+  // release as a recoverability buffer; new edits write `bodyHtml`
+  // (sanitised on the way in) and stop writing to `body`.
   body       String?     @db.Text
+  bodyHtml   String?     @db.Text
   // FIELD cards use `fields` as a Json bag keyed by BookFieldDef.id
   // (Record<string, string|number|null>). Was vestigial pre-v1.26.0;
   // the column is reused so the FIELD case adds no new column.

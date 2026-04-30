@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.36.0** | 2026-04-30 | [Wedding Book STAY + LODGING_GUIDE cards (P6) — one card per accommodation booking with cost / dates / linked guests · recommended-hotels reference card with print stylesheet · Accommodation section seeded with 4 STAY + 1 LODGING_GUIDE around Stratford-upon-Avon](#2026-04-30--v1360--wedding-book-stay--lodging_guide-cards-p6) |
+| **v1.37.0** | 2026-04-30 | [Wedding Book TEXT cards switch to Tiptap WYSIWYG (P7a) — 10-mark toolbar (Bold / Italic / Underline / H2 / H3 / lists / quote / link / undo / redo) · sanitiser allow-list with enforced `rel`+`target` on every anchor · idempotent SQL backfill for existing TEXT bodies](#2026-04-30--v1370--wedding-book-text-wysiwyg-p7a) |
+| v1.36.0 | 2026-04-30 | [Wedding Book STAY + LODGING_GUIDE cards (P6) — one card per accommodation booking with cost / dates / linked guests · recommended-hotels reference card with print stylesheet · Accommodation section seeded with 4 STAY + 1 LODGING_GUIDE around Stratford-upon-Avon](#2026-04-30--v1360--wedding-book-stay--lodging_guide-cards-p6) |
 | v1.35.1 | 2026-04-30 | [Migration fix — `CREATE EXTENSION pgcrypto` so `gen_random_bytes()` works in CI's bare Postgres image](#2026-04-30--v1351--migration-fix-pgcrypto) |
 | v1.35.0 | 2026-04-30 | [Wedding Book OUTFIT rework (P5) — one card per wedding-party member with fitting timeline / cost / paid status / per-item composition / photos · Wedding Party split into People (OUTFIT cards) + Day-of (TEXT/FIELD timeline)](#2026-04-30--v1350--wedding-book-outfit-rework-p5--wedding-party-split) |
 | v1.34.0 | 2026-04-30 | [Wedding Book LEGAL card (P4) — document checklist with deadlines + file attachments · Legal split into Before / Day / After (additive) · FieldLabel + Label lifted to shared `bookCardUi.tsx`](#2026-04-30--v1340--wedding-book-legal-card-p4--legal-split) |
@@ -741,6 +742,28 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-04-30 · v1.37.0 — Wedding Book TEXT WYSIWYG (P7a)
+
+First half of [P7](BOOK-EXPANSION-PLAN.md). The TEXT card's plain `<textarea>` is replaced with a real WYSIWYG editor authored via Tiptap, with a deliberately small 10-mark toolbar. P7's Parts B (FIELD/RECIPE/SHOT_LIST upgrades) and C (cross-module wiring) are split out to a follow-up ship (v1.37.5) so this release stays focused on the riskiest piece: the migration from plain text to sanitised HTML.
+
+**Toolbar (compile-time constant — cannot be expanded by users):** Bold · Italic · Underline · H2 · H3 · Bullet list · Numbered list · Blockquote · Link · Undo · Redo. Mobile (< 640px) collapses to Bold / Italic / Bullet / Link / "more" sheet revealing the rest. The toolbar set is the schema — there is no path from here to slash menus or block embeds.
+
+**Sanitiser (`src/lib/sanitize-book-html.ts`):** allow-list of the 12 tags above plus `<a>` (with `href`, `rel`, `target`) and `<br>`. Anchors are **always** rewritten to `rel="noopener noreferrer" target="_blank"` regardless of what the author types — no path for a hand-edited link to open in-tab. `class`, `id`, `style`, inline event handlers, `javascript:` and `data:` schemes all stripped. Run on **write** (server-action `updateBookSubsection` enforces) AND on **read** (`RichTextRead` re-sanitises before `dangerouslySetInnerHTML`) as belt-and-braces — defends against any row that slipped through historic versions or a direct DB edit.
+
+**Schema:** `BookSubsection.bodyHtml String?` added (nullable). Legacy `body` column kept one release as a recoverability buffer per the v1.30.5 standing pattern. The TEXT editor stops writing to `body` from this release on; reads prefer `bodyHtml` and fall back to `legacyBodyToHtml(body)` when bodyHtml is null.
+
+**Migration `20260430090000_book_text_html`:** adds the column + idempotent SQL backfill. For every TEXT subsection with non-null body and null bodyHtml, escapes `&`, `<`, `>`, replaces `\n\n` with `</p><p>`, remaining `\n` with `<br>`, and wraps in `<p>…</p>`. Re-runs on rows that already have bodyHtml are a no-op. The same transform lives in TS as `legacyBodyToHtml()` so read-time fallback renders identically.
+
+**Editor (`src/components/ui/RichTextEditor.tsx`):** Tiptap-react + StarterKit + Underline + Link extensions. Heading restricted to H2/H3, `codeBlock`/`code`/`horizontalRule` disabled. Output is HTML; the `onChange` callback gets the editor's `getHTML()` on every keystroke. Read-mode `RichTextRead` component for non-editing contexts. Native `prompt()` for the link-URL dialog — keeps the editor footprint tight and consistent with every other picker on the app.
+
+**Tests (19 new):** `tests/unit/sanitize-book-html.test.ts` covers every allowed/disallowed tag, attribute strip (class/id/style/event handlers), scheme strip (javascript:/data:), forced rel+target overriding author values, empty-href anchor demotion, paragraph + line-break preservation, and the legacy backfill round-trip.
+
+**Bundle impact:** `/book/[slug]` First Load went from 135 kB → 356 kB. Tiptap's prose-mirror dep tree is the bulk of the increase. Acceptable on a private, admin-only tool; flagged as a follow-up if the editor ever shows up on a more public surface.
+
+**Verification gate:** typecheck + lint + 316 unit tests + production build all green on the same SHA.
+
+Files: [prisma/schema.prisma](prisma/schema.prisma) · [prisma/migrations/20260430090000_book_text_html/migration.sql](prisma/migrations/20260430090000_book_text_html/migration.sql) · [src/lib/sanitize-book-html.ts](src/lib/sanitize-book-html.ts) · [tests/unit/sanitize-book-html.test.ts](tests/unit/sanitize-book-html.test.ts) · [src/components/ui/RichTextEditor.tsx](src/components/ui/RichTextEditor.tsx) · [src/app/(app)/book/[slug]/SubsectionEditor.tsx](src/app/(app)/book/[slug]/SubsectionEditor.tsx) · [src/app/(app)/book/actions.ts](src/app/(app)/book/actions.ts) · [src/app/(app)/book/[slug]/CardRouter.tsx](src/app/(app)/book/[slug]/CardRouter.tsx) · [package.json](package.json) (+ Tiptap pins).
 
 ### 2026-04-30 · v1.36.0 — Wedding Book STAY + LODGING_GUIDE cards (P6)
 
