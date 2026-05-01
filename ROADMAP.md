@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.46.0** | 2026-05-01 | [Group-coloured ceremony seating (backlog #5) — new `CeremonyRow` model maps `(side, rowIndex)` to a `GuestGroup`. Canvas tints every seat in an assigned row with the group's colour and overlays a glyph (first letter) for colour-blind accessibility. Couple-only Row Assignments panel below the SVG; legend lists groups in use with row + member counts.](#2026-05-01--v1460--group-coloured-ceremony-seating) |
+| **v1.47.0** | 2026-05-01 | [Ceremony seating fills by group member count — packs each group's members across its assigned rows aisle-outward. Three seat states: filled (full colour + glyph), spare (faded tint, no glyph — assigned but no member), neutral (unassigned). Legend shows guests-seated / reserved / spare-or-shortfall per group. Row panel surfaces per-row fill counts.](#2026-05-01--v1470--seat-allocation-from-member-count) |
+| v1.46.0 | 2026-05-01 | [Group-coloured ceremony seating (backlog #5) — new `CeremonyRow` model maps `(side, rowIndex)` to a `GuestGroup`. Canvas tints every seat in an assigned row with the group's colour and overlays a glyph (first letter) for colour-blind accessibility. Couple-only Row Assignments panel below the SVG; legend lists groups in use with row + member counts.](#2026-05-01--v1460--group-coloured-ceremony-seating) |
 | v1.45.2 | 2026-05-01 | [Role select in the per-user editor — `setUserRole` action drives membership in the role-based built-ins (Wedding party / Planners). Built-in member lists now print directive copy explaining how to change membership for each (toggle Couple-tier checkbox, change role, or remove the user) instead of opaque "not editable here". Last-admin lock extended to `setUserRole`.](#2026-05-01--v1452--role-select--directive-copy) |
 | v1.45.1 | 2026-05-01 | [Last-admin lock + duplicate-name disambiguator. `setUserCouple` and `removeUser` server-side refuse to leave the running session with zero couple-tier admins; the UI shows a 🔒 chip on the last couple-tier user and disables their toggle/remove. Member lists now show email next to display name so two accounts sharing a name are distinguishable.](#2026-05-01--v1451--last-admin-lock--name-disambiguator) |
 | v1.45.0 | 2026-05-01 | [Per-user editor — replace dense PermissionMatrix table with one expandable card per user (matching the spacing of PermissionGroupsBlock). Each card shows group memberships (toggleable for custom groups, read-only chips for built-ins), per-section overrides (default off; tick to override), couple toggle, and remove. New `clearAllUserOverrides` bulk-clear button per user.](#2026-05-01--v1450--per-user-editor) |
@@ -764,6 +765,34 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-05-01 · v1.47.0 — Seat allocation from member count
+
+User: "On the ceremony seating, I want it to calculate the number of guests in the group and fill up the seats based on that".
+
+v1.46.0 tinted whole rows with the assigned group's colour regardless of how many members the group actually had — an 8-seat row looked the same whether the group had 5 members or 25. v1.47.0 packs each group's members across its assigned rows aisle-outward so the canvas shows actual fill, with three seat states:
+
+- **Filled** — full group colour + white-on-tint glyph (a real member sits here)
+- **Spare** — group colour at 30% opacity with a dashed outline, no glyph (assigned but the group ran out of members)
+- **Neutral** — moss palette (unassigned row)
+
+**Algorithm.** For each group: walk its row assignments front-to-back (LEFT before RIGHT within the same row), pack each row aisle-outward, fill `min(remaining, capacity)`. Remaining members past the last assigned row become a **shortfall** (legend flags it marigold: "N won't fit — assign more rows"). Spare seats accumulate a **surplus** count (legend reads "N spare").
+
+**Aisle convention.** LEFT side: aisle is at the right edge — pack from the rightmost seat backward. RIGHT side: aisle at the left edge — pack from seatIndex 0 forward. So an 8-seat LEFT row with 5 members fills seats 3–7; the same row on the RIGHT fills 0–4.
+
+**New pure module** `src/lib/ceremony-fill.ts`. Exports `allocateGroup` (per-group), `allocateAll` (map keyed by group id), and `resolveSeat` (single-seat fill resolution). All inputs are plain shapes (no Prisma) so unit tests don't need a fixture DB. 16 new tests covering: exact / under / over fills, multi-row overflow, LEFT-before-RIGHT ordering within a row, ignoring other groups, zero-assignments, zero-members, mixed left+right capacities, aisle-outward packing on each side, neutral / filled / spare colour-glyph payloads.
+
+**Canvas changes** (`CeremonyClient.tsx`). `SeatDot` now takes a `SeatFill` discriminated union and renders three visual states. Spare seats use `fillOpacity={0.3}` + dashed stroke so they look "reserved but empty" without competing visually with filled seats. Tooltip on each circle reads the group name (and "(reserved, no member)" for spare).
+
+**Legend** (below the SVG) is now a vertical list, one row per group, with: swatch · name · "X of Y guests seated · Z seats reserved · K spare" (or "K won't fit — assign more rows" in marigold when shortfall > 0). Lets the couple see at a glance whether the allocation balances.
+
+**Row Assignments panel** gains a `filled/capacity` chip per assigned row (e.g., `8/8`, `4/8`) so they can pace overflow as they assign rows ("front row is full, second row is half-full — that's right for 12 guests").
+
+**Schema.** Unchanged — allocations are computed at render time from the existing `CeremonyRow` rows + `GuestGroup._count.members`.
+
+**Verified.** typecheck clean · lint clean · 532 tests (516 → 532; +16 ceremony-fill) · production build clean.
+
+Files: `src/lib/ceremony-fill.ts` (new), `tests/unit/ceremony-fill.test.ts` (new, 16 cases), `src/app/(app)/seating/ceremony/CeremonyClient.tsx` (SeatDot three-state rendering, Legend with allocation totals, RowList with per-row fill chip), `package.json` → `1.47.0`.
 
 ### 2026-05-01 · v1.46.0 — Group-coloured ceremony seating
 
