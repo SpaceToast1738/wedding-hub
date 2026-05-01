@@ -147,3 +147,67 @@ export async function deleteNavTag(id: string) {
   revalidatePath("/tasks");
   revalidatePath("/questions");
 }
+
+// v1.54.0 (C3): nudge a nav tag up or down in the order. Mirrors
+// reorderGuestGroup / reorderPermissionGroup. Couple-only, audited.
+const navReorderSchema = z.object({
+  id: z.string().min(1),
+  direction: z.enum(["up", "down"]),
+});
+
+export async function reorderNavTag(input: {
+  id: string;
+  direction: "up" | "down";
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const actor = await requireCoupleEditor();
+  try {
+    const parsed = navReorderSchema.parse(input);
+    const target = await db.navTag.findUnique({
+      where: { id: parsed.id },
+      select: { id: true, order: true, name: true },
+    });
+    if (!target) return { ok: false, error: "Nav tag not found" };
+
+    const neighbour = await db.navTag.findFirst({
+      where:
+        parsed.direction === "up"
+          ? { order: { lt: target.order } }
+          : { order: { gt: target.order } },
+      orderBy: { order: parsed.direction === "up" ? "desc" : "asc" },
+      select: { id: true, order: true, name: true },
+    });
+    if (!neighbour) return { ok: true }; // edge — no-op
+
+    await db.$transaction([
+      db.navTag.update({
+        where: { id: target.id },
+        data: { order: neighbour.order },
+      }),
+      db.navTag.update({
+        where: { id: neighbour.id },
+        data: { order: target.order },
+      }),
+    ]);
+
+    await audit(actor, {
+      action: "reorder",
+      entity: "NavTag",
+      entityId: target.id,
+      metadata: {
+        name: target.name,
+        direction: parsed.direction,
+        neighbourId: neighbour.id,
+        neighbourName: neighbour.name,
+      },
+    });
+    revalidatePath("/settings");
+    revalidatePath("/tasks");
+    revalidatePath("/questions");
+    return { ok: true };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : "Couldn't reorder nav tag",
+    };
+  }
+}

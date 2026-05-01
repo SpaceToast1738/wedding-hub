@@ -257,15 +257,30 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       // "row already exists from seed/previous attempt" and "row about to be
       // created by the adapter" cases.
       if (await shouldBootstrapAsCouple()) {
+        // v1.54.0 (A6): conditional update prevents two simultaneous
+        // first-sign-ins from both stamping isCouple = true. The
+        // updateMany predicate `isCouple: false` only matches if the
+        // row hasn't been promoted yet — second concurrent caller's
+        // updateMany updates 0 rows. Re-fetch after to get the current
+        // state (whether we won the race or not). Pre-fix two
+        // concurrent first-sign-ins both passed shouldBootstrapAsCouple
+        // and both promoted themselves → two couple-tier admins.
         if (dbUser && (!dbUser.isCouple || dbUser.role !== UserRole.COUPLE)) {
-          dbUser = await db.user.update({
-            where: { id: dbUser.id },
+          await db.user.updateMany({
+            where: { id: dbUser.id, isCouple: false },
             data: { isCouple: true, role: UserRole.COUPLE },
           });
+          // Always re-read so dbUser reflects the actual stored state
+          // — whether we won the race or someone else did, the row
+          // we use downstream is authoritative.
+          dbUser = await db.user.findUnique({ where: { id: dbUser.id } });
         } else if (!dbUser) {
           // First-ever sign-in for this email — PrismaAdapter creates the
           // row immediately after this callback. Stamp the hint on `user`
           // so the JWT picks up couple-tier on this same session.
+          // (Race window here is narrower because adapter creates one
+          // row per email; two emails racing each pass the gate is the
+          // residual case worth accepting in a 5-user app.)
           user.isCouple = true;
           user.role = UserRole.COUPLE;
         }

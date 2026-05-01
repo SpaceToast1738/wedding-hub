@@ -93,16 +93,26 @@ export function GuestGroupsControl({
       {memberGroups.map((g) => (
         <Chip key={g.id} group={g} size={size} />
       ))}
+      {/* v1.54.0 (C5): when the guest has no memberships, the
+          affordance renders as ghost text aligned with action
+          buttons rather than a dashed-border chip in the meta-pill
+          row — pre-fix the chip got lost among +1 / child / table /
+          song-count pills. With existing memberships the trailing
+          "+" is fine because the chips give it visual context. */}
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
         disabled={pending || allGroups.length === 0}
-        className="text-[10px] text-ink-tertiary hover:text-ink-primary border border-dashed border-border-soft rounded-full px-1.5 py-0.5 disabled:opacity-50"
+        className={
+          memberGroups.length === 0
+            ? "text-[11px] text-moss-700 hover:text-moss-700 hover:underline disabled:opacity-50"
+            : "text-[10px] text-ink-tertiary hover:text-ink-primary border border-dashed border-border-soft rounded-full px-1.5 py-0.5 disabled:opacity-50"
+        }
         title={allGroups.length === 0 ? "No guest groups exist yet — add one in Settings" : "Manage groups"}
         aria-label="Manage guest groups"
         aria-expanded={open}
       >
-        {memberGroups.length === 0 ? "+ Add group" : "+"}
+        {memberGroups.length === 0 ? "+ group" : "+"}
       </button>
       {open && (
         <div

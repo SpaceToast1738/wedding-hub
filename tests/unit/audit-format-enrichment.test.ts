@@ -339,7 +339,7 @@ describe("formatAuditAction — v1.39.0 enrichment", () => {
   });
 
   describe("User per-user permission overrides (v1.44.0)", () => {
-    it("permission set surfaces section + level", () => {
+    it("permission set surfaces section + level (no prior)", () => {
       expect(
         formatAuditAction({
           action: "permission",
@@ -347,6 +347,16 @@ describe("formatAuditAction — v1.39.0 enrichment", () => {
           metadata: { section: "tasks", level: "EDIT" },
         }),
       ).toBe("Set per-user override on tasks → EDIT");
+    });
+
+    it("permission set surfaces section + level + priorLevel (v1.54.0)", () => {
+      expect(
+        formatAuditAction({
+          action: "permission",
+          entity: "User",
+          metadata: { section: "tasks", level: "EDIT", priorLevel: "VIEW" },
+        }),
+      ).toBe("Set per-user override on tasks → EDIT (was VIEW)");
     });
 
     it("permission-clear surfaces section + prior level", () => {

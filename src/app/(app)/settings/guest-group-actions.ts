@@ -88,6 +88,7 @@ export async function createGuestGroup(formData: FormData): Promise<GuestGroupAc
     });
     revalidatePath("/settings");
     revalidatePath("/seating");
+    revalidatePath("/seating/ceremony");
     return { ok: true };
   } catch (err) {
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
@@ -153,6 +154,7 @@ export async function updateGuestGroup(
     });
     revalidatePath("/settings");
     revalidatePath("/seating");
+    revalidatePath("/seating/ceremony");
     return { ok: true };
   } catch (err) {
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
@@ -183,6 +185,7 @@ export async function deleteGuestGroup(id: string): Promise<GuestGroupActionResu
     });
     revalidatePath("/settings");
     revalidatePath("/seating");
+    revalidatePath("/seating/ceremony");
     return { ok: true };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "Couldn't delete guest group" };
@@ -238,6 +241,7 @@ export async function toggleGuestGroupMember(input: {
     });
     revalidatePath("/settings");
     revalidatePath("/seating");
+    revalidatePath("/seating/ceremony");
     return { ok: true };
   } catch (err) {
     return {
@@ -317,6 +321,7 @@ export async function reorderGuestGroup(input: {
     });
     revalidatePath("/settings");
     revalidatePath("/seating");
+    revalidatePath("/seating/ceremony");
     return { ok: true };
   } catch (err) {
     return {

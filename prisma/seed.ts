@@ -2690,49 +2690,10 @@ async function main() {
   await seedGroupPermissions();
   await seedGuestGroups();
   // v1.48.0: ceremony seating now auto-fills from GuestGroup.order
-  // + side; no per-row seed needed. seedCeremonyRowAssignments
-  // function preserved one release as a recoverability buffer.
+  // + side; no per-row seed needed. The seedCeremonyRowAssignments
+  // helper was removed in v1.54.0 — operator scripts importing it
+  // would silently re-populate the deprecated CeremonyRow table.
   console.log("Done.");
-}
-
-// v1.46.0: seed a couple of example ceremony-row → guest-group
-// assignments so a fresh DB shows the colour-coded canvas
-// straight away. Idempotent — only writes when the (side,
-// rowIndex) row doesn't already exist, so manual edits via the
-// Settings UI survive a `db:seed` rerun.
-//
-// Defaults assume the seeded layout (8 rows × 8 seats per side):
-//   • Left side, row 0  → Olwyn-Davis extended family (bride's side)
-//   • Right side, row 0 → Spencer extended family (groom's side)
-async function seedCeremonyRowAssignments() {
-  const olwyn = await db.guestGroup.findUnique({ where: { slug: "olwyn-davis-extended" } });
-  const spencer = await db.guestGroup.findUnique({ where: { slug: "spencer-extended" } });
-  if (!olwyn && !spencer) {
-    console.log("  ✓ no seeded guest groups yet; skipping ceremony row seeds");
-    return;
-  }
-  const seeds: { side: "LEFT" | "RIGHT"; rowIndex: number; guestGroupId: string | null }[] = [
-    ...(olwyn ? [{ side: "LEFT" as const, rowIndex: 0, guestGroupId: olwyn.id }] : []),
-    ...(spencer ? [{ side: "RIGHT" as const, rowIndex: 0, guestGroupId: spencer.id }] : []),
-  ];
-  let added = 0;
-  let skipped = 0;
-  for (const s of seeds) {
-    const existing = await db.ceremonyRow.findUnique({
-      where: { side_rowIndex: { side: s.side, rowIndex: s.rowIndex } },
-    });
-    if (existing) {
-      skipped++;
-      continue;
-    }
-    await db.ceremonyRow.create({
-      data: { side: s.side, rowIndex: s.rowIndex, guestGroupId: s.guestGroupId },
-    });
-    added++;
-  }
-  console.log(
-    `  ✓ ceremony row assignments — ${added} added, ${skipped} preserved`,
-  );
 }
 
 // v1.38.6: only run main() when this file is invoked directly

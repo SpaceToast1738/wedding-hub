@@ -302,6 +302,18 @@ export async function setGroupPermission(input: {
       };
     }
 
+    // v1.54.0 (B3): pre-read for the priorLevel snapshot so the
+    // audit row diff captures the actual change, per the v1.30.5
+    // standing rule.
+    const before = await db.groupPermission.findUnique({
+      where: {
+        groupKey_section: {
+          groupKey: parsed.groupKey,
+          section: parsed.section,
+        },
+      },
+      select: { level: true },
+    });
     await db.groupPermission.upsert({
       where: {
         groupKey_section: {
@@ -326,6 +338,7 @@ export async function setGroupPermission(input: {
         groupName,
         section: parsed.section,
         level: parsed.level,
+        priorLevel: before?.level ?? null,
       },
     });
     revalidatePath("/settings");
@@ -334,6 +347,69 @@ export async function setGroupPermission(input: {
     return {
       ok: false,
       error: err instanceof Error ? err.message : "Couldn't set group permission",
+    };
+  }
+}
+
+// v1.54.0 (C3): reorder a permission group within the ordered list.
+// Mirrors `reorderGuestGroup` — swaps the `order` field with the
+// adjacent group in the chosen direction. Couple-only, audited.
+const reorderPermSchema = z.object({
+  id: z.string().min(1),
+  direction: z.enum(["up", "down"]),
+});
+
+export async function reorderPermissionGroup(input: {
+  id: string;
+  direction: "up" | "down";
+}): Promise<GroupActionResult> {
+  const actor = await requireCoupleEditor();
+  try {
+    const parsed = reorderPermSchema.parse(input);
+    const target = await db.permissionGroup.findUnique({
+      where: { id: parsed.id },
+      select: { id: true, order: true, name: true },
+    });
+    if (!target) return { ok: false, error: "Group not found" };
+
+    const neighbour = await db.permissionGroup.findFirst({
+      where:
+        parsed.direction === "up"
+          ? { order: { lt: target.order } }
+          : { order: { gt: target.order } },
+      orderBy: { order: parsed.direction === "up" ? "desc" : "asc" },
+      select: { id: true, order: true, name: true },
+    });
+    if (!neighbour) return { ok: true }; // edge — no-op
+
+    await db.$transaction([
+      db.permissionGroup.update({
+        where: { id: target.id },
+        data: { order: neighbour.order },
+      }),
+      db.permissionGroup.update({
+        where: { id: neighbour.id },
+        data: { order: target.order },
+      }),
+    ]);
+
+    await audit(actor, {
+      action: "reorder",
+      entity: "PermissionGroup",
+      entityId: target.id,
+      metadata: {
+        name: target.name,
+        direction: parsed.direction,
+        neighbourId: neighbour.id,
+        neighbourName: neighbour.name,
+      },
+    });
+    revalidatePath("/settings");
+    return { ok: true };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : "Couldn't reorder group",
     };
   }
 }

@@ -304,6 +304,14 @@ export function formatAuditAction(row: AuditRow): string {
       const linked = asNumber(meta.linkedTaskCount) ?? 0;
       return `Deleted nav tag ${quoted(n)}${linked > 0 ? ` (${pluralise(linked, "task", "tasks")} unlinked)` : ""}`;
     }
+    // v1.54.0 (C3): reorder pattern.
+    if (a === "reorder") {
+      const direction = asString(meta.direction);
+      const neighbour = asString(meta.neighbourName);
+      if (n && direction) {
+        return `Moved nav tag ${quoted(n)} ${direction}${neighbour ? ` (swapped with ${quoted(neighbour)})` : ""}`;
+      }
+    }
   }
 
   // BookSubsection (v1.26.0+)
@@ -577,10 +585,13 @@ export function formatAuditAction(row: AuditRow): string {
   if (row.entity === "User") {
     const section = asString(meta.section);
     const level = asString(meta.level);
-    if (a === "permission" && section && level) {
-      return `Set per-user override on ${section} → ${level}`;
-    }
     const priorLevel = asString(meta.priorLevel);
+    if (a === "permission" && section && level) {
+      // v1.54.0 (B3): surface priorLevel in the diff when present.
+      return priorLevel
+        ? `Set per-user override on ${section} → ${level} (was ${priorLevel})`
+        : `Set per-user override on ${section} → ${level}`;
+    }
     if (a === "permission-clear" && section) {
       return `Cleared per-user override on ${section}${priorLevel ? ` (was ${priorLevel})` : ""} — inherits from group`;
     }
@@ -643,8 +654,20 @@ export function formatAuditAction(row: AuditRow): string {
       const groupName = asString(meta.groupName);
       const section = asString(meta.section);
       const level = asString(meta.level);
+      const priorLevel = asString(meta.priorLevel);
       if (groupName && section && level) {
-        return `Set permission group ${quoted(groupName)} → ${level} on ${section}`;
+        // v1.54.0 (B3): surface priorLevel when present.
+        return priorLevel
+          ? `Set permission group ${quoted(groupName)} → ${level} on ${section} (was ${priorLevel})`
+          : `Set permission group ${quoted(groupName)} → ${level} on ${section}`;
+      }
+    }
+    // v1.54.0 (C3): reorder pattern for permission groups.
+    if (a === "reorder") {
+      const direction = asString(meta.direction);
+      const neighbour = asString(meta.neighbourName);
+      if (n && direction) {
+        return `Moved permission group ${quoted(n)} ${direction}${neighbour ? ` (swapped with ${quoted(neighbour)})` : ""}`;
       }
     }
   }

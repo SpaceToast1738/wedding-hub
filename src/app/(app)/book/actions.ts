@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { BookSubsectionKind, BookSubsectionVisibility, Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
-import { audit, requireEdit, requireUser } from "@/lib/actions";
+import { audit, requireEdit } from "@/lib/actions";
 import {
   parseBookFieldValue,
   validateOutfit,
@@ -46,14 +46,36 @@ export async function createBookSection(formData: FormData) {
   const created = await db.bookSection.create({
     data: { slug: parsed.slug, title: parsed.title, order: (last?.order ?? -1) + 1 },
   });
-  await audit(user, { action: "create", entity: "BookSection", entityId: created.id });
+  await audit(user, {
+    action: "create",
+    entity: "BookSection",
+    entityId: created.id,
+    metadata: { slug: created.slug, title: created.title, order: created.order },
+  });
   revalidatePath("/book");
 }
 
 export async function deleteBookSection(id: string) {
   const user = await requireEdit("book");
+  // v1.54.0 (B3): snapshot the row before deletion so the audit log
+  // reads useful instead of just an opaque cuid. Pre-fix the audit
+  // row gave nothing the couple could recognise after the row was
+  // gone — useful for "wait, who deleted Food & Drink?" forensics.
+  const before = await db.bookSection.findUnique({
+    where: { id },
+    include: { _count: { select: { subsections: true } } },
+  });
   await db.bookSection.delete({ where: { id } });
-  await audit(user, { action: "delete", entity: "BookSection", entityId: id });
+  await audit(user, {
+    action: "delete",
+    entity: "BookSection",
+    entityId: id,
+    metadata: {
+      slug: before?.slug ?? null,
+      title: before?.title ?? null,
+      subsectionCount: before?._count.subsections ?? 0,
+    },
+  });
   revalidatePath("/book");
 }
 
@@ -179,21 +201,55 @@ export async function updateBookSubsection(id: string, formData: FormData) {
     data.body = text || null;
     data.bodyHtml = text ? legacyBodyToHtml(text) : null;
   }
+  // v1.54.0 (B3): snapshot before update so changedFields can diff
+  // the title (and body shape on TEXT cards) for a useful audit row.
+  const before = await db.bookSubsection.findUnique({
+    where: { id },
+    select: { title: true, bodyHtml: true, body: true },
+  });
   const updated = await db.bookSubsection.update({
     where: { id },
     data,
     include: { section: true },
   });
-  await audit(user, { action: "update", entity: "BookSubsection", entityId: id });
+  const changedFields: string[] = [];
+  if (before) {
+    if (before.title !== updated.title) changedFields.push("title");
+    if (data.bodyHtml !== undefined && before.bodyHtml !== data.bodyHtml) changedFields.push("bodyHtml");
+    if (data.body !== undefined && before.body !== data.body) changedFields.push("body");
+  }
+  await audit(user, {
+    action: "update",
+    entity: "BookSubsection",
+    entityId: id,
+    metadata: {
+      title: updated.title,
+      kind: updated.kind,
+      sectionSlug: updated.section.slug,
+      changedFields,
+    },
+  });
   revalidatePath("/book");
   revalidatePath(`/book/${updated.section.slug}`);
 }
 
 export async function deleteBookSubsection(id: string) {
   const user = await requireEdit("book");
+  // v1.54.0 (B3): snapshot title + kind + section slug before delete
+  // so the audit log reads "Deleted MENU card 'Wedding breakfast' on
+  // food-drink" rather than an opaque cuid.
   const sub = await db.bookSubsection.findUnique({ where: { id }, include: { section: true } });
   await db.bookSubsection.delete({ where: { id } });
-  await audit(user, { action: "delete", entity: "BookSubsection", entityId: id });
+  await audit(user, {
+    action: "delete",
+    entity: "BookSubsection",
+    entityId: id,
+    metadata: {
+      title: sub?.title ?? null,
+      kind: sub?.kind ?? null,
+      sectionSlug: sub?.section.slug ?? null,
+    },
+  });
   revalidatePath("/book");
   if (sub) revalidatePath(`/book/${sub.section.slug}`);
 }
@@ -206,7 +262,13 @@ export async function setBookSubsectionVisibility(
   id: string,
   visibility: BookSubsectionVisibility,
 ) {
-  const user = await requireUser();
+  // v1.54.0 (A9): require EDIT on the book section before checking
+  // couple-tier. Pre-fix a couple-tier user with `book` set to NONE
+  // could still flip visibility — couple-tier shouldn't bypass per-
+  // section gates. Use requireEdit first; the isCouple check below
+  // is then strictly an additional restriction (visibility is
+  // couple-only on top of the book-edit gate).
+  const user = await requireEdit("book");
   if (!user.isCouple) {
     throw new Error("Forbidden: only the couple can change page visibility");
   }
@@ -232,7 +294,8 @@ export async function setBookSectionVisibility(
   id: string,
   visibility: BookSubsectionVisibility,
 ) {
-  const user = await requireUser();
+  // v1.54.0 (A9): same gate-tightening as setBookSubsectionVisibility.
+  const user = await requireEdit("book");
   if (!user.isCouple) {
     throw new Error("Forbidden: only the couple can change section visibility");
   }

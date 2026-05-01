@@ -6,6 +6,7 @@ import { notify } from "@/lib/notify";
 import {
   createPermissionGroup,
   deletePermissionGroup,
+  reorderPermissionGroup,
   setGroupPermission,
   togglePermissionGroupMember,
   updatePermissionGroup,
@@ -120,6 +121,13 @@ export function PermissionGroupsBlock({
   function onToggleMember(groupId: string, userId: string, on: boolean) {
     startTransition(async () => {
       const res = await togglePermissionGroupMember({ groupId, userId, on });
+      if (!res.ok) notify("error", res.error);
+    });
+  }
+
+  function onReorder(id: string, direction: "up" | "down") {
+    startTransition(async () => {
+      const res = await reorderPermissionGroup({ id, direction });
       if (!res.ok) notify("error", res.error);
     });
   }
@@ -245,7 +253,7 @@ export function PermissionGroupsBlock({
         </ul>
       </div>
       <ul className="divide-y divide-border-soft">
-        {groups.map((g) => {
+        {groups.map((g, idx) => {
           const groupKey = `group:${g.slug}`;
           const permsOpen = openPermsKey === groupKey;
           return editingId === g.id ? (
@@ -260,6 +268,32 @@ export function PermissionGroupsBlock({
           ) : (
             <li key={g.id} className="px-4 py-2.5">
               <div className="flex items-baseline gap-3">
+                {/* v1.54.0 (C3): reorder buttons. Schema's `order`
+                    column drives the displayed sequence; ▲▼ swap the
+                    target's order with the adjacent row's. Disabled
+                    at edges. */}
+                <span className="flex items-center gap-0.5 flex-shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => onReorder(g.id, "up")}
+                    disabled={pending || idx === 0}
+                    aria-label="Move up"
+                    title="Move up"
+                    className="text-[10px] text-ink-tertiary hover:text-ink-primary disabled:opacity-30 px-0.5"
+                  >
+                    ▲
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onReorder(g.id, "down")}
+                    disabled={pending || idx === groups.length - 1}
+                    aria-label="Move down"
+                    title="Move down"
+                    className="text-[10px] text-ink-tertiary hover:text-ink-primary disabled:opacity-30 px-0.5"
+                  >
+                    ▼
+                  </button>
+                </span>
                 <span className="text-sm font-medium text-ink-primary flex-1 min-w-0 truncate">
                   {g.name}
                 </span>

@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { Button } from "@/components/ui/Button";
 import { notify } from "@/lib/notify";
-import { createNavTag, deleteNavTag, updateNavTag } from "./nav-tag-actions";
+import { createNavTag, deleteNavTag, reorderNavTag, updateNavTag } from "./nav-tag-actions";
 
 // v1.30.5: NavTag admin block. Couple-only — Settings page already
 // gates its own visibility. Inline list with edit-in-place rows + an
@@ -63,6 +63,13 @@ export function NavTagsBlock({ tags }: { tags: NavTagRow[] }) {
     });
   }
 
+  function onReorder(id: string, direction: "up" | "down") {
+    startTransition(async () => {
+      const res = await reorderNavTag({ id, direction });
+      if (!res.ok) notify("error", res.error);
+    });
+  }
+
   return (
     <section className="bg-surface border border-border-soft rounded-md shadow-sm">
       <header className="px-4 py-3 border-b border-border-soft flex items-baseline justify-between gap-3">
@@ -80,7 +87,7 @@ export function NavTagsBlock({ tags }: { tags: NavTagRow[] }) {
         )}
       </header>
       <ul className="divide-y divide-border-soft">
-        {tags.map((t) =>
+        {tags.map((t, idx) =>
           editingId === t.id ? (
             <li key={t.id} className="px-4 py-3">
               <NavTagEditForm
@@ -92,6 +99,29 @@ export function NavTagsBlock({ tags }: { tags: NavTagRow[] }) {
             </li>
           ) : (
             <li key={t.id} className="px-4 py-2.5 flex items-baseline gap-3">
+              {/* v1.54.0 (C3): reorder buttons. */}
+              <span className="flex items-center gap-0.5 flex-shrink-0">
+                <button
+                  type="button"
+                  onClick={() => onReorder(t.id, "up")}
+                  disabled={pending || idx === 0}
+                  aria-label="Move up"
+                  title="Move up"
+                  className="text-[10px] text-ink-tertiary hover:text-ink-primary disabled:opacity-30 px-0.5"
+                >
+                  ▲
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onReorder(t.id, "down")}
+                  disabled={pending || idx === tags.length - 1}
+                  aria-label="Move down"
+                  title="Move down"
+                  className="text-[10px] text-ink-tertiary hover:text-ink-primary disabled:opacity-30 px-0.5"
+                >
+                  ▼
+                </button>
+              </span>
               <span className="text-sm font-medium text-ink-primary flex-1 min-w-0 truncate">
                 {t.name}
               </span>

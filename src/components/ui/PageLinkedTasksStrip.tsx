@@ -73,13 +73,17 @@ export function PageLinkedTasksStrip({
   // list of completed work doesn't crowd the active items.
   const open = tasks.filter((t) => t.status !== "DONE" && t.status !== "ARCHIVED");
   const done = tasks.filter((t) => t.status === "DONE" || t.status === "ARCHIVED");
+  // v1.54.0 (C4): bumped header treatment from metadata-pill styling
+  // to a proper section heading so the strip reads as a real surface,
+  // not a column-label rule above the data.
   return (
-    <section className="bg-surface border border-border-soft rounded-md shadow-sm mx-auto max-w-5xl mt-3">
-      <header className="px-4 py-1.5 border-b border-border-soft flex items-center gap-2">
-        <span className="text-[10px] uppercase tracking-wider font-bold text-ink-tertiary">
+    <section className="bg-surface border-l-2 border-l-moss-300 border border-border-soft rounded-md shadow-sm mx-auto max-w-5xl mt-3">
+      <header className="px-4 py-2 border-b border-border-soft flex items-center gap-2">
+        <span aria-hidden className="text-moss-700">📋</span>
+        <h2 className="text-xs font-semibold text-ink-primary">
           Linked tasks · {navTagName}
-        </span>
-        <span className="text-[10px] text-ink-tertiary tabular-nums">
+        </h2>
+        <span className="text-[11px] text-ink-tertiary tabular-nums">
           {open.length} open
           {done.length > 0 && (
             <span className="text-ink-tertiary"> · {done.length} done</span>
@@ -87,7 +91,7 @@ export function PageLinkedTasksStrip({
         </span>
         <Link
           href={manageHref}
-          className="ml-auto text-[10px] text-moss-700 hover:underline"
+          className="ml-auto text-[11px] text-moss-700 hover:underline font-medium"
         >
           Manage →
         </Link>

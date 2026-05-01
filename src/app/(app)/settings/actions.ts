@@ -5,10 +5,18 @@ import { z } from "zod";
 import { PermissionLevel, UserRole } from "@prisma/client";
 import { db } from "@/lib/db";
 import { audit, requireEdit } from "@/lib/actions";
+import { SECTIONS } from "@/lib/permissions";
 
+// v1.54.0 (A7): validate `section` against the canonical SECTIONS
+// enum rather than accepting any non-empty string. Pre-fix a couple-
+// tier user (or a forged form by anyone with EDIT(settings)) could
+// write `Permission(userId, "made-up-section", EDIT)` rows that
+// pollute the table without ever resolving. setGroupPermission has
+// always done this; per-user setPermission/clearPermission were
+// inconsistent.
 const setPermSchema = z.object({
   userId: z.string().min(1),
-  section: z.string().min(1),
+  section: z.enum(SECTIONS),
   level: z.nativeEnum(PermissionLevel),
 });
 
@@ -31,6 +39,11 @@ export async function setPermission(formData: FormData) {
     section: formData.get("section"),
     level: formData.get("level"),
   });
+  // v1.54.0 (B3): capture priorLevel for the audit diff.
+  const before = await db.permission.findUnique({
+    where: { userId_section: { userId: parsed.userId, section: parsed.section } },
+    select: { level: true },
+  });
   await db.permission.upsert({
     where: { userId_section: { userId: parsed.userId, section: parsed.section } },
     create: { userId: parsed.userId, section: parsed.section, level: parsed.level },
@@ -40,7 +53,11 @@ export async function setPermission(formData: FormData) {
     action: "permission",
     entity: "User",
     entityId: parsed.userId,
-    metadata: { section: parsed.section, level: parsed.level },
+    metadata: {
+      section: parsed.section,
+      level: parsed.level,
+      priorLevel: before?.level ?? null,
+    },
   });
   revalidatePath("/settings");
 }
@@ -51,7 +68,7 @@ export async function setPermission(formData: FormData) {
 // permissions say. Couple-only, audited.
 const clearPermSchema = z.object({
   userId: z.string().min(1),
-  section: z.string().min(1),
+  section: z.enum(SECTIONS),
 });
 
 export async function clearPermission(formData: FormData) {
@@ -105,9 +122,19 @@ export async function clearAllUserOverrides(userId: string): Promise<{ ok: true;
     });
     return { ok: false, error: "Forbidden: only the couple can change permissions" };
   }
-  const before = await db.permission.findMany({ where: { userId } });
+  // v1.54.0 (A8): atomic find-then-delete. Pre-fix a concurrent
+  // setPermission landing between the read and the delete would
+  // cause the audit row to under-report the cleared set. With ~5–10
+  // admin users this is unlikely but the race exists and the fix
+  // is one transaction.
+  const before = await db.$transaction(async (tx) => {
+    const rows = await tx.permission.findMany({ where: { userId } });
+    if (rows.length > 0) {
+      await tx.permission.deleteMany({ where: { userId } });
+    }
+    return rows;
+  });
   if (before.length === 0) return { ok: true, cleared: 0 };
-  await db.permission.deleteMany({ where: { userId } });
   await audit(user, {
     action: "permission-clear-all",
     entity: "User",
