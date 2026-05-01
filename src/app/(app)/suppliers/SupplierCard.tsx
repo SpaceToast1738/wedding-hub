@@ -61,7 +61,27 @@ export function SupplierCard({ supplier, canEdit }: { supplier: Supplier; canEdi
   }
 
   function onDelete() {
-    if (!confirm(`Delete supplier "${supplier.name}"?`)) return;
+    // v1.60.0 (P2): enrich the confirm dialog with the snapshot fields
+    // we already have on the card — status, agreed amount, last
+    // contact. Pre-fix the dialog was just `Delete "X"?` with no
+    // context, and FK-blocked deletes silently failed (now they
+    // toast — but the couple can also see the consequences before
+    // confirming).
+    const lines: string[] = [];
+    lines.push(`Delete supplier "${supplier.name}"?`);
+    lines.push("");
+    lines.push(`Category: ${supplier.category}`);
+    lines.push(`Status: ${supplier.status}`);
+    if (supplier.amountAgreed) {
+      lines.push(`Agreed: £${formatMoneyDecimal(supplier.amountAgreed)}`);
+    }
+    const lastComm = supplier.communications[0];
+    if (lastComm) {
+      lines.push(`Last contact: ${formatRelativeDate(lastComm.createdAt)} (${lastComm.channel.toLowerCase()})`);
+    }
+    lines.push("");
+    lines.push("If this supplier has linked tasks, payments, or contracts, the delete will fail and you'll be told what's blocking it.");
+    if (!confirm(lines.join("\n"))) return;
     startTransition(async () => {
       // v1.53.0 (C1): result-shape — show a real toast on FK-blocked
       // delete instead of relying on Next prod redaction (silent

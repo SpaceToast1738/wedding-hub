@@ -51,11 +51,18 @@ export function EventForm({
   const [allDay, setAllDay] = useState<boolean>(initial?.allDay ?? false);
   const [attendeeRefs, setAttendeeRefs] = useState<string[]>(initial?.attendeeRefs ?? []);
   const [error, setError] = useState<string | null>(null);
+  // v1.60.0 (P3): dirty-check — `allDay` and `attendeeRefs` are
+  // controlled state, the rest of the inputs are uncontrolled. We
+  // mirror both sources into a single dirty flag: explicit setters
+  // for the two controlled fields, form-level onChange for the
+  // uncontrolled inputs.
+  const [dirty, setDirty] = useState(!initial);
 
   function toggleRef(ref: string) {
     setAttendeeRefs((prev) =>
       prev.includes(ref) ? prev.filter((r) => r !== ref) : [...prev, ref],
     );
+    setDirty(true);
   }
 
   async function handle(formData: FormData) {
@@ -66,6 +73,7 @@ export function EventForm({
     startTransition(async () => {
       try {
         await onSubmit(formData);
+        setDirty(false);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed");
       }
@@ -73,7 +81,7 @@ export function EventForm({
   }
 
   return (
-    <form action={handle} className="space-y-3">
+    <form action={handle} onChange={() => setDirty(true)} className="space-y-3">
       <div>
         <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">
           Title
@@ -86,7 +94,7 @@ export function EventForm({
           <input
             type="checkbox"
             checked={allDay}
-            onChange={(e) => setAllDay(e.target.checked)}
+            onChange={(e) => { setAllDay(e.target.checked); setDirty(true); }}
             className="accent-moss-500"
           />
           <span className="text-ink-secondary">All day</span>
@@ -246,7 +254,7 @@ export function EventForm({
             Cancel
           </Button>
         )}
-        <Button type="submit" variant="primary" size="sm" disabled={pending}>
+        <Button type="submit" variant="primary" size="sm" disabled={pending || !dirty}>
           {pending ? "Saving…" : submitLabel}
         </Button>
       </div>

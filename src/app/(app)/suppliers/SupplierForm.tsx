@@ -30,12 +30,24 @@ type Props = {
 export function SupplierForm({ initial, submitLabel = "Create", onSubmit, onCancel }: Props) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  // v1.60.0 (P3): dirty-check so the Save button disables when no
+  // edits are pending. Pre-fix you could mash Save → Save → Save and
+  // each click fired a server round-trip with the same body. We keep
+  // the inputs uncontrolled (defaultValue, no useState explosion);
+  // form-level onChange flips this flag the moment any field
+  // changes. Create path (no `initial`) starts dirty so the button
+  // is immediately useful for new rows.
+  const [dirty, setDirty] = useState(!initial);
 
   async function handle(formData: FormData) {
     setError(null);
     startTransition(async () => {
       try {
         await onSubmit(formData);
+        // After a successful save the form's defaultValues are
+        // effectively the new baseline; reset dirty so a second click
+        // doesn't fire a duplicate save.
+        setDirty(false);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed");
       }
@@ -43,7 +55,7 @@ export function SupplierForm({ initial, submitLabel = "Create", onSubmit, onCanc
   }
 
   return (
-    <form action={handle} className="space-y-3">
+    <form action={handle} onChange={() => setDirty(true)} className="space-y-3">
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
           <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">Name</label>
@@ -83,7 +95,7 @@ export function SupplierForm({ initial, submitLabel = "Create", onSubmit, onCanc
       {error && <p className="text-xs text-danger">{error}</p>}
       <div className="flex gap-2 justify-end">
         {onCancel && <Button type="button" variant="ghost" size="sm" onClick={onCancel} disabled={pending}>Cancel</Button>}
-        <Button type="submit" variant="primary" size="sm" disabled={pending}>{pending ? "Saving…" : submitLabel}</Button>
+        <Button type="submit" variant="primary" size="sm" disabled={pending || !dirty}>{pending ? "Saving…" : submitLabel}</Button>
       </div>
     </form>
   );

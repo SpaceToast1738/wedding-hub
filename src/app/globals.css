@@ -83,6 +83,32 @@ html.dark {
   box-sizing: border-box;
 }
 
+/* v1.60.0 (P5): one-shot anchor-flash for `:target` book cards.
+   Triggered when the URL hash matches an element's id — e.g. a
+   v1.58.0 (XL7) TaskDrawer chip deep-link to /book/<sectionSlug>#<slug>
+   or a v1.57.0 (XL5) BUILD-card backlink from /budget. Without this
+   the browser scrolls to the card but nothing visibly changes, so
+   the user can't tell the deep-link landed. The animation is
+   one-shot (`1` iteration) so it doesn't loop forever; the colour
+   fades back to the card's normal surface. Applies to `article[id]`
+   so both CardChrome.tsx (v1.26.0+) and the legacy SubsectionEditor
+   render path get the treatment. Respects prefers-reduced-motion. */
+@keyframes book-card-target-flash {
+  0% {
+    box-shadow: 0 0 0 4px var(--color-marigold-100);
+    border-color: var(--color-marigold-500);
+  }
+  100% {
+    box-shadow: 0 1px 2px rgba(42, 38, 32, 0.06);
+    border-color: var(--color-border-soft);
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  article[id]:target {
+    animation: book-card-target-flash 1.6s ease-out 1;
+  }
+}
+
 html,
 body {
   height: 100%;

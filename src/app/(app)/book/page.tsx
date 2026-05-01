@@ -133,7 +133,7 @@ export default async function BookHubPage() {
         <div className="max-w-[960px] mx-auto p-6">
           {sections.length === 0 ? (
             <p className="text-sm text-ink-tertiary text-center py-12">
-              No sections yet. {editable && "Create one above."}
+              No sections yet. {editable && "Add one above."}
             </p>
           ) : (
             // Auto-fill grid: cards stay at least 260px wide, expand to fill

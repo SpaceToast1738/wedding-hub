@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.59.0** | 2026-05-01 | [Inline "add to group" UX (C2) — each group toggle on the per-user editor card now shows the group's permissions inline ("EDIT: tasks, songs · VIEW: schedule") so the couple can see what ticking the box will grant without bouncing up to the Permission groups panel. Built-in chip row gets the same treatment.](#2026-05-01--v1590--inline-add-to-group-ux) |
+| **v1.60.0** | 2026-05-01 | [Polish sweep (P1, P2, P3, P4, P5, P7, P8) — empty-state verb unified ("Create one above" → "Add one above"); supplier-delete confirm enriched with status / agreed amount / last contact; dirty-check on SupplierForm / GuestForm / EventForm (no more double-save mash); Today snapshot strip restructured (label + bits as siblings) so 1280px wraps cleanly; `:target` flash animation on book cards (one-shot, respects prefers-reduced-motion); BookSubsectionKind cast replaced with Zod-validated default; stale `removeUser` cleanup comment fixed. P6 already cleared in v1.53.0.](#2026-05-01--v1600--polish-sweep) |
+| v1.59.0 | 2026-05-01 | [Inline "add to group" UX (C2) — each group toggle on the per-user editor card now shows the group's permissions inline ("EDIT: tasks, songs · VIEW: schedule") so the couple can see what ticking the box will grant without bouncing up to the Permission groups panel. Built-in chip row gets the same treatment.](#2026-05-01--v1590--inline-add-to-group-ux) |
 | v1.58.0 | 2026-05-01 | [Cross-link sweep round 2 (XL4, XL7) — supplier detail page surfaces BUILD-card backlinks via `BookBuildCard.budgetLine.supplierId`. TaskDrawer chips deep-link to the entity (sections → /book/<slug>; subsections → /book/<sectionSlug>#<slug>; nav-tags → tag.route). XL2 + XL6 audited and confirmed substantially complete from v1.37.5 / per-card-kind shipping; XL1 deferred (needs Task↔GuestGroup schema design).](#2026-05-01--v1580--cross-link-sweep-round-2) |
 | v1.57.0 | 2026-05-01 | [Cross-link sweep (XL3, XL5, XL8, XL9, XL10, XL11) — household cards summarise table seating, /budget rows show BUILD-card source chips, /payments + /songs accept supplier/guest deep-link filters, Today list surfaces topic chips next to titles, /seating honours #table-<id> fragments. XL1/2/4/6/7 deferred to v1.58.0 (need schema or larger scope).](#2026-05-01--v1570--cross-link-sweep) |
 | v1.56.0 | 2026-05-01 | [Add-New affordances normalised to **popout modal** (reverses v1.55.0). User clarification: "I want the screens to popout". New shared `AddNewModal` wrapper centralises the centred-card + backdrop + Esc/× dismissal pattern. AddTaskToggle, AddEventToggle, AddHouseholdToggle, AddSupplierToggle, AddPlaylistToggle, AddTableToggle, AddPaymentToggle, AddSectionToggle, AddSubsectionToggle all use it.](#2026-05-01--v1560--add-new-affordances-popout-modal) |
@@ -855,6 +856,32 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-05-01 · v1.60.0 — Polish sweep
+
+User: "Next" (auto mode). Closes the 8 ✨ polish items from the v1.52.1 review punch list. Survey first found that **P6 (raw `alert()` in BudgetClient) was already cleared in v1.53.0** — the punch list reading lagged the code. Remaining 7 items shipped here as one batched cleanup.
+
+**P1 — empty-state verb unified.** `book/page.tsx` said "**Create** one above" while every other empty state said "Add one (above|below)". Normalised to "Add". One-line change.
+
+**P2 — supplier-delete confirm enriched.** `SupplierCard.tsx` `onDelete` now builds a multi-line confirm dialog with the snapshot fields already on the card: category, status, agreed amount, last contact (with channel + relative date). Plus a heads-up that "if this supplier has linked tasks / payments / contracts, the delete will fail and you'll be told what's blocking it" — frames the v1.53.0 (C1) FK-blocked-with-toast behaviour as a feature, not a surprise.
+
+**P3 — dirty-check on `SupplierForm` / `GuestForm` / `EventForm`** (the meatiest item). Pre-fix you could mash Save → Save → Save and each click fired a server round-trip with the same body. Now the Save button disables when no edits are pending. Implementation pattern keeps the inputs uncontrolled (no `useState` explosion across ~20 fields each); a single form-level `onChange={() => setDirty(true)}` flips the flag the moment any input fires a change event. EventForm has two controlled fields (`allDay`, `attendeeRefs`) — their setters call `setDirty(true)` explicitly so the form-level handler doesn't have to know about them. Create path (no `initial`) starts dirty so the button is immediately useful for new rows. After a successful submit, `setDirty(false)` runs so a stray second click stays disabled.
+
+**P4 — Today snapshot strip wrap fix.** Pre-fix the "Snapshot" label and the bits all sat in one `flex flex-wrap` row. At ~1280px the label could end up on its own line with one orphaned bit, then the rest wrap to row two — visually broken. Restructured to label-then-bits siblings: label is `flex-shrink-0`, bits get their own `flex-wrap` container with `min-w-0`. On `sm:` and up the two sit side-by-side; below `sm:` they stack cleanly.
+
+**P5 — `:target` flash on book cards.** Pre-fix the v1.58.0 (XL7) chip deep-links and v1.57.0 (XL5) BUILD-card backlinks scrolled the user to the right card but nothing visibly changed — easy to miss the destination. New CSS keyframe `book-card-target-flash` plays once on `article[id]:target`, using `box-shadow` + `border-color` against `--color-marigold-100` / `--color-marigold-500` so it works in both themes. 1.6s ease-out, single iteration. Wrapped in `@media (prefers-reduced-motion: no-preference)` so the animation respects the OS-level a11y preference.
+
+**P7 — Zod-validate `BookSubsectionKind`.** `book/actions.ts:91` was casting `formData.get("kind") as BookSubsectionKind | null` before passing to the schema. Not a runtime hole (Zod's `nativeEnum` caught bad values either way) but the cast was a TS lie. Replaced with `formData.get("kind") ?? undefined` and let the schema's `.default(BookSubsectionKind.TEXT)` do the work.
+
+**P8 — stale `removeUser` cleanup comment.** Listed `Account` / `Session` / `AuditLog` cleanup but missed `_PermissionGroupMembers` (the implicit m2m table that landed in v1.40.0; cascades fine via Prisma). One-comment fix.
+
+**Punch-list status post-v1.60.0:** all 6 🔴 cleared (v1.53.0); all 14 🟡 cleared (v1.54.0 + v1.59.0); 10/11 🟢 cleared (v1.57.0 + v1.58.0; XL1 deferred pending Task↔GuestGroup schema design); **all 8 ✨ cleared** (v1.53.0 + v1.60.0). Three-agent review punch list now fully closed except XL1.
+
+**Verification.** typecheck ✅, lint ✅, 542 tests ✅, build ✅.
+
+**No schema changes.** Pure UI/UX shipping.
+
+---
 
 ### 2026-05-01 · v1.59.0 promotion — `claude/main` jumps 32 releases
 

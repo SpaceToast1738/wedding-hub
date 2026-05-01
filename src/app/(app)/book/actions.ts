@@ -83,12 +83,17 @@ export async function deleteBookSection(id: string) {
 // data so the renderer never has to handle a missing relation.
 export async function createBookSubsection(formData: FormData) {
   const user = await requireEdit("book");
+  // v1.60.0 (P7): drop the bogus `as BookSubsectionKind | null` cast —
+  // the schema's `z.nativeEnum(BookSubsectionKind).default(TEXT)` does
+  // both the validation and the default. Pre-fix the cast was a TS
+  // lie (not a runtime hole; Zod still caught bad values), but the
+  // shape it implied was wrong.
   const parsed = subsectionSchema.parse({
     sectionId: formData.get("sectionId"),
     slug: formData.get("slug"),
     title: formData.get("title"),
     body: formData.get("body") || null,
-    kind: (formData.get("kind") as BookSubsectionKind | null) ?? BookSubsectionKind.TEXT,
+    kind: formData.get("kind") ?? undefined,
   });
   const last = await db.bookSubsection.findFirst({
     where: { sectionId: parsed.sectionId },

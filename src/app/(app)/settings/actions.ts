@@ -312,9 +312,13 @@ export async function removeUser(userId: string) {
   }
 
   // Permission rows have no FK to User in the schema, so we have to clean
-  // them up explicitly. Account + Session cascade via the FKs in
-  // schema.prisma; AuditLog rows keep their history with userId set to NULL
-  // (optional relation, default-on-delete is SetNull).
+  // them up explicitly. Cascading on User delete handled by Prisma:
+  //   • Account, Session                  → cascade (the FKs in schema.prisma).
+  //   • _PermissionGroupMembers           → cascade (implicit m2m row,
+  //                                          v1.40.0 — User leaves every
+  //                                          group automatically).
+  //   • AuditLog                          → SetNull (keep the history
+  //                                          but disambiguate the actor).
   await db.$transaction([
     db.permission.deleteMany({ where: { userId } }),
     db.user.delete({ where: { id: userId } }),

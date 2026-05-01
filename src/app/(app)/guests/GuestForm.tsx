@@ -45,6 +45,10 @@ export function GuestForm({
 }) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  // v1.60.0 (P3): dirty-check — see SupplierForm.tsx for the same
+  // pattern. Save disables when no edits pending; create path starts
+  // dirty since there's no baseline to compare against.
+  const [dirty, setDirty] = useState(!initial);
 
   async function handle(formData: FormData) {
     setError(null);
@@ -52,6 +56,7 @@ export function GuestForm({
     startTransition(async () => {
       try {
         await onSubmit(formData);
+        setDirty(false);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed");
       }
@@ -59,7 +64,7 @@ export function GuestForm({
   }
 
   return (
-    <form action={handle} className="space-y-3">
+    <form action={handle} onChange={() => setDirty(true)} className="space-y-3">
       {isPlusOne && (
         <div className="bg-canvas border border-border-soft text-ink-secondary rounded-md px-3 py-2 text-[11px] flex items-start gap-2">
           <span className="text-info flex-shrink-0">🔗</span>
@@ -137,7 +142,7 @@ export function GuestForm({
       {error && <p className="text-xs text-danger">{error}</p>}
       <div className="flex gap-2 justify-end">
         {onCancel && <Button type="button" variant="ghost" size="sm" onClick={onCancel} disabled={pending}>Cancel</Button>}
-        <Button type="submit" variant="primary" size="sm" disabled={pending}>{pending ? "Saving…" : submitLabel}</Button>
+        <Button type="submit" variant="primary" size="sm" disabled={pending || !dirty}>{pending ? "Saving…" : submitLabel}</Button>
       </div>
     </form>
   );

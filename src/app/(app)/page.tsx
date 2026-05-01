@@ -365,25 +365,34 @@ export default async function TodayPage() {
           </div>
         )}
 
-        {/* RSVP / catering snapshot strip */}
-        <div className="bg-surface border border-border-soft rounded-md px-5 py-3 flex items-center gap-x-6 gap-y-1.5 flex-wrap">
-          <div className="text-[10px] font-bold text-ink-tertiary uppercase tracking-wider">
+        {/* RSVP / catering snapshot strip.
+            v1.60.0 (P4): label and bits are sibling rows now (label
+            shrink-0, bits in their own flex-wrap container). Pre-fix
+            the label was inline with the bits — at ~1280px viewport
+            the label could land on its own line with one orphaned
+            bit, then the rest wrap to row two. Now the label always
+            stays put and the bits wrap as a coherent group below it
+            on narrow screens, beside it on wide. */}
+        <div className="bg-surface border border-border-soft rounded-md px-5 py-3 flex flex-col sm:flex-row sm:items-center gap-x-6 gap-y-1.5">
+          <div className="text-[10px] font-bold text-ink-tertiary uppercase tracking-wider flex-shrink-0">
             Snapshot
           </div>
-          <SnapBit label={`${totalInvited} invited`} />
-          <SnapBit label={`${attending} attending`} tone="moss" />
-          <SnapBit label={`${pending} pending`} tone="marigold" />
-          {declined > 0 && <SnapBit label={`${declined} declined`} tone="muted" />}
-          {topDietary && <SnapBit label={topDietary} tone="muted" />}
-          {(children > 0 || highchairs > 0) && (
-            <SnapBit
-              label={[
-                children > 0 ? `${children} child${children === 1 ? "" : "ren"}` : null,
-                highchairs > 0 ? `${highchairs} highchair${highchairs === 1 ? "" : "s"}` : null,
-              ].filter(Boolean).join(" · ")}
-              tone="muted"
-            />
-          )}
+          <div className="flex items-center gap-x-5 gap-y-1 flex-wrap min-w-0">
+            <SnapBit label={`${totalInvited} invited`} />
+            <SnapBit label={`${attending} attending`} tone="moss" />
+            <SnapBit label={`${pending} pending`} tone="marigold" />
+            {declined > 0 && <SnapBit label={`${declined} declined`} tone="muted" />}
+            {topDietary && <SnapBit label={topDietary} tone="muted" />}
+            {(children > 0 || highchairs > 0) && (
+              <SnapBit
+                label={[
+                  children > 0 ? `${children} child${children === 1 ? "" : "ren"}` : null,
+                  highchairs > 0 ? `${highchairs} highchair${highchairs === 1 ? "" : "s"}` : null,
+                ].filter(Boolean).join(" · ")}
+                tone="muted"
+              />
+            )}
+          </div>
         </div>
       </div>
     </div>
