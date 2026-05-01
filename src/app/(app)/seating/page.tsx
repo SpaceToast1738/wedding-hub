@@ -51,10 +51,19 @@ export default async function SeatingPage() {
         plusOneName: true,
         notes: true,
         household: { select: { name: true } },
+        // v1.49.0: guest-group memberships for the read-only chip
+        // strip on the GuestDetailPanel.
+        groups: { select: { id: true } },
       },
       orderBy: [{ firstName: "asc" }, { lastName: "asc" }],
     }),
   ]);
+
+  // All custom guest groups for the GuestDetailPanel chip render.
+  const allGuestGroups = await db.guestGroup.findMany({
+    orderBy: [{ order: "asc" }, { name: "asc" }],
+    select: { id: true, slug: true, name: true, colour: true, side: true },
+  });
 
   const allGuestsForClient = allGuests.map((g) => ({
     id: g.id,
@@ -71,6 +80,8 @@ export default async function SeatingPage() {
     plusOneName: g.plusOneName,
     notes: g.notes,
     householdName: g.household?.name ?? null,
+    // v1.49.0: chip strip on the detail panel.
+    groupIds: g.groups.map((x) => x.id),
   }));
   const seatedCount = tables.reduce((n, t) => n + t.seats.filter((s) => s.guest).length, 0);
   const totalCapacity = tables.reduce((n, t) => n + t.capacity, 0);
@@ -98,6 +109,7 @@ export default async function SeatingPage() {
           checklist: null,
         }))}
         allGuests={allGuestsForClient}
+        allGuestGroups={allGuestGroups}
         canEdit={editable}
         seatingNotes={settings.seatingNotes ?? ""}
         seatingChecklist={settings.seatingChecklist ?? []}

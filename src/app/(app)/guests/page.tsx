@@ -70,7 +70,7 @@ export default async function GuestsPage({
   }
 
   // ── Active view ─────────────────────────────────────────────────────
-  const [households, archivedCount] = await Promise.all([
+  const [households, archivedCount, allGroups] = await Promise.all([
     db.household.findMany({
       orderBy: [{ side: "asc" }, { name: "asc" }],
       include: {
@@ -80,11 +80,20 @@ export default async function GuestsPage({
           include: {
             tableSeat: { include: { table: { select: { id: true, name: true } } } },
             _count: { select: { songRequests: true } },
+            // v1.49.0: load each guest's group memberships so the
+            // GuestGroupsControl chip + popover renders without a
+            // second round-trip per row.
+            groups: { select: { id: true } },
           },
         },
       },
     }),
     db.guest.count({ where: { archived: true } }),
+    // All custom guest groups for the manage-groups popover.
+    db.guestGroup.findMany({
+      orderBy: [{ order: "asc" }, { name: "asc" }],
+      select: { id: true, slug: true, name: true, colour: true, side: true },
+    }),
   ]);
 
   const totalGuests = households.reduce((n, h) => n + h.guests.length, 0);
@@ -136,7 +145,7 @@ export default async function GuestsPage({
               No households yet. {editable && "Add one above."}
             </p>
           ) : (
-            <GuestList households={households} canEdit={editable} />
+            <GuestList households={households} allGroups={allGroups} canEdit={editable} />
           )}
         </div>
       </div>

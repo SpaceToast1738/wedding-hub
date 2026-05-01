@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.48.0** | 2026-05-01 | [Auto-fill ceremony seating from ordered groups + side constraint. Couple manages an ordered list of guest groups (each with `side: BRIDE / GROOM / BOTH`); allocator walks the list, packing BRIDE groups on LEFT, GROOM on RIGHT, BOTH on whichever side has more space. Reorder buttons in Settings + on /seating/ceremony. Per-row manual assignments deprecated.](#2026-05-01--v1480--auto-fill-from-ordered-groups) |
+| **v1.49.0** | 2026-05-01 | [`GuestGroupsControl` — reusable chips + popover picker for managing per-guest group memberships. Wired into the guests list (inline pill strip), guest detail page (Details section), and seating canvas detail panel (read-only). Same `toggleGuestGroupMember` action everywhere; couple-only writes.](#2026-05-01--v1490--per-guest-group-affordances) |
+| v1.48.0 | 2026-05-01 | [Auto-fill ceremony seating from ordered groups + side constraint. Couple manages an ordered list of guest groups (each with `side: BRIDE / GROOM / BOTH`); allocator walks the list, packing BRIDE groups on LEFT, GROOM on RIGHT, BOTH on whichever side has more space. Reorder buttons in Settings + on /seating/ceremony. Per-row manual assignments deprecated.](#2026-05-01--v1480--auto-fill-from-ordered-groups) |
 | v1.47.0 | 2026-05-01 | [Ceremony seating fills by group member count — packs each group's members across its assigned rows aisle-outward. Three seat states: filled (full colour + glyph), spare (faded tint, no glyph — assigned but no member), neutral (unassigned). Legend shows guests-seated / reserved / spare-or-shortfall per group. Row panel surfaces per-row fill counts.](#2026-05-01--v1470--seat-allocation-from-member-count) |
 | v1.46.0 | 2026-05-01 | [Group-coloured ceremony seating (backlog #5) — new `CeremonyRow` model maps `(side, rowIndex)` to a `GuestGroup`. Canvas tints every seat in an assigned row with the group's colour and overlays a glyph (first letter) for colour-blind accessibility. Couple-only Row Assignments panel below the SVG; legend lists groups in use with row + member counts.](#2026-05-01--v1460--group-coloured-ceremony-seating) |
 | v1.45.2 | 2026-05-01 | [Role select in the per-user editor — `setUserRole` action drives membership in the role-based built-ins (Wedding party / Planners). Built-in member lists now print directive copy explaining how to change membership for each (toggle Couple-tier checkbox, change role, or remove the user) instead of opaque "not editable here". Last-admin lock extended to `setUserRole`.](#2026-05-01--v1452--role-select--directive-copy) |
@@ -766,6 +767,32 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-05-01 · v1.49.0 — Per-guest group affordances
+
+User: "Let me add a group to a guest, let me add it in any and all relevant places that depend on groups". Until v1.49.0, group memberships could only be edited from one place — Settings → Guest groups → click a group → tick guests in a checkbox grid. That's "per-group" management; "per-guest" management was missing entirely.
+
+**New reusable component** `src/components/ui/GuestGroupsControl.tsx`. Renders the guest's current group memberships as colour-tinted chips and (in edit mode) exposes a popover picker with a checkbox row per available group. Closes on click-outside via a `pointerdown` listener (matches native menu behaviour). Two sizes: `sm` (default — pill-strip rows) and `md` (detail-page sections).
+
+The component reuses the existing `toggleGuestGroupMember` server action — no new endpoint, no new audit code path. The popover talks to the same couple-only gate (`requireCoupleEditor`); non-couple readers see chips but no edit affordance.
+
+**Three wiring points:**
+
+1. **Guests list** (`HouseholdBlock.tsx`) — inserted into each guest row's pill strip after the song-request count. Hidden entirely when no guest groups are defined AND the guest isn't in any (so the strip stays clean for early-stage planners). Page query extends `guests.include` with `groups: { select: { id: true } }` and adds a top-level `db.guestGroup.findMany` for the picker options. Both reads sit alongside the existing household fetch in the same `Promise.all`.
+
+2. **Guest detail page** (`/guests/[id]/page.tsx`) — added as a row in the existing read-only Details `<dl>`. Uses size `md` for the bigger chip rendering. Editable when `editable === true` (matches the rest of the page).
+
+3. **Seating canvas detail panel** (`GuestDetailPanel.tsx`) — read-only chip strip in the existing dietary/notes section. The panel is intentionally read-only (existing v1.27.7 design — editing is on `/guests/[id]`); chips display memberships at a glance during seating planning. The "Open record →" link still covers the full edit path.
+
+**Data threading.** `AllGuest` type gains `groupIds?: string[]` (optional so existing callers in `AllGuestsPanel` keep working). `SeatingClient` + `SeatingCanvas` thread an `allGuestGroups` prop through to `GuestDetailPanel`. The seating page's `Promise.all` query loads `groups: { select: { id: true } }` per guest plus a separate `db.guestGroup.findMany` for the picker options.
+
+**Read-only-mode guard.** `GuestGroupsControl` checks `canEdit` before rendering the picker affordance. With `canEdit={false}` and zero memberships, it renders nothing. The seating detail panel takes advantage of this: the chip strip is wrapped in `{guest.groupIds && guest.groupIds.length > 0 && (...)}` so non-grouped guests don't get an empty "Groups" header.
+
+**No schema changes, no migration, no new server action.** v1.49.0 is purely UI threading on top of the v1.42.0 + v1.48.0 group model. The same data the Settings checkbox grid mutates is now visible and editable from three other surfaces.
+
+**Verified.** typecheck clean · lint clean · 548 tests · production build clean.
+
+Files: `src/components/ui/GuestGroupsControl.tsx` (new), `src/app/(app)/guests/page.tsx` (load groups + threads through), `src/app/(app)/guests/GuestList.tsx` (prop pass-through), `src/app/(app)/guests/HouseholdBlock.tsx` (chip strip in row + Guest type + GuestRow signature), `src/app/(app)/guests/[id]/page.tsx` (Details row + load groups), `src/app/(app)/seating/page.tsx` (load groups + groupIds per guest), `src/app/(app)/seating/SeatingClient.tsx` (`allGuestGroups` prop + AllGuest.groupIds), `src/app/(app)/seating/SeatingCanvas.tsx` (prop pass-through), `src/app/(app)/seating/GuestDetailPanel.tsx` (read-only chip strip), `package.json` → `1.49.0`.
 
 ### 2026-05-01 · v1.48.0 — Auto-fill from ordered groups
 

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { Avatar } from "@/components/ui/Avatar";
 import { StatusPill } from "@/components/ui/StatusPill";
+import { GuestGroupsControl, type GuestGroupSummary } from "@/components/ui/GuestGroupsControl";
 import type { AllGuest } from "./SeatingClient";
 
 // v1.27.7: read-only summary panel for a focused seated guest.
@@ -17,9 +18,13 @@ import type { AllGuest } from "./SeatingClient";
 // guest-edit form maintained alongside the existing one.
 export function GuestDetailPanel({
   guest,
+  allGuestGroups,
   onClose,
 }: {
   guest: AllGuest;
+  // v1.49.0: list of every custom guest group, used to render the
+  // read-only chip strip showing this guest's memberships.
+  allGuestGroups: GuestGroupSummary[];
   onClose: () => void;
 }) {
   const fullName = `${guest.firstName} ${guest.lastName}`;
@@ -81,6 +86,20 @@ export function GuestDetailPanel({
             </div>
           </div>
         )}
+        {guest.groupIds && guest.groupIds.length > 0 && (
+          <div>
+            <strong className="block text-[10px] uppercase tracking-wider text-ink-tertiary font-bold mb-1">
+              Groups
+            </strong>
+            <GuestGroupsControl
+              guestId={guest.id}
+              memberOf={guest.groupIds}
+              allGroups={allGuestGroups}
+              canEdit={false}
+              size="sm"
+            />
+          </div>
+        )}
         {guest.notes && (
           <div>
             <strong className="block text-[10px] uppercase tracking-wider text-ink-tertiary font-bold mb-1">
@@ -95,7 +114,8 @@ export function GuestDetailPanel({
           !guest.email &&
           !guest.plusOneAllowed &&
           guest.dietary.length === 0 &&
-          !guest.notes && (
+          !guest.notes &&
+          (!guest.groupIds || guest.groupIds.length === 0) && (
             <p className="text-ink-tertiary italic">
               No extra details on file. Open the guest record for the full form.
             </p>

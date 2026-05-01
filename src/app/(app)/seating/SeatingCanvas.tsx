@@ -230,6 +230,7 @@ export function SeatingCanvas({
   tables: initialTables,
   unseatedGuests,
   allGuests,
+  allGuestGroups,
   canEdit,
   seatingNotes,
   seatingChecklist,
@@ -237,6 +238,9 @@ export function SeatingCanvas({
   tables: Table[];
   unseatedGuests: GuestOpt[];
   allGuests: AllGuest[];
+  // v1.49.0: passed through to GuestDetailPanel for the read-only
+  // chip strip; not used by the canvas itself.
+  allGuestGroups: import("@/components/ui/GuestGroupsControl").GuestGroupSummary[];
   canEdit: boolean;
   // v1.23.2: notes + checklist render in the right sidebar wrapped
   // in CollapsiblePanel.
@@ -1201,6 +1205,7 @@ export function SeatingCanvas({
           >
             <GuestDetailPanel
               guest={focusedGuest}
+              allGuestGroups={allGuestGroups}
               onClose={() => setFocusedGuestId(null)}
             />
           </CollapsiblePanel>

@@ -194,9 +194,11 @@ function sortHouseholds<T extends Household>(households: T[], sort: SortKey): T[
 
 export function GuestList<T extends Household>({
   households,
+  allGroups,
   canEdit,
 }: {
   households: T[];
+  allGroups: import("@/components/ui/GuestGroupsControl").GuestGroupSummary[];
   canEdit: boolean;
 }) {
   const [query, setQuery] = useState("");
@@ -338,7 +340,7 @@ export function GuestList<T extends Household>({
       ) : (
         <div className="space-y-4">
           {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-          {sorted.map((h) => <HouseholdBlock key={h.id} household={h as any} canEdit={canEdit} />)}
+          {sorted.map((h) => <HouseholdBlock key={h.id} household={h as any} allGroups={allGroups} canEdit={canEdit} />)}
         </div>
       )}
     </>

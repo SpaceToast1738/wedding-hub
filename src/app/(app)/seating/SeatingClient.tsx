@@ -60,6 +60,10 @@ export type AllGuest = {
   plusOneName: string | null;
   notes: string | null;
   householdName: string | null;
+  // v1.49.0: guest-group memberships, surfaced read-only on the
+  // GuestDetailPanel that opens when the planner clicks a seated
+  // guest. Editing is on /guests/[id] via the "Open record" link.
+  groupIds?: string[];
 };
 
 // v1.22.6: dropdown options now carry RSVP so the picker can prefix
@@ -81,12 +85,16 @@ const VIEW_STORAGE_KEY = "wh-seating-view";
 export function SeatingClient({
   tables,
   allGuests,
+  allGuestGroups,
   canEdit,
   seatingNotes,
   seatingChecklist,
 }: {
   tables: Table[];
   allGuests: AllGuest[];
+  // v1.49.0: custom guest groups for the read-only chip strip on
+  // the GuestDetailPanel.
+  allGuestGroups: import("@/components/ui/GuestGroupsControl").GuestGroupSummary[];
   canEdit: boolean;
   // v1.23.2: notes + checklist now thread through to the canvas
   // sidebar (replaces v1.23.1's top-of-page panel).
@@ -141,6 +149,7 @@ export function SeatingClient({
           tables={tables}
           unseatedGuests={unseatedGuests}
           allGuests={allGuests}
+          allGuestGroups={allGuestGroups}
           canEdit={canEdit}
           seatingNotes={seatingNotes}
           seatingChecklist={seatingChecklist}

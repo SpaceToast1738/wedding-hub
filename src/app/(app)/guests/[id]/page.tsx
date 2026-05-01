@@ -9,6 +9,7 @@ import { findMealChoiceLinks, findShotsForGuest, findStaysForGuest } from "@/lib
 import { GuestDetailClient } from "./GuestDetailClient";
 import { AddSongRequestInline } from "./AddSongRequestInline";
 import { CustomFieldsBlock } from "./CustomFieldsBlock";
+import { GuestGroupsControl } from "@/components/ui/GuestGroupsControl";
 import type { CustomFieldDef } from "@/lib/custom-fields";
 
 const RSVP_PILL: Record<string, "YES" | "NO" | "PENDING"> = {
@@ -42,9 +43,17 @@ export default async function GuestDetailPage({
       },
       tableSeat: { include: { table: { select: { id: true, name: true } } } },
       songRequests: { orderBy: { createdAt: "asc" } },
+      // v1.49.0: surface group memberships on the detail page.
+      groups: { select: { id: true } },
     },
   });
   if (!guest || guest.archived) notFound();
+
+  // All custom guest groups, for the GuestGroupsControl picker.
+  const allGuestGroups = await db.guestGroup.findMany({
+    orderBy: [{ order: "asc" }, { name: "asc" }],
+    select: { id: true, slug: true, name: true, colour: true, side: true },
+  });
 
   const siblings = guest.household.guests.filter((g) => g.id !== guest.id);
 
@@ -310,6 +319,26 @@ export default async function GuestDetailPage({
                   <dd className="col-span-2 text-ink-primary">{f.value}</dd>
                 </div>
               ))}
+              {/* v1.49.0: guest-group memberships row. Renders chips
+                  + popover picker for editors; read-only chips for
+                  viewers. Hidden when no groups defined AND guest
+                  isn't in any. */}
+              {(allGuestGroups.length > 0 || guest.groups.length > 0) && (
+                <div className="grid grid-cols-3 gap-3 px-4 py-2.5">
+                  <dt className="text-[11px] font-bold text-ink-tertiary uppercase tracking-wider self-center">
+                    Guest groups
+                  </dt>
+                  <dd className="col-span-2">
+                    <GuestGroupsControl
+                      guestId={guest.id}
+                      memberOf={guest.groups.map((g) => g.id)}
+                      allGroups={allGuestGroups}
+                      canEdit={editable}
+                      size="md"
+                    />
+                  </dd>
+                </div>
+              )}
             </dl>
           </section>
 

@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { GuestForm } from "./GuestForm";
+import { GuestGroupsControl, type GuestGroupSummary } from "@/components/ui/GuestGroupsControl";
 import { createGuest, deleteGuest, deleteHousehold, setGuestRsvp, updateGuest, updateHousehold } from "./actions";
 import type { RsvpStatus, Side } from "@prisma/client";
 
@@ -36,6 +37,11 @@ type Guest = {
     table: { id: string; name: string };
   } | null;
   _count?: { songRequests: number };
+  // v1.49.0: each guest's current guest-group memberships. Loaded
+  // by the guests page and threaded through HouseholdBlock so the
+  // GuestGroupsControl can render chips + the manage popover
+  // without an extra round-trip.
+  groups?: { id: string }[];
 };
 
 // Reorder guests so each host is immediately followed by its +1 rows.
@@ -79,7 +85,15 @@ const RSVP_PILL: Record<string, "YES" | "NO" | "PENDING"> = {
   PENDING: "PENDING",
 };
 
-export function HouseholdBlock({ household, canEdit }: { household: Household; canEdit: boolean }) {
+export function HouseholdBlock({
+  household,
+  allGroups,
+  canEdit,
+}: {
+  household: Household;
+  allGroups: GuestGroupSummary[];
+  canEdit: boolean;
+}) {
   const [adding, setAdding] = useState(false);
   const [editingHh, setEditingHh] = useState(false);
   const [pending, startTransition] = useTransition();
@@ -144,6 +158,7 @@ export function HouseholdBlock({ household, canEdit }: { household: Household; c
               guest={g}
               host={host ? { firstName: host.firstName, lastName: host.lastName } : null}
               householdId={household.id}
+              allGroups={allGroups}
               canEdit={canEdit}
             />
           );
@@ -169,11 +184,13 @@ export function HouseholdBlock({ household, canEdit }: { household: Household; c
     guest,
     host,
     householdId,
+    allGroups,
     canEdit,
   }: {
     guest: Guest;
     host: { firstName: string; lastName: string } | null;
     householdId: string;
+    allGroups: GuestGroupSummary[];
     canEdit: boolean;
   }) {
     const [editing, setEditing] = useState(false);
@@ -281,6 +298,19 @@ export function HouseholdBlock({ household, canEdit }: { household: Household; c
               >
                 🔗 RSVP
               </a>
+            )}
+            {/* v1.49.0: guest-group memberships. Renders chips +
+                a popover picker for adding/removing groups. Hidden
+                entirely when there are no groups defined AND the
+                guest isn't in any. */}
+            {(allGroups.length > 0 || (guest.groups && guest.groups.length > 0)) && (
+              <GuestGroupsControl
+                guestId={guest.id}
+                memberOf={(guest.groups ?? []).map((g) => g.id)}
+                allGroups={allGroups}
+                canEdit={canEdit}
+                size="sm"
+              />
             )}
           </div>
           {(guest.email || guest.phone || guest.dietary.length > 0) && (
