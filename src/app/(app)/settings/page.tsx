@@ -1,6 +1,11 @@
 import { db } from "@/lib/db";
 import { PageHeader } from "@/components/ui/PageHeader";
-import { canEdit } from "@/lib/permissions";
+import {
+  canEdit,
+  groupKeysForUser,
+  reduceGroupPermissions,
+  SECTIONS,
+} from "@/lib/permissions";
 import { requireUser } from "@/lib/actions";
 import { isSpotifyConfigured } from "@/lib/spotify";
 import { getWeddingSettings } from "@/lib/wedding-settings";
@@ -24,6 +29,34 @@ import {
   guestDisplayName,
   resolveBuiltinGuestGroup,
 } from "@/lib/guest-group-members";
+import type { PermissionLevel } from "@prisma/client";
+
+// v1.44.0: lightweight section wrapper for the settings page. Just
+// a heading + optional subtitle + body. Helps the page read like a
+// document with named sections instead of one long stream of cards.
+function SettingsSection({
+  title,
+  subtitle,
+  children,
+}: {
+  title: string;
+  subtitle?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="mb-8 last:mb-0">
+      <header className="mb-3 px-1">
+        <h2 className="text-xs font-bold uppercase tracking-wider text-ink-tertiary">
+          {title}
+        </h2>
+        {subtitle && (
+          <p className="text-[11px] text-ink-tertiary mt-0.5">{subtitle}</p>
+        )}
+      </header>
+      <div className="space-y-4">{children}</div>
+    </section>
+  );
+}
 
 export default async function SettingsPage({
   searchParams,
@@ -115,6 +148,38 @@ export default async function SettingsPage({
 
   const spotifyConfigured = isSpotifyConfigured();
 
+  // v1.44.0: pre-compute the group-inherited level for every (user,
+  // section) pair so the override matrix can render the "inherits
+  // from group" baseline next to the override checkbox without
+  // re-running the resolver per cell. Uses the same pure helpers
+  // the runtime canView/canEdit path uses, so the displayed
+  // "inherits" matches what the gates will actually grant.
+  const customGroupsForResolver = permissionGroupsRaw.map((g) => ({
+    slug: g.slug,
+    members: g.members.map((m) => ({ id: m.id })),
+  }));
+  const groupInherited: Record<string, Record<string, PermissionLevel>> = {};
+  for (const u of users) {
+    const keys = groupKeysForUser(
+      {
+        id: u.id,
+        email: u.email,
+        firstName: u.firstName,
+        lastName: u.lastName,
+        name: u.name,
+        role: u.role,
+        isCouple: u.isCouple,
+      },
+      customGroupsForResolver,
+    );
+    const map = reduceGroupPermissions(keys, groupPermissionsRaw);
+    const perSection: Record<string, PermissionLevel> = {};
+    for (const s of SECTIONS) {
+      perSection[s] = map.get(s) ?? ("NONE" as PermissionLevel);
+    }
+    groupInherited[u.id] = perSection;
+  }
+
   return (
     <>
       <PageHeader title="Settings" subtitle="Your profile, members, and per-section permissions" />
@@ -123,55 +188,77 @@ export default async function SettingsPage({
           scroll sideways. Stops the trackpad-wobble where two scroll
           axes fight each other. */}
       <div className="flex-1 overflow-y-auto overflow-x-hidden">
-        <div className="max-w-6xl mx-auto p-6 space-y-4">
-          <MyProfilePanel
-            email={me?.email ?? user.email}
-            initialFirstName={me?.firstName ?? ""}
-            initialLastName={me?.lastName ?? ""}
-          />
+        <div className="max-w-6xl mx-auto p-6">
+          {/* v1.44.0: panels grouped under named sections so the page
+              reads like a document with chapters instead of one long
+              stream of cards. Section headings are small uppercase
+              labels — they don't compete with each panel's own h2. */}
 
-          <WeddingSettingsPanel
-            initial={{
-              weddingDate: dateForInput,
-              ceremonyTime: wedding.ceremonyTime,
-              venue: wedding.venue,
-              venueAddress: wedding.venueAddress ?? "",
-              coupleLabel: wedding.coupleLabel,
-              coupleShort: wedding.coupleShort,
-              brideFirst: wedding.brideFirst,
-              groomFirst: wedding.groomFirst,
-            }}
-            isCouple={user.isCouple}
-          />
-
-          <SpotifySettingsPanel configured={spotifyConfigured} isCouple={user.isCouple} />
-
-          <CustomFieldsPanel
-            fields={customFields.map((f) => ({
-              id: f.id,
-              entity: f.entity,
-              name: f.name,
-              type: f.type as "text" | "number" | "date" | "select",
-              options: f.options,
-            }))}
-            isCouple={user.isCouple}
-          />
-
-          {/* v1.30.5: nav tags admin block, couple-only. Tags surface
-              on tasks/questions/decisions via the Topics multi-select. */}
-          {user.isCouple && (
-            <NavTagsBlock
-              tags={navTagsRaw.map((t) => ({
-                id: t.id,
-                name: t.name,
-                slug: t.slug,
-                route: t.route,
-                order: t.order,
-                linkedTaskCount: t._count.tasks,
-              }))}
+          <SettingsSection title="Your account">
+            <MyProfilePanel
+              email={me?.email ?? user.email}
+              initialFirstName={me?.firstName ?? ""}
+              initialLastName={me?.lastName ?? ""}
             />
-          )}
+          </SettingsSection>
 
+          <SettingsSection title="Wedding details">
+            <WeddingSettingsPanel
+              initial={{
+                weddingDate: dateForInput,
+                ceremonyTime: wedding.ceremonyTime,
+                venue: wedding.venue,
+                venueAddress: wedding.venueAddress ?? "",
+                coupleLabel: wedding.coupleLabel,
+                coupleShort: wedding.coupleShort,
+                brideFirst: wedding.brideFirst,
+                groomFirst: wedding.groomFirst,
+              }}
+              isCouple={user.isCouple}
+            />
+            <SpotifySettingsPanel configured={spotifyConfigured} isCouple={user.isCouple} />
+          </SettingsSection>
+
+          <SettingsSection
+            title="Customisation"
+            subtitle="Tags and custom fields that surface across the app."
+          >
+            <CustomFieldsPanel
+              fields={customFields.map((f) => ({
+                id: f.id,
+                entity: f.entity,
+                name: f.name,
+                type: f.type as "text" | "number" | "date" | "select",
+                options: f.options,
+              }))}
+              isCouple={user.isCouple}
+            />
+            {/* v1.30.5: nav tags admin block, couple-only. Tags surface
+                on tasks/questions/decisions via the Topics multi-select. */}
+            {user.isCouple && (
+              <NavTagsBlock
+                tags={navTagsRaw.map((t) => ({
+                  id: t.id,
+                  name: t.name,
+                  slug: t.slug,
+                  route: t.route,
+                  order: t.order,
+                  linkedTaskCount: t._count.tasks,
+                }))}
+              />
+            )}
+          </SettingsSection>
+
+          {/* Access & members section — couple-only. Three panels:
+              permission groups (the primary surface), guest groups
+              (organisational), and the per-user override matrix
+              (rare exceptions). Hidden entirely for non-couple
+              members since they can't change anything here. */}
+          {user.isCouple && (
+            <SettingsSection
+              title="Access & members"
+              subtitle="Permission groups, guest groups, and per-user overrides. Couple-only."
+            >
           {/* v1.40.0 (backlog #3): permission-groups admin block.
               Couple-only management of custom groups; built-ins
               shown with computed member counts. v1.43.0: each group
@@ -278,12 +365,13 @@ export default async function SettingsPage({
               now; this panel exists to grant a single user a level
               stronger than any of their groups (rare). The resolver
               takes max(group, override) so demoting can never strip
-              access — it only adds. */}
+              access — it only adds. v1.44.0: matrix is checkbox-
+              driven — tick to override the inherited level. */}
           <details className="bg-surface border border-border-soft rounded-md shadow-sm">
             <summary className="px-4 py-2.5 text-sm font-semibold text-ink-primary cursor-pointer select-none">
               Per-user overrides (advanced)
               <span className="ml-2 text-[11px] font-normal text-ink-tertiary">
-                — set a level stronger than the user&apos;s groups give them
+                — tick to override; otherwise the user inherits from groups
               </span>
             </summary>
             <PermissionMatrix
@@ -299,20 +387,26 @@ export default async function SettingsPage({
                 section: p.section,
                 level: p.level,
               }))}
+              groupInherited={groupInherited}
               currentUserId={user.id}
               currentUserIsCouple={user.isCouple}
               canEdit={editable}
             />
           </details>
+            </SettingsSection>
+          )}
 
-          {/* v1.25.0: nudges digest, couple-only. */}
-          {user.isCouple && <NudgesPanel />}
-
-          <AuditLogPanel
-            isCouple={user.isCouple}
-            before={audit_before}
-            query={audit_q}
-          />
+          <SettingsSection title="Notifications & log">
+            {/* v1.25.0: nudges digest, couple-only. The panel
+                self-renders an empty placeholder for non-couple
+                viewers, so we always render it inside the section. */}
+            {user.isCouple && <NudgesPanel />}
+            <AuditLogPanel
+              isCouple={user.isCouple}
+              before={audit_before}
+              query={audit_q}
+            />
+          </SettingsSection>
         </div>
       </div>
     </>

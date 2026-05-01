@@ -45,6 +45,49 @@ export async function setPermission(formData: FormData) {
   revalidatePath("/settings");
 }
 
+// v1.44.0: delete a per-user override for one (user, section). The
+// resolver treats absent rows as "inherit from groups" — so clearing
+// the override means the user resolves to whatever their group
+// permissions say. Couple-only, audited.
+const clearPermSchema = z.object({
+  userId: z.string().min(1),
+  section: z.string().min(1),
+});
+
+export async function clearPermission(formData: FormData) {
+  const user = await requireEdit("settings");
+  if (!user.isCouple) {
+    await audit(user, {
+      action: "settings_denied",
+      entity: "User",
+      entityId: String(formData.get("userId") ?? ""),
+      metadata: { reason: "not_couple", target_action: "clearPermission" },
+    });
+    throw new Error("Forbidden: only the couple can change permissions");
+  }
+  const parsed = clearPermSchema.parse({
+    userId: formData.get("userId"),
+    section: formData.get("section"),
+  });
+  // Capture the prior level for the audit row before deletion. Find-
+  // before-delete instead of returning the deleted row so the audit
+  // log records "what was the override before we cleared it".
+  const before = await db.permission.findUnique({
+    where: { userId_section: { userId: parsed.userId, section: parsed.section } },
+  });
+  if (!before) return; // already cleared; idempotent.
+  await db.permission.delete({
+    where: { userId_section: { userId: parsed.userId, section: parsed.section } },
+  });
+  await audit(user, {
+    action: "permission-clear",
+    entity: "User",
+    entityId: parsed.userId,
+    metadata: { section: parsed.section, priorLevel: before.level },
+  });
+  revalidatePath("/settings");
+}
+
 export async function setUserCouple(userId: string, isCouple: boolean) {
   const user = await requireEdit("settings");
   // The self-elevation vector. Without this isCouple gate, a non-couple

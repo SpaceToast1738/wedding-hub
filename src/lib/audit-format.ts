@@ -553,6 +553,19 @@ export function formatAuditAction(row: AuditRow): string {
     if (a === "delete") return `Deleted file ${quoted(n)}`;
   }
 
+  // User — per-user permission overrides (v1.44.0)
+  if (row.entity === "User") {
+    const section = asString(meta.section);
+    const level = asString(meta.level);
+    if (a === "permission" && section && level) {
+      return `Set per-user override on ${section} → ${level}`;
+    }
+    const priorLevel = asString(meta.priorLevel);
+    if (a === "permission-clear" && section) {
+      return `Cleared per-user override on ${section}${priorLevel ? ` (was ${priorLevel})` : ""} — inherits from group`;
+    }
+  }
+
   // PermissionGroup (v1.40.0, renamed from UserGroup in v1.42.0)
   if (row.entity === "PermissionGroup") {
     const n = asString(meta.name);

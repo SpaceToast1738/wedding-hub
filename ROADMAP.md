@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.43.1** | 2026-05-01 | [Settings UX patch — explicit `Members` button on every permission group (was hidden behind clicking the title); read-only member list on built-in groups; dropped the sticky `<thead>` + nested-card styling on the per-user override matrix that was causing runaway-scroll feel inside the new collapsed panel. Trimmed wall-of-text description copy.](#2026-05-01--v1431--settings-ux-patch) |
+| **v1.44.0** | 2026-05-01 | [Settings UX overhaul — per-user override matrix is now checkbox-driven (default = inherit from group; tick to override). Page panels grouped under named sections (Your account · Wedding details · Customisation · Access & members · Notifications & log) so the long stream of cards reads as a document with chapters. New `clearPermission` action deletes the override row when unticked.](#2026-05-01--v1440--settings-ux-overhaul) |
+| v1.43.1 | 2026-05-01 | [Settings UX patch — explicit `Members` button on every permission group (was hidden behind clicking the title); read-only member list on built-in groups; dropped the sticky `<thead>` + nested-card styling on the per-user override matrix that was causing runaway-scroll feel inside the new collapsed panel. Trimmed wall-of-text description copy.](#2026-05-01--v1431--settings-ux-patch) |
 | v1.43.0 | 2026-05-01 | [Group-driven permissions — new `GroupPermission` table attaches per-section levels to each `PermissionGroup` (built-in + custom). Effective level = `max(group, override)` per section; per-user `Permission` rows demoted to an "advanced overrides" panel. Built-in groups now editable for permissions (members still computed from role). Sensible seed defaults on couple / wedding-party / planners.](#2026-05-01--v1430--group-driven-permissions) |
 | v1.42.0 | 2026-05-01 | [Two-track group model: rename `UserGroup` → `PermissionGroup` (admin app users) + new `GuestGroup` model (wedding guests, with colour). Settings page splits into two panels — Permission groups + Guest groups. Colour picker on each guest group; foundation for ceremony-seating colour-coding (#5).](#2026-05-01--v1420--permission-groups--guest-groups-split) |
 | v1.41.0 | 2026-04-30 | [Schedule attendees rework (backlog #4) — `attendeeIds: String[]` becomes polymorphic `attendeeRefs: String[]` mixing `user:<id>` / `builtin:<slug>` / `group:<slug>` refs. Picker UI splits Groups + Individuals. Today page "Mine" filter resolves group membership server-side. Audit log shows attendee-kind breakdown.](#2026-04-30--v1410--schedule-attendees-rework-backlog-4) |
@@ -759,6 +760,33 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-05-01 · v1.44.0 — Settings UX overhaul
+
+User: "Indiviudal member permission override should be a checkbox, permissions should default to group unless check box is ticked. Also the settings page is getting busy, is there anything we can do to group and section certain settings".
+
+Two related changes; one ship.
+
+**Override matrix is now checkbox-driven.** Before: every cell was a NONE / VIEW / EDIT dropdown that was *always* an override, even when set to NONE (which the v1.43.0 resolver max-merges into a no-op anyway). After: each cell shows the user's group-inherited level by default — "View" or "Edit" or "—" in muted type. A checkbox sits next to it. Untick = inherits from groups (no `Permission` row exists). Tick = override active, with a VIEW / EDIT select beside it. NONE is dropped from the dropdown because it never affects the resolver outcome — `max(group, NONE) = group`.
+
+Behind the scenes:
+
+- New `clearPermission(userId, section)` server action — couple-only, audited. Deletes the per-user `Permission` row, idempotent on missing row. The resolver then reads no override and serves the group-inherited level.
+- `setPermission` unchanged but the matrix only ever calls it with VIEW or EDIT.
+- The page pre-computes `groupInherited[userId][section]` for every user × section using the same pure helpers (`groupKeysForUser` + `reduceGroupPermissions`) the runtime gates use, so the displayed "inherits" value is exactly what `canView` / `canEdit` will grant.
+- Sensible default level when ticking: VIEW if the user inherited NONE, EDIT if they already inherit VIEW (the meaningful "boost above group" case). Couple-only sections render disabled with `—`. Couple-tier users render disabled with `Edit`.
+
+**Settings page grouped under sections.** Was: 9 panels rendered in a stream with `space-y-4`. Now: panels grouped under five small uppercase section headings — *Your account · Wedding details · Customisation · Access & members · Notifications & log*. Each section uses a `SettingsSection` wrapper (small title + optional subtitle + body); the existing panel cards stay as-is so nothing about each panel changes.
+
+The "Access & members" section is hidden entirely for non-couple viewers (the panels inside were already couple-gated; wrapping them in the section + hiding the heading too keeps the page cleaner for non-couple admins).
+
+**Audit format.** New patterns for `User` entity: `Set per-user override on tasks → EDIT` and `Cleared per-user override on songs (was VIEW) — inherits from group`. Surfaces what was demoted and what level it had previously.
+
+**Tests.** `tests/unit/audit-format-enrichment.test.ts` gains 3 cases for the new User patterns. Pure-decision resolver tests from v1.43.0 unchanged — the override semantics didn't move (deletion = absence of row = inherit from group, exactly what `mergeOverrides` already handles).
+
+**Verified.** typecheck clean · lint clean · 509 tests pass (506 → 509) · production build clean.
+
+Files: `src/app/(app)/settings/PermissionMatrix.tsx` (rewrote cell rendering as checkbox + inherited-level display), `src/app/(app)/settings/actions.ts` (new `clearPermission`), `src/app/(app)/settings/page.tsx` (compute `groupInherited`, group panels under `SettingsSection` headings), `src/lib/audit-format.ts` (User entity patterns), tests, `package.json` → `1.44.0`.
 
 ### 2026-05-01 · v1.43.1 — Settings UX patch
 

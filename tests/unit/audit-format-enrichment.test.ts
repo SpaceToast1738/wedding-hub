@@ -338,6 +338,38 @@ describe("formatAuditAction — v1.39.0 enrichment", () => {
     });
   });
 
+  describe("User per-user permission overrides (v1.44.0)", () => {
+    it("permission set surfaces section + level", () => {
+      expect(
+        formatAuditAction({
+          action: "permission",
+          entity: "User",
+          metadata: { section: "tasks", level: "EDIT" },
+        }),
+      ).toBe("Set per-user override on tasks → EDIT");
+    });
+
+    it("permission-clear surfaces section + prior level", () => {
+      expect(
+        formatAuditAction({
+          action: "permission-clear",
+          entity: "User",
+          metadata: { section: "songs", priorLevel: "VIEW" },
+        }),
+      ).toBe("Cleared per-user override on songs (was VIEW) — inherits from group");
+    });
+
+    it("permission-clear without priorLevel still produces a useful sentence", () => {
+      expect(
+        formatAuditAction({
+          action: "permission-clear",
+          entity: "User",
+          metadata: { section: "guests" },
+        }),
+      ).toBe("Cleared per-user override on guests — inherits from group");
+    });
+  });
+
   describe("PermissionGroup (v1.40.0, renamed in v1.42.0)", () => {
     it("create", () => {
       expect(
