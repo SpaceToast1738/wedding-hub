@@ -575,6 +575,17 @@ export function formatAuditAction(row: AuditRow): string {
       const memberName = asString(meta.memberName) ?? asString(meta.memberEmail);
       return `Removed ${quoted(memberName)} from permission group ${quoted(n)}`;
     }
+    // v1.43.0: per-group permission set/change. groupKey is the
+    // polymorphic key ("builtin:<slug>" or "group:<slug>") and
+    // groupName is the resolved label from the action.
+    if (a === "group-permission") {
+      const groupName = asString(meta.groupName);
+      const section = asString(meta.section);
+      const level = asString(meta.level);
+      if (groupName && section && level) {
+        return `Set permission group ${quoted(groupName)} → ${level} on ${section}`;
+      }
+    }
   }
 
   // GuestGroup (v1.42.0) — bundles wedding guests for ceremony

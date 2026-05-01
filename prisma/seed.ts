@@ -2538,6 +2538,62 @@ async function seedPermissionGroups() {
   );
 }
 
+// v1.43.0: seed sensible default GroupPermission rows on the four
+// built-in groups so a fresh DB has working access control out of
+// the box. Idempotent — skips writing if a row already exists for
+// the (groupKey, section) pair, so manual edits via Settings
+// survive a `db:seed` rerun.
+//
+// Defaults:
+//   - couple             → EDIT on every section (couple bypass already
+//                          gives them everything; setting EDIT here is
+//                          belt-and-braces in case isCouple flips off)
+//   - wedding-party-role → VIEW on tasks, schedule, songs, files, book
+//   - planners-role      → EDIT on tasks, questions, schedule,
+//                          suppliers, guests, seating, songs, files,
+//                          book, settings (everything except
+//                          budget/payments which are couple-only)
+//   - everyone           → no defaults (intentionally empty so
+//                          permissions only flow from named groups)
+async function seedGroupPermissions() {
+  type Seed = { groupKey: string; section: string; level: "EDIT" | "VIEW" };
+  const seeds: Seed[] = [
+    // Couple — full access. Belt-and-braces; the runtime check
+    // already short-circuits on user.isCouple.
+    ...["tasks", "questions", "schedule", "suppliers", "guests", "seating", "songs", "files", "book", "budget", "payments", "settings"].map(
+      (section) => ({ groupKey: "builtin:couple", section, level: "EDIT" as const }),
+    ),
+    // Wedding party — VIEW on the day-of-relevant sections.
+    ...["tasks", "schedule", "songs", "files", "book"].map((section) => ({
+      groupKey: "builtin:wedding-party-role",
+      section,
+      level: "VIEW" as const,
+    })),
+    // Planners — EDIT on everything except couple-only sections.
+    ...["tasks", "questions", "schedule", "suppliers", "guests", "seating", "songs", "files", "book", "settings"].map(
+      (section) => ({ groupKey: "builtin:planners-role", section, level: "EDIT" as const }),
+    ),
+  ];
+  let added = 0;
+  let skipped = 0;
+  for (const s of seeds) {
+    const existing = await db.groupPermission.findUnique({
+      where: { groupKey_section: { groupKey: s.groupKey, section: s.section } },
+    });
+    if (existing) {
+      skipped++;
+      continue;
+    }
+    await db.groupPermission.create({
+      data: { groupKey: s.groupKey, section: s.section, level: s.level },
+    });
+    added++;
+  }
+  console.log(
+    `  ✓ group permissions seeded — ${added} added, ${skipped} preserved`,
+  );
+}
+
 // v1.42.0: seed two example custom guest groups so the seating
 // canvas + Settings panel both show the colour-coding pattern out
 // of the box. Idempotent — skips per-slug.
@@ -2627,6 +2683,7 @@ async function main() {
   await seedGuestExperienceCards();
   await seedPostWeddingSection();
   await seedPermissionGroups();
+  await seedGroupPermissions();
   await seedGuestGroups();
   console.log("Done.");
 }

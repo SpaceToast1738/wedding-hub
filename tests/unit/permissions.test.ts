@@ -1,14 +1,33 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// Mock the Prisma client BEFORE importing the module under test so that
-// loadPermissions reads from our stubbed findMany. We control the rows it
-// returns per-test via permissionRows.
+// Mock the Prisma client BEFORE importing the module under test so the
+// effective-permissions resolver reads from our stubbed methods.
+//
+// v1.43.0 widened the surface: the resolver now also fans out to
+// `db.user.findUnique` (to hydrate role/isCouple for built-in group
+// matching), `db.permissionGroup.findMany` (for custom groups), and
+// `db.groupPermission.findMany` (for group-level rules). Tests that
+// only touched per-user permissions still set permissionRows; tests
+// for group-driven access additionally override groupPermissionRows
+// or customGroups.
 let permissionRows: Array<{ userId: string; section: string; level: string }> = [];
+let groupPermissionRows: Array<{ groupKey: string; section: string; level: string }> = [];
+let customGroups: Array<{ slug: string; members: { id: string }[] }> = [];
+let userRows: Record<string, { id: string; role: string | null; isCouple: boolean; email: string; firstName: string | null; lastName: string | null; name: string | null }> = {};
 
 vi.mock("@/lib/db", () => ({
   db: {
     permission: {
       findMany: vi.fn(async (_args: unknown) => permissionRows),
+    },
+    groupPermission: {
+      findMany: vi.fn(async (_args: unknown) => groupPermissionRows),
+    },
+    permissionGroup: {
+      findMany: vi.fn(async (_args: unknown) => customGroups),
+    },
+    user: {
+      findUnique: vi.fn(async (args: { where: { id: string } }) => userRows[args.where.id] ?? null),
     },
   },
 }));
@@ -25,8 +44,38 @@ import { canEdit, canView, COUPLE_ONLY_SECTIONS, SECTIONS } from "@/lib/permissi
 const couple = { id: "u_couple", isCouple: true };
 const member = { id: "u_member", isCouple: false };
 
+// Stable user-row fixtures so the resolver's findUnique succeeds.
+// Role is set to a non-matching string so the WEDDING_PARTY /
+// PLANNER built-in groups don't auto-include the member — every
+// test that needs a different role overrides userRows in the body.
+function baseUserRows() {
+  return {
+    [couple.id]: {
+      id: couple.id,
+      role: "COUPLE",
+      isCouple: true,
+      email: "couple@example.com",
+      firstName: null,
+      lastName: null,
+      name: "Couple",
+    },
+    [member.id]: {
+      id: member.id,
+      role: "VIEWER",
+      isCouple: false,
+      email: "member@example.com",
+      firstName: null,
+      lastName: null,
+      name: "Member",
+    },
+  };
+}
+
 beforeEach(() => {
   permissionRows = [];
+  groupPermissionRows = [];
+  customGroups = [];
+  userRows = baseUserRows();
 });
 
 describe("canView", () => {
@@ -125,5 +174,85 @@ describe("F1 — list-page canView gate substrate", () => {
   it("non-couple + NONE on guests → canView(guests) is false", async () => {
     permissionRows = [{ userId: member.id, section: "guests", level: "NONE" }];
     expect(await canView(member, "guests")).toBe(false);
+  });
+});
+
+// v1.43.0: group-driven inheritance. A user with no per-user override
+// but membership in a group that has a permission row should resolve
+// to the group's level. Override + group should resolve to max.
+describe("v1.43.0 — group-driven inheritance", () => {
+  it("inherits VIEW from a built-in group when no override exists", async () => {
+    // Member is WEDDING_PARTY → in builtin:wedding-party-role.
+    userRows = baseUserRows();
+    userRows[member.id] = { ...userRows[member.id], role: "WEDDING_PARTY" };
+    groupPermissionRows = [
+      { groupKey: "builtin:wedding-party-role", section: "schedule", level: "VIEW" },
+    ];
+    expect(await canView(member, "schedule")).toBe(true);
+    expect(await canEdit(member, "schedule")).toBe(false);
+  });
+
+  it("inherits EDIT from a custom group the user belongs to", async () => {
+    customGroups = [
+      { slug: "after-party", members: [{ id: member.id }] },
+    ];
+    groupPermissionRows = [
+      { groupKey: "group:after-party", section: "songs", level: "EDIT" },
+    ];
+    expect(await canEdit(member, "songs")).toBe(true);
+  });
+
+  it("does not leak permissions from groups the user isn't in", async () => {
+    customGroups = [
+      { slug: "after-party", members: [{ id: "someone-else" }] },
+    ];
+    groupPermissionRows = [
+      { groupKey: "group:after-party", section: "songs", level: "EDIT" },
+    ];
+    expect(await canView(member, "songs")).toBe(false);
+  });
+
+  it("override stronger than group wins (max)", async () => {
+    userRows = baseUserRows();
+    userRows[member.id] = { ...userRows[member.id], role: "WEDDING_PARTY" };
+    groupPermissionRows = [
+      { groupKey: "builtin:wedding-party-role", section: "tasks", level: "VIEW" },
+    ];
+    permissionRows = [{ userId: member.id, section: "tasks", level: "EDIT" }];
+    expect(await canEdit(member, "tasks")).toBe(true);
+  });
+
+  it("override of NONE never lowers a stronger inherited group level", async () => {
+    userRows = baseUserRows();
+    userRows[member.id] = { ...userRows[member.id], role: "WEDDING_PARTY" };
+    groupPermissionRows = [
+      { groupKey: "builtin:wedding-party-role", section: "tasks", level: "VIEW" },
+    ];
+    permissionRows = [{ userId: member.id, section: "tasks", level: "NONE" }];
+    // Group grants VIEW, override of NONE shouldn't strip it.
+    expect(await canView(member, "tasks")).toBe(true);
+  });
+
+  it("couple-only sections deny non-couple even with group EDIT", async () => {
+    userRows = baseUserRows();
+    userRows[member.id] = { ...userRows[member.id], role: "PLANNER" };
+    groupPermissionRows = [
+      { groupKey: "builtin:planners-role", section: "budget", level: "EDIT" },
+    ];
+    expect(await canView(member, "budget")).toBe(false);
+    expect(await canEdit(member, "budget")).toBe(false);
+  });
+
+  it("max across multiple groups — user in two groups picks the strongest", async () => {
+    userRows = baseUserRows();
+    userRows[member.id] = { ...userRows[member.id], role: "WEDDING_PARTY" };
+    customGroups = [
+      { slug: "vip", members: [{ id: member.id }] },
+    ];
+    groupPermissionRows = [
+      { groupKey: "builtin:wedding-party-role", section: "book", level: "VIEW" },
+      { groupKey: "group:vip", section: "book", level: "EDIT" },
+    ];
+    expect(await canEdit(member, "book")).toBe(true);
   });
 });

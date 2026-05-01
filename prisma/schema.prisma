@@ -1186,6 +1186,17 @@ model Song {
 
 // ─── Permissions / audit ───────────────────────────────────────────────────
 
+// ─── Per-user permission overrides (legacy + override layer) ─────────
+//
+// v1.0 → v1.42.0 was the source of truth: every user × section had at
+// most one row here, dropdown in the Settings matrix wrote it directly.
+//
+// v1.43.0 flipped the model — permissions live on **groups** now (see
+// GroupPermission below). This table is kept as an **override layer**:
+// effective level = max(group-inherited, per-user-override). The
+// existing rows survive the migration unchanged so nobody loses access;
+// the Settings UI presents the matrix as "Per-user overrides
+// (advanced)" — collapsed by default, used only for exceptions.
 model Permission {
   id      String          @id @default(cuid())
   userId  String
@@ -1193,6 +1204,36 @@ model Permission {
   level   PermissionLevel @default(VIEW)
 
   @@unique([userId, section])
+}
+
+// ─── Group-level permissions (v1.43.0) ───────────────────────────────
+//
+// Permissions attached to a permission group. Members of the group
+// inherit the level for the named section; effective level for a user
+// is `max(level)` across every group they belong to (built-in or DB),
+// then `max(...)` against any per-user Permission override above.
+//
+// `groupKey` is polymorphic: `"builtin:<slug>"` for the four virtual
+// groups (everyone / couple / wedding-party-role / planners-role) or
+// `"group:<slug>"` for a DB-backed PermissionGroup. No FK because
+// built-ins aren't stored as rows; the key matches the same
+// reference format already used by Schedule attendees and group-
+// membership helpers (src/lib/group-members.ts).
+//
+// (groupKey, section) is unique — one row per group per module.
+model GroupPermission {
+  id        String          @id @default(cuid())
+  /// "builtin:<slug>" or "group:<slug>". See BUILTIN_GROUP_SLUGS in
+  /// src/lib/group-members.ts for the four built-in slugs; custom
+  /// slugs come from PermissionGroup.slug.
+  groupKey  String
+  section   String          // tasks, guests, budget, etc.
+  level     PermissionLevel @default(VIEW)
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+
+  @@unique([groupKey, section])
+  @@index([groupKey])
 }
 
 enum PermissionLevel {

@@ -2,10 +2,11 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { Prisma } from "@prisma/client";
+import { Prisma, PermissionLevel } from "@prisma/client";
 import { db } from "@/lib/db";
 import { audit, requireUser } from "@/lib/actions";
 import { BUILTIN_GROUP_SLUGS } from "@/lib/group-members";
+import { SECTIONS } from "@/lib/permissions";
 
 // v1.40.0 (backlog #3): PermissionGroup CRUD. Couple-only — group
 // management is part of the couple's domain (deciding who's in the
@@ -211,6 +212,94 @@ export async function togglePermissionGroupMember(input: {
     return {
       ok: false,
       error: err instanceof Error ? err.message : "Couldn't update group membership",
+    };
+  }
+}
+
+// ─── Group permission setter (v1.43.0) ───────────────────────────────
+//
+// Sets the level of one (group, section) pair. Accepts a polymorphic
+// `groupKey` string in the same `"builtin:<slug>"` / `"group:<slug>"`
+// format used everywhere else (Schedule attendees, group-members
+// helpers, GroupPermission table). Validates that the slug refers to
+// either a known built-in or an existing PermissionGroup row before
+// writing — guards against typo'd keys silently going nowhere.
+//
+// Couple-only. Audited with the resolved group name + section + level
+// per the v1.30.5 standing rule.
+
+const setGroupPermSchema = z.object({
+  groupKey: z.string().min(1),
+  section: z.enum(SECTIONS),
+  level: z.nativeEnum(PermissionLevel),
+});
+
+export async function setGroupPermission(input: {
+  groupKey: string;
+  section: string;
+  level: PermissionLevel;
+}): Promise<GroupActionResult> {
+  const actor = await requireCoupleEditor();
+  try {
+    const parsed = setGroupPermSchema.parse(input);
+
+    // Resolve groupKey → display name for the audit log + validate
+    // that the key actually points at something. Built-in slugs live
+    // in BUILTIN_GROUP_SLUGS; custom slugs come from PermissionGroup.
+    let groupName: string;
+    if (parsed.groupKey.startsWith("builtin:")) {
+      const slug = parsed.groupKey.slice("builtin:".length);
+      if (!BUILTIN_GROUP_SLUGS.has(slug)) {
+        return { ok: false, error: `Unknown built-in group: ${slug}` };
+      }
+      groupName = slug; // the BUILTIN_GROUPS array would give a prettier label, but the slug is fine for audits
+    } else if (parsed.groupKey.startsWith("group:")) {
+      const slug = parsed.groupKey.slice("group:".length);
+      const row = await db.permissionGroup.findUnique({
+        where: { slug },
+        select: { name: true },
+      });
+      if (!row) return { ok: false, error: `Unknown group: ${slug}` };
+      groupName = row.name;
+    } else {
+      return {
+        ok: false,
+        error: `groupKey must start with "builtin:" or "group:"`,
+      };
+    }
+
+    await db.groupPermission.upsert({
+      where: {
+        groupKey_section: {
+          groupKey: parsed.groupKey,
+          section: parsed.section,
+        },
+      },
+      create: {
+        groupKey: parsed.groupKey,
+        section: parsed.section,
+        level: parsed.level,
+      },
+      update: { level: parsed.level },
+    });
+
+    await audit(actor, {
+      action: "group-permission",
+      entity: "PermissionGroup",
+      entityId: parsed.groupKey,
+      metadata: {
+        groupKey: parsed.groupKey,
+        groupName,
+        section: parsed.section,
+        level: parsed.level,
+      },
+    });
+    revalidatePath("/settings");
+    return { ok: true };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : "Couldn't set group permission",
     };
   }
 }

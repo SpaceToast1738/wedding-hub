@@ -388,6 +388,36 @@ describe("formatAuditAction — v1.39.0 enrichment", () => {
         }),
       ).toBe(`Removed "viewer@example.com" from permission group "After-party"`);
     });
+
+    it("group-permission set surfaces level + section + group name", () => {
+      expect(
+        formatAuditAction({
+          action: "group-permission",
+          entity: "PermissionGroup",
+          metadata: {
+            groupKey: "builtin:wedding-party-role",
+            groupName: "wedding-party-role",
+            section: "schedule",
+            level: "VIEW",
+          },
+        }),
+      ).toBe(`Set permission group "wedding-party-role" → VIEW on schedule`);
+    });
+
+    it("group-permission falls back gracefully when meta missing", () => {
+      // Defensive: the formatter should fall through to the generic
+      // path rather than throw or print an unreadable string when an
+      // older row is missing fields.
+      const out = formatAuditAction({
+        action: "group-permission",
+        entity: "PermissionGroup",
+        metadata: { groupName: "After-party" }, // missing section + level
+      });
+      // Generic fallback returns "{verb} {noun}" — not the enriched
+      // sentence. Just assert it doesn't throw and produces a string.
+      expect(typeof out).toBe("string");
+      expect(out.length).toBeGreaterThan(0);
+    });
   });
 
   describe("GuestGroup (v1.42.0)", () => {

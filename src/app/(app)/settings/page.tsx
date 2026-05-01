@@ -42,6 +42,7 @@ export default async function SettingsPage({
     wedding,
     navTagsRaw,
     permissionGroupsRaw,
+    groupPermissionsRaw,
     guestGroupsRaw,
     allGuests,
   ] = await Promise.all([
@@ -71,6 +72,15 @@ export default async function SettingsPage({
       ? db.permissionGroup.findMany({
           orderBy: [{ order: "asc" }, { name: "asc" }],
           include: { members: { select: { id: true } } },
+        })
+      : Promise.resolve([]),
+    // v1.43.0: GroupPermission rows for the per-group matrix in the
+    // PermissionGroupsBlock. Cheap read — at most 12 sections × N
+    // groups (built-in + custom). No filter; we group client-side
+    // by groupKey.
+    user.isCouple
+      ? db.groupPermission.findMany({
+          select: { groupKey: true, section: true, level: true },
         })
       : Promise.resolve([]),
     // v1.42.0: GuestGroup rows + member ids for the couple-only
@@ -162,9 +172,12 @@ export default async function SettingsPage({
             />
           )}
 
-          {/* v1.40.0 (backlog #3): user-groups admin block. Couple-
-              only management of custom groups; built-ins shown
-              read-only with their computed member count. */}
+          {/* v1.40.0 (backlog #3): permission-groups admin block.
+              Couple-only management of custom groups; built-ins
+              shown with computed member counts. v1.43.0: each group
+              now carries its own permission set; built-ins are
+              editable for permissions even though their membership
+              is computed. */}
           {user.isCouple && (() => {
             const allUsersShape = users.map((u) => ({
               id: u.id,
@@ -179,6 +192,14 @@ export default async function SettingsPage({
               id: u.id,
               name: displayName(u),
             }));
+            // Bucket GroupPermission rows by groupKey so each group
+            // gets its own slice without N round-trips.
+            const permsByKey = new Map<string, { section: string; level: typeof groupPermissionsRaw[number]["level"] }[]>();
+            for (const p of groupPermissionsRaw) {
+              const arr = permsByKey.get(p.groupKey) ?? [];
+              arr.push({ section: p.section, level: p.level });
+              permsByKey.set(p.groupKey, arr);
+            }
             const builtins = BUILTIN_GROUPS.map((g) => ({
               slug: g.slug,
               name: g.name,
@@ -186,6 +207,7 @@ export default async function SettingsPage({
                 id: u.id,
                 name: displayName(u),
               })),
+              permissions: permsByKey.get(`builtin:${g.slug}`) ?? [],
             }));
             const groupRows = permissionGroupsRaw.map((g) => ({
               id: g.id,
@@ -197,6 +219,7 @@ export default async function SettingsPage({
                 .map((m) => allUsersShape.find((u) => u.id === m.id))
                 .filter((u): u is (typeof allUsersShape)[number] => Boolean(u))
                 .map((u) => ({ id: u.id, name: displayName(u) })),
+              permissions: permsByKey.get(`group:${g.slug}`) ?? [],
             }));
             return (
               <PermissionGroupsBlock
@@ -246,27 +269,41 @@ export default async function SettingsPage({
 
           {editable && (
             <div className="bg-marigold-100/40 border border-marigold-700/20 text-marigold-700 rounded-md px-4 py-2.5 text-xs">
-              ⓘ Sign-in is gated by the <code>AUTH_ALLOWED_EMAILS</code> env var. To add a new member, add their email there and have them sign in once — the row will appear here, then you can grant them per-section access.
+              ⓘ Sign-in is gated by the <code>AUTH_ALLOWED_EMAILS</code> env var. To add a new member, add their email there and have them sign in once — the row will appear here. <strong>Permissions normally inherit from the groups above</strong> — use the override matrix below only for one-off exceptions.
             </div>
           )}
 
-          <PermissionMatrix
-            users={users.map((u) => ({
-              id: u.id,
-              name: u.name,
-              email: u.email,
-              role: u.role,
-              isCouple: u.isCouple,
-            }))}
-            permissions={permissions.map((p) => ({
-              userId: p.userId,
-              section: p.section,
-              level: p.level,
-            }))}
-            currentUserId={user.id}
-            currentUserIsCouple={user.isCouple}
-            canEdit={editable}
-          />
+          {/* v1.43.0: per-user matrix demoted to "overrides
+              (advanced)". Group permissions are the primary surface
+              now; this panel exists to grant a single user a level
+              stronger than any of their groups (rare). The resolver
+              takes max(group, override) so demoting can never strip
+              access — it only adds. */}
+          <details className="bg-surface border border-border-soft rounded-md shadow-sm">
+            <summary className="px-4 py-2.5 text-sm font-semibold text-ink-primary cursor-pointer select-none">
+              Per-user overrides (advanced)
+              <span className="ml-2 text-[11px] font-normal text-ink-tertiary">
+                — set a level stronger than the user&apos;s groups give them
+              </span>
+            </summary>
+            <PermissionMatrix
+              users={users.map((u) => ({
+                id: u.id,
+                name: u.name,
+                email: u.email,
+                role: u.role,
+                isCouple: u.isCouple,
+              }))}
+              permissions={permissions.map((p) => ({
+                userId: p.userId,
+                section: p.section,
+                level: p.level,
+              }))}
+              currentUserId={user.id}
+              currentUserIsCouple={user.isCouple}
+              canEdit={editable}
+            />
+          </details>
 
           {/* v1.25.0: nudges digest, couple-only. */}
           {user.isCouple && <NudgesPanel />}

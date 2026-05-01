@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.42.0** | 2026-05-01 | [Two-track group model: rename `UserGroup` → `PermissionGroup` (admin app users) + new `GuestGroup` model (wedding guests, with colour). Settings page splits into two panels — Permission groups + Guest groups. Colour picker on each guest group; foundation for ceremony-seating colour-coding (#5).](#2026-05-01--v1420--permission-groups--guest-groups-split) |
+| **v1.43.0** | 2026-05-01 | [Group-driven permissions — new `GroupPermission` table attaches per-section levels to each `PermissionGroup` (built-in + custom). Effective level = `max(group, override)` per section; per-user `Permission` rows demoted to an "advanced overrides" panel. Built-in groups now editable for permissions (members still computed from role). Sensible seed defaults on couple / wedding-party / planners.](#2026-05-01--v1430--group-driven-permissions) |
+| v1.42.0 | 2026-05-01 | [Two-track group model: rename `UserGroup` → `PermissionGroup` (admin app users) + new `GuestGroup` model (wedding guests, with colour). Settings page splits into two panels — Permission groups + Guest groups. Colour picker on each guest group; foundation for ceremony-seating colour-coding (#5).](#2026-05-01--v1420--permission-groups--guest-groups-split) |
 | v1.41.0 | 2026-04-30 | [Schedule attendees rework (backlog #4) — `attendeeIds: String[]` becomes polymorphic `attendeeRefs: String[]` mixing `user:<id>` / `builtin:<slug>` / `group:<slug>` refs. Picker UI splits Groups + Individuals. Today page "Mine" filter resolves group membership server-side. Audit log shows attendee-kind breakdown.](#2026-04-30--v1410--schedule-attendees-rework-backlog-4) |
 | v1.40.0 | 2026-04-30 | [User-group model (backlog #3) — `UserGroup` table + `User.groups` m2m + four built-in virtual groups (Everyone / Couple / Wedding party-by-role / Planners-by-role) computed from `User.role`. Couple-only Settings panel for CRUD. Foundation for the Schedule attendees rework (#4).](#2026-04-30--v1400--user-group-model-backlog-3) |
 | v1.39.1 | 2026-04-30 | [Recent-activity feed on Today (couple-only) — last 10 audit rows rendered as human sentences via `formatAuditAction` + `timeAgo`. Auto-hides for non-couple users + when log is empty. Closes backlog item #2.](#2026-04-30--v1391--recent-activity-feed) |
@@ -757,6 +758,72 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-05-01 · v1.43.0 — Group-driven permissions
+
+User: "Can we work on permissions groups next, move away from single assigning perms per user, to permissions groups". Permissions are now a property of the **group**, not the user — members inherit. Per-user assignment becomes an override layer for one-off exceptions, kept for recoverability + flexibility but demoted to an "advanced" collapsed panel.
+
+**Why.** With v1.42.0, `PermissionGroup` was just a bundle of users with no semantic weight beyond "pick these for the schedule attendee list". The right shape — and the way every IAM model works — is to attach permissions to the group, not the user. Adding a new wedding-party member used to mean opening 10 dropdowns; it now means ticking one checkbox.
+
+**Schema** (`prisma/schema.prisma`).
+
+- New `GroupPermission` table: `(groupKey, section, level)` with `@@unique([groupKey, section])`.
+- `groupKey` is polymorphic — `"builtin:<slug>"` for the four virtual groups (everyone / couple / wedding-party-role / planners-role) or `"group:<slug>"` for a DB-backed `PermissionGroup`. Same reference format used by Schedule attendees + group-membership helpers, so the abstraction is consistent across the app.
+- No FK to `PermissionGroup` because built-ins aren't stored as rows. Built-in slugs validated against `BUILTIN_GROUP_SLUGS`; custom slugs validated by lookup. Typos return `{ ok: false, error: ... }` rather than silently going nowhere.
+- Existing per-user `Permission` table left intact as the **override layer** — no data migration, no risk of stripped access.
+
+Migration `20260502000000_group_permissions/migration.sql` is purely additive: one `CREATE TABLE` + `(groupKey, section)` unique index + `groupKey` lookup index.
+
+**Resolver** (`src/lib/permissions.ts`).
+
+Effective level for a (user, section) pair, in increasing authority:
+
+1. **Group permissions** — for every `groupKey` the user matches (`groupKeysForUser` returns built-in + custom matches), pull the rows and reduce by `maxLevel(...)`.
+2. **Per-user overrides** — merge in `db.permission.findMany({ userId })` rows, taking `max(group, override)` per section. Override of NONE *never* lowers an inherited level — that's a critical correctness invariant; tested.
+3. **Couple bypass** — `user.isCouple === true` short-circuits to `EDIT` before either lookup. Couple-only sections (budget / payments) still deny non-couple users regardless of group level.
+
+The new pure helpers (`maxLevel`, `groupKeysForUser`, `reduceGroupPermissions`, `mergeOverrides`) all sit alongside the existing `canView` / `canEdit` so unit tests don't need a Prisma fixture.
+
+**Settings UI** (`PermissionGroupsBlock.tsx` + `page.tsx`).
+
+- Each group row (built-in + custom) gets a one-line **permission summary** ("EDIT: book, schedule · VIEW: songs · ..."), and a **"Permissions" toggle** revealing a 12-section grid of `NONE / VIEW / EDIT` segmented controls. Couple-only sections render disabled.
+- Built-in groups are now editable for **permissions** even though their **membership** is still computed from `User.role` — same split as v1.42.0's guest groups (built-in members come from `Guest.side`, but custom colours are couple-set).
+- Per-user `PermissionMatrix` collapsed inside `<details>` labelled "Per-user overrides (advanced) — set a level stronger than the user's groups give them". The framing copy in the section above explains overrides only stack on top of group inheritance; they can never strip access.
+
+**Seed defaults** (`prisma/seed.ts` → new `seedGroupPermissions`).
+
+- Couple → EDIT on all 12 sections (belt-and-braces; bypass already wins).
+- Wedding-party-role → VIEW on tasks / schedule / songs / files / book.
+- Planners-role → EDIT on every non-couple-only section.
+- Everyone → no defaults (intentionally empty — permissions only flow from named groups).
+- Idempotent — skips writing if a `(groupKey, section)` row already exists, so manual edits via Settings survive a `db:seed` rerun.
+
+**Action + audit** (`permission-group-actions.ts`).
+
+New `setGroupPermission({ groupKey, section, level })`, couple-only via `requireCoupleEditor()`. Validates the slug exists (built-in or DB-backed) before upserting. Audit metadata: `{ groupKey, groupName, section, level }` with action `"group-permission"`. New `audit-format.ts` pattern surfaces these as `Set permission group "wedding-party-role" → VIEW on schedule`.
+
+**Tests.**
+
+- `tests/unit/effective-permissions.test.ts` (new, 24 tests) — exhaustive on `maxLevel`, `groupKeysForUser` (built-ins + custom matches + declaration order), `reduceGroupPermissions` (max across multiple groups, NONE-as-literal), `mergeOverrides` (both-stronger-wins paths, override-never-lowers).
+- `tests/unit/permissions.test.ts` — extended Prisma mock to cover `db.user.findUnique` + `db.permissionGroup.findMany` + `db.groupPermission.findMany`. New "v1.43.0 — group-driven inheritance" describe with 7 cases: built-in inheritance, custom-group inheritance, no-leak from groups the user isn't in, override stronger wins, NONE-override doesn't strip, couple-only deny stays, max-across-multiple-groups.
+- `tests/unit/audit-format-enrichment.test.ts` — 2 new cases for the `group-permission` pattern.
+
+**Verified.** typecheck clean · lint clean · 506 tests pass (476 → 506; +30 new) · production build clean.
+
+**Foundation laid.** The next time someone asks "give the planners read-access to suppliers", it's one toggle on `builtin:planners-role` instead of N per-user rows. New users joining a group automatically inherit. The override layer stays for the inevitable "but Aimee specifically should also have…" cases.
+
+Files:
+
+- `prisma/schema.prisma` — new `GroupPermission` model, doc comment on the existing `Permission` table marking it as the override layer.
+- `prisma/migrations/20260502000000_group_permissions/migration.sql` — additive.
+- `src/lib/permissions.ts` — pure helpers + new `loadEffectivePermissions` resolver.
+- `src/app/(app)/settings/permission-group-actions.ts` — new `setGroupPermission`.
+- `src/app/(app)/settings/PermissionGroupsBlock.tsx` — permission summary + on-demand matrix.
+- `src/app/(app)/settings/page.tsx` — load `GroupPermission` rows, bucket by `groupKey`, demote `PermissionMatrix` to collapsed details.
+- `src/lib/audit-format.ts` — new `group-permission` pattern.
+- `prisma/seed.ts` — `seedGroupPermissions` with sensible defaults on the four built-ins.
+- Tests: `tests/unit/effective-permissions.test.ts` (new), updated `tests/unit/permissions.test.ts` + `tests/unit/audit-format-enrichment.test.ts`.
+- `package.json` → `1.43.0`.
 
 ### 2026-05-01 · v1.42.0 — Permission groups + Guest groups split
 
