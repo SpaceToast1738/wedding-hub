@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.44.0** | 2026-05-01 | [Settings UX overhaul — per-user override matrix is now checkbox-driven (default = inherit from group; tick to override). Page panels grouped under named sections (Your account · Wedding details · Customisation · Access & members · Notifications & log) so the long stream of cards reads as a document with chapters. New `clearPermission` action deletes the override row when unticked.](#2026-05-01--v1440--settings-ux-overhaul) |
+| **v1.45.0** | 2026-05-01 | [Per-user editor — replace dense PermissionMatrix table with one expandable card per user (matching the spacing of PermissionGroupsBlock). Each card shows group memberships (toggleable for custom groups, read-only chips for built-ins), per-section overrides (default off; tick to override), couple toggle, and remove. New `clearAllUserOverrides` bulk-clear button per user.](#2026-05-01--v1450--per-user-editor) |
+| v1.44.0 | 2026-05-01 | [Settings UX overhaul — per-user override matrix is now checkbox-driven (default = inherit from group; tick to override). Page panels grouped under named sections (Your account · Wedding details · Customisation · Access & members · Notifications & log) so the long stream of cards reads as a document with chapters. New `clearPermission` action deletes the override row when unticked.](#2026-05-01--v1440--settings-ux-overhaul) |
 | v1.43.1 | 2026-05-01 | [Settings UX patch — explicit `Members` button on every permission group (was hidden behind clicking the title); read-only member list on built-in groups; dropped the sticky `<thead>` + nested-card styling on the per-user override matrix that was causing runaway-scroll feel inside the new collapsed panel. Trimmed wall-of-text description copy.](#2026-05-01--v1431--settings-ux-patch) |
 | v1.43.0 | 2026-05-01 | [Group-driven permissions — new `GroupPermission` table attaches per-section levels to each `PermissionGroup` (built-in + custom). Effective level = `max(group, override)` per section; per-user `Permission` rows demoted to an "advanced overrides" panel. Built-in groups now editable for permissions (members still computed from role). Sensible seed defaults on couple / wedding-party / planners.](#2026-05-01--v1430--group-driven-permissions) |
 | v1.42.0 | 2026-05-01 | [Two-track group model: rename `UserGroup` → `PermissionGroup` (admin app users) + new `GuestGroup` model (wedding guests, with colour). Settings page splits into two panels — Permission groups + Guest groups. Colour picker on each guest group; foundation for ceremony-seating colour-coding (#5).](#2026-05-01--v1420--permission-groups--guest-groups-split) |
@@ -760,6 +761,36 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-05-01 · v1.45.0 — Per-user editor
+
+User: "Refactor per user overirces, so theres space like on the group policies, also default overrides should be off, I also need to be able to assign members to permissions groups and remove them".
+
+The dense PermissionMatrix table from v1.44.0 was the right model (checkbox-driven, max(group, override) resolver) but the wrong shape — a 6-row × 13-column table with tiny cells didn't match the airy spacing of `PermissionGroupsBlock`. Replaced with one expandable card per user, matching the visual rhythm of the rest of the page.
+
+**New surface — `MemberOverridesBlock.tsx`.** One card per app user. Header line shows avatar + name + role + email + Couple chip + group count + override count + remove (×). Click to expand:
+
+1. **Couple-tier toggle** — same gates as before (couple-only, can't toggle yourself).
+2. **Group memberships** — read-only chip list of built-in groups the user qualifies for ("Couple", "Everyone", "Wedding party (by role)" — computed from `User.role` / `isCouple`), then a toggle list of every custom `PermissionGroup` with the user's current membership state. Ticking calls `togglePermissionGroupMember` (the same action the per-group view uses), so both views are consistent.
+3. **Per-section overrides** — 12 sections in a 3-column grid, each row = section name + checkbox + (when ticked) VIEW/EDIT select / (when unticked) inherited level in muted type. Defaults are **off** — no `Permission` row exists on a fresh DB; the user inherits everything from their groups. Ticking writes the row; unticking deletes it via `clearPermission`.
+4. **"Clear all overrides" button** — appears when the user has any override rows. Bulk-deletes everything via the new `clearAllUserOverrides` action. Useful migration path for users carrying legacy per-user rows from before v1.43.0 — one click drops them all so the user resolves to pure group inheritance.
+
+The override count chip in the header is colour-tinted marigold when non-zero, with a tooltip "usually you want pure group inheritance" — gentle nudge that overrides are an exception, not a default.
+
+**Server actions.**
+
+- New `clearAllUserOverrides(userId)` — couple-only, audited with `{ cleared, sections }` (the prior level for every section that had a row, comma-joined for forensic recoverability). Idempotent: returns `{ ok: true, cleared: 0 }` for users with no rows.
+- Existing `setPermission`, `clearPermission`, `togglePermissionGroupMember`, `setUserCouple`, `removeUser` all reused unchanged. The new block is the same wiring with a different layout.
+
+**Audit format.** New `User` patterns for `permission-clear-all` action — surfaces `Cleared all per-user overrides (5 sections) — user inherits from groups now`, with proper singular/plural for one-section cases.
+
+**Files removed.** `PermissionMatrix.tsx` deleted — fully replaced by `MemberOverridesBlock.tsx`. The two `PermissionMatrix` references that remained were comments referring to the old component, now updated to reference the v1.45.0 replacement.
+
+**Tests.** `tests/unit/audit-format-enrichment.test.ts` gains 2 cases for `permission-clear-all` (5-section + 1-section pluralisation). 511 tests pass (509 → 511).
+
+**Verified.** typecheck clean · lint clean · 511 tests · production build clean.
+
+Files: `src/app/(app)/settings/MemberOverridesBlock.tsx` (new), `src/app/(app)/settings/PermissionMatrix.tsx` (deleted), `src/app/(app)/settings/actions.ts` (new `clearAllUserOverrides`), `src/app/(app)/settings/page.tsx` (compute `customGroupMembershipByUser` + `builtinKeysByUser`, pass to new block), `src/lib/audit-format.ts` (new pattern), tests, `package.json` → `1.45.0`.
 
 ### 2026-05-01 · v1.44.0 — Settings UX overhaul
 

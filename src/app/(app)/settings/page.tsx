@@ -9,7 +9,7 @@ import {
 import { requireUser } from "@/lib/actions";
 import { isSpotifyConfigured } from "@/lib/spotify";
 import { getWeddingSettings } from "@/lib/wedding-settings";
-import { PermissionMatrix } from "./PermissionMatrix";
+import { MemberOverridesBlock } from "./MemberOverridesBlock";
 import { MyProfilePanel } from "./MyProfilePanel";
 import { SpotifySettingsPanel } from "./SpotifySettingsPanel";
 import { CustomFieldsPanel } from "./CustomFieldsPanel";
@@ -356,43 +356,75 @@ export default async function SettingsPage({
 
           {editable && (
             <div className="bg-marigold-100/40 border border-marigold-700/20 text-marigold-700 rounded-md px-4 py-2.5 text-xs">
-              ⓘ Sign-in is gated by the <code>AUTH_ALLOWED_EMAILS</code> env var. To add a new member, add their email there and have them sign in once — the row will appear here. <strong>Permissions normally inherit from the groups above</strong> — use the override matrix below only for one-off exceptions.
+              ⓘ Sign-in is gated by the <code>AUTH_ALLOWED_EMAILS</code> env var. To add a new member, add their email there and have them sign in once — they&apos;ll appear in the Members panel below.
             </div>
           )}
 
-          {/* v1.43.0: per-user matrix demoted to "overrides
-              (advanced)". Group permissions are the primary surface
-              now; this panel exists to grant a single user a level
-              stronger than any of their groups (rare). The resolver
-              takes max(group, override) so demoting can never strip
-              access — it only adds. v1.44.0: matrix is checkbox-
-              driven — tick to override the inherited level. */}
-          <details className="bg-surface border border-border-soft rounded-md shadow-sm">
-            <summary className="px-4 py-2.5 text-sm font-semibold text-ink-primary cursor-pointer select-none">
-              Per-user overrides (advanced)
-              <span className="ml-2 text-[11px] font-normal text-ink-tertiary">
-                — tick to override; otherwise the user inherits from groups
-              </span>
-            </summary>
-            <PermissionMatrix
-              users={users.map((u) => ({
-                id: u.id,
-                name: u.name,
-                email: u.email,
-                role: u.role,
-                isCouple: u.isCouple,
-              }))}
-              permissions={permissions.map((p) => ({
-                userId: p.userId,
-                section: p.section,
-                level: p.level,
-              }))}
-              groupInherited={groupInherited}
-              currentUserId={user.id}
-              currentUserIsCouple={user.isCouple}
-              canEdit={editable}
-            />
-          </details>
+          {/* v1.45.0: per-user editor — replaces the dense
+              PermissionMatrix table. Each user is its own
+              expandable card showing group memberships +
+              per-section overrides + couple toggle + remove.
+              Click a user to expand. */}
+          {(() => {
+            const allUsersShape = users.map((u) => ({
+              id: u.id,
+              email: u.email,
+              firstName: u.firstName,
+              lastName: u.lastName,
+              name: u.name,
+              role: u.role,
+              isCouple: u.isCouple,
+            }));
+            // Per-user list of which built-ins they qualify for —
+            // used to render read-only chips in the "Group memberships"
+            // section of each card.
+            const builtinKeysByUser: Record<string, string[]> = {};
+            for (const u of allUsersShape) {
+              builtinKeysByUser[u.id] = BUILTIN_GROUPS.filter(
+                (g) => resolveBuiltinGroup(g.slug, [u]).length > 0,
+              ).map((g) => g.name);
+            }
+            // Per-user set of custom group ids they're a member of —
+            // used to render the toggleable checkboxes.
+            const customGroupMembershipByUser: Record<string, Set<string>> = {};
+            for (const u of allUsersShape) {
+              customGroupMembershipByUser[u.id] = new Set();
+            }
+            for (const g of permissionGroupsRaw) {
+              for (const m of g.members) {
+                const set = customGroupMembershipByUser[m.id];
+                if (set) set.add(g.id);
+              }
+            }
+            const customGroupRows = permissionGroupsRaw.map((g) => ({
+              id: g.id,
+              slug: g.slug,
+              name: g.name,
+            }));
+            return (
+              <MemberOverridesBlock
+                users={users.map((u) => ({
+                  id: u.id,
+                  name: u.name,
+                  email: u.email,
+                  role: u.role,
+                  isCouple: u.isCouple,
+                }))}
+                permissions={permissions.map((p) => ({
+                  userId: p.userId,
+                  section: p.section,
+                  level: p.level,
+                }))}
+                groupInherited={groupInherited as Record<string, Record<string, "NONE" | "VIEW" | "EDIT">>}
+                builtinKeysByUser={builtinKeysByUser}
+                customGroups={customGroupRows}
+                customGroupMembershipByUser={customGroupMembershipByUser}
+                currentUserId={user.id}
+                currentUserIsCouple={user.isCouple}
+                canEdit={editable}
+              />
+            );
+          })()}
             </SettingsSection>
           )}
 

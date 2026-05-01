@@ -564,6 +564,11 @@ export function formatAuditAction(row: AuditRow): string {
     if (a === "permission-clear" && section) {
       return `Cleared per-user override on ${section}${priorLevel ? ` (was ${priorLevel})` : ""} — inherits from group`;
     }
+    // v1.45.0: bulk-clear every override for one user.
+    const cleared = asNumber(meta.cleared);
+    if (a === "permission-clear-all" && cleared !== null) {
+      return `Cleared all per-user overrides (${pluralise(cleared, "section", "sections")}) — user inherits from groups now`;
+    }
   }
 
   // PermissionGroup (v1.40.0, renamed from UserGroup in v1.42.0)

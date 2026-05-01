@@ -88,6 +88,39 @@ export async function clearPermission(formData: FormData) {
   revalidatePath("/settings");
 }
 
+// v1.45.0: bulk-clear every per-user override for one user. The new
+// MemberOverridesBlock surfaces a "Clear all overrides" button per
+// user — for the case where a couple wants to reset someone back to
+// pure group-inheritance without ticking through 12 sections.
+// Couple-only, audited with the cleared-section count + the prior
+// levels for forensic recoverability.
+export async function clearAllUserOverrides(userId: string): Promise<{ ok: true; cleared: number } | { ok: false; error: string }> {
+  const user = await requireEdit("settings");
+  if (!user.isCouple) {
+    await audit(user, {
+      action: "settings_denied",
+      entity: "User",
+      entityId: userId,
+      metadata: { reason: "not_couple", target_action: "clearAllUserOverrides" },
+    });
+    return { ok: false, error: "Forbidden: only the couple can change permissions" };
+  }
+  const before = await db.permission.findMany({ where: { userId } });
+  if (before.length === 0) return { ok: true, cleared: 0 };
+  await db.permission.deleteMany({ where: { userId } });
+  await audit(user, {
+    action: "permission-clear-all",
+    entity: "User",
+    entityId: userId,
+    metadata: {
+      cleared: before.length,
+      sections: before.map((p) => `${p.section}=${p.level}`).join(", "),
+    },
+  });
+  revalidatePath("/settings");
+  return { ok: true, cleared: before.length };
+}
+
 export async function setUserCouple(userId: string, isCouple: boolean) {
   const user = await requireEdit("settings");
   // The self-elevation vector. Without this isCouple gate, a non-couple

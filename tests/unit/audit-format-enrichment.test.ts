@@ -368,6 +368,26 @@ describe("formatAuditAction — v1.39.0 enrichment", () => {
         }),
       ).toBe("Cleared per-user override on guests — inherits from group");
     });
+
+    it("permission-clear-all surfaces the section count", () => {
+      expect(
+        formatAuditAction({
+          action: "permission-clear-all",
+          entity: "User",
+          metadata: { cleared: 5, sections: "tasks=VIEW, songs=EDIT, ..." },
+        }),
+      ).toBe("Cleared all per-user overrides (5 sections) — user inherits from groups now");
+    });
+
+    it("permission-clear-all with one section pluralises correctly", () => {
+      expect(
+        formatAuditAction({
+          action: "permission-clear-all",
+          entity: "User",
+          metadata: { cleared: 1, sections: "tasks=VIEW" },
+        }),
+      ).toBe("Cleared all per-user overrides (1 section) — user inherits from groups now");
+    });
   });
 
   describe("PermissionGroup (v1.40.0, renamed in v1.42.0)", () => {
