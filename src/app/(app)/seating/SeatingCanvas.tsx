@@ -489,6 +489,24 @@ export function SeatingCanvas({
     | null
   >(null);
   const [focusedId, setFocusedId] = useState<string | null>(null);
+  // v1.57.0 (XL11): on mount, honour `#table-<id>` URL fragment from
+  // a deep-link (guest list / detail page chip → /seating). Sets the
+  // focused table so the existing focus chrome (highlight + sidebar
+  // panel) does the work; planner sees their target without scrolling
+  // through 20 tables. One-shot: only fires on first mount, ignores
+  // hash changes thereafter (the user isn't expected to type fragments
+  // by hand).
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const hash = window.location.hash;
+    const m = /^#table-(.+)$/.exec(hash);
+    if (!m) return;
+    const targetId = m[1] ?? "";
+    if (targetId && initialTables.some((t) => t.id === targetId)) {
+      setFocusedId(targetId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   // v1.27.7: focused-guest state for the GuestDetailPanel that opens
   // when the planner clicks (no drag) a seated guest dot. Mutually
   // exclusive with focused-table — selecting a guest closes any

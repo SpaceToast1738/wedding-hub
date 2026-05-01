@@ -30,7 +30,19 @@ function num(d: { toString: () => string } | null | undefined): number {
   return isNaN(n) ? 0 : n;
 }
 
-export function BudgetClient({ categories, suppliers }: { categories: Category[]; suppliers: Supplier[] }) {
+// v1.57.0 (XL5): map of budgetLineId → BUILD card so each LineRow
+// can render a deep-link chip back to the source card.
+type BuildCardLink = { sectionSlug: string; subsectionSlug: string; title: string };
+
+export function BudgetClient({
+  categories,
+  suppliers,
+  buildCardByLineId = {},
+}: {
+  categories: Category[];
+  suppliers: Supplier[];
+  buildCardByLineId?: Record<string, BuildCardLink>;
+}) {
   const totals = categories.reduce(
     (acc, c) => {
       for (const l of c.lines) {
@@ -54,7 +66,7 @@ export function BudgetClient({ categories, suppliers }: { categories: Category[]
           </p>
         ) : (
           categories.map((c) => (
-            <CategoryBlock key={c.id} category={c} suppliers={suppliers} />
+            <CategoryBlock key={c.id} category={c} suppliers={suppliers} buildCardByLineId={buildCardByLineId} />
           ))
         )}
         <AddCategory />
@@ -123,7 +135,15 @@ function SummaryBar({ totals, remaining }: { totals: { estimated: number; actual
   );
 }
 
-function CategoryBlock({ category, suppliers }: { category: Category; suppliers: Supplier[] }) {
+function CategoryBlock({
+  category,
+  suppliers,
+  buildCardByLineId = {},
+}: {
+  category: Category;
+  suppliers: Supplier[];
+  buildCardByLineId?: Record<string, BuildCardLink>;
+}) {
   const [adding, setAdding] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [pending, startTransition] = useTransition();
@@ -201,7 +221,7 @@ function CategoryBlock({ category, suppliers }: { category: Category; suppliers:
           </thead>
           <tbody>
             {category.lines.map((l) => (
-              <LineRow key={l.id} line={l} categoryId={category.id} suppliers={suppliers} />
+              <LineRow key={l.id} line={l} categoryId={category.id} suppliers={suppliers} buildCard={buildCardByLineId[l.id]} />
             ))}
             {category.lines.length === 0 && !adding && (
               <tr>
@@ -225,7 +245,17 @@ function CategoryBlock({ category, suppliers }: { category: Category; suppliers:
   );
 }
 
-function LineRow({ line, categoryId, suppliers }: { line: Line; categoryId: string; suppliers: Supplier[] }) {
+function LineRow({
+  line,
+  categoryId,
+  suppliers,
+  buildCard,
+}: {
+  line: Line;
+  categoryId: string;
+  suppliers: Supplier[];
+  buildCard?: BuildCardLink;
+}) {
   const [editing, setEditing] = useState(false);
   const [pending, startTransition] = useTransition();
   const supplierName = line.supplierId ? suppliers.find((s) => s.id === line.supplierId)?.name : null;
@@ -275,7 +305,21 @@ function LineRow({ line, categoryId, suppliers }: { line: Line; categoryId: stri
   return (
     <tr className="border-b border-border-soft last:border-b-0 hover:bg-muted/30">
       <td className="px-4 py-2">
-        <div className="text-sm text-ink-primary">{line.description}</div>
+        <div className="text-sm text-ink-primary flex items-baseline gap-2 flex-wrap">
+          <span>{line.description}</span>
+          {/* v1.57.0 (XL5): chip linking back to the source BUILD
+              card when this line was created via "Copy materials to
+              Budget" (v1.31.0). */}
+          {buildCard && (
+            <a
+              href={`/book/${buildCard.sectionSlug}#${buildCard.subsectionSlug}`}
+              className="text-[10px] text-info bg-[color:#eef4f5] dark:bg-muted border border-[color:#d0e4e8] dark:border-border-soft px-1 rounded hover:underline"
+              title={`Linked from DIY card: ${buildCard.title}`}
+            >
+              ↗ DIY · {buildCard.title}
+            </a>
+          )}
+        </div>
         {line.notes && <div className="text-xs text-ink-tertiary line-clamp-1">{line.notes}</div>}
       </td>
       <td className="px-4 py-2 text-right text-sm text-ink-secondary tabular-nums">{formatMoneyDecimal(line.estimated)}</td>

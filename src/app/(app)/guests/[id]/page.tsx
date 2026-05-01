@@ -101,7 +101,11 @@ export default async function GuestDetailPage({
     {
       label: "Table",
       value: guest.tableSeat ? (
-        <Link href="/seating" className="text-info hover:underline" title="Open seating canvas">
+        <Link
+          href={`/seating#table-${guest.tableSeat.table.id}`}
+          className="text-info hover:underline"
+          title="Open seating canvas"
+        >
           {guest.tableSeat.table.name} · seat {guest.tableSeat.index + 1}
         </Link>
       ) : (
@@ -488,7 +492,7 @@ export default async function GuestDetailPage({
               <div className="flex items-center gap-3">
                 {editable && <AddSongRequestInline guestId={guest.id} />}
                 {guest.songRequests.length > 0 && (
-                  <Link href="/songs" className="text-[11px] text-info hover:underline">
+                  <Link href={`/songs?guest=${guest.id}`} className="text-[11px] text-info hover:underline">
                     Manage on Songs →
                   </Link>
                 )}

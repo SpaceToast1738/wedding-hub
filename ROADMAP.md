@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.56.0** | 2026-05-01 | [Add-New affordances normalised to **popout modal** (reverses v1.55.0). User clarification: "I want the screens to popout". New shared `AddNewModal` wrapper centralises the centred-card + backdrop + Esc/× dismissal pattern. AddTaskToggle, AddEventToggle, AddHouseholdToggle, AddSupplierToggle, AddPlaylistToggle, AddTableToggle, AddPaymentToggle, AddSectionToggle, AddSubsectionToggle all use it.](#2026-05-01--v1560--add-new-affordances-popout-modal) |
+| **v1.57.0** | 2026-05-01 | [Cross-link sweep (XL3, XL5, XL8, XL9, XL10, XL11) — household cards summarise table seating, /budget rows show BUILD-card source chips, /payments + /songs accept supplier/guest deep-link filters, Today list surfaces topic chips next to titles, /seating honours #table-<id> fragments. XL1/2/4/6/7 deferred to v1.58.0 (need schema or larger scope).](#2026-05-01--v1570--cross-link-sweep) |
+| v1.56.0 | 2026-05-01 | [Add-New affordances normalised to **popout modal** (reverses v1.55.0). User clarification: "I want the screens to popout". New shared `AddNewModal` wrapper centralises the centred-card + backdrop + Esc/× dismissal pattern. AddTaskToggle, AddEventToggle, AddHouseholdToggle, AddSupplierToggle, AddPlaylistToggle, AddTableToggle, AddPaymentToggle, AddSectionToggle, AddSubsectionToggle all use it.](#2026-05-01--v1560--add-new-affordances-popout-modal) |
 | v1.55.0 | 2026-05-01 | [Add-New affordances normalised to inline-expand. `AddTaskToggle` and `AddEventToggle` were the last two pages still using the v1.27.0 fixed-position popover-modal pattern. Converted to the inline-expand card pattern every other page uses (AddHouseholdToggle, AddSupplierToggle, AddPlaylistToggle, AddTableToggle, AddPaymentToggle, AddSection/SubsectionToggle). Same UX everywhere: button → in-place form-card.](#2026-05-01--v1550--add-new-affordances-normalised) |
 | v1.54.1 | 2026-05-01 | [Daily bug-check schedule — new `.github/workflows/daily-bug-check.yml` runs at 08:23 UTC every morning: `npm audit` (high+ fails the run), `npm outdated` (informational), TODO/FIXME accumulator, schema/migration drift check, `prisma format --check`. Findings show on the repo's red-❌ indicator; no notifications. Companion in-session Claude review cron fires at 09:17 local daily for the lifetime of the dev shell.](#2026-05-01--v1541--daily-bug-check-schedule) |
 | v1.54.0 | 2026-05-01 | [🟡 Notable review fixes (A6–A10, B2–B5, B3 enrichment, C3–C6) — section enum on per-user perms, transactional clearAll, requireEdit gate on book visibility, deprecated `setCeremonyRowGroup` removed, bootstrap-couple race tightened, ceremony revalidatePath fixed, dead code purged, audit-log enrichment on Book CRUD + permission writes including `priorLevel`, reorder buttons (▲▼) on Permission groups + Nav tags, PageLinkedTasksStrip header treatment, `+ Add group` chip relocated.](#2026-05-01--v1540--notable-review-fixes) |
@@ -852,6 +853,34 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-05-01 · v1.57.0 — Cross-link sweep
+
+User: "cross link sweep". 6 of the 11 🟢 cross-link opportunities from the v1.52.1 review punch list, batched. The other 5 (XL1, XL2, XL4, XL6, XL7) deferred to v1.58.0 because they need either schema work or larger refactors.
+
+**XL3 — household card table summary** (`HouseholdBlock.tsx`). The header line under each household name already shows attending/declined/pending counts; v1.57.0 appends "seated at N tables (Top, Family-3)" when ≥1 guest has a `tableSeat`. Up to 3 table names listed; otherwise the count alone. Data was already on the page query (`tableSeat.table.name`); just dedupe + render.
+
+**XL5 — budget rows show source BUILD-card chip** (`budget/page.tsx` + `BudgetClient.tsx`). v1.31.0's "Copy materials to Budget" creates a `BookBuildCard.budgetLineId` link, but until now that relationship was only visible in the top-of-page "Linked from DIY" panel. Per-line rows showed nothing. Now each line with a back-link renders a small `↗ DIY · <Card title>` chip beside the description, deep-linking to `/book/<sectionSlug>#<subsectionSlug>`. Threaded as `Map<lineId, { sectionSlug, subsectionSlug, title }>` through `BudgetClient` → `CategoryBlock` → `LineRow`.
+
+**XL8 — /payments accepts `?supplier=<id>`** (`payments/page.tsx` + `suppliers/[id]/page.tsx`). Mirrors the `/tasks?supplier=<id>` pattern from v1.30.0. Filter banner shows "Filtered by supplier: <name>" with a Clear × link. Supplier detail page's "Manage on Payments →" link now passes `?supplier=<id>` instead of landing at the unfiltered list.
+
+**XL9 — /songs accepts `?guest=<id>`** (`songs/page.tsx` + `guests/[id]/page.tsx`). Filters the `GuestRequestsSection` to that guest's requests only. Note: the `Song` model has no FK to Guest (only `SongRequest.guestId` does), so playlists themselves keep showing the full curated list — only the requests panel narrows. Filter banner: "Showing requests by: <Name>" with a Clear × link. Guest detail's "Manage on Songs →" link now passes `?guest=<id>`.
+
+**XL10 — Today list surfaces topic chips** (`page.tsx` + `TodayTaskList.tsx`). The "My next tasks" column on the Today page showed bare titles. Now each task surfaces up to 2 topic labels (subsections > sections > nav-tag `#name`s, in priority order; "+N" if more) in muted moss-700 between the title and due date. Page query extended with `bookSections` / `bookSubsections` / `navTags` includes; client component takes an optional `topics?: string[]`.
+
+**XL11 — `/seating#table-<id>` fragment scroll** (`SeatingCanvas.tsx` + `HouseholdBlock.tsx` + `guests/[id]/page.tsx`). Pre-fix the `⊛ Top Table` chip on a guest list / detail page linked to `/seating` with no anchor — landing at the top of a 20-table layout. Now: chip URL is `/seating#table-<tableId>`; `SeatingCanvas` reads the fragment on mount and sets `focusedId` to the matching table, which triggers the existing focus chrome (highlight + sidebar panel). One-shot effect on first mount only.
+
+**Deferred to v1.58.0** (need either schema work or substantial cross-reference logic):
+
+- **XL1** — guest detail page surfacing tasks-via-groups. There's no `Task ↔ GuestGroup` relation; tasks link to BookSection / BookSubsection / NavTag. Surface needs an opinion on what "tasks for this guest's groups" means before code.
+- **XL2** — guest detail page surfacing files / budget-lines / STAY-card linkbacks. Guest has no direct File relation; STAY backlinks are already partially there. Worth a sweep of its own.
+- **XL4** — supplier detail page surfacing files + BUILD-card backlinks via `budgetLine.supplierId`. Cross-table join with no existing pattern; clean implementation.
+- **XL6** — book card surfacing linked suppliers / files / budget lines. Suppliers via `setupItem.source` (string match), files via where-stored-on-card relations. Requires per-kind logic.
+- **XL7** — TaskDrawer chip deep-links. Needs `slug` added to `BookSectionOpt` + `BookSubsectionOpt`, threaded from the task page loaders. Bounded but touches the picker shape and three pages.
+
+**Verified.** typecheck clean · lint clean · 542 tests · production build clean.
+
+Files: `src/app/(app)/guests/HouseholdBlock.tsx` (XL3 + XL11), `src/app/(app)/guests/[id]/page.tsx` (XL11 + songs/payments deep-links), `src/app/(app)/seating/SeatingCanvas.tsx` (XL11 fragment scroll), `src/app/(app)/payments/page.tsx` (XL8 supplier filter), `src/app/(app)/suppliers/[id]/page.tsx` (XL8 deep-link), `src/app/(app)/songs/page.tsx` (XL9 guest filter), `src/app/(app)/budget/page.tsx` (XL5 buildCardByLineId), `src/app/(app)/budget/BudgetClient.tsx` (XL5 LineRow chip), `src/app/(app)/page.tsx` (XL10 task topic include), `src/app/(app)/TodayTaskList.tsx` (XL10 topic chip render), `package.json` → `1.57.0`.
 
 ### 2026-05-01 · v1.56.0 — Add-New affordances popout modal
 

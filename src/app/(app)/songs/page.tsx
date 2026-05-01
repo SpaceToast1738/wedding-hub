@@ -9,12 +9,26 @@ import { AddPlaylistToggle } from "./AddPlaylistToggle";
 import { PlaylistCard } from "./PlaylistCard";
 import { GuestRequestsSection } from "./GuestRequestsSection";
 
-export default async function SongsPage() {
+// v1.57.0 (XL9): accepts `?guest=<id>` filter so a deep-link from
+// `/guests/[id]` lands at the relevant requests-by-this-guest view
+// instead of the unfiltered playlist firehose.
+export default async function SongsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ guest?: string }>;
+}) {
   const user = await requireUser();
   const editable = await canEdit(user, "songs");
   const spotifyEnabled = isSpotifyConfigured();
+  const sp = await searchParams;
+  const guestFilter = typeof sp.guest === "string" ? sp.guest : null;
 
-  const [playlists, guestRequests, navTagForPage] = await Promise.all([
+  // Note: `Song` has no FK to Guest — only `SongRequest.guestId` does.
+  // So the `?guest=<id>` filter scopes the **requests** panel only;
+  // playlists keep showing all curated songs. The filter is most
+  // useful coming from a guest detail page asking "what did they
+  // request?".
+  const [playlists, guestRequests, filteredGuest, navTagForPage] = await Promise.all([
     db.playlist.findMany({
       orderBy: [{ order: "asc" }, { createdAt: "asc" }],
       include: { songs: { orderBy: [{ order: "asc" }, { createdAt: "asc" }] } },
@@ -22,12 +36,22 @@ export default async function SongsPage() {
     // Imported / guest-submitted requests, only the unassigned ones (those
     // already attached to a playlist render via PlaylistCard above).
     db.songRequest.findMany({
-      where: { playlistId: null },
+      where: {
+        playlistId: null,
+        ...(guestFilter ? { guestId: guestFilter } : {}),
+      },
       orderBy: { createdAt: "asc" },
       include: {
         guest: { select: { id: true, firstName: true, lastName: true } },
       },
     }),
+    // Resolve the filter target's display name for the filter banner.
+    guestFilter
+      ? db.guest.findUnique({
+          where: { id: guestFilter },
+          select: { id: true, firstName: true, lastName: true },
+        })
+      : Promise.resolve(null),
     // v1.52.0 (backlog #7): the nav tag whose `route` matches this
     // page surfaces tasks linked to it as a strip below the header.
     db.navTag.findFirst({
@@ -95,6 +119,19 @@ export default async function SongsPage() {
           </>
         }
       />
+      {filteredGuest && (
+        <div className="bg-moss-50 border-b border-moss-300 px-4 sm:px-6 py-2 flex items-center gap-3 text-xs">
+          <span className="text-ink-secondary">
+            Showing requests by:{" "}
+            <strong className="text-ink-primary">
+              {filteredGuest.firstName} {filteredGuest.lastName}
+            </strong>
+          </span>
+          <Link href="/songs" className="text-info hover:underline ml-auto">
+            Clear ×
+          </Link>
+        </div>
+      )}
       {navTagForPage && (
         <PageLinkedTasksStrip
           tasks={linkedTasks}

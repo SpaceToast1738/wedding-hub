@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { PageHeader } from "@/components/ui/PageHeader";
@@ -9,13 +10,23 @@ import { EmptyPayments, EmptyState } from "@/components/ui/Illustrations";
 import { AddPaymentToggle } from "./AddPaymentToggle";
 import { PaymentRow } from "./PaymentRow";
 
-export default async function PaymentsPage() {
+// v1.57.0 (XL8): accepts `?supplier=<id>` filter — supplier-detail
+// "Manage on Payments →" deep-link now lands at the filtered list
+// instead of the unfiltered firehose. Pattern mirrors `/tasks`.
+export default async function PaymentsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ supplier?: string }>;
+}) {
   const user = await requireUser();
   if (!user.isCouple) redirect("/");
   const wedding = await getWeddingSettings();
+  const sp = await searchParams;
+  const supplierFilter = typeof sp.supplier === "string" ? sp.supplier : null;
 
   const [payments, suppliers] = await Promise.all([
     db.payment.findMany({
+      where: supplierFilter ? { supplierId: supplierFilter } : undefined,
       orderBy: [{ status: "asc" }, { dueDate: "asc" }, { createdAt: "desc" }],
     }),
     db.supplier.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
@@ -24,6 +35,9 @@ export default async function PaymentsPage() {
   const total = payments.reduce((sum, p) => sum + Number(p.amount.toString()), 0);
   const paid = payments.filter((p) => p.status === "PAID").reduce((sum, p) => sum + Number(p.amount.toString()), 0);
   const outstanding = total - paid;
+  const filteredSupplier = supplierFilter
+    ? suppliers.find((s) => s.id === supplierFilter)
+    : null;
 
   return (
     <>
@@ -37,6 +51,17 @@ export default async function PaymentsPage() {
           </div>
         }
       />
+      {filteredSupplier && (
+        <div className="bg-moss-50 border-b border-moss-300 px-4 sm:px-6 py-2 flex items-center gap-3 text-xs">
+          <span className="text-ink-secondary">
+            Filtered by supplier:{" "}
+            <strong className="text-ink-primary">{filteredSupplier.name}</strong>
+          </span>
+          <Link href="/payments" className="text-info hover:underline ml-auto">
+            Clear ×
+          </Link>
+        </div>
+      )}
       <div className="flex-1 overflow-auto payments-page">
         {/* v1.24.0: print-only letterhead. */}
         <div className="print-only-block max-w-6xl mx-auto px-6 pt-6 border-b-2 border-ink-primary pb-3 mb-6">

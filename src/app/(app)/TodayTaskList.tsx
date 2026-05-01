@@ -9,6 +9,10 @@ type Task = {
   title: string;
   priority: string;
   dueDate: Date | null;
+  // v1.57.0 (XL10): topic chips so daily-glance items carry the
+  // "what's this about" context — Wedding Book section names + nav
+  // tag names. Optional so older callers don't break.
+  topics?: string[];
 };
 
 // Per-priority dot colour — moss for HIGH/URGENT, marigold for MEDIUM,
@@ -104,7 +108,15 @@ export function TodayTaskList({ tasks }: { tasks: Task[] }) {
               className="cursor-pointer accent-moss-500 flex-shrink-0 disabled:cursor-wait disabled:opacity-50"
               aria-label={`Mark "${t.title}" done`}
             />
-            <span className="text-sm text-ink-primary flex-1 truncate">{t.title}</span>
+            <span className="text-sm text-ink-primary flex-1 min-w-0 truncate">
+              {t.title}
+              {t.topics && t.topics.length > 0 && (
+                <span className="ml-2 text-[10px] text-moss-700">
+                  {t.topics.slice(0, 2).join(" · ")}
+                  {t.topics.length > 2 && ` +${t.topics.length - 2}`}
+                </span>
+              )}
+            </span>
             <span
               className={[
                 "text-xs flex-shrink-0 tabular-nums",

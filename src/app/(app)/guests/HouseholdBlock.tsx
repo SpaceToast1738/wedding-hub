@@ -109,6 +109,17 @@ export function HouseholdBlock({
     { attending: 0, declined: 0, pending: 0 },
   );
 
+  // v1.57.0 (XL3): summarise where this household's members are
+  // seated. Each guest's `tableSeat.table.name` was already loaded on
+  // the page query; we just dedupe + render.
+  const tableNames = Array.from(
+    new Set(
+      household.guests
+        .map((g) => g.tableSeat?.table.name)
+        .filter((n): n is string => Boolean(n)),
+    ),
+  );
+
   function onDeleteHousehold() {
     if (household.guests.length > 0) {
       if (!confirm(`Household "${household.name}" has ${household.guests.length} guests. Delete everything?`)) return;
@@ -136,6 +147,13 @@ export function HouseholdBlock({
             {summary.attending > 0 && ` · ${summary.attending} attending`}
             {summary.declined > 0 && ` · ${summary.declined} declined`}
             {summary.pending > 0 && ` · ${summary.pending} pending`}
+            {tableNames.length > 0 && (
+              <>
+                {" · seated at "}
+                {tableNames.length} {tableNames.length === 1 ? "table" : "tables"}
+                {tableNames.length <= 3 && ` (${tableNames.join(", ")})`}
+              </>
+            )}
           </div>
         </div>
         {canEdit && (
@@ -283,7 +301,7 @@ export function HouseholdBlock({
             )}
             {guest.tableSeat && (
               <Link
-                href="/seating"
+                href={`/seating#table-${guest.tableSeat.table.id}`}
                 className="text-[10px] text-info bg-[color:#eef4f5] dark:bg-muted border border-[color:#d0e4e8] dark:border-border-soft px-1 rounded hover:underline"
                 title={`Seat ${guest.tableSeat.index + 1} on the seating canvas`}
               >

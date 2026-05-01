@@ -56,6 +56,23 @@ export default async function BudgetPage() {
         c.budgetLine!.estimated == null ? null : Number(c.budgetLine!.estimated),
     }));
 
+  // v1.57.0 (XL5): per-line BUILD-card linkback chip. Map<lineId,
+  // { sectionSlug, subsectionSlug, title }> threaded into LineRow so
+  // the row can render a deep-link to the source card. Pre-fix the
+  // top-of-page DIY panel was the only surface — line rows showed no
+  // sign of the relationship.
+  const buildCardByLineId = new Map<string, { sectionSlug: string; subsectionSlug: string; title: string }>();
+  for (const c of buildCardsWithBudget) {
+    if (c.budgetLineId) {
+      buildCardByLineId.set(c.budgetLineId, {
+        sectionSlug: c.subsection.section.slug,
+        subsectionSlug: c.subsection.slug,
+        title: c.subsection.title,
+      });
+    }
+  }
+  const buildCardByLineIdObj = Object.fromEntries(buildCardByLineId);
+
   return (
     <>
       <PageHeader
@@ -98,6 +115,7 @@ export default async function BudgetPage() {
           })),
         }))}
         suppliers={suppliers}
+        buildCardByLineId={buildCardByLineIdObj}
       />
       </div>
     </>

@@ -50,6 +50,15 @@ export default async function TodayPage() {
         type: "TASK",
       },
       orderBy: [{ dueDate: "asc" }, { createdAt: "asc" }],
+      // v1.57.0 (XL10): include topic relations so the Today list
+      // surfaces "Wedding Book — Ceremony" / "#guests" chips next to
+      // each task title. The bare title doesn't tell the daily-glance
+      // user which area of the wedding the task belongs to.
+      include: {
+        bookSections: { select: { title: true } },
+        bookSubsections: { select: { title: true } },
+        navTags: { select: { name: true } },
+      },
     }),
     // v1.19.0: total non-archived task count for the "See all N tasks →"
     // footer link in the column-2 card.
@@ -273,6 +282,15 @@ export default async function TodayPage() {
                     title: t.title,
                     priority: t.priority,
                     dueDate: t.dueDate,
+                    // v1.57.0 (XL10): flatten topic-relation labels
+                    // for the inline chip strip. Cards (subsections)
+                    // are more specific than sections, so we render
+                    // those first; sections + nav tags fill the rest.
+                    topics: [
+                      ...t.bookSubsections.map((s) => s.title),
+                      ...t.bookSections.map((s) => s.title),
+                      ...t.navTags.map((n) => `#${n.name}`),
+                    ],
                   }))}
                 />
                 <Link

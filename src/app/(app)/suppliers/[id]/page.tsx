@@ -303,7 +303,10 @@ export default async function SupplierDetailPage({
                   {supplier.payments.length}
                 </span>
               </h2>
-              <Link href="/payments" className="text-[11px] text-info hover:underline">
+              <Link
+                href={`/payments?supplier=${supplier.id}`}
+                className="text-[11px] text-info hover:underline"
+              >
                 Manage on Payments →
               </Link>
             </header>
