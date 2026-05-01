@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.45.2** | 2026-05-01 | [Role select in the per-user editor — `setUserRole` action drives membership in the role-based built-ins (Wedding party / Planners). Built-in member lists now print directive copy explaining how to change membership for each (toggle Couple-tier checkbox, change role, or remove the user) instead of opaque "not editable here". Last-admin lock extended to `setUserRole`.](#2026-05-01--v1452--role-select--directive-copy) |
+| **v1.46.0** | 2026-05-01 | [Group-coloured ceremony seating (backlog #5) — new `CeremonyRow` model maps `(side, rowIndex)` to a `GuestGroup`. Canvas tints every seat in an assigned row with the group's colour and overlays a glyph (first letter) for colour-blind accessibility. Couple-only Row Assignments panel below the SVG; legend lists groups in use with row + member counts.](#2026-05-01--v1460--group-coloured-ceremony-seating) |
+| v1.45.2 | 2026-05-01 | [Role select in the per-user editor — `setUserRole` action drives membership in the role-based built-ins (Wedding party / Planners). Built-in member lists now print directive copy explaining how to change membership for each (toggle Couple-tier checkbox, change role, or remove the user) instead of opaque "not editable here". Last-admin lock extended to `setUserRole`.](#2026-05-01--v1452--role-select--directive-copy) |
 | v1.45.1 | 2026-05-01 | [Last-admin lock + duplicate-name disambiguator. `setUserCouple` and `removeUser` server-side refuse to leave the running session with zero couple-tier admins; the UI shows a 🔒 chip on the last couple-tier user and disables their toggle/remove. Member lists now show email next to display name so two accounts sharing a name are distinguishable.](#2026-05-01--v1451--last-admin-lock--name-disambiguator) |
 | v1.45.0 | 2026-05-01 | [Per-user editor — replace dense PermissionMatrix table with one expandable card per user (matching the spacing of PermissionGroupsBlock). Each card shows group memberships (toggleable for custom groups, read-only chips for built-ins), per-section overrides (default off; tick to override), couple toggle, and remove. New `clearAllUserOverrides` bulk-clear button per user.](#2026-05-01--v1450--per-user-editor) |
 | v1.44.0 | 2026-05-01 | [Settings UX overhaul — per-user override matrix is now checkbox-driven (default = inherit from group; tick to override). Page panels grouped under named sections (Your account · Wedding details · Customisation · Access & members · Notifications & log) so the long stream of cards reads as a document with chapters. New `clearPermission` action deletes the override row when unticked.](#2026-05-01--v1440--settings-ux-overhaul) |
@@ -763,6 +764,68 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-05-01 · v1.46.0 — Group-coloured ceremony seating
+
+User: "Lets go number 5". Backlog item #5 — group-coloured ceremony seating, foundation laid in v1.42.0 (`GuestGroup.colour` field + custom guest groups seeded with hex colours).
+
+The right shape for this is **row-level assignment**, not per-seat. Ceremony seating is allocated by row in real life — "front row left = immediate family, second row left = aunts & uncles, etc.". Per-seat granularity would require building reception-style drag-and-drop seating from scratch; per-row maps cleanly onto the existing layout config without that lift.
+
+**Schema** (`prisma/schema.prisma`).
+
+New `CeremonyRow` model: `(side, rowIndex, guestGroupId?, notes?)`. `(side, rowIndex)` is unique — one assignment per row. `side` stored as String (`"LEFT" | "RIGHT"`) not enum to keep labelling configurable in future without a migration. `guestGroupId` is an optional FK to `GuestGroup` with `ON DELETE SET NULL` — deleting a group clears the row assignment but never deletes the row record itself; the canvas falls back to the neutral fill. Index on `guestGroupId` for the legend's "rows used" lookup.
+
+`GuestGroup` gains a `ceremonyRows: CeremonyRow[]` back-relation so the legend can count rows per group without a second query.
+
+Migration `20260503000000_ceremony_row_groups/migration.sql` is purely additive: one `CREATE TABLE` + unique index + lookup index + FK constraint.
+
+**Server action** (`src/app/(app)/seating/actions.ts`).
+
+New `setCeremonyRowGroup({ side, rowIndex, guestGroupId, notes? })`. Behaviour:
+
+- Bounds check against `CeremonySeating.leftRows` / `rightRows` — out-of-range row indices reject with a clear error (defensive belt-and-braces; UI doesn't render those rows but a forged client could try).
+- Resolves the group's display name + colour for the audit row before writing, and rejects if the FK target doesn't exist.
+- When `guestGroupId === null` and no notes — deletes the row entirely (no row = no colour tint).
+- Otherwise upserts against the `(side, rowIndex)` unique constraint.
+- Audit metadata: `{ side, rowIndex, guestGroupId, groupName, groupColour, notes }` with action `"ceremony-row-assign"` or `"ceremony-row-clear"`.
+
+Couple-edit gated via the existing `requireEdit("seating")`.
+
+**Canvas** (`src/app/(app)/seating/ceremony/CeremonyClient.tsx`).
+
+The SVG was just a grid of generic moss-green dots before. Now each row resolves through a `rowFill(side, rowIndex)` helper that returns the assigned group's colour + a single-character glyph (first letter of the group name, uppercased, in white on the dot). Falls back to the neutral moss palette when the row is unassigned. Seat radius bumped from 14 to 18 so the glyph is legible at typical zoom levels. Each dot's `<title>` carries the full group name for SVG hover tooltips.
+
+The new **Legend** below the canvas lists every group used in row assignments with its colour swatch, name, "N rows", and member count from the GuestGroup. Hidden when no rows are assigned (replaced by an inline hint pointing at the Row Assignments panel below).
+
+The new **Row Assignments panel** is the editor — couple-only. Two columns (Left side / Right side), each row 0..N-1 listed with a swatch + dropdown to assign or clear. Row 0 is labelled `Row 1 (front)` so the human numbering matches what the couple says aloud. Empty state: "No guest groups exist yet — add one in Settings to start colour-coding rows" with a deep link to Settings.
+
+**Seed** (`prisma/seed.ts`).
+
+New `seedCeremonyRowAssignments()` — idempotent. Pre-seeds two example rows on a fresh DB so the canvas immediately shows the colour-coded shape:
+
+- Left side, row 0 → Olwyn-Davis extended family (#c79a91, bride's side rose)
+- Right side, row 0 → Spencer extended family (#7c9c8f, groom's side sage)
+
+Skips writing if the (side, rowIndex) row already exists, so manual edits via the Settings UI survive a `db:seed` rerun.
+
+**Audit format** (`src/lib/audit-format.ts`).
+
+New `CeremonyRow`-entity patterns: `Assigned left row 1 to "Olwyn-Davis extended family"` and `Cleared right row 5`. Critically the row index is **1-based** in the audit log — the schema is 0-indexed but the human-facing audit row should match what the couple sees in the UI ("Row 1 (front)").
+
+Entity label map gains `CeremonyRow: "ceremony row"` for the entity column.
+
+**Tests.** `tests/unit/audit-format-enrichment.test.ts` gains 3 cases for the new patterns: assign with side + row + group; clear with side + row; 0→1 indexing edge case (rowIndex 7 displays as row 8). 516 tests pass (513 → 516).
+
+**Open design questions from the v1.42.0 ROADMAP entry, addressed here:**
+
+- *Q9 default group palette + custom colours.* GuestGroup.colour is a free hex picker (v1.42.0); default seeded values (#c79a91 / #7c9c8f) demonstrate.
+- *Q10 colour-blind accessibility — small text or icon hint per seat.* Glyph (first letter of group name) overlays each tinted seat in white. Same pattern as the reception canvas's RSVP-status glyphs.
+- *Q3 auto-pack vs manual overrides.* Skipped — neither auto-packing nor per-seat overrides shipped. Per-row assignments are the granularity for now; per-seat can layer on later if needed.
+- *Q1 m2o vs m2m.* The v1.42.0 schema went m2m for `Guest.groups`, but `CeremonyRow.guestGroup` is m2o (one group per row). That matches the row-level allocation semantics.
+
+**Verified.** typecheck clean · lint clean · 516 tests · production build clean.
+
+Files: `prisma/schema.prisma` (new `CeremonyRow` model + `GuestGroup.ceremonyRows` back-relation), `prisma/migrations/20260503000000_ceremony_row_groups/migration.sql`, `src/app/(app)/seating/actions.ts` (new `setCeremonyRowGroup`), `src/app/(app)/seating/ceremony/page.tsx` (load rows + groups in parallel), `src/app/(app)/seating/ceremony/CeremonyClient.tsx` (canvas tint + glyph + legend + Row Assignments panel), `src/lib/audit-format.ts` (entity label + new patterns), `prisma/seed.ts` (`seedCeremonyRowAssignments`), tests, `package.json` → `1.46.0`.
 
 ### 2026-05-01 · v1.45.2 — Role select + directive copy
 

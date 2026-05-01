@@ -415,6 +415,45 @@ describe("formatAuditAction — v1.39.0 enrichment", () => {
     });
   });
 
+  describe("CeremonyRow (v1.46.0)", () => {
+    it("ceremony-row-assign surfaces side + row + group", () => {
+      expect(
+        formatAuditAction({
+          action: "ceremony-row-assign",
+          entity: "CeremonyRow",
+          metadata: {
+            side: "LEFT",
+            rowIndex: 0,
+            groupName: "Olwyn-Davis extended family",
+            groupColour: "#c79a91",
+          },
+        }),
+      ).toBe(`Assigned left row 1 to "Olwyn-Davis extended family"`);
+    });
+
+    it("ceremony-row-clear surfaces side + row", () => {
+      expect(
+        formatAuditAction({
+          action: "ceremony-row-clear",
+          entity: "CeremonyRow",
+          metadata: { side: "RIGHT", rowIndex: 4 },
+        }),
+      ).toBe("Cleared right row 5");
+    });
+
+    it("ceremony-row-assign uses 1-based display index", () => {
+      // Schema rowIndex is 0-indexed; the audit log surfaces a
+      // human 1-based number so it reads naturally.
+      expect(
+        formatAuditAction({
+          action: "ceremony-row-assign",
+          entity: "CeremonyRow",
+          metadata: { side: "LEFT", rowIndex: 7, groupName: "Bride's side" },
+        }),
+      ).toBe(`Assigned left row 8 to "Bride's side"`);
+    });
+  });
+
   describe("PermissionGroup (v1.40.0, renamed in v1.42.0)", () => {
     it("create", () => {
       expect(

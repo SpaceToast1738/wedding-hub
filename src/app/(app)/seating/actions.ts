@@ -503,3 +503,99 @@ export async function updateCeremonySeating(formData: FormData): Promise<SaveRes
     return { ok: false, error: msg };
   }
 }
+
+// v1.46.0: assign a guest group to one row of the ceremony canvas.
+// Pass `guestGroupId: null` to clear the assignment (drops the row).
+//
+// `(side, rowIndex)` is unique. Server-side bounds check against the
+// CeremonySeating row counts so a row past the configured layout
+// can't be assigned (UI shouldn't render those, but defensive belt
+// and braces).
+const ceremonyRowSchema = z.object({
+  side: z.enum(["LEFT", "RIGHT"]),
+  rowIndex: z.coerce.number().int().min(0).max(99),
+  guestGroupId: z.string().min(1).nullable(),
+  notes: z.string().max(500).nullable().optional(),
+});
+
+export async function setCeremonyRowGroup(input: {
+  side: "LEFT" | "RIGHT";
+  rowIndex: number;
+  guestGroupId: string | null;
+  notes?: string | null;
+}): Promise<SaveResult> {
+  const user = await requireEdit("seating");
+  try {
+    const parsed = ceremonyRowSchema.parse(input);
+
+    // Bounds check: the configured row count caps how many rows
+    // exist on this side. Reject assignments beyond that — the UI
+    // doesn't render those rows so an out-of-range request is
+    // certainly a forged client.
+    const layout = await db.ceremonySeating.findUnique({ where: { id: 1 } });
+    const maxRows = parsed.side === "LEFT"
+      ? (layout?.leftRows ?? 8)
+      : (layout?.rightRows ?? 8);
+    if (parsed.rowIndex >= maxRows) {
+      return {
+        ok: false,
+        error: `Row ${parsed.rowIndex + 1} is past the configured ${parsed.side.toLowerCase()} side limit (${maxRows}).`,
+      };
+    }
+
+    // Resolve the group display name for the audit log + verify
+    // the group exists.
+    let groupName: string | null = null;
+    let groupColour: string | null = null;
+    if (parsed.guestGroupId) {
+      const g = await db.guestGroup.findUnique({
+        where: { id: parsed.guestGroupId },
+        select: { name: true, colour: true },
+      });
+      if (!g) return { ok: false, error: "Group not found" };
+      groupName = g.name;
+      groupColour = g.colour;
+    }
+
+    if (parsed.guestGroupId === null && (parsed.notes === undefined || parsed.notes === null)) {
+      // Pure clear — delete the row entirely.
+      await db.ceremonyRow.deleteMany({
+        where: { side: parsed.side, rowIndex: parsed.rowIndex },
+      });
+    } else {
+      await db.ceremonyRow.upsert({
+        where: { side_rowIndex: { side: parsed.side, rowIndex: parsed.rowIndex } },
+        create: {
+          side: parsed.side,
+          rowIndex: parsed.rowIndex,
+          guestGroupId: parsed.guestGroupId,
+          notes: parsed.notes ?? null,
+        },
+        update: {
+          guestGroupId: parsed.guestGroupId,
+          notes: parsed.notes ?? null,
+        },
+      });
+    }
+
+    await audit(user, {
+      action: parsed.guestGroupId ? "ceremony-row-assign" : "ceremony-row-clear",
+      entity: "CeremonyRow",
+      entityId: `${parsed.side}-${parsed.rowIndex}`,
+      metadata: {
+        side: parsed.side,
+        rowIndex: parsed.rowIndex,
+        guestGroupId: parsed.guestGroupId,
+        groupName,
+        groupColour,
+        notes: parsed.notes ?? null,
+      },
+    });
+    revalidatePath("/seating/ceremony");
+    return { ok: true };
+  } catch (err) {
+    console.error("setCeremonyRowGroup failed", err);
+    const msg = err instanceof Error ? err.message : "Unknown error";
+    return { ok: false, error: msg };
+  }
+}

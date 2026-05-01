@@ -1056,17 +1056,20 @@ model PermissionGroup {
 // seating canvas to colour-code rows / dots. Null = use the default
 // neutral colour — couple sets the value via the Settings UI.
 model GuestGroup {
-  id          String   @id @default(cuid())
-  slug        String   @unique
-  name        String
-  description String?  @db.Text
+  id            String         @id @default(cuid())
+  slug          String         @unique
+  name          String
+  description   String?        @db.Text
   /// Hex string like "#a3c9a8" (with leading #). Null = no colour set.
   /// Used by the ceremony seating canvas for colour-coded rows.
-  colour      String?
-  order       Int      @default(0)
-  members     Guest[]  @relation("GuestGroupMembers")
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  colour        String?
+  order         Int            @default(0)
+  members       Guest[]        @relation("GuestGroupMembers")
+  /// v1.46.0: rows of ceremony seats assigned to this group.
+  /// Cleared (SetNull) if the group is deleted.
+  ceremonyRows  CeremonyRow[]
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
 }
 
 // v1.30.5: PhotographyShot dropped. Data was migrated to BookShot under
@@ -1337,4 +1340,38 @@ model CeremonySeating {
   rightSeatsRow Int      @default(8)
   notes         String?
   updatedAt     DateTime @updatedAt
+}
+
+// v1.46.0: per-row group assignments for the ceremony seating canvas.
+//
+// Ceremony seating is allocated by row, not per-seat — couples typically
+// say "front row left = immediate family, second row left = aunts &
+// uncles, etc.". This model maps `(side, rowIndex)` to an optional
+// `GuestGroup`; the canvas tints every seat in the row with the group's
+// `colour` and surfaces a glyph (first letter of group name) for
+// colour-blind accessibility.
+//
+// `side` is "LEFT" or "RIGHT" stored as String (not enum) — keeps the
+// labelling configurable in future without a schema migration.
+//
+// `rowIndex` is 0-indexed, 0 = front row (closest to altar). Bounds
+// validated by the server action against `CeremonySeating.leftRows` /
+// `rightRows`; UI doesn't render rows past those counts.
+//
+// `(side, rowIndex)` is unique — at most one assignment per row.
+//
+// `notes` is free-text, for hints like "Reserved for the bride's
+// godparents" that don't fit a group.
+model CeremonyRow {
+  id            String       @id @default(cuid())
+  side          String       // "LEFT" | "RIGHT"
+  rowIndex      Int          // 0-indexed, 0 = front
+  guestGroupId  String?
+  guestGroup    GuestGroup?  @relation(fields: [guestGroupId], references: [id], onDelete: SetNull)
+  notes         String?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  @@unique([side, rowIndex])
+  @@index([guestGroupId])
 }

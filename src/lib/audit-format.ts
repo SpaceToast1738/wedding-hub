@@ -76,6 +76,7 @@ function entityLabel(entity: string): string {
     CustomField: "custom field",
     WeddingSettings: "wedding settings",
     CeremonySeating: "ceremony layout",
+    CeremonyRow: "ceremony row",
     PermissionGroup: "permission group",
     GuestGroup: "guest group",
   };
@@ -575,6 +576,22 @@ export function formatAuditAction(row: AuditRow): string {
     if (a === "set-role" && role) {
       const name = asString(meta.name) ?? asString(meta.email);
       return `Set role to ${role}${priorRole ? ` (was ${priorRole})` : ""}${name ? ` for ${name}` : ""}`;
+    }
+  }
+
+  // CeremonyRow (v1.46.0) — per-row group assignment in the ceremony
+  // seating canvas. Audit metadata carries side + rowIndex +
+  // groupName so the log is readable without re-resolving the FK.
+  if (row.entity === "CeremonyRow") {
+    const side = asString(meta.side);
+    const rowIndex = asNumber(meta.rowIndex);
+    const groupName = asString(meta.groupName);
+    const sideLabel = side === "LEFT" ? "left" : side === "RIGHT" ? "right" : null;
+    if (a === "ceremony-row-assign" && sideLabel && rowIndex !== null && groupName) {
+      return `Assigned ${sideLabel} row ${rowIndex + 1} to ${quoted(groupName)}`;
+    }
+    if (a === "ceremony-row-clear" && sideLabel && rowIndex !== null) {
+      return `Cleared ${sideLabel} row ${rowIndex + 1}`;
     }
   }
 
