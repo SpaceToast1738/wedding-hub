@@ -137,7 +137,10 @@ export function PermissionGroupsBlock({
         <div>
           <h2 className="text-sm font-semibold text-ink-primary">Permission groups</h2>
           <p className="text-xs text-ink-tertiary mt-0.5">
-            Bundle <strong>app users</strong> (the people who log in) and assign per-section permissions to the bundle. Members inherit the group&apos;s level — the resolver takes the max across every group a user belongs to. Built-ins (Everyone / Couple / Wedding party / Planners) compute their <em>members</em> from each user&apos;s role, but their <em>permissions</em> are editable here. For organising <strong>wedding guests</strong>, see the next panel.
+            Assign per-section permissions to a group; members inherit the
+            max across every group they belong to. Built-ins (Everyone /
+            Couple / Wedding party / Planners) compute their members from
+            each user&apos;s role.
           </p>
         </div>
         {!adding && (
@@ -154,6 +157,7 @@ export function PermissionGroupsBlock({
           {builtins.map((b) => {
             const groupKey = `builtin:${b.slug}`;
             const permsOpen = openPermsKey === groupKey;
+            const membersOpen = openGroupId === groupKey;
             return (
               <li key={b.slug}>
                 <div className="flex items-baseline gap-2">
@@ -166,6 +170,14 @@ export function PermissionGroupsBlock({
                   <span className="text-[10px] text-ink-tertiary tabular-nums w-20 text-right">
                     {b.members.length} {b.members.length === 1 ? "member" : "members"}
                   </span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setOpenGroupId(membersOpen ? null : groupKey)}
+                    disabled={pending}
+                  >
+                    {membersOpen ? "Hide" : "Members"}
+                  </Button>
                   <Button
                     variant="ghost"
                     size="sm"
@@ -183,6 +195,22 @@ export function PermissionGroupsBlock({
                     pending={pending}
                     onSet={onSetPerm}
                   />
+                )}
+                {membersOpen && (
+                  <div className="mt-1.5 ml-3 pl-3 border-l border-border-soft">
+                    <p className="text-[10px] uppercase tracking-wider text-ink-tertiary font-bold mb-1">
+                      Members ({b.members.length}) — computed from each user&apos;s role; not editable here
+                    </p>
+                    {b.members.length === 0 ? (
+                      <p className="text-xs text-ink-tertiary italic">No matching users.</p>
+                    ) : (
+                      <ul className="grid grid-cols-1 sm:grid-cols-2 gap-y-0.5 text-sm">
+                        {b.members.map((m) => (
+                          <li key={m.id} className="text-ink-secondary truncate">{m.name}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
                 )}
               </li>
             );
@@ -205,20 +233,27 @@ export function PermissionGroupsBlock({
           ) : (
             <li key={g.id} className="px-4 py-2.5">
               <div className="flex items-baseline gap-3">
-                <button
-                  type="button"
-                  onClick={() => setOpenGroupId(openGroupId === g.id ? null : g.id)}
-                  className="text-sm font-medium text-ink-primary hover:text-moss-700 flex-1 min-w-0 truncate text-left"
-                  title="Click to expand member list"
-                >
-                  {openGroupId === g.id ? "▾" : "▸"} {g.name}
-                </button>
+                <span className="text-sm font-medium text-ink-primary flex-1 min-w-0 truncate">
+                  {g.name}
+                </span>
                 <span className="text-[10px] uppercase tracking-wider text-ink-tertiary font-mono">
                   group:{g.slug}
                 </span>
                 <span className="text-[10px] text-ink-tertiary tabular-nums w-20 text-right">
                   {g.members.length} {g.members.length === 1 ? "member" : "members"}
                 </span>
+                {/* v1.43.1: explicit Members + Permissions toggles.
+                    Members used to live behind clicking the group
+                    title — easy to miss. Now both surfaces are
+                    visible buttons in the row. */}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setOpenGroupId(openGroupId === g.id ? null : g.id)}
+                  disabled={pending}
+                >
+                  {openGroupId === g.id ? "Hide" : "Members"}
+                </Button>
                 <Button
                   variant="ghost"
                   size="sm"

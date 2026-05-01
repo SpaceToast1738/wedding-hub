@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.43.0** | 2026-05-01 | [Group-driven permissions — new `GroupPermission` table attaches per-section levels to each `PermissionGroup` (built-in + custom). Effective level = `max(group, override)` per section; per-user `Permission` rows demoted to an "advanced overrides" panel. Built-in groups now editable for permissions (members still computed from role). Sensible seed defaults on couple / wedding-party / planners.](#2026-05-01--v1430--group-driven-permissions) |
+| **v1.43.1** | 2026-05-01 | [Settings UX patch — explicit `Members` button on every permission group (was hidden behind clicking the title); read-only member list on built-in groups; dropped the sticky `<thead>` + nested-card styling on the per-user override matrix that was causing runaway-scroll feel inside the new collapsed panel. Trimmed wall-of-text description copy.](#2026-05-01--v1431--settings-ux-patch) |
+| v1.43.0 | 2026-05-01 | [Group-driven permissions — new `GroupPermission` table attaches per-section levels to each `PermissionGroup` (built-in + custom). Effective level = `max(group, override)` per section; per-user `Permission` rows demoted to an "advanced overrides" panel. Built-in groups now editable for permissions (members still computed from role). Sensible seed defaults on couple / wedding-party / planners.](#2026-05-01--v1430--group-driven-permissions) |
 | v1.42.0 | 2026-05-01 | [Two-track group model: rename `UserGroup` → `PermissionGroup` (admin app users) + new `GuestGroup` model (wedding guests, with colour). Settings page splits into two panels — Permission groups + Guest groups. Colour picker on each guest group; foundation for ceremony-seating colour-coding (#5).](#2026-05-01--v1420--permission-groups--guest-groups-split) |
 | v1.41.0 | 2026-04-30 | [Schedule attendees rework (backlog #4) — `attendeeIds: String[]` becomes polymorphic `attendeeRefs: String[]` mixing `user:<id>` / `builtin:<slug>` / `group:<slug>` refs. Picker UI splits Groups + Individuals. Today page "Mine" filter resolves group membership server-side. Audit log shows attendee-kind breakdown.](#2026-04-30--v1410--schedule-attendees-rework-backlog-4) |
 | v1.40.0 | 2026-04-30 | [User-group model (backlog #3) — `UserGroup` table + `User.groups` m2m + four built-in virtual groups (Everyone / Couple / Wedding party-by-role / Planners-by-role) computed from `User.role`. Couple-only Settings panel for CRUD. Foundation for the Schedule attendees rework (#4).](#2026-04-30--v1400--user-group-model-backlog-3) |
@@ -758,6 +759,25 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-05-01 · v1.43.1 — Settings UX patch
+
+User report after v1.43.0 landed: "How do I add members to the groups, also settings page seems to have an infinite scroll".
+
+Two fixes, one ship:
+
+**Members button.** v1.40.0 hid the member-toggle UI behind clicking the group title (the small `▸` chevron). Discovery problem — nobody guesses that. Now every group row (built-in + custom) has an explicit `Members` button alongside the existing `Permissions` button, and built-in groups gain a read-only member list view (because the resolution rules are computed from `User.role`, but the user should still be able to see who's in each).
+
+**Runaway-scroll feel on the override matrix.** The PermissionMatrix had a `<thead className="sticky top-0 z-20">` carried over from when it was the primary surface. v1.43.0 demoted it inside a parent card that already controls vertical layout. Two interactions made the page feel like it scrolled forever:
+
+1. The inner `<div className="overflow-x-auto bg-surface border ... rounded-md shadow-sm">` was still applying card styling — visible double-border with the parent card.
+2. `position: sticky` on the thead inside the parent's open/close transition was racing with layout calculations.
+
+Dropped both: the inner `<div>` keeps `overflow-x-auto` only, and `<thead>` is no longer sticky. The matrix isn't the primary surface anymore (group permissions are), so a non-sticky header is fine.
+
+Also trimmed the wall-of-text panel description from 4 sentences to 2.
+
+Files: `src/app/(app)/settings/PermissionGroupsBlock.tsx`, `src/app/(app)/settings/PermissionMatrix.tsx`. No schema, no tests touched. typecheck + lint + 506 tests + build all green.
 
 ### 2026-05-01 · v1.43.0 — Group-driven permissions
 

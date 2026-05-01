@@ -89,17 +89,19 @@ export function PermissionMatrix({
           </span>
         </div>
       )}
-    <div className="overflow-x-auto bg-surface border border-border-soft rounded-md shadow-sm">
+    {/* v1.43.1: dropped the inner card styling (border + bg + shadow)
+        and the sticky thead. The matrix is now hosted inside a
+        collapsible parent card, so the inner card was double-bordered;
+        and `position: sticky` on the thead interacted poorly with the
+        wrapper's open/close transition causing a runaway-scroll feel
+        when the panel was expanded. The matrix itself is no longer
+        the primary surface (group permissions are), so headerless
+        scroll is fine — the column count is fixed at 12 + Couple. */}
+    <div className="overflow-x-auto">
       <table className="text-sm w-full">
-        {/* Sticky thead so column labels stay visible while scrolling
-            the page vertically — this list grows as members are added.
-            The Member column's left-stickiness was already present;
-            combining it with thead-sticky gives both axes a fixed
-            anchor. z-20 on thead so it sits above the z-10 Member
-            column cells when both stick simultaneously. */}
-        <thead className="sticky top-0 z-20">
+        <thead>
           <tr className="border-b border-border-soft text-[10px] font-bold text-ink-tertiary uppercase tracking-wider bg-canvas">
-            <th className="px-4 py-2 text-left sticky left-0 bg-canvas z-30">Member</th>
+            <th className="px-4 py-2 text-left sticky left-0 bg-canvas z-10">Member</th>
             <th className="px-3 py-2 text-center bg-canvas">Couple</th>
             {SECTIONS.map((s) => (
               <th key={s} className="px-2 py-2 text-center font-bold whitespace-nowrap bg-canvas">{SECTION_LABELS[s]}</th>
