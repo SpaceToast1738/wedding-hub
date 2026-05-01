@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.45.0** | 2026-05-01 | [Per-user editor — replace dense PermissionMatrix table with one expandable card per user (matching the spacing of PermissionGroupsBlock). Each card shows group memberships (toggleable for custom groups, read-only chips for built-ins), per-section overrides (default off; tick to override), couple toggle, and remove. New `clearAllUserOverrides` bulk-clear button per user.](#2026-05-01--v1450--per-user-editor) |
+| **v1.45.1** | 2026-05-01 | [Last-admin lock + duplicate-name disambiguator. `setUserCouple` and `removeUser` server-side refuse to leave the running session with zero couple-tier admins; the UI shows a 🔒 chip on the last couple-tier user and disables their toggle/remove. Member lists now show email next to display name so two accounts sharing a name are distinguishable.](#2026-05-01--v1451--last-admin-lock--name-disambiguator) |
+| v1.45.0 | 2026-05-01 | [Per-user editor — replace dense PermissionMatrix table with one expandable card per user (matching the spacing of PermissionGroupsBlock). Each card shows group memberships (toggleable for custom groups, read-only chips for built-ins), per-section overrides (default off; tick to override), couple toggle, and remove. New `clearAllUserOverrides` bulk-clear button per user.](#2026-05-01--v1450--per-user-editor) |
 | v1.44.0 | 2026-05-01 | [Settings UX overhaul — per-user override matrix is now checkbox-driven (default = inherit from group; tick to override). Page panels grouped under named sections (Your account · Wedding details · Customisation · Access & members · Notifications & log) so the long stream of cards reads as a document with chapters. New `clearPermission` action deletes the override row when unticked.](#2026-05-01--v1440--settings-ux-overhaul) |
 | v1.43.1 | 2026-05-01 | [Settings UX patch — explicit `Members` button on every permission group (was hidden behind clicking the title); read-only member list on built-in groups; dropped the sticky `<thead>` + nested-card styling on the per-user override matrix that was causing runaway-scroll feel inside the new collapsed panel. Trimmed wall-of-text description copy.](#2026-05-01--v1431--settings-ux-patch) |
 | v1.43.0 | 2026-05-01 | [Group-driven permissions — new `GroupPermission` table attaches per-section levels to each `PermissionGroup` (built-in + custom). Effective level = `max(group, override)` per section; per-user `Permission` rows demoted to an "advanced overrides" panel. Built-in groups now editable for permissions (members still computed from role). Sensible seed defaults on couple / wedding-party / planners.](#2026-05-01--v1430--group-driven-permissions) |
@@ -761,6 +762,20 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-05-01 · v1.45.1 — Last-admin lock + name disambiguator
+
+User: "How do I add and remove users from groups? Admin should stay locked as admin". Plus a screenshot showing two "Jamie Spencer" rows in the Everyone built-in member list — same display name, two different User accounts.
+
+Two safety + clarity fixes.
+
+**Last-admin lock.** Before: `setUserCouple(targetId, false)` had a self-protection guard ("you can't change your own couple flag") but nothing stopped one couple member from revoking another's flag. If two couple admins were the only admins, they could revoke each other in quick succession and leave the running session with zero admins until next sign-in (where the bootstrap auto-promote at `src/auth.ts:91` kicks back in — but that doesn't help anyone already signed in).
+
+After: both `setUserCouple` (when revoking) and `removeUser` (when target is couple-tier) check the total couple count. If `<=1`, the action throws with a clear message and writes a `settings_denied` audit row with `reason: "last_couple_locked"`. Server-side enforcement so a forged client request still fails. UI in `MemberOverridesBlock` shows a 🔒 chip next to the "Couple" badge and disables both the couple checkbox and the remove × button when the user is the last couple. Tooltip: *"Locked — last couple-tier admin. Promote another user first."*
+
+**Duplicate-name disambiguator.** Member lists were rendering only `displayName(user)`, so two accounts named "Jamie Spencer" looked identical. Now `email` is surfaced next to the name in muted type — both in the built-in member list (couple-only read-only view) and the per-group member-toggle list. Email is unique per `User` row so the couple can identify which is which and decide which to keep.
+
+Files: `src/app/(app)/settings/actions.ts` (server guards in `setUserCouple` + `removeUser`), `src/app/(app)/settings/MemberOverridesBlock.tsx` (lock UI on last couple), `src/app/(app)/settings/PermissionGroupsBlock.tsx` (email surfaced in member lists), `src/app/(app)/settings/page.tsx` (thread email through). No schema, no tests touched. typecheck + lint + 511 tests + build all green.
 
 ### 2026-05-01 · v1.45.0 — Per-user editor
 

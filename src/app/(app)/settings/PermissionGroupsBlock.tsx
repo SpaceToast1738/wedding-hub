@@ -44,7 +44,7 @@ const SECTION_LABELS: Record<Section, string> = {
   settings: "Settings",
 };
 
-type UserRow = { id: string; name: string };
+type UserRow = { id: string; name: string; email?: string };
 
 type PermRow = { section: string; level: PermissionLevel };
 
@@ -205,8 +205,21 @@ export function PermissionGroupsBlock({
                       <p className="text-xs text-ink-tertiary italic">No matching users.</p>
                     ) : (
                       <ul className="grid grid-cols-1 sm:grid-cols-2 gap-y-0.5 text-sm">
+                        {/* v1.45.1: surface email alongside name —
+                            two users can share a display name (e.g.
+                            "Jamie Spencer" appearing twice if there
+                            are two accounts), and the couple needs
+                            to tell them apart to decide which to
+                            keep. Email is unique. */}
                         {b.members.map((m) => (
-                          <li key={m.id} className="text-ink-secondary truncate">{m.name}</li>
+                          <li key={m.id} className="text-ink-secondary truncate">
+                            {m.name}
+                            {m.email && (
+                              <span className="ml-1.5 text-[11px] text-ink-tertiary">
+                                {m.email}
+                              </span>
+                            )}
+                          </li>
                         ))}
                       </ul>
                     )}
@@ -307,6 +320,11 @@ export function PermissionGroupsBlock({
                             <span className={on ? "text-ink-primary" : "text-ink-tertiary"}>
                               {u.name}
                             </span>
+                            {u.email && (
+                              <span className="text-[11px] text-ink-tertiary truncate">
+                                {u.email}
+                              </span>
+                            )}
                           </label>
                         </li>
                       );

@@ -90,6 +90,10 @@ export function MemberOverridesBlock({
   currentUserIsCouple: boolean;
   canEdit: boolean;
 }) {
+  // v1.45.1: lock the last couple-tier user — server enforces it
+  // too, but disabling the controls in the UI prevents the failed
+  // request + error toast loop.
+  const coupleCount = users.filter((u) => u.isCouple).length;
   const [openUserId, setOpenUserId] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const overrideMap = new Map<string, Level>();
@@ -185,6 +189,10 @@ export function MemberOverridesBlock({
           const overrides = overrideCount(u.id);
           const memberOf = customGroupMembershipByUser[u.id] ?? new Set();
           const builtinChips = builtinKeysByUser[u.id] ?? [];
+          // Last-couple lock: this user is the only remaining
+          // couple-tier admin, so revoking their flag or removing
+          // them would leave the running session with zero admins.
+          const isLastCouple = u.isCouple && coupleCount <= 1;
           return (
             <li key={u.id} className="px-4 py-2.5 group">
               <div className="flex items-center gap-3">
@@ -203,8 +211,11 @@ export function MemberOverridesBlock({
                         <span className="text-[10px] text-ink-tertiary ml-1">(you)</span>
                       )}
                       {u.isCouple && (
-                        <span className="ml-2 text-[10px] uppercase tracking-wider text-moss-700 font-semibold">
-                          Couple
+                        <span
+                          className="ml-2 text-[10px] uppercase tracking-wider text-moss-700 font-semibold"
+                          title={isLastCouple ? "Locked — only remaining couple-tier admin" : "Couple-tier admin"}
+                        >
+                          Couple{isLastCouple && <span className="ml-0.5" aria-label="locked">🔒</span>}
                         </span>
                       )}
                     </div>
@@ -223,7 +234,7 @@ export function MemberOverridesBlock({
                   >
                     {overrides} {overrides === 1 ? "override" : "overrides"}
                   </span>
-                  {couplePrivileged && u.id !== currentUserId && (
+                  {couplePrivileged && u.id !== currentUserId && !isLastCouple && (
                     <Button
                       variant="ghost"
                       size="sm"
@@ -232,6 +243,15 @@ export function MemberOverridesBlock({
                     >
                       ×
                     </Button>
+                  )}
+                  {isLastCouple && couplePrivileged && (
+                    <span
+                      className="text-[10px] text-ink-tertiary"
+                      title="Can't remove the only remaining couple-tier admin. Promote another user first."
+                      aria-label="Locked — only remaining couple-tier admin"
+                    >
+                      🔒
+                    </span>
                   )}
                 </div>
               </div>
@@ -244,7 +264,7 @@ export function MemberOverridesBlock({
                       type="checkbox"
                       id={`couple-${u.id}`}
                       checked={u.isCouple}
-                      disabled={!couplePrivileged || pending || u.id === currentUserId}
+                      disabled={!couplePrivileged || pending || u.id === currentUserId || isLastCouple}
                       onChange={(e) => toggleCouple(u.id, e.target.checked)}
                       className="accent-moss-500"
                     />
@@ -254,12 +274,19 @@ export function MemberOverridesBlock({
                       title={
                         u.id === currentUserId
                           ? "You can't change your own couple flag"
-                          : !currentUserIsCouple
-                            ? "Only the couple can change couple-tier membership"
-                            : undefined
+                          : isLastCouple
+                            ? "Locked — last couple-tier admin. Promote another user first."
+                            : !currentUserIsCouple
+                              ? "Only the couple can change couple-tier membership"
+                              : undefined
                       }
                     >
                       Couple-tier access (implicit edit on every section)
+                      {isLastCouple && (
+                        <span className="ml-1.5 text-[10px] uppercase tracking-wider text-marigold-700 font-semibold">
+                          🔒 locked — last admin
+                        </span>
+                      )}
                     </label>
                   </div>
 

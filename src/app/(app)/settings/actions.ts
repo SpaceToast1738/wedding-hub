@@ -136,6 +136,31 @@ export async function setUserCouple(userId: string, isCouple: boolean) {
     });
     throw new Error("Forbidden: only the couple can change couple-tier membership");
   }
+  // v1.45.1: lock the last couple-tier user. Without this guard, two
+  // couple admins could revoke each other's couple flag in quick
+  // succession and leave the running session with zero admins until
+  // the next sign-in's bootstrap auto-promote kicks in (which doesn't
+  // help anyone who's already signed in). The lock is server-side so
+  // a forged client request still fails — UI disabling alone isn't
+  // enough.
+  if (!isCouple) {
+    const coupleCount = await db.user.count({ where: { isCouple: true } });
+    if (coupleCount <= 1) {
+      await audit(user, {
+        action: "settings_denied",
+        entity: "User",
+        entityId: userId,
+        metadata: {
+          reason: "last_couple_locked",
+          target_action: "setUserCouple",
+          target_isCouple: isCouple,
+        },
+      });
+      throw new Error(
+        "Can't revoke couple-tier from the only remaining admin. Promote another user first.",
+      );
+    }
+  }
   await db.user.update({ where: { id: userId }, data: { isCouple } });
   await audit(user, { action: "set-couple", entity: "User", entityId: userId, metadata: { isCouple } });
   revalidatePath("/settings");
@@ -164,6 +189,28 @@ export async function removeUser(userId: string) {
     select: { id: true, email: true, name: true, isCouple: true, role: true },
   });
   if (!target) return;
+
+  // v1.45.1: same lock as setUserCouple — never let the running
+  // session lose its last admin via removeUser. (Bootstrap auto-
+  // promote on next sign-in is a fallback, not a substitute for
+  // never letting it happen mid-session.)
+  if (target.isCouple) {
+    const coupleCount = await db.user.count({ where: { isCouple: true } });
+    if (coupleCount <= 1) {
+      await audit(user, {
+        action: "settings_denied",
+        entity: "User",
+        entityId: userId,
+        metadata: {
+          reason: "last_couple_locked",
+          target_action: "removeUser",
+        },
+      });
+      throw new Error(
+        "Can't remove the only remaining couple-tier admin. Promote another user first.",
+      );
+    }
+  }
 
   // Permission rows have no FK to User in the schema, so we have to clean
   // them up explicitly. Account + Session cascade via the FKs in

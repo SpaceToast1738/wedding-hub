@@ -278,6 +278,7 @@ export default async function SettingsPage({
             const allUsersForBlock = allUsersShape.map((u) => ({
               id: u.id,
               name: displayName(u),
+              email: u.email,
             }));
             // Bucket GroupPermission rows by groupKey so each group
             // gets its own slice without N round-trips.
@@ -293,6 +294,7 @@ export default async function SettingsPage({
               members: resolveBuiltinGroup(g.slug, allUsersShape).map((u) => ({
                 id: u.id,
                 name: displayName(u),
+                email: u.email,
               })),
               permissions: permsByKey.get(`builtin:${g.slug}`) ?? [],
             }));
@@ -305,7 +307,7 @@ export default async function SettingsPage({
               members: g.members
                 .map((m) => allUsersShape.find((u) => u.id === m.id))
                 .filter((u): u is (typeof allUsersShape)[number] => Boolean(u))
-                .map((u) => ({ id: u.id, name: displayName(u) })),
+                .map((u) => ({ id: u.id, name: displayName(u), email: u.email })),
               permissions: permsByKey.get(`group:${g.slug}`) ?? [],
             }));
             return (
