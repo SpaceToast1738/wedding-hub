@@ -2,6 +2,7 @@ import { db } from "@/lib/db";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { canEdit } from "@/lib/permissions";
 import { requireUser } from "@/lib/actions";
+import { PageLinkedTasksStrip } from "@/components/ui/PageLinkedTasksStrip";
 import { SeatingTabs } from "../SeatingTabs";
 import { CeremonyClient } from "./CeremonyClient";
 
@@ -17,7 +18,7 @@ export default async function CeremonySeatingPage() {
   const user = await requireUser();
   const editable = await canEdit(user, "seating");
 
-  const [row, groupsRaw] = await Promise.all([
+  const [row, groupsRaw, navTagForPage] = await Promise.all([
     db.ceremonySeating.findUnique({ where: { id: 1 } }),
     db.guestGroup.findMany({
       orderBy: [{ order: "asc" }, { name: "asc" }],
@@ -30,7 +31,33 @@ export default async function CeremonySeatingPage() {
         _count: { select: { members: true } },
       },
     }),
+    // v1.52.0 (backlog #7): tasks tagged with the page's nav tag
+    // surface as a strip below the header.
+    db.navTag.findFirst({
+      where: { route: "/seating/ceremony" },
+      select: { id: true, name: true },
+    }),
   ]);
+
+  const linkedTasks = navTagForPage
+    ? await db.task.findMany({
+        where: { navTags: { some: { id: navTagForPage.id } } },
+        orderBy: [
+          { status: "asc" },
+          { priority: "desc" },
+          { dueDate: "asc" },
+          { createdAt: "desc" },
+        ],
+        select: {
+          id: true,
+          title: true,
+          type: true,
+          status: true,
+          priority: true,
+          dueDate: true,
+        },
+      })
+    : [];
 
   const seating = row ?? {
     leftRows: 8,
@@ -59,6 +86,12 @@ export default async function CeremonySeatingPage() {
         subtitle={`${totalSeats} seats · ${seating.leftRows}×${seating.leftSeatsRow} left / ${seating.rightRows}×${seating.rightSeatsRow} right`}
       />
       <SeatingTabs />
+      {navTagForPage && (
+        <PageLinkedTasksStrip
+          tasks={linkedTasks}
+          navTagName={navTagForPage.name}
+        />
+      )}
       <CeremonyClient
         initial={{
           leftRows: seating.leftRows,

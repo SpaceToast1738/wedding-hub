@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.51.0** | 2026-05-01 | [Inline task linking on cards (backlog #8) — parallel `Task ↔ BookSubsection` m2m alongside the existing section-level m2m. TopicPicker on Tasks/Questions gains a "Wedding Book — cards" group; book pages render a compact `LinkedTasksPanel` directly below each card with at least one linked task. Section-level link stays.](#2026-05-01--v1510--inline-task-linking-on-cards) |
+| **v1.52.0** | 2026-05-01 | [Linked-tasks strips on /songs, /seating/ceremony, /guests (backlog #7) — reusable `PageLinkedTasksStrip` reads tasks tagged with a NavTag whose `route` matches the page path. Renders below `PageHeader`, hidden when zero matches. Done tasks bucket to the bottom with a strikethrough; "Manage →" deep-links to /tasks. No schema changes — uses the existing NavTag + Task m2m.](#2026-05-01--v1520--linked-tasks-strips-on-pages) |
+| v1.51.0 | 2026-05-01 | [Inline task linking on cards (backlog #8) — parallel `Task ↔ BookSubsection` m2m alongside the existing section-level m2m. TopicPicker on Tasks/Questions gains a "Wedding Book — cards" group; book pages render a compact `LinkedTasksPanel` directly below each card with at least one linked task. Section-level link stays.](#2026-05-01--v1510--inline-task-linking-on-cards) |
 | v1.50.0 | 2026-05-01 | [Numeric sign-in code (backlog #6) — sign-in email now contains a 6-digit code AND the magic link; either signs in. `/signin/verify` rewritten as a code-entry form with auto-fill from a short-lived cookie. Token TTL tightened from 24h to 15min, code-entry rate-limit (5 wrong guesses per 15 min) added on a separate bucket of `MagicLinkAttempt`. Audit log captures success / failure / rate-limit outcomes per attempt.](#2026-05-01--v1500--numeric-sign-in-code) |
 | v1.49.0 | 2026-05-01 | [`GuestGroupsControl` — reusable chips + popover picker for managing per-guest group memberships. Wired into the guests list (inline pill strip), guest detail page (Details section), and seating canvas detail panel (read-only). Same `toggleGuestGroupMember` action everywhere; couple-only writes.](#2026-05-01--v1490--per-guest-group-affordances) |
 | v1.48.0 | 2026-05-01 | [Auto-fill ceremony seating from ordered groups + side constraint. Couple manages an ordered list of guest groups (each with `side: BRIDE / GROOM / BOTH`); allocator walks the list, packing BRIDE groups on LEFT, GROOM on RIGHT, BOTH on whichever side has more space. Reorder buttons in Settings + on /seating/ceremony. Per-row manual assignments deprecated.](#2026-05-01--v1480--auto-fill-from-ordered-groups) |
@@ -769,6 +770,28 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-05-01 · v1.52.0 — Linked-tasks strips on pages
+
+User: "7". Backlog #7 — surface tasks linked to /songs, /seating/ceremony, /guests at the top of each page so the couple sees what's outstanding for that area without bouncing to /tasks.
+
+The infrastructure was already in place — the v1.30.5 NavTag model has a `route` field, four nav tags are seeded (Music → /songs, Ceremony → /seating/ceremony, Reception → null, Guests → /guests), and tasks are taggable via the existing TopicPicker. v1.52.0 just consumes that data.
+
+**Component** `src/components/ui/PageLinkedTasksStrip.tsx`. Server-friendly presentational; pages do the DB read inline and pass rows in. Header line: `Linked tasks · <NavTag.name>` + `N open · M done` count + `Manage →` link to /tasks. Body: open tasks first, done tasks bucket to the bottom with a strikethrough so a long list of completed work doesn't crowd the active items. Each row: 1-char type badge (Q / D / · for question / decision / task) + title + status pill + due date. Hidden entirely when zero matches — pages where the couple hasn't linked anything yet stay clean.
+
+**Wiring.** Each of the three pages adds one `db.navTag.findFirst({ where: { route: <pathname> } })` to its existing `Promise.all`, then a follow-up `db.task.findMany({ where: { navTags: { some: { id: navTagForPage.id } } } })` only when a tag is found (defensive — couple could have deleted the seeded tag from Settings → Nav tags). Strip renders just below `PageHeader` (and below `SeatingTabs` on the ceremony page).
+
+Pages touched:
+
+- `src/app/(app)/songs/page.tsx` — Music nav tag → `/songs`
+- `src/app/(app)/seating/ceremony/page.tsx` — Ceremony nav tag → `/seating/ceremony`
+- `src/app/(app)/guests/page.tsx` — Guests nav tag → `/guests` (active view only; archived view stays clean)
+
+**No schema changes, no migration, no new server actions.** Pure read-side wiring on top of the v1.30.5 NavTag/Task m2m. The `PageLinkedTasksStrip` component is generic enough that future pages (Suppliers, Budget, etc.) can adopt the strip with one Promise + one render line if a corresponding nav tag exists.
+
+**Verified.** typecheck clean · lint clean · 555 tests · production build clean.
+
+Files: `src/components/ui/PageLinkedTasksStrip.tsx` (new), `src/app/(app)/songs/page.tsx` (load + render), `src/app/(app)/seating/ceremony/page.tsx` (load + render), `src/app/(app)/guests/page.tsx` (load + render), `package.json` → `1.52.0`.
 
 ### 2026-05-01 · v1.51.0 — Inline task linking on cards
 

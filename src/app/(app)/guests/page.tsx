@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { canEdit, canView } from "@/lib/permissions";
 import { requireUser } from "@/lib/actions";
+import { PageLinkedTasksStrip } from "@/components/ui/PageLinkedTasksStrip";
 import { AddHouseholdToggle } from "./AddHouseholdToggle";
 import { GuestList } from "./GuestList";
 import { ArchivedGuestList } from "./ArchivedGuestList";
@@ -70,7 +71,7 @@ export default async function GuestsPage({
   }
 
   // ── Active view ─────────────────────────────────────────────────────
-  const [households, archivedCount, allGroups] = await Promise.all([
+  const [households, archivedCount, allGroups, navTagForPage] = await Promise.all([
     db.household.findMany({
       orderBy: [{ side: "asc" }, { name: "asc" }],
       include: {
@@ -94,7 +95,33 @@ export default async function GuestsPage({
       orderBy: [{ order: "asc" }, { name: "asc" }],
       select: { id: true, slug: true, name: true, colour: true, side: true },
     }),
+    // v1.52.0 (backlog #7): tasks tagged with the page's nav tag
+    // surface as a strip below the header.
+    db.navTag.findFirst({
+      where: { route: "/guests" },
+      select: { id: true, name: true },
+    }),
   ]);
+
+  const linkedTasks = navTagForPage
+    ? await db.task.findMany({
+        where: { navTags: { some: { id: navTagForPage.id } } },
+        orderBy: [
+          { status: "asc" },
+          { priority: "desc" },
+          { dueDate: "asc" },
+          { createdAt: "desc" },
+        ],
+        select: {
+          id: true,
+          title: true,
+          type: true,
+          status: true,
+          priority: true,
+          dueDate: true,
+        },
+      })
+    : [];
 
   const totalGuests = households.reduce((n, h) => n + h.guests.length, 0);
   const attending = households.reduce((n, h) => n + h.guests.filter((g) => g.rsvp === "ATTENDING").length, 0);
@@ -138,6 +165,12 @@ export default async function GuestsPage({
           </>
         }
       />
+      {navTagForPage && (
+        <PageLinkedTasksStrip
+          tasks={linkedTasks}
+          navTagName={navTagForPage.name}
+        />
+      )}
       <div className="flex-1 overflow-auto">
         <div className="max-w-5xl mx-auto p-6">
           {households.length === 0 ? (
