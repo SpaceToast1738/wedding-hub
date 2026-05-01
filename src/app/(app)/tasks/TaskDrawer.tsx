@@ -7,7 +7,7 @@ import { notify } from "@/lib/notify";
 import { isoForInput } from "@/lib/format";
 import { deleteTask, updateTask } from "./actions";
 import type { UserOpt, SupplierOpt, BookSectionOpt, NavTagOpt } from "./TaskForm";
-import { TopicPicker } from "./TopicPicker";
+import { TopicPicker, type BookSubsectionOpt } from "./TopicPicker";
 
 type Task = {
   id: string;
@@ -24,6 +24,10 @@ type Task = {
   // v1.30.5: replaces v1.30.0's bookSubsectionId. Multi-select
   // relations — current selections come from m2m relation rows.
   bookSections: Array<{ id: string; title: string }>;
+  // v1.51.0: parallel card-level m2m. Optional in the type so old
+  // callers that don't load this relation don't break — the drawer
+  // defaults to an empty list.
+  bookSubsections?: Array<{ id: string; title: string; sectionTitle: string }>;
   navTags: Array<{ id: string; name: string }>;
 };
 
@@ -61,6 +65,7 @@ export function TaskDrawer({
   users,
   suppliers = [],
   bookSections = [],
+  bookSubsections = [],
   navTags = [],
   canEdit,
   onClose,
@@ -69,7 +74,9 @@ export function TaskDrawer({
   users: UserOpt[];
   suppliers?: SupplierOpt[];
   // v1.30.5: lists for the combined Topics multi-select.
+  // v1.51.0: + bookSubsections (cards).
   bookSections?: BookSectionOpt[];
+  bookSubsections?: BookSubsectionOpt[];
   navTags?: NavTagOpt[];
   canEdit: boolean;
   onClose: () => void;
@@ -86,9 +93,12 @@ export function TaskDrawer({
   // v1.30.5: m2m selections live as ID arrays. The TopicPicker emits
   // hidden inputs but we mirror the state here for the dirty check
   // and to set FormData on save.
+  // v1.51.0: + bookSubsectionIds for the parallel card-level m2m.
   const initialBookSectionIds = task.bookSections.map((s) => s.id).sort();
+  const initialBookSubsectionIds = (task.bookSubsections ?? []).map((s) => s.id).sort();
   const initialNavTagIds = task.navTags.map((t) => t.id).sort();
   const [bookSectionIds, setBookSectionIds] = useState<string[]>(initialBookSectionIds);
+  const [bookSubsectionIds, setBookSubsectionIds] = useState<string[]>(initialBookSubsectionIds);
   const [navTagIds, setNavTagIds] = useState<string[]>(initialNavTagIds);
   const [pending, startTransition] = useTransition();
 
@@ -112,6 +122,7 @@ export function TaskDrawer({
     notes !== (task.notes ?? "") ||
     (supplierId || null) !== (task.supplierId ?? null) ||
     bookSectionIds.slice().sort().join(",") !== initialBookSectionIds.join(",") ||
+    bookSubsectionIds.slice().sort().join(",") !== initialBookSubsectionIds.join(",") ||
     navTagIds.slice().sort().join(",") !== initialNavTagIds.join(",");
 
   function save() {
@@ -131,8 +142,9 @@ export function TaskDrawer({
     fd.set("supplierId", supplierId);
     // v1.30.5: emit one topicKeys entry per selected ID (FormData
     // supports duplicate keys via append). Server-side parser splits
-    // by `bookSection:` / `navTag:` prefix.
+    // by `bookSection:` / `bookSubsection:` / `navTag:` prefix.
     for (const id of bookSectionIds) fd.append("topicKeys", `bookSection:${id}`);
+    for (const id of bookSubsectionIds) fd.append("topicKeys", `bookSubsection:${id}`);
     for (const id of navTagIds) fd.append("topicKeys", `navTag:${id}`);
     startTransition(async () => {
       try {
@@ -392,19 +404,22 @@ export function TaskDrawer({
           {/* v1.30.5: combined Topics multi-select (Wedding Book
               sections + Nav tags). Replaces v1.30.0's single-select
               subsection picker. */}
-          {(bookSections.length > 0 || navTags.length > 0) && (
+          {(bookSections.length > 0 || bookSubsections.length > 0 || navTags.length > 0) && (
             <div>
               <strong className="block text-[10px] uppercase tracking-wider text-ink-tertiary font-bold mb-1.5">
                 Topics
               </strong>
               <TopicPicker
                 bookSections={bookSections}
+                bookSubsections={bookSubsections}
                 navTags={navTags}
                 initialBookSectionIds={initialBookSectionIds}
+                initialBookSubsectionIds={initialBookSubsectionIds}
                 initialNavTagIds={initialNavTagIds}
                 canEdit={canEdit}
                 onChange={(next) => {
                   setBookSectionIds(next.bookSectionIds);
+                  setBookSubsectionIds(next.bookSubsectionIds);
                   setNavTagIds(next.navTagIds);
                 }}
               />

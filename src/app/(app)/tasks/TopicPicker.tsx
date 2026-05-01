@@ -8,45 +8,63 @@ import { useEffect, useRef, useState } from "react";
 // selected entry, prefixed `bookSection:` or `navTag:` so the server
 // action can split by source.
 //
+// v1.51.0: added a third group — Wedding Book **cards** (subsections).
+// `bookSubsection:<id>` keys flow through the same `topicKeys` payload
+// and end up on the parallel `Task.bookSubsections` m2m, which drives
+// the inline tasks panel rendered below each card on /book/[slug].
+//
 // In read-only mode (canEdit=false) the dropdown trigger is omitted —
 // just the chip row renders.
 
 export type BookSectionOpt = { id: string; title: string };
+export type BookSubsectionOpt = {
+  id: string;
+  title: string;
+  /** Parent section title; rendered as a prefix so two cards with
+   *  the same name on different pages stay unambiguous. */
+  sectionTitle: string;
+};
 export type NavTagOpt = { id: string; name: string; route: string | null };
 
 type Props = {
   bookSections: BookSectionOpt[];
+  bookSubsections?: BookSubsectionOpt[];
   navTags: NavTagOpt[];
   initialBookSectionIds: string[];
+  initialBookSubsectionIds?: string[];
   initialNavTagIds: string[];
   canEdit?: boolean;
   // Optional callback invoked when the selection changes — drawer uses
   // it for dirty-check and to suppress the form-submit pattern when
   // it's saving via FormData.set instead of <form action>.
-  onChange?: (next: { bookSectionIds: string[]; navTagIds: string[] }) => void;
+  onChange?: (next: {
+    bookSectionIds: string[];
+    bookSubsectionIds: string[];
+    navTagIds: string[];
+  }) => void;
 };
 
 export function TopicPicker({
   bookSections,
+  bookSubsections = [],
   navTags,
   initialBookSectionIds,
+  initialBookSubsectionIds = [],
   initialNavTagIds,
   canEdit = true,
   onChange,
 }: Props) {
   const [bookSectionIds, setBookSectionIds] = useState<string[]>(initialBookSectionIds);
+  const [bookSubsectionIds, setBookSubsectionIds] = useState<string[]>(initialBookSubsectionIds);
   const [navTagIds, setNavTagIds] = useState<string[]>(initialNavTagIds);
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
 
   // Notify parent on every change.
   useEffect(() => {
-    onChange?.({ bookSectionIds, navTagIds });
-    // We deliberately don't depend on `onChange` to avoid identity-
-    // swap re-runs when the parent re-renders. The arrays are the
-    // source of truth.
+    onChange?.({ bookSectionIds, bookSubsectionIds, navTagIds });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bookSectionIds.join(","), navTagIds.join(",")]);
+  }, [bookSectionIds.join(","), bookSubsectionIds.join(","), navTagIds.join(",")]);
 
   // Click-outside + Esc to close.
   useEffect(() => {
@@ -71,20 +89,31 @@ export function TopicPicker({
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
     );
   }
+  function toggleBookSubsection(id: string) {
+    setBookSubsectionIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+    );
+  }
   function toggleNavTag(id: string) {
     setNavTagIds((prev) =>
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
     );
   }
 
-  const totalSelected = bookSectionIds.length + navTagIds.length;
+  const totalSelected = bookSectionIds.length + bookSubsectionIds.length + navTagIds.length;
   const sectionLookup = new Map(bookSections.map((s) => [s.id, s]));
+  const subsectionLookup = new Map(bookSubsections.map((s) => [s.id, s]));
   const tagLookup = new Map(navTags.map((t) => [t.id, t]));
 
-  const selectedChips: { key: string; label: string; kind: "section" | "tag" }[] = [
+  const selectedChips: { key: string; label: string; kind: "section" | "subsection" | "tag" }[] = [
     ...bookSectionIds.map((id) => {
       const s = sectionLookup.get(id);
       return { key: `bookSection:${id}`, label: s?.title ?? "Unknown section", kind: "section" as const };
+    }),
+    ...bookSubsectionIds.map((id) => {
+      const s = subsectionLookup.get(id);
+      const label = s ? `${s.sectionTitle} · ${s.title}` : "Unknown card";
+      return { key: `bookSubsection:${id}`, label, kind: "subsection" as const };
     }),
     ...navTagIds.map((id) => {
       const t = tagLookup.get(id);
@@ -113,7 +142,9 @@ export function TopicPicker({
                 "inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-md border",
                 c.kind === "section"
                   ? "bg-moss-50 border-moss-300 text-moss-700"
-                  : "bg-marigold-100/40 border-marigold-700/30 text-marigold-700",
+                  : c.kind === "subsection"
+                    ? "bg-moss-100/60 border-moss-300 text-moss-700"
+                    : "bg-marigold-100/40 border-marigold-700/30 text-marigold-700",
               ].join(" ")}
             >
               {c.label}
@@ -122,6 +153,7 @@ export function TopicPicker({
                   type="button"
                   onClick={() => {
                     if (c.kind === "section") toggleBookSection(c.key.slice("bookSection:".length));
+                    else if (c.kind === "subsection") toggleBookSubsection(c.key.slice("bookSubsection:".length));
                     else toggleNavTag(c.key.slice("navTag:".length));
                   }}
                   className="text-ink-tertiary hover:text-ink-primary leading-none"
@@ -147,11 +179,11 @@ export function TopicPicker({
 
       {/* Dropdown panel. Absolute-positioned below the trigger. */}
       {open && canEdit && (
-        <div className="absolute left-0 top-full mt-1 z-30 w-[280px] max-h-[320px] overflow-auto bg-surface border border-border-soft rounded-md shadow-lg">
+        <div className="absolute left-0 top-full mt-1 z-30 w-[320px] max-h-[360px] overflow-auto bg-surface border border-border-soft rounded-md shadow-lg">
           {bookSections.length > 0 && (
             <div>
               <div className="px-3 py-1.5 text-[10px] uppercase tracking-wider font-bold text-ink-tertiary border-b border-border-soft bg-canvas/30">
-                Wedding Book
+                Wedding Book — sections
               </div>
               <ul>
                 {bookSections.map((s) => {
@@ -166,6 +198,34 @@ export function TopicPicker({
                           className="accent-moss-500"
                         />
                         <span className="text-ink-primary">{s.title}</span>
+                      </label>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          )}
+          {bookSubsections.length > 0 && (
+            <div>
+              <div className="px-3 py-1.5 text-[10px] uppercase tracking-wider font-bold text-ink-tertiary border-b border-t border-border-soft bg-canvas/30">
+                Wedding Book — cards
+              </div>
+              <ul>
+                {bookSubsections.map((s) => {
+                  const checked = bookSubsectionIds.includes(s.id);
+                  return (
+                    <li key={s.id}>
+                      <label className="flex items-center gap-2 px-3 py-1.5 hover:bg-canvas/50 cursor-pointer text-sm">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleBookSubsection(s.id)}
+                          className="accent-moss-500"
+                        />
+                        <span className="text-ink-primary truncate">{s.title}</span>
+                        <span className="ml-auto text-[10px] text-ink-tertiary truncate max-w-[110px]">
+                          {s.sectionTitle}
+                        </span>
                       </label>
                     </li>
                   );
@@ -203,7 +263,7 @@ export function TopicPicker({
               </ul>
             </div>
           )}
-          {bookSections.length === 0 && navTags.length === 0 && (
+          {bookSections.length === 0 && bookSubsections.length === 0 && navTags.length === 0 && (
             <p className="px-3 py-3 text-xs text-ink-tertiary italic">
               No topics defined yet. Add nav tags in Settings.
             </p>

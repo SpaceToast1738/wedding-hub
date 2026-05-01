@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/Button";
-import { TaskForm, type UserOpt, type SupplierOpt, type BookSectionOpt, type NavTagOpt } from "./TaskForm";
+import { TaskForm, type UserOpt, type SupplierOpt, type BookSectionOpt, type BookSubsectionOpt, type NavTagOpt } from "./TaskForm";
 import { createTask } from "./actions";
 
 // v1.27.0: New-task button now opens a fixed-position popover at
@@ -14,10 +14,12 @@ export function AddTaskToggle({
   users,
   suppliers = [],
   bookSections = [],
+  bookSubsections = [],
   navTags = [],
   defaultType = "TASK",
   defaultSupplierId,
   defaultBookSectionIds,
+  defaultBookSubsectionIds,
   defaultNavTagIds,
   showType = true,
   buttonLabel = "+ New task",
@@ -28,11 +30,14 @@ export function AddTaskToggle({
   // to pre-select that supplier in the new-task form.
   suppliers?: SupplierOpt[];
   // v1.30.5: lists for the combined Topics multi-select.
+  // v1.51.0: + bookSubsections (cards).
   bookSections?: BookSectionOpt[];
+  bookSubsections?: BookSubsectionOpt[];
   navTags?: NavTagOpt[];
   defaultType?: string;
   defaultSupplierId?: string;
   defaultBookSectionIds?: string[];
+  defaultBookSubsectionIds?: string[];
   defaultNavTagIds?: string[];
   showType?: boolean;
   buttonLabel?: string;
@@ -83,12 +88,14 @@ export function AddTaskToggle({
               users={users}
               suppliers={suppliers}
               bookSections={bookSections}
+              bookSubsections={bookSubsections}
               navTags={navTags}
               showType={showType}
               initial={{
                 type: defaultType,
                 supplierId: defaultSupplierId ?? null,
                 bookSectionIds: defaultBookSectionIds ?? [],
+                bookSubsectionIds: defaultBookSubsectionIds ?? [],
                 navTagIds: defaultNavTagIds ?? [],
               }}
               submitLabel="Create"

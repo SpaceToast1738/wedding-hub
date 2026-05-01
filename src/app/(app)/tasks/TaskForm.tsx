@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/Input";
 import { CustomFieldsBlock } from "@/components/ui/CustomFieldsBlock";
 import type { CustomFieldDef } from "@/lib/custom-fields";
 import { setTaskCustomField } from "./actions";
-import { TopicPicker, type BookSectionOpt, type NavTagOpt } from "./TopicPicker";
+import { TopicPicker, type BookSectionOpt, type BookSubsectionOpt, type NavTagOpt } from "./TopicPicker";
 
 const TYPES = ["TASK", "QUESTION", "DECISION"] as const;
 const PRIORITIES = ["LOW", "MEDIUM", "HIGH", "URGENT"] as const;
@@ -31,6 +31,9 @@ export type Initial = {
   // v1.30.5: replaces v1.30.0's bookSubsectionId. Multi-select arrays.
   bookSectionIds?: string[];
   navTagIds?: string[];
+  // v1.51.0: parallel m2m at the card level — drives the inline
+  // tasks panel below each card on /book/[slug].
+  bookSubsectionIds?: string[];
 };
 
 export type UserOpt = { id: string; name: string | null; email: string };
@@ -39,7 +42,8 @@ export type SupplierOpt = { id: string; name: string; category: string };
 // v1.30.5: re-exported from TopicPicker for the parent surfaces
 // (page.tsx, AddTaskToggle, TaskList) so callers don't have to import
 // from two files. Replaces v1.30.0's BookSubsectionOpt.
-export type { BookSectionOpt, NavTagOpt };
+// v1.51.0: BookSubsectionOpt re-introduced (for the parallel m2m).
+export type { BookSectionOpt, BookSubsectionOpt, NavTagOpt };
 
 type Props = {
   initial?: Initial;
@@ -48,9 +52,10 @@ type Props = {
   // Empty array hides the picker entirely (e.g. when no suppliers
   // have been added yet, or on contexts where the link isn't useful).
   suppliers?: SupplierOpt[];
-  // v1.30.5: lists for the unified Topics multi-select. Both empty
+  // v1.30.5: lists for the unified Topics multi-select. All empty
   // hides the picker entirely.
   bookSections?: BookSectionOpt[];
+  bookSubsections?: BookSubsectionOpt[];
   navTags?: NavTagOpt[];
   submitLabel?: string;
   onSubmit: (formData: FormData) => Promise<void>;
@@ -71,6 +76,7 @@ export function TaskForm({
   users,
   suppliers = [],
   bookSections = [],
+  bookSubsections = [],
   navTags = [],
   submitLabel = "Create",
   onSubmit,
@@ -163,14 +169,16 @@ export function TaskForm({
         </div>
       )}
       {/* v1.30.5: combined Topics multi-select (Book sections + Nav
-          tags). Replaces v1.30.0's separate Wedding Book card picker. */}
-      {(bookSections.length > 0 || navTags.length > 0) && (
+          tags). v1.51.0: + Book subsections (cards). */}
+      {(bookSections.length > 0 || bookSubsections.length > 0 || navTags.length > 0) && (
         <div>
           <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">Topics</label>
           <TopicPicker
             bookSections={bookSections}
+            bookSubsections={bookSubsections}
             navTags={navTags}
             initialBookSectionIds={initial?.bookSectionIds ?? []}
+            initialBookSubsectionIds={initial?.bookSubsectionIds ?? []}
             initialNavTagIds={initial?.navTagIds ?? []}
           />
         </div>

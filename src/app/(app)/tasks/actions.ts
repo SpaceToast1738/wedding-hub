@@ -37,8 +37,11 @@ function parseDue(v: FormDataEntryValue | null): Date | null {
 // v1.30.5: split the Topics multi-select payload into the two relation
 // arrays. The form posts one `topicKeys` entry per selected topic with
 // values like `bookSection:<id>` or `navTag:<id>`.
+// v1.51.0: parses `bookSubsection:<id>` keys too — a parallel m2m
+// at the card level, drives the inline tasks panel on /book/[slug].
 function parseTopicKeys(formData: FormData): {
   bookSectionIds: string[];
+  bookSubsectionIds: string[];
   navTagIds: string[];
   hasTopicKeys: boolean;
 } {
@@ -47,12 +50,14 @@ function parseTopicKeys(formData: FormData): {
   const hasTopicKeys = formData.has("topicKeys");
   const keys = formData.getAll("topicKeys").map(String);
   const bookSectionIds: string[] = [];
+  const bookSubsectionIds: string[] = [];
   const navTagIds: string[] = [];
   for (const k of keys) {
     if (k.startsWith("bookSection:")) bookSectionIds.push(k.slice("bookSection:".length));
+    else if (k.startsWith("bookSubsection:")) bookSubsectionIds.push(k.slice("bookSubsection:".length));
     else if (k.startsWith("navTag:")) navTagIds.push(k.slice("navTag:".length));
   }
-  return { bookSectionIds, navTagIds, hasTopicKeys };
+  return { bookSectionIds, bookSubsectionIds, navTagIds, hasTopicKeys };
 }
 
 export async function createTask(formData: FormData) {
@@ -68,7 +73,7 @@ export async function createTask(formData: FormData) {
     notes: formData.get("notes") || null,
     supplierId: formData.get("supplierId") || null,
   });
-  const { bookSectionIds, navTagIds } = parseTopicKeys(formData);
+  const { bookSectionIds, bookSubsectionIds, navTagIds } = parseTopicKeys(formData);
   const tags = parsed.category ? [parsed.category] : [];
   const created = await db.task.create({
     data: {
@@ -84,6 +89,12 @@ export async function createTask(formData: FormData) {
       // v1.30.5: m2m connect for the two topic relations.
       bookSections: bookSectionIds.length
         ? { connect: bookSectionIds.map((id) => ({ id })) }
+        : undefined,
+      // v1.51.0: parallel m2m at the card level. Independent of
+      // bookSections — a task can link to a section, a card, both,
+      // or neither.
+      bookSubsections: bookSubsectionIds.length
+        ? { connect: bookSubsectionIds.map((id) => ({ id })) }
         : undefined,
       navTags: navTagIds.length
         ? { connect: navTagIds.map((id) => ({ id })) }
@@ -102,12 +113,14 @@ export async function createTask(formData: FormData) {
       type: parsed.type,
       supplierId: parsed.supplierId || null,
       bookSectionIds,
+      bookSubsectionIds,
       navTagIds,
     },
   });
   revalidatePath("/tasks");
   revalidatePath("/questions");
   revalidatePath("/");
+  revalidatePath("/book");
 }
 
 export async function updateTask(id: string, formData: FormData) {
@@ -123,7 +136,7 @@ export async function updateTask(id: string, formData: FormData) {
     notes: formData.get("notes") ?? undefined,
     supplierId: formData.get("supplierId") ?? undefined,
   });
-  const { bookSectionIds, navTagIds, hasTopicKeys } = parseTopicKeys(formData);
+  const { bookSectionIds, bookSubsectionIds, navTagIds, hasTopicKeys } = parseTopicKeys(formData);
 
   const data: Record<string, unknown> = {};
   if (parsed.title !== undefined) data.title = parsed.title;
@@ -139,8 +152,10 @@ export async function updateTask(id: string, formData: FormData) {
   // can both add and remove links. Only run when the form posted any
   // topicKeys at all (`hasTopicKeys`); otherwise this is a partial
   // update that didn't touch topics.
+  // v1.51.0: bookSubsections joins the same single `topicKeys` payload.
   if (hasTopicKeys) {
     data.bookSections = { set: bookSectionIds.map((id) => ({ id })) };
+    data.bookSubsections = { set: bookSubsectionIds.map((id) => ({ id })) };
     data.navTags = { set: navTagIds.map((id) => ({ id })) };
   }
 
@@ -158,6 +173,7 @@ export async function updateTask(id: string, formData: FormData) {
       notes: true,
       supplierId: true,
       bookSections: { select: { id: true } },
+      bookSubsections: { select: { id: true } },
       navTags: { select: { id: true } },
     },
   });
@@ -187,6 +203,9 @@ export async function updateTask(id: string, formData: FormData) {
       const oldBs = before.bookSections.map((s) => s.id).sort().join(",");
       const newBs = bookSectionIds.slice().sort().join(",");
       if (oldBs !== newBs) changedFields.push("bookSections");
+      const oldBSs = before.bookSubsections.map((s) => s.id).sort().join(",");
+      const newBSs = bookSubsectionIds.slice().sort().join(",");
+      if (oldBSs !== newBSs) changedFields.push("bookSubsections");
       const oldNt = before.navTags.map((t) => t.id).sort().join(",");
       const newNt = navTagIds.slice().sort().join(",");
       if (oldNt !== newNt) changedFields.push("navTags");
@@ -206,6 +225,9 @@ export async function updateTask(id: string, formData: FormData) {
   revalidatePath("/tasks");
   revalidatePath("/questions");
   revalidatePath("/");
+  // v1.51.0: book pages render the inline tasks panel, so any
+  // task edit invalidates them too.
+  revalidatePath("/book");
 }
 
 export async function setTaskStatus(id: string, status: TaskStatus) {

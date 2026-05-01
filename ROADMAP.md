@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.50.0** | 2026-05-01 | [Numeric sign-in code (backlog #6) — sign-in email now contains a 6-digit code AND the magic link; either signs in. `/signin/verify` rewritten as a code-entry form with auto-fill from a short-lived cookie. Token TTL tightened from 24h to 15min, code-entry rate-limit (5 wrong guesses per 15 min) added on a separate bucket of `MagicLinkAttempt`. Audit log captures success / failure / rate-limit outcomes per attempt.](#2026-05-01--v1500--numeric-sign-in-code) |
+| **v1.51.0** | 2026-05-01 | [Inline task linking on cards (backlog #8) — parallel `Task ↔ BookSubsection` m2m alongside the existing section-level m2m. TopicPicker on Tasks/Questions gains a "Wedding Book — cards" group; book pages render a compact `LinkedTasksPanel` directly below each card with at least one linked task. Section-level link stays.](#2026-05-01--v1510--inline-task-linking-on-cards) |
+| v1.50.0 | 2026-05-01 | [Numeric sign-in code (backlog #6) — sign-in email now contains a 6-digit code AND the magic link; either signs in. `/signin/verify` rewritten as a code-entry form with auto-fill from a short-lived cookie. Token TTL tightened from 24h to 15min, code-entry rate-limit (5 wrong guesses per 15 min) added on a separate bucket of `MagicLinkAttempt`. Audit log captures success / failure / rate-limit outcomes per attempt.](#2026-05-01--v1500--numeric-sign-in-code) |
 | v1.49.0 | 2026-05-01 | [`GuestGroupsControl` — reusable chips + popover picker for managing per-guest group memberships. Wired into the guests list (inline pill strip), guest detail page (Details section), and seating canvas detail panel (read-only). Same `toggleGuestGroupMember` action everywhere; couple-only writes.](#2026-05-01--v1490--per-guest-group-affordances) |
 | v1.48.0 | 2026-05-01 | [Auto-fill ceremony seating from ordered groups + side constraint. Couple manages an ordered list of guest groups (each with `side: BRIDE / GROOM / BOTH`); allocator walks the list, packing BRIDE groups on LEFT, GROOM on RIGHT, BOTH on whichever side has more space. Reorder buttons in Settings + on /seating/ceremony. Per-row manual assignments deprecated.](#2026-05-01--v1480--auto-fill-from-ordered-groups) |
 | v1.47.0 | 2026-05-01 | [Ceremony seating fills by group member count — packs each group's members across its assigned rows aisle-outward. Three seat states: filled (full colour + glyph), spare (faded tint, no glyph — assigned but no member), neutral (unassigned). Legend shows guests-seated / reserved / spare-or-shortfall per group. Row panel surfaces per-row fill counts.](#2026-05-01--v1470--seat-allocation-from-member-count) |
@@ -768,6 +769,44 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-05-01 · v1.51.0 — Inline task linking on cards
+
+User: "8". Backlog #8 — tasks linkable to individual cards (subsections), inline below each card. Three implementation candidates were enumerated in the older backlog: (1) parallel m2m alongside section link, (2) replace section link with subsection link + roll up, (3) bucket via metadata. Recommendation was option 1. Shipping (1).
+
+**Schema** (`prisma/schema.prisma`).
+
+`Task.bookSubsections: BookSubsection[]` — implicit Prisma m2m, lives alongside the existing `Task.bookSections: BookSection[]`. Section-level link is the broader "this task touches Food & Drink" grouping; subsection-level is the precise "this task is about the Wedding-breakfast MENU card". They coexist; a task can link to either, both, or neither.
+
+Back-relation `BookSubsection.tasks: Task[]` for the read side.
+
+Migration `20260505000000_task_book_subsection_m2m/migration.sql` is purely additive: one `CREATE TABLE _BookSubsectionToTask` + index on `B` + two `ON DELETE CASCADE` FKs. Standard Prisma implicit-m2m shape.
+
+**Form** (`TopicPicker.tsx`).
+
+The combined Topics multi-select gains a third group: **"Wedding Book — cards"**. Each option label reads `<Card title>` with the parent section title in muted type on the right (e.g., `Wedding breakfast` · `Food & Drink`) so two cards with the same name on different pages stay unambiguous. Hidden inputs emit `bookSubsection:<id>` keys alongside the existing `bookSection:<id>` and `navTag:<id>` keys.
+
+Selected card chips render in a slightly lighter moss tint than section chips so the relationship is visually distinct in the chip strip.
+
+**Server actions** (`tasks/actions.ts`).
+
+`parseTopicKeys` now also extracts `bookSubsectionIds`. `createTask` connects them; `updateTask` does the same `set:` replacement pattern as `bookSections`. Audit metadata gains `bookSubsectionIds`. The `changedFields` diff on update includes `bookSubsections` when the set changes. Both create + update revalidate `/book` so the inline panel re-renders.
+
+**Read side** (`book/[slug]/page.tsx` + `CardRouter.tsx`).
+
+Page loads tasks linked to any subsection on the page in one query (`bookSubsections: { some: { id: { in: subsectionIds } } }`), buckets them client-side by `subsectionId` into a `Map<string, LinkedTaskRow[]>`, then passes each card's slice to `CardRouter` via a new `linkedTasks` prop.
+
+`CardRouter` was a giant `switch` with one body per kind. Refactored to compute the body via a `renderCardBody` helper, then wrap once with `<>{body}{linkedTasks.length > 0 && <CardLinkedTasksPanel />}</>` — every kind gets the panel below for free, no per-branch wrapping.
+
+The new `CardLinkedTasksPanel` is a compact section that visually hugs the card it sits below — `mt-2 -mx-px border-x border-b border-border-soft bg-canvas/40 rounded-b-md` so it reads as part of the same surface. One row per task with a 1-char type badge (Q / D / · for questions / decisions / tasks), title, status pill, and due date. "Manage →" link to `/tasks` for editing. Hidden entirely when no tasks are linked (empty cards stay clean).
+
+**Threading.** `bookSubsections` flows from page loaders → `AddTaskToggle` / `TaskList` → `TaskForm` / `TaskDrawer` → `TopicPicker`. The Task row shape on `TaskList` and `TaskDrawer` gains an optional `bookSubsections?: Array<{ id, title, sectionTitle }>` so older callers that don't load it still typecheck. Both `/tasks` and `/questions` page loaders fetch the flattened subsection list (`{ id, title, sectionTitle }`).
+
+**No tests added.** This is data plumbing on top of existing patterns — the audit-format pretty-printer doesn't change (the existing `update`/`create` patterns surface the relation IDs unchanged), and the new TopicPicker option group is parallel to existing groups already covered by manual review during development. The shape changes are all caught by typecheck.
+
+**Verified.** typecheck clean · lint clean · 555 tests · production build clean.
+
+Files: `prisma/schema.prisma` (Task.bookSubsections + back-relation), `prisma/migrations/20260505000000_task_book_subsection_m2m/migration.sql`, `src/app/(app)/tasks/TopicPicker.tsx` (third group + chip styling), `src/app/(app)/tasks/TaskForm.tsx` (BookSubsectionOpt re-export + threading), `src/app/(app)/tasks/TaskDrawer.tsx` (Task shape + state + topicKeys emit), `src/app/(app)/tasks/AddTaskToggle.tsx` (prop + default), `src/app/(app)/tasks/TaskList.tsx` (prop pass-through), `src/app/(app)/tasks/actions.ts` (parseTopicKeys + create/update + revalidate /book), `src/app/(app)/tasks/page.tsx` + `src/app/(app)/questions/page.tsx` (load subsections), `src/app/(app)/book/[slug]/page.tsx` (load + bucket subsection tasks), `src/app/(app)/book/[slug]/CardRouter.tsx` (renderCardBody refactor + CardLinkedTasksPanel), `package.json` → `1.51.0`.
 
 ### 2026-05-01 · v1.50.0 — Numeric sign-in code
 

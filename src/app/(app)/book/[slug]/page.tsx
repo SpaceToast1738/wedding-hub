@@ -100,6 +100,36 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
     },
   });
 
+  // v1.51.0: pull subsection-level (per-card) linked tasks. Independent
+  // of the section-level link above; a task can appear on the
+  // section-level panel AND on a specific card's inline panel. Bucketed
+  // by subsectionId so each card gets its own slice without re-querying.
+  const subsectionIds = section.subsections.map((s) => s.id);
+  const subsectionTasksRaw =
+    subsectionIds.length === 0
+      ? []
+      : await db.task.findMany({
+          where: { bookSubsections: { some: { id: { in: subsectionIds } } } },
+          orderBy: [{ status: "asc" }, { priority: "desc" }, { dueDate: "asc" }],
+          select: {
+            id: true,
+            title: true,
+            type: true,
+            status: true,
+            priority: true,
+            dueDate: true,
+            bookSubsections: { select: { id: true } },
+          },
+        });
+  const subsectionTasksById = new Map<string, typeof subsectionTasksRaw>();
+  for (const t of subsectionTasksRaw) {
+    for (const ss of t.bookSubsections) {
+      const arr = subsectionTasksById.get(ss.id) ?? [];
+      arr.push(t);
+      subsectionTasksById.set(ss.id, arr);
+    }
+  }
+
   // v1.32.0: MENU live counts + BAR per-head sanity. Both pull from
   // /guests; cheap because it runs once for the whole section, not
   // per-card. Skipped entirely when the section has no MENU or BAR
@@ -344,6 +374,7 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
                   sub={s}
                   canEdit={editable}
                   isCouple={user.isCouple}
+                  linkedTasks={subsectionTasksById.get(s.id) ?? []}
                 />
               );
             })

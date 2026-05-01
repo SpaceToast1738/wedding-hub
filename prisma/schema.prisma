@@ -255,6 +255,14 @@ model Task {
   // manages the junction tables (_BookSectionToTask + _NavTagToTask).
   bookSections BookSection[]
   navTags      NavTag[]
+  // v1.51.0: parallel m2m at the **subsection** level. Coexists with
+  // bookSections — tasks can link to either, both, or neither. The
+  // section link is for "this task is about Food & Drink"; the
+  // subsection link is for "this task is about the Wedding breakfast
+  // MENU card specifically" — and that's the link that drives the
+  // inline tasks panel rendered below each card on /book/[slug].
+  // Implicit m2m → Prisma manages the _BookSubsectionToTask junction.
+  bookSubsections BookSubsection[]
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
 
@@ -530,6 +538,12 @@ model BookSubsection {
   lodgingCard BookLodgingCard?
   // v1.30.5: subsection-level task link removed; replaced by section-
   // level link on the parent BookSection (see BookSection.tasks).
+  // v1.51.0: subsection-level link reintroduced as a **parallel** m2m
+  // alongside the section-level one — drives the inline tasks panel
+  // below each card on /book/[slug]. Doesn't replace the section-
+  // level link (that's the broader "this task touches the section"
+  // grouping; this one is per-card).
+  tasks      Task[]
   updatedAt  DateTime    @updatedAt
 
   @@unique([sectionId, slug])

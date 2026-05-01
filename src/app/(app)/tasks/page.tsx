@@ -23,7 +23,7 @@ export default async function TasksPage({
   const sp = await searchParams;
   const supplierFilter = typeof sp.supplier === "string" ? sp.supplier : null;
 
-  const [tasks, users, customFieldDefs, suppliers, bookSections, navTags] = await Promise.all([
+  const [tasks, users, customFieldDefs, suppliers, bookSections, bookSubsectionsRaw, navTags] = await Promise.all([
     db.task.findMany({
       where: {
         type: "TASK",
@@ -31,8 +31,13 @@ export default async function TasksPage({
       },
       orderBy: [{ status: "asc" }, { priority: "desc" }, { dueDate: "asc" }, { createdAt: "desc" }],
       // v1.30.5: include the m2m relations for the chip-row render.
+      // v1.51.0: + bookSubsections so the drawer's TopicPicker shows
+      // current card-level memberships.
       include: {
         bookSections: { select: { id: true, title: true } },
+        bookSubsections: {
+          select: { id: true, title: true, section: { select: { title: true } } },
+        },
         navTags: { select: { id: true, name: true } },
       },
     }),
@@ -50,12 +55,41 @@ export default async function TasksPage({
       orderBy: { order: "asc" },
       select: { id: true, title: true },
     }),
+    // v1.51.0: book subsections (cards) for the Topics multi-select —
+    // tasks can link directly to a single card now. Nested section
+    // title flattened in the map below so the picker can render
+    // "Section · Card" labels without unambiguous collisions.
+    db.bookSubsection.findMany({
+      orderBy: [{ section: { order: "asc" } }, { order: "asc" }],
+      select: {
+        id: true,
+        title: true,
+        section: { select: { title: true } },
+      },
+    }),
     // v1.30.5: nav tags for the Topics multi-select.
     db.navTag.findMany({
       orderBy: { order: "asc" },
       select: { id: true, name: true, route: true },
     }),
   ]);
+  // Flatten subsection.section.title to subsection.sectionTitle for
+  // the picker shape.
+  const bookSubsections = bookSubsectionsRaw.map((s) => ({
+    id: s.id,
+    title: s.title,
+    sectionTitle: s.section.title,
+  }));
+  // Cast the task rows so the bookSubsections relation flows through
+  // to the drawer / picker with the same flattened shape.
+  const tasksWithFlatSubsections = tasks.map((t) => ({
+    ...t,
+    bookSubsections: t.bookSubsections.map((s) => ({
+      id: s.id,
+      title: s.title,
+      sectionTitle: s.section.title,
+    })),
+  }));
   const customFieldDefsTyped: CustomFieldDef[] = customFieldDefs.map((f) => ({
     id: f.id,
     entity: f.entity,
@@ -66,7 +100,7 @@ export default async function TasksPage({
   }));
 
   // Hide budget-tagged tasks from non-couple users
-  const visible = user.isCouple ? tasks : tasks.filter((t) => !t.tags.includes("Budget"));
+  const visible = user.isCouple ? tasksWithFlatSubsections : tasksWithFlatSubsections.filter((t) => !t.tags.includes("Budget"));
   const open = visible.filter((t) => t.status !== "DONE" && t.status !== "ARCHIVED").length;
   const done = visible.filter((t) => t.status === "DONE").length;
   const filteredSupplier = supplierFilter
@@ -91,6 +125,7 @@ export default async function TasksPage({
                 users={users.map((u) => ({ id: u.id, name: u.name, email: u.email }))}
                 suppliers={suppliers}
                 bookSections={bookSections}
+                bookSubsections={bookSubsections}
                 navTags={navTags}
               />
             </>
@@ -121,6 +156,7 @@ export default async function TasksPage({
         users={users.map((u) => ({ id: u.id, name: u.name, email: u.email }))}
         suppliers={suppliers}
         bookSections={bookSections}
+        bookSubsections={bookSubsections}
         navTags={navTags}
         currentUserId={user.id}
         canEdit={editable}

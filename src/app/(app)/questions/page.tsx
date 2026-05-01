@@ -12,7 +12,7 @@ export default async function QuestionsPage() {
   if (!(await canView(user, "questions"))) redirect("/");
   const editable = await canEdit(user, "questions");
 
-  const [questions, users, customFieldDefs, suppliers, bookSections, navTags] = await Promise.all([
+  const [questions, users, customFieldDefs, suppliers, bookSections, bookSubsectionsRaw, navTags] = await Promise.all([
     db.task.findMany({
       where: { type: { in: ["QUESTION", "DECISION"] } },
       orderBy: [{ status: "asc" }, { priority: "desc" }, { createdAt: "desc" }],
@@ -33,11 +33,25 @@ export default async function QuestionsPage() {
       orderBy: { order: "asc" },
       select: { id: true, title: true },
     }),
+    // v1.51.0: subsections for the parallel card-level link picker.
+    db.bookSubsection.findMany({
+      orderBy: [{ section: { order: "asc" } }, { order: "asc" }],
+      select: {
+        id: true,
+        title: true,
+        section: { select: { title: true } },
+      },
+    }),
     db.navTag.findMany({
       orderBy: { order: "asc" },
       select: { id: true, name: true, route: true },
     }),
   ]);
+  const bookSubsections = bookSubsectionsRaw.map((s) => ({
+    id: s.id,
+    title: s.title,
+    sectionTitle: s.section.title,
+  }));
   const customFieldDefsTyped: CustomFieldDef[] = customFieldDefs.map((f) => ({
     id: f.id,
     entity: f.entity,
@@ -63,6 +77,7 @@ export default async function QuestionsPage() {
               users={users.map((u) => ({ id: u.id, name: u.name, email: u.email }))}
               suppliers={suppliers}
               bookSections={bookSections}
+              bookSubsections={bookSubsections}
               navTags={navTags}
               defaultType="QUESTION"
               showType={true}

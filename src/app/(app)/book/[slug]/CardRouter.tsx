@@ -285,15 +285,42 @@ type Sub = {
   } | null;
 };
 
+// v1.51.0: per-card linked tasks shape. Loaded by the parent page
+// from the parallel Task ↔ BookSubsection m2m. Optional so older
+// callers that don't pass the prop still type-check; they just
+// don't render the inline panel.
+export type LinkedTaskRow = {
+  id: string;
+  title: string;
+  type: string;
+  status: string;
+  priority: string;
+  dueDate: Date | null;
+};
+
 export function CardRouter({
   sub,
   canEdit,
   isCouple,
+  linkedTasks = [],
 }: {
   sub: Sub;
   canEdit: boolean;
   isCouple: boolean;
+  linkedTasks?: LinkedTaskRow[];
 }) {
+  const body = renderCardBody(sub, canEdit, isCouple);
+  // v1.51.0: inline panel renders directly below every kind's body.
+  // Hidden when no tasks are linked (empty cards stay clean).
+  return (
+    <>
+      {body}
+      {linkedTasks.length > 0 && <CardLinkedTasksPanel tasks={linkedTasks} />}
+    </>
+  );
+}
+
+function renderCardBody(sub: Sub, canEdit: boolean, isCouple: boolean) {
   switch (sub.kind) {
     case "TEXT":
       return (
@@ -622,4 +649,77 @@ export function CardRouter({
       return null;
     }
   }
+}
+
+// v1.51.0: per-card linked tasks panel. Renders directly below the
+// card body for any subsection with at least one task linked via
+// the bookSubsections m2m. Layout mirrors the section-level
+// LinkedTasksPanel but compacted — fewer columns, no search, and
+// hugs the card visually so the relationship is unambiguous.
+function CardLinkedTasksPanel({ tasks }: { tasks: LinkedTaskRow[] }) {
+  function statusLabel(s: string): string {
+    return s === "OPEN"
+      ? "Open"
+      : s === "IN_PROGRESS"
+        ? "Doing"
+        : s === "WAITING"
+          ? "Waiting"
+          : s === "DONE"
+            ? "Done"
+            : s === "ARCHIVED"
+              ? "Archived"
+              : s;
+  }
+  function statusClass(s: string): string {
+    if (s === "DONE") return "text-moss-700 bg-moss-50 border-moss-300";
+    if (s === "OPEN") return "text-marigold-700 bg-marigold-100/40 border-marigold-700/30";
+    if (s === "IN_PROGRESS") return "text-info bg-canvas border-border-soft";
+    if (s === "WAITING") return "text-ink-tertiary bg-canvas border-border-soft";
+    return "text-ink-tertiary bg-canvas border-border-soft";
+  }
+  function typeBadge(t: string): string {
+    return t === "QUESTION" ? "Q" : t === "DECISION" ? "D" : "·";
+  }
+  function dueLabel(d: Date | null): string {
+    if (!d) return "";
+    return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short" });
+  }
+  return (
+    <section className="mt-2 -mx-px border-x border-b border-border-soft bg-canvas/40 rounded-b-md">
+      <header className="px-4 py-1.5 border-b border-border-soft flex items-center gap-2">
+        <span className="text-[10px] uppercase tracking-wider font-bold text-ink-tertiary">
+          Linked tasks
+        </span>
+        <span className="text-[10px] text-ink-tertiary tabular-nums">
+          {tasks.length}
+        </span>
+        <a
+          href="/tasks"
+          className="ml-auto text-[10px] text-moss-700 hover:underline"
+        >
+          Manage →
+        </a>
+      </header>
+      <ul className="divide-y divide-border-soft text-sm">
+        {tasks.map((t) => (
+          <li key={t.id} className="px-4 py-1.5 flex items-center gap-2">
+            <span className="text-[10px] font-mono text-ink-tertiary w-4 text-center">
+              {typeBadge(t.type)}
+            </span>
+            <span className="flex-1 min-w-0 truncate text-ink-primary">{t.title}</span>
+            <span
+              className={`text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded-md border ${statusClass(t.status)}`}
+            >
+              {statusLabel(t.status)}
+            </span>
+            {t.dueDate && (
+              <span className="text-[10px] text-ink-tertiary tabular-nums whitespace-nowrap">
+                {dueLabel(t.dueDate)}
+              </span>
+            )}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
 }

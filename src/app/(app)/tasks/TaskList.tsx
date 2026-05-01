@@ -6,7 +6,7 @@ import { TaskRow } from "./TaskRow";
 import { TaskBoard } from "./TaskBoard";
 import { FilterTabs, type Filter, type View } from "./FilterTabs";
 import { TaskDrawer } from "./TaskDrawer";
-import type { UserOpt, SupplierOpt, BookSectionOpt, NavTagOpt } from "./TaskForm";
+import type { UserOpt, SupplierOpt, BookSectionOpt, BookSubsectionOpt, NavTagOpt } from "./TaskForm";
 import type { CustomFieldDef } from "@/lib/custom-fields";
 
 const VIEW_KEY = "wh_tasks_view";
@@ -29,6 +29,10 @@ type Task = {
   supplierId: string | null;
   // v1.30.5: m2m topic relations replace v1.30.0's bookSubsectionId.
   bookSections: Array<{ id: string; title: string }>;
+  // v1.51.0: parallel card-level m2m. Optional so older callers
+  // that don't load this don't break — the drawer / chip-row default
+  // to an empty list.
+  bookSubsections?: Array<{ id: string; title: string; sectionTitle: string }>;
   navTags: Array<{ id: string; name: string }>;
 };
 
@@ -93,6 +97,7 @@ export function TaskList({
   users,
   suppliers = [],
   bookSections = [],
+  bookSubsections = [],
   navTags = [],
   currentUserId,
   canEdit,
@@ -104,7 +109,9 @@ export function TaskList({
   // task drawer. Empty array hides supplier UI.
   suppliers?: SupplierOpt[];
   // v1.30.5: lists for the Topics multi-select on the drawer.
+  // v1.51.0: + bookSubsections (cards).
   bookSections?: BookSectionOpt[];
+  bookSubsections?: BookSubsectionOpt[];
   navTags?: NavTagOpt[];
   currentUserId: string;
   canEdit: boolean;
@@ -522,6 +529,7 @@ export function TaskList({
           users={users}
           suppliers={suppliers}
           bookSections={bookSections}
+          bookSubsections={bookSubsections}
           navTags={navTags}
           canEdit={canEdit}
           onClose={() => setOpenTaskId(null)}
