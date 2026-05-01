@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.55.0** | 2026-05-01 | [Add-New affordances normalised to inline-expand. `AddTaskToggle` and `AddEventToggle` were the last two pages still using the v1.27.0 fixed-position popover-modal pattern. Converted to the inline-expand card pattern every other page uses (AddHouseholdToggle, AddSupplierToggle, AddPlaylistToggle, AddTableToggle, AddPaymentToggle, AddSection/SubsectionToggle). Same UX everywhere: button → in-place form-card.](#2026-05-01--v1550--add-new-affordances-normalised) |
+| **v1.56.0** | 2026-05-01 | [Add-New affordances normalised to **popout modal** (reverses v1.55.0). User clarification: "I want the screens to popout". New shared `AddNewModal` wrapper centralises the centred-card + backdrop + Esc/× dismissal pattern. AddTaskToggle, AddEventToggle, AddHouseholdToggle, AddSupplierToggle, AddPlaylistToggle, AddTableToggle, AddPaymentToggle, AddSectionToggle, AddSubsectionToggle all use it.](#2026-05-01--v1560--add-new-affordances-popout-modal) |
+| v1.55.0 | 2026-05-01 | [Add-New affordances normalised to inline-expand. `AddTaskToggle` and `AddEventToggle` were the last two pages still using the v1.27.0 fixed-position popover-modal pattern. Converted to the inline-expand card pattern every other page uses (AddHouseholdToggle, AddSupplierToggle, AddPlaylistToggle, AddTableToggle, AddPaymentToggle, AddSection/SubsectionToggle). Same UX everywhere: button → in-place form-card.](#2026-05-01--v1550--add-new-affordances-normalised) |
 | v1.54.1 | 2026-05-01 | [Daily bug-check schedule — new `.github/workflows/daily-bug-check.yml` runs at 08:23 UTC every morning: `npm audit` (high+ fails the run), `npm outdated` (informational), TODO/FIXME accumulator, schema/migration drift check, `prisma format --check`. Findings show on the repo's red-❌ indicator; no notifications. Companion in-session Claude review cron fires at 09:17 local daily for the lifetime of the dev shell.](#2026-05-01--v1541--daily-bug-check-schedule) |
 | v1.54.0 | 2026-05-01 | [🟡 Notable review fixes (A6–A10, B2–B5, B3 enrichment, C3–C6) — section enum on per-user perms, transactional clearAll, requireEdit gate on book visibility, deprecated `setCeremonyRowGroup` removed, bootstrap-couple race tightened, ceremony revalidatePath fixed, dead code purged, audit-log enrichment on Book CRUD + permission writes including `priorLevel`, reorder buttons (▲▼) on Permission groups + Nav tags, PageLinkedTasksStrip header treatment, `+ Add group` chip relocated.](#2026-05-01--v1540--notable-review-fixes) |
 | v1.53.0 | 2026-05-01 | [Critical review fixes (A1–A5, B1, C1) — sign-in code rate limiter no longer double-counts (effective budget is 5 not 2–3); verify page reads email from httpOnly cookie not form (closes per-email rotation attack); pending VerificationToken siblings are invalidated on send; `/api/auth/callback/nodemailer` is now rate-limited; per-user permission overrides win unconditionally (NONE actually denies); slug-rename + delete on PermissionGroup cascades GroupPermission rows; destructive deletes on supplier / household / guest / budget category / line return result-shape with real error toasts.](#2026-05-01--v1530--critical-review-fixes) |
@@ -851,6 +852,40 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-05-01 · v1.56.0 — Add-New affordances popout modal
+
+User: "I want the screens to popout". Reverses v1.55.0's direction — instead of normalising every Add affordance to inline-expand, they all become popout modals. The original v1.55.0 audit reading was wrong: the user's feedback "instead of popping out in the middle of the page like add new tasks they open in the task bar" meant *they want them to popout like tasks does*, not *they should stop popping out*. v1.56.0 takes the literal reading.
+
+**New shared component** `src/components/ui/AddNewModal.tsx`. Centred card with backdrop, Esc + backdrop-click + × dismissal, three width presets (`sm` 480px, `md` 560px, `lg` 680px). Same shape every page; one place to evolve the pattern.
+
+```tsx
+<AddNewModal open={open} onClose={() => setOpen(false)} title="New X" width="md">
+  <SomeForm onSubmit={...} onCancel={() => setOpen(false)} />
+</AddNewModal>
+```
+
+**Nine toggles converted:**
+
+| Toggle | Page | Width |
+|---|---|---|
+| `AddTaskToggle` | `/tasks` | `lg` |
+| `AddEventToggle` | `/schedule` | `md` |
+| `AddHouseholdToggle` | `/guests` | `sm` |
+| `AddSupplierToggle` | `/suppliers` | `md` |
+| `AddPlaylistToggle` | `/songs` | `md` |
+| `AddTableToggle` | `/seating` | `sm` |
+| `AddPaymentToggle` | `/payments` | `md` |
+| `AddSectionToggle` | `/book` | `md` |
+| `AddSubsectionToggle` | `/book/[slug]` | `md` |
+
+Each rewrite drops the inline-expand pattern (`if (!open) return button; else return form-card`) in favour of always rendering the button + the modal-as-portal. The button stays in `PageHeader.actions` (or wherever it was); clicking it sets `open=true`; the modal materialises over the page; submit / cancel set `open=false` and the modal vanishes. No layout shift on the underlying page.
+
+**Out of scope.** Settings sub-pickers (CustomFieldsPanel, NavTagsBlock, PermissionGroupsBlock, GuestGroupsBlock) and BudgetClient's category/line forms still use inline-expand for now. Their scope is per-section management *within* a settings panel — popping out of context made less sense in early review. If the user wants them converted too, easy follow-up: same AddNewModal wrapper, same shape.
+
+**Verified.** typecheck clean · lint clean · 542 tests · production build clean. Structural change only — form contracts unchanged, no test impact.
+
+Files: `src/components/ui/AddNewModal.tsx` (new), 9 toggle files rewritten, `package.json` → `1.56.0`.
 
 ### 2026-05-01 · v1.55.0 — Add-New affordances normalised
 

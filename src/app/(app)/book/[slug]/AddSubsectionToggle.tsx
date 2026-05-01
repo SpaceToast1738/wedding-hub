@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
+import { AddNewModal } from "@/components/ui/AddNewModal";
 import { BOOK_CARD_KIND_META, BOOK_CARD_KINDS, type BookCardKind } from "@/lib/book-cards";
 import { createBookSubsection } from "../actions";
 
@@ -20,14 +21,13 @@ export function AddSubsectionToggle({ sectionId }: { sectionId: string }) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
-  if (!open) {
-    return (
+  // v1.56.0: shared AddNewModal popout.
+  return (
+    <>
       <Button variant="primary" size="sm" onClick={() => setOpen(true)}>
         + New card
       </Button>
-    );
-  }
-  return (
+      <AddNewModal open={open} onClose={() => setOpen(false)} title="New card" width="md">
     <form
       action={(fd) => {
         setError(null);
@@ -43,9 +43,8 @@ export function AddSubsectionToggle({ sectionId }: { sectionId: string }) {
           }
         });
       }}
-      className="bg-surface border border-moss-100 rounded-md p-4 mb-4 shadow-sm space-y-3"
+      className="space-y-3"
     >
-      <h3 className="text-sm font-semibold text-ink-primary">New card</h3>
       <div>
         <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1.5">
           Card type
@@ -110,5 +109,7 @@ export function AddSubsectionToggle({ sectionId }: { sectionId: string }) {
         </Button>
       </div>
     </form>
+      </AddNewModal>
+    </>
   );
 }
