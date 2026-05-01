@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { PermissionLevel } from "@prisma/client";
+import { PermissionLevel, UserRole } from "@prisma/client";
 import { db } from "@/lib/db";
 import { audit, requireEdit } from "@/lib/actions";
 
@@ -119,6 +119,78 @@ export async function clearAllUserOverrides(userId: string): Promise<{ ok: true;
   });
   revalidatePath("/settings");
   return { ok: true, cleared: before.length };
+}
+
+// v1.45.2: change a user's role (WEDDING_PARTY / PLANNER / VIEWER).
+// Directly governs which built-in groups they appear in
+// ("Wedding party (by role)" needs role = WEDDING_PARTY; "Planners
+// (by role)" needs role = PLANNER). Couple-only.
+//
+// Excludes UserRole.COUPLE — that's set via the `isCouple` flag
+// using `setUserCouple`, and the two are kept in sync at bootstrap
+// (`src/auth.ts:91`). Forcing role = COUPLE here without flipping
+// isCouple would create a confusing split state.
+const setRoleSchema = z.object({
+  userId: z.string().min(1),
+  role: z.enum(["WEDDING_PARTY", "PLANNER", "VIEWER"]),
+});
+
+export async function setUserRole(userId: string, role: "WEDDING_PARTY" | "PLANNER" | "VIEWER") {
+  const user = await requireEdit("settings");
+  if (!user.isCouple) {
+    await audit(user, {
+      action: "settings_denied",
+      entity: "User",
+      entityId: userId,
+      metadata: { reason: "not_couple", target_action: "setUserRole", target_role: role },
+    });
+    throw new Error("Forbidden: only the couple can change user roles");
+  }
+  const parsed = setRoleSchema.parse({ userId, role });
+  const before = await db.user.findUnique({
+    where: { id: parsed.userId },
+    select: { id: true, role: true, isCouple: true, name: true, email: true },
+  });
+  if (!before) throw new Error("User not found");
+  // Last-couple lock: if the target is currently couple-tier and
+  // we're moving them to a non-couple role, block when they're the
+  // only remaining couple. Same protection as setUserCouple. Note:
+  // we do NOT auto-clear isCouple here — that's an explicit action
+  // via setUserCouple.
+  if (before.isCouple) {
+    const coupleCount = await db.user.count({ where: { isCouple: true } });
+    if (coupleCount <= 1) {
+      await audit(user, {
+        action: "settings_denied",
+        entity: "User",
+        entityId: parsed.userId,
+        metadata: {
+          reason: "last_couple_locked",
+          target_action: "setUserRole",
+          target_role: parsed.role,
+        },
+      });
+      throw new Error(
+        "Can't change role of the only remaining couple-tier admin. Promote another user first.",
+      );
+    }
+  }
+  await db.user.update({
+    where: { id: parsed.userId },
+    data: { role: parsed.role as UserRole },
+  });
+  await audit(user, {
+    action: "set-role",
+    entity: "User",
+    entityId: parsed.userId,
+    metadata: {
+      role: parsed.role,
+      priorRole: before.role,
+      name: before.name,
+      email: before.email,
+    },
+  });
+  revalidatePath("/settings");
 }
 
 export async function setUserCouple(userId: string, isCouple: boolean) {

@@ -569,6 +569,13 @@ export function formatAuditAction(row: AuditRow): string {
     if (a === "permission-clear-all" && cleared !== null) {
       return `Cleared all per-user overrides (${pluralise(cleared, "section", "sections")}) — user inherits from groups now`;
     }
+    // v1.45.2: role change (WEDDING_PARTY / PLANNER / VIEWER).
+    const role = asString(meta.role);
+    const priorRole = asString(meta.priorRole);
+    if (a === "set-role" && role) {
+      const name = asString(meta.name) ?? asString(meta.email);
+      return `Set role to ${role}${priorRole ? ` (was ${priorRole})` : ""}${name ? ` for ${name}` : ""}`;
+    }
   }
 
   // PermissionGroup (v1.40.0, renamed from UserGroup in v1.42.0)

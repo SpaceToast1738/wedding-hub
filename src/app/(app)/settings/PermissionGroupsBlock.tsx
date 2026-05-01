@@ -199,7 +199,21 @@ export function PermissionGroupsBlock({
                 {membersOpen && (
                   <div className="mt-1.5 ml-3 pl-3 border-l border-border-soft">
                     <p className="text-[10px] uppercase tracking-wider text-ink-tertiary font-bold mb-1">
-                      Members ({b.members.length}) — computed from each user&apos;s role; not editable here
+                      Members ({b.members.length})
+                    </p>
+                    {/* v1.45.2: explain how to change membership for
+                        each built-in. Each one is computed from a
+                        different attribute, so the direction is
+                        per-slug. */}
+                    <p className="text-[11px] text-ink-tertiary mb-2 italic">
+                      {b.slug === "everyone" &&
+                        "Everyone with an account is automatically here. Use the Members & per-user overrides panel below to remove a user entirely."}
+                      {b.slug === "couple" &&
+                        "Members are users with couple-tier access. Toggle the Couple-tier checkbox on a user's card in the Members & per-user overrides panel below."}
+                      {b.slug === "wedding-party-role" &&
+                        "Members have role = Wedding party. Change a user's role in the Members & per-user overrides panel below."}
+                      {b.slug === "planners-role" &&
+                        "Members have role = Planner. Change a user's role in the Members & per-user overrides panel below."}
                     </p>
                     {b.members.length === 0 ? (
                       <p className="text-xs text-ink-tertiary italic">No matching users.</p>

@@ -388,6 +388,31 @@ describe("formatAuditAction — v1.39.0 enrichment", () => {
         }),
       ).toBe("Cleared all per-user overrides (1 section) — user inherits from groups now");
     });
+
+    it("set-role surfaces the new role + prior role + user name", () => {
+      expect(
+        formatAuditAction({
+          action: "set-role",
+          entity: "User",
+          metadata: {
+            role: "PLANNER",
+            priorRole: "WEDDING_PARTY",
+            name: "Aimee Hollingsworth",
+            email: "aimee@example.com",
+          },
+        }),
+      ).toBe("Set role to PLANNER (was WEDDING_PARTY) for Aimee Hollingsworth");
+    });
+
+    it("set-role falls back to email when name missing", () => {
+      expect(
+        formatAuditAction({
+          action: "set-role",
+          entity: "User",
+          metadata: { role: "VIEWER", email: "viewer@example.com" },
+        }),
+      ).toBe("Set role to VIEWER for viewer@example.com");
+    });
   });
 
   describe("PermissionGroup (v1.40.0, renamed in v1.42.0)", () => {

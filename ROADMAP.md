@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.45.1** | 2026-05-01 | [Last-admin lock + duplicate-name disambiguator. `setUserCouple` and `removeUser` server-side refuse to leave the running session with zero couple-tier admins; the UI shows a 🔒 chip on the last couple-tier user and disables their toggle/remove. Member lists now show email next to display name so two accounts sharing a name are distinguishable.](#2026-05-01--v1451--last-admin-lock--name-disambiguator) |
+| **v1.45.2** | 2026-05-01 | [Role select in the per-user editor — `setUserRole` action drives membership in the role-based built-ins (Wedding party / Planners). Built-in member lists now print directive copy explaining how to change membership for each (toggle Couple-tier checkbox, change role, or remove the user) instead of opaque "not editable here". Last-admin lock extended to `setUserRole`.](#2026-05-01--v1452--role-select--directive-copy) |
+| v1.45.1 | 2026-05-01 | [Last-admin lock + duplicate-name disambiguator. `setUserCouple` and `removeUser` server-side refuse to leave the running session with zero couple-tier admins; the UI shows a 🔒 chip on the last couple-tier user and disables their toggle/remove. Member lists now show email next to display name so two accounts sharing a name are distinguishable.](#2026-05-01--v1451--last-admin-lock--name-disambiguator) |
 | v1.45.0 | 2026-05-01 | [Per-user editor — replace dense PermissionMatrix table with one expandable card per user (matching the spacing of PermissionGroupsBlock). Each card shows group memberships (toggleable for custom groups, read-only chips for built-ins), per-section overrides (default off; tick to override), couple toggle, and remove. New `clearAllUserOverrides` bulk-clear button per user.](#2026-05-01--v1450--per-user-editor) |
 | v1.44.0 | 2026-05-01 | [Settings UX overhaul — per-user override matrix is now checkbox-driven (default = inherit from group; tick to override). Page panels grouped under named sections (Your account · Wedding details · Customisation · Access & members · Notifications & log) so the long stream of cards reads as a document with chapters. New `clearPermission` action deletes the override row when unticked.](#2026-05-01--v1440--settings-ux-overhaul) |
 | v1.43.1 | 2026-05-01 | [Settings UX patch — explicit `Members` button on every permission group (was hidden behind clicking the title); read-only member list on built-in groups; dropped the sticky `<thead>` + nested-card styling on the per-user override matrix that was causing runaway-scroll feel inside the new collapsed panel. Trimmed wall-of-text description copy.](#2026-05-01--v1431--settings-ux-patch) |
@@ -762,6 +763,31 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-05-01 · v1.45.2 — Role select + directive copy
+
+User: "Why can't I edit members here?" — pointed at the Couple built-in group's member list which read "computed from each user's role; not editable here". The opaque message left a dead end: the user could see the membership but couldn't tell where to change it. Two fixes.
+
+**Role select in the per-user editor.** `MemberOverridesBlock` cards gain a Role dropdown alongside the couple checkbox: Wedding party / Planner / Viewer. Changing it calls a new `setUserRole(userId, role)` server action which flips `User.role` and re-resolves built-in group membership on next render. The dropdown is disabled when the user has couple-tier (their role is implicitly COUPLE; revoke couple-tier first to edit role). Excludes COUPLE from the option list — that's managed via the dedicated checkbox so the two fields can't get out of sync.
+
+`setUserRole` carries the same last-couple lock as `setUserCouple` and `removeUser`: if the target is currently couple-tier and they're the only remaining one, the action throws with a `last_couple_locked` audit row. Couple-only via `requireCoupleEditor`.
+
+**Directive copy on built-in member lists.** Each of the four built-ins gets its own per-slug guidance line under the member list:
+
+- *Everyone:* "Everyone with an account is automatically here. Use the Members & per-user overrides panel below to remove a user entirely."
+- *Couple:* "Members are users with couple-tier access. Toggle the Couple-tier checkbox on a user's card in the Members & per-user overrides panel below."
+- *Wedding party (by role):* "Members have role = Wedding party. Change a user's role in the Members & per-user overrides panel below."
+- *Planners (by role):* "Members have role = Planner. Change a user's role in the Members & per-user overrides panel below."
+
+Replaces the previous one-liner that just said "not editable here" — now every built-in points at the right control.
+
+**Audit format.** New `User`-entity pattern for `set-role` action: `Set role to PLANNER (was WEDDING_PARTY) for Aimee Hollingsworth`. Falls back to email when name is missing.
+
+**Tests.** `tests/unit/audit-format-enrichment.test.ts` gains 2 cases for `set-role` (with prior role + user identity + fallback). 513 tests pass (511 → 513).
+
+**Verified.** typecheck clean · lint clean · 513 tests · production build clean.
+
+Files: `src/app/(app)/settings/actions.ts` (new `setUserRole`), `src/app/(app)/settings/MemberOverridesBlock.tsx` (Role select + handler), `src/app/(app)/settings/PermissionGroupsBlock.tsx` (per-slug directive copy), `src/lib/audit-format.ts` (new pattern), tests, `package.json` → `1.45.2`.
 
 ### 2026-05-01 · v1.45.1 — Last-admin lock + name disambiguator
 

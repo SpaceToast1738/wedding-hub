@@ -10,6 +10,7 @@ import {
   removeUser,
   setPermission,
   setUserCouple,
+  setUserRole,
 } from "./actions";
 import { togglePermissionGroupMember } from "./permission-group-actions";
 import { COUPLE_ONLY_SECTIONS, SECTIONS, type Section } from "@/lib/permissions";
@@ -138,6 +139,17 @@ export function MemberOverridesBlock({
   function toggleCouple(userId: string, isCouple: boolean) {
     if (!confirm(`${isCouple ? "Grant" : "Revoke"} couple-tier access?`)) return;
     startTransition(async () => { await setUserCouple(userId, isCouple); });
+  }
+
+  function changeRole(userId: string, role: "WEDDING_PARTY" | "PLANNER" | "VIEWER") {
+    startTransition(async () => {
+      try {
+        await setUserRole(userId, role);
+        notify("success", `Role updated to ${role.replace("_", " ").toLowerCase()}`);
+      } catch (err) {
+        notify("error", err instanceof Error ? err.message : "Couldn't change role");
+      }
+    });
   }
 
   function remove(u: UserRow) {
@@ -288,6 +300,38 @@ export function MemberOverridesBlock({
                         </span>
                       )}
                     </label>
+                  </div>
+
+                  {/* v1.45.2: role select — drives membership in the
+                      "Wedding party (by role)" / "Planners (by role)"
+                      built-in groups. Excludes COUPLE because that's
+                      managed via the checkbox above (kept in sync at
+                      bootstrap, manually thereafter). */}
+                  <div className="flex items-center gap-2">
+                    <label htmlFor={`role-${u.id}`} className="text-sm text-ink-primary">
+                      Role
+                    </label>
+                    <select
+                      id={`role-${u.id}`}
+                      value={u.role === "COUPLE" ? "VIEWER" : u.role}
+                      disabled={!couplePrivileged || pending || u.isCouple}
+                      onChange={(e) => changeRole(u.id, e.target.value as "WEDDING_PARTY" | "PLANNER" | "VIEWER")}
+                      title={
+                        u.isCouple
+                          ? "Couple-tier users keep their role implicitly. Revoke couple-tier first to edit role."
+                          : !currentUserIsCouple
+                            ? "Only the couple can change user roles"
+                            : "Drives membership in the role-based built-in groups"
+                      }
+                      className="text-[12px] bg-canvas border border-border-soft rounded-sm px-1.5 py-0.5 text-ink-secondary outline-none disabled:opacity-50"
+                    >
+                      <option value="WEDDING_PARTY">Wedding party</option>
+                      <option value="PLANNER">Planner</option>
+                      <option value="VIEWER">Viewer</option>
+                    </select>
+                    <span className="text-[11px] text-ink-tertiary">
+                      drives the &ldquo;{u.role === "WEDDING_PARTY" ? "Wedding party" : u.role === "PLANNER" ? "Planners" : "Everyone"}&rdquo; built-in group
+                    </span>
                   </div>
 
                   {/* Group memberships */}
