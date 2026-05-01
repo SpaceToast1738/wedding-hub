@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.58.0** | 2026-05-01 | [Cross-link sweep round 2 (XL4, XL7) — supplier detail page surfaces BUILD-card backlinks via `BookBuildCard.budgetLine.supplierId`. TaskDrawer chips deep-link to the entity (sections → /book/<slug>; subsections → /book/<sectionSlug>#<slug>; nav-tags → tag.route). XL2 + XL6 audited and confirmed substantially complete from v1.37.5 / per-card-kind shipping; XL1 deferred (needs Task↔GuestGroup schema design).](#2026-05-01--v1580--cross-link-sweep-round-2) |
+| **v1.59.0** | 2026-05-01 | [Inline "add to group" UX (C2) — each group toggle on the per-user editor card now shows the group's permissions inline ("EDIT: tasks, songs · VIEW: schedule") so the couple can see what ticking the box will grant without bouncing up to the Permission groups panel. Built-in chip row gets the same treatment.](#2026-05-01--v1590--inline-add-to-group-ux) |
+| v1.58.0 | 2026-05-01 | [Cross-link sweep round 2 (XL4, XL7) — supplier detail page surfaces BUILD-card backlinks via `BookBuildCard.budgetLine.supplierId`. TaskDrawer chips deep-link to the entity (sections → /book/<slug>; subsections → /book/<sectionSlug>#<slug>; nav-tags → tag.route). XL2 + XL6 audited and confirmed substantially complete from v1.37.5 / per-card-kind shipping; XL1 deferred (needs Task↔GuestGroup schema design).](#2026-05-01--v1580--cross-link-sweep-round-2) |
 | v1.57.0 | 2026-05-01 | [Cross-link sweep (XL3, XL5, XL8, XL9, XL10, XL11) — household cards summarise table seating, /budget rows show BUILD-card source chips, /payments + /songs accept supplier/guest deep-link filters, Today list surfaces topic chips next to titles, /seating honours #table-<id> fragments. XL1/2/4/6/7 deferred to v1.58.0 (need schema or larger scope).](#2026-05-01--v1570--cross-link-sweep) |
 | v1.56.0 | 2026-05-01 | [Add-New affordances normalised to **popout modal** (reverses v1.55.0). User clarification: "I want the screens to popout". New shared `AddNewModal` wrapper centralises the centred-card + backdrop + Esc/× dismissal pattern. AddTaskToggle, AddEventToggle, AddHouseholdToggle, AddSupplierToggle, AddPlaylistToggle, AddTableToggle, AddPaymentToggle, AddSectionToggle, AddSubsectionToggle all use it.](#2026-05-01--v1560--add-new-affordances-popout-modal) |
 | v1.55.0 | 2026-05-01 | [Add-New affordances normalised to inline-expand. `AddTaskToggle` and `AddEventToggle` were the last two pages still using the v1.27.0 fixed-position popover-modal pattern. Converted to the inline-expand card pattern every other page uses (AddHouseholdToggle, AddSupplierToggle, AddPlaylistToggle, AddTableToggle, AddPaymentToggle, AddSection/SubsectionToggle). Same UX everywhere: button → in-place form-card.](#2026-05-01--v1550--add-new-affordances-normalised) |
@@ -273,7 +274,7 @@ trickle in alongside whatever feature work is open.
 | **B3** | `src/app/(app)/book/actions.ts:49, 56, 187, 196, 343, 397, 679, 693, 768, 782, 2100, 2132`<br>`src/app/(app)/settings/permission-group-actions.ts:271-296`<br>`src/app/(app)/settings/actions.ts:34-44` | Audit-log gaps. `deleteBookSection` doesn't read the row first — audit gives an opaque cuid. Several other Book CRUD actions same. `setGroupPermission` and `setPermission` don't capture `priorLevel`. | Pre-read for snapshot, push `changedFields` + `priorLevel` per the v1.30.5 standing rule. |
 | **B4** | `prisma/seed.ts:2707-2736` | `seedCeremonyRowAssignments` is dead code — removed from `main()` in v1.48.0 but the function still exists referencing `db.ceremonyRow`. Future operator script importing it would silently re-populate the deprecated table. | Delete the function. |
 | **B5** | `src/lib/ceremony-fill.ts` | Fully orphaned. v1.47.0's per-row model; v1.48.0 replaced it with `ceremony-allocate.ts`. Nothing imports it. | Delete the module + its test file. |
-| **C2** | `src/app/(app)/settings/MemberOverridesBlock.tsx`<br>`src/app/(app)/settings/PermissionGroupsBlock.tsx` | Adding a wedding-party member to a custom group requires bouncing between two panels (MemberOverrides for the user, PermissionGroups for the group's checkbox grid). UX assumes a different mental model from the data model. | Each user-card's expanded view should have an *inline* "Add to group" multi-select (mirroring `GuestGroupsControl` on /guests). |
+| ~~**C2**~~ ✅ v1.59.0 | `src/app/(app)/settings/MemberOverridesBlock.tsx`<br>`src/app/(app)/settings/PermissionGroupsBlock.tsx` | Adding a wedding-party member to a custom group requires bouncing between two panels (MemberOverrides for the user, PermissionGroups for the group's checkbox grid). UX assumes a different mental model from the data model. | ~~Each user-card's expanded view should have an *inline* "Add to group" multi-select (mirroring `GuestGroupsControl` on /guests).~~ Shipped a different fix: the user-card already had toggleable group checkboxes from v1.45.0; what was missing was visibility into what each group grants. Each toggle now shows the perm summary inline. |
 | **C3** | `src/app/(app)/settings/PermissionGroupsBlock.tsx`<br>`src/app/(app)/settings/NavTagsBlock.tsx` | Reorder buttons (▲▼) missing on permission groups + nav tags. Schema has `order`; `reorderGuestGroup` exists for guest groups; the others don't. | Add ▲▼ next to Edit/× in each row. New `reorderPermissionGroup` + `reorderNavTag` actions following the existing pattern. |
 | **C4** | `src/components/ui/PageLinkedTasksStrip.tsx:77-94` | v1.52.0 strip header reads as metadata, not a section. Same `text-[10px] uppercase tracking-wider font-bold text-ink-tertiary` treatment as column labels. | Bump header to `text-xs font-semibold text-ink-primary`. Add a faint left rule or small icon. |
 | **C5** | `src/app/(app)/guests/HouseholdBlock.tsx:306-314`<br>`src/components/ui/GuestGroupsControl.tsx:96-106` | `+ Add group` chip on guests with no memberships is buried in the meta-pill row (next to +1, child, table, song-count). Eye learns to ignore that 10px chip cluster. | When `memberGroups.length === 0` and `canEdit`, render the affordance as right-aligned ghost text aligned with the row's Edit/× action buttons, not in the chip row. |
@@ -854,6 +855,24 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-05-01 · v1.59.0 — Inline "add to group" UX
+
+User: "c2". Last open 🟡 item from the v1.52.1 review punch list — fixes the three-panel UX friction where adding a wedding-party member to a permission group required bouncing between MemberOverridesBlock and PermissionGroupsBlock to learn what the group grants.
+
+**Symptom.** When the couple expands a member's card and ticks a custom group, they get no signal of what permissions they just granted. To find out, they had to scroll up to the Permission groups panel, hunt for the group, and click "Permissions" on it. Same friction for the read-only built-in chip row, which used to just print "Wedding party, Everyone" with no hint of what those memberships gave the user.
+
+**Fix — `src/app/(app)/settings/MemberOverridesBlock.tsx`.** Each custom-group toggle now renders a one-line summary directly under the checkbox: "EDIT: tasks, songs · VIEW: schedule" using a new local `PermsLine` helper that mirrors the language of `PermissionsSummary` from PermissionGroupsBlock. When a group has zero permissions yet, the line says "no permissions granted" so the row never looks broken. Built-in chips moved from a comma-separated label list to a labelled vertical block — each built-in (Wedding party / Couple / etc.) gets its own row with the same `PermsLine` next to it.
+
+**Data.** Replaced the v1.45.0 `builtinKeysByUser: Record<string, string[]>` prop (label-only) with a richer `builtinDetailsByUser: Record<string, { name; slug; permissions: PermRow[] }[]>`. Custom groups gain a `permissions: PermRow[]` field on `GroupRow`. Both threads source from a `permsByKey` Map bucketed by `groupKey` — same shape PermissionGroupsBlock builds for its own matrix, just lifted into the MemberOverridesBlock IIFE in `settings/page.tsx`.
+
+**No schema work.** Read-only display change.
+
+**Tests.** Existing 542 unit tests still pass. No new behaviour to test — this is a UI surfacing change, and the underlying perms come from the already-tested `permsByKey` bucket.
+
+**Punch-list status post-v1.59.0:** all 🔴 cleared (v1.53.0); 14/14 🟡 cleared (v1.54.0 + v1.59.0); 10/11 🟢 cleared (XL1 still deferred pending design); ~6 ✨ polish remain.
+
+---
 
 ### 2026-05-01 · v1.58.0 — Cross-link sweep round 2
 

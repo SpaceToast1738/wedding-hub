@@ -34,6 +34,12 @@ import { COUPLE_ONLY_SECTIONS, SECTIONS, type Section } from "@/lib/permissions"
 // per-user Permission row when the couple explicitly ticks the
 // checkbox. Existing rows from older versions render ticked, so the
 // "Clear all" button is the migration path back to inheritance.
+//
+// v1.59.0 (C2): each group toggle now shows the group's permission
+// summary inline ("EDIT: tasks, songs · VIEW: schedule") so the
+// couple can see what ticking the box will grant without bouncing
+// up to the Permission groups panel. Built-in chip row gets the
+// same treatment via the `builtinDetailsByUser` prop.
 
 const SECTION_LABELS: Record<Section, string> = {
   tasks: "Tasks",
@@ -60,17 +66,31 @@ type UserRow = {
   isCouple: boolean;
 };
 
+type PermRow = { section: string; level: Level };
+
 type GroupRow = {
   id: string;
   slug: string;
   name: string;
+  /** v1.59.0 (C2): perms granted by membership in this group, so the
+   *  toggle row can render an inline summary of what ticking the
+   *  checkbox will grant. */
+  permissions: PermRow[];
+};
+
+type BuiltinDetail = {
+  /** Display name, e.g. "Wedding party". */
+  name: string;
+  /** Slug for the `builtin:<slug>` group key, e.g. "wedding-party-role". */
+  slug: string;
+  permissions: PermRow[];
 };
 
 export function MemberOverridesBlock({
   users,
   permissions,
   groupInherited,
-  builtinKeysByUser,
+  builtinDetailsByUser,
   customGroups,
   customGroupMembershipByUser,
   currentUserId,
@@ -81,9 +101,12 @@ export function MemberOverridesBlock({
   permissions: { userId: string; section: string; level: Level }[];
   /** `groupInherited[userId][section]` = effective group level. */
   groupInherited: Record<string, Record<string, Level>>;
-  /** Built-in group display labels the user qualifies for, e.g. ["Couple", "Everyone"]. */
-  builtinKeysByUser: Record<string, string[]>;
-  /** All custom permission groups (slug + name + id) for the toggle list. */
+  /** v1.59.0 (C2): per-user list of built-in groups they qualify for,
+   *  with each group's permissions attached, so the chip row can
+   *  show the perm summary inline next to the group name. Replaces
+   *  the v1.45.0 `builtinKeysByUser` (label-only) prop. */
+  builtinDetailsByUser: Record<string, BuiltinDetail[]>;
+  /** All custom permission groups (slug + name + id + perms) for the toggle list. */
   customGroups: GroupRow[];
   /** Set of customGroup ids each user is currently a member of. */
   customGroupMembershipByUser: Record<string, Set<string>>;
@@ -200,7 +223,6 @@ export function MemberOverridesBlock({
           const isOpen = openUserId === u.id;
           const overrides = overrideCount(u.id);
           const memberOf = customGroupMembershipByUser[u.id] ?? new Set();
-          const builtinChips = builtinKeysByUser[u.id] ?? [];
           // Last-couple lock: this user is the only remaining
           // couple-tier admin, so revoking their flag or removing
           // them would leave the running session with zero admins.
@@ -339,27 +361,36 @@ export function MemberOverridesBlock({
                     <h3 className="text-[10px] uppercase tracking-wider text-ink-tertiary font-bold mb-1.5">
                       Group memberships
                     </h3>
-                    {builtinChips.length > 0 && (
-                      <p className="text-[11px] text-ink-tertiary mb-2">
-                        Built-in (computed from role):{" "}
-                        {builtinChips.map((c, i) => (
-                          <span key={c} className="italic">
-                            {i > 0 && ", "}
-                            {c}
-                          </span>
-                        ))}
-                      </p>
+                    {/* v1.59.0 (C2): built-in chips render their own
+                        permission summary line each, not just a
+                        comma-separated label list. Read-only — the
+                        membership is computed from User.role /
+                        isCouple, but the perms are interesting. */}
+                    {(builtinDetailsByUser[u.id] ?? []).length > 0 && (
+                      <div className="mb-2 space-y-0.5">
+                        <p className="text-[10px] uppercase tracking-wider text-ink-tertiary font-bold">
+                          Built-in (computed from role)
+                        </p>
+                        <ul className="space-y-0.5">
+                          {(builtinDetailsByUser[u.id] ?? []).map((b) => (
+                            <li key={b.slug} className="text-[12px] text-ink-secondary flex items-baseline gap-2">
+                              <span className="italic flex-shrink-0">{b.name}</span>
+                              <PermsLine perms={b.permissions} muted />
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
                     )}
                     {customGroups.length === 0 ? (
                       <p className="text-xs text-ink-tertiary italic">
                         No custom groups exist yet — add one in the Permission groups panel above.
                       </p>
                     ) : (
-                      <ul className="grid grid-cols-1 sm:grid-cols-2 gap-1">
+                      <ul className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
                         {customGroups.map((g) => {
                           const on = memberOf.has(g.id);
                           return (
-                            <li key={g.id}>
+                            <li key={g.id} className="flex flex-col gap-0.5">
                               <label className="flex items-center gap-2 text-sm cursor-pointer">
                                 <input
                                   type="checkbox"
@@ -375,6 +406,9 @@ export function MemberOverridesBlock({
                                   group:{g.slug}
                                 </span>
                               </label>
+                              <div className="ml-6">
+                                <PermsLine perms={g.permissions} muted />
+                              </div>
                             </li>
                           );
                         })}
@@ -465,5 +499,45 @@ export function MemberOverridesBlock({
         })}
       </ul>
     </section>
+  );
+}
+
+// v1.59.0 (C2): one-line permission summary —
+//   "EDIT: tasks, songs · VIEW: schedule"
+// Mirrors PermissionsSummary in PermissionGroupsBlock so the
+// language matches across the two surfaces. Falls back to a muted
+// "no perms granted" hint when the group is empty so the toggle
+// row never looks broken.
+function PermsLine({ perms, muted }: { perms: PermRow[]; muted?: boolean }) {
+  const editLabels: string[] = [];
+  const viewLabels: string[] = [];
+  for (const p of perms) {
+    const label = SECTION_LABELS[p.section as Section] ?? p.section;
+    if (p.level === "EDIT") editLabels.push(label);
+    else if (p.level === "VIEW") viewLabels.push(label);
+  }
+  if (editLabels.length === 0 && viewLabels.length === 0) {
+    return (
+      <span className={`text-[10px] italic ${muted ? "text-ink-tertiary" : "text-ink-secondary"}`}>
+        no permissions granted
+      </span>
+    );
+  }
+  return (
+    <span className={`text-[10px] ${muted ? "text-ink-tertiary" : "text-ink-secondary"}`}>
+      {editLabels.length > 0 && (
+        <>
+          <span className="font-semibold text-moss-700">EDIT:</span> {editLabels.join(", ")}
+        </>
+      )}
+      {editLabels.length > 0 && viewLabels.length > 0 && (
+        <span className="mx-1.5 text-ink-tertiary">·</span>
+      )}
+      {viewLabels.length > 0 && (
+        <>
+          <span className="font-semibold">VIEW:</span> {viewLabels.join(", ")}
+        </>
+      )}
+    </span>
   );
 }

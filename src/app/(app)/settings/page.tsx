@@ -367,7 +367,13 @@ export default async function SettingsPage({
               PermissionMatrix table. Each user is its own
               expandable card showing group memberships +
               per-section overrides + couple toggle + remove.
-              Click a user to expand. */}
+              Click a user to expand.
+              v1.59.0 (C2): each group toggle now also shows the
+              perms it grants inline ("EDIT: tasks · VIEW: schedule")
+              so the couple doesn't have to bounce up to the
+              Permission groups panel to learn what ticking a box
+              will give the user. We share the same `permsByKey`
+              bucketing as the PermissionGroupsBlock above. */}
           {(() => {
             const allUsersShape = users.map((u) => ({
               id: u.id,
@@ -378,14 +384,29 @@ export default async function SettingsPage({
               role: u.role,
               isCouple: u.isCouple,
             }));
-            // Per-user list of which built-ins they qualify for —
-            // used to render read-only chips in the "Group memberships"
-            // section of each card.
-            const builtinKeysByUser: Record<string, string[]> = {};
+            // Bucket GroupPermission rows by groupKey, same shape as
+            // the PermissionGroupsBlock's permsByKey above. Cheap;
+            // O(rows). Done locally here rather than lifted up so
+            // both IIFEs stay self-contained.
+            const permsByKey = new Map<string, { section: string; level: PermissionLevel }[]>();
+            for (const p of groupPermissionsRaw) {
+              const arr = permsByKey.get(p.groupKey) ?? [];
+              arr.push({ section: p.section, level: p.level });
+              permsByKey.set(p.groupKey, arr);
+            }
+            // Per-user list of built-ins they qualify for + the
+            // perms each built-in grants. Two-axis lookup the
+            // member card uses to render the read-only summary
+            // line per built-in chip.
+            const builtinDetailsByUser: Record<string, { name: string; slug: string; permissions: { section: string; level: "NONE" | "VIEW" | "EDIT" }[] }[]> = {};
             for (const u of allUsersShape) {
-              builtinKeysByUser[u.id] = BUILTIN_GROUPS.filter(
+              builtinDetailsByUser[u.id] = BUILTIN_GROUPS.filter(
                 (g) => resolveBuiltinGroup(g.slug, [u]).length > 0,
-              ).map((g) => g.name);
+              ).map((g) => ({
+                name: g.name,
+                slug: g.slug,
+                permissions: permsByKey.get(`builtin:${g.slug}`) ?? [],
+              }));
             }
             // Per-user set of custom group ids they're a member of —
             // used to render the toggleable checkboxes.
@@ -403,6 +424,7 @@ export default async function SettingsPage({
               id: g.id,
               slug: g.slug,
               name: g.name,
+              permissions: permsByKey.get(`group:${g.slug}`) ?? [],
             }));
             return (
               <MemberOverridesBlock
@@ -419,7 +441,7 @@ export default async function SettingsPage({
                   level: p.level,
                 }))}
                 groupInherited={groupInherited as Record<string, Record<string, "NONE" | "VIEW" | "EDIT">>}
-                builtinKeysByUser={builtinKeysByUser}
+                builtinDetailsByUser={builtinDetailsByUser}
                 customGroups={customGroupRows}
                 customGroupMembershipByUser={customGroupMembershipByUser}
                 currentUserId={user.id}
