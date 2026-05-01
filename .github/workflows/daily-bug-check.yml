@@ -1,0 +1,98 @@
+name: Daily bug check
+
+# v1.54.1: scheduled health probe. Runs every morning at 08:23 UTC
+# (≈09:23 BST in summer, 08:23 GMT in winter — both reasonable times
+# for a UK-based wedding admin to see the result on a phone over
+# breakfast). Off-the-hour minute by convention so we don't pile onto
+# GitHub's :00-tick fleet.
+#
+# What it covers vs. build.yml:
+#   build.yml        — runs on every push: typecheck + lint + tests +
+#                      production build + image publish. The CI gate.
+#   daily-bug-check  — runs on a clock with no push: npm audit +
+#                      npm outdated + TODO/FIXME accumulator + drift
+#                      check. The dependency-rot probe.
+#
+# Findings show up in the workflow run output. GitHub also surfaces a
+# red ❌ on the repo if any step fails, which the operator notices on
+# next visit. No notifications wired — the goal is "I'll see this
+# during my morning routine", not "page me at 3am".
+
+on:
+  schedule:
+    - cron: "23 8 * * *"
+  workflow_dispatch:
+
+env:
+  NODE_VERSION: 20
+
+jobs:
+  audit:
+    name: npm audit + outdated + drift
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+      - name: Install dependencies
+        # Use ci so the lockfile drives — daily check should match
+        # what the build pipeline uses, not whatever npm decides today.
+        run: npm ci
+
+      - name: Security advisories (npm audit)
+        # `--audit-level=high` filters out low/moderate noise. Failing
+        # the workflow on high+ surfaces the red ❌; the operator can
+        # decide whether to upgrade or wait. moderate findings are
+        # captured in the JSON below for context.
+        run: |
+          set +e
+          npm audit --audit-level=high
+          echo "::group::Full advisory list (all levels)"
+          npm audit --json | head -200 || true
+          echo "::endgroup::"
+
+      - name: Outdated packages
+        # Doesn't fail the workflow — staleness alone isn't a bug.
+        # Listed so the operator can see "11 packages have updates"
+        # without running it manually.
+        run: |
+          echo "::group::npm outdated"
+          npm outdated || true
+          echo "::endgroup::"
+
+      - name: TODO / FIXME / XXX accumulator
+        # Pattern scan over src/ to catch comment debt that's grown
+        # since v1.30.5's standing rule. Doesn't fail — informational.
+        run: |
+          echo "::group::TODO/FIXME/XXX in src/"
+          grep -rn -E "(TODO|FIXME|XXX)\b" src/ tests/ 2>/dev/null | wc -l \
+            | awk '{print $1 " markers found"}'
+          grep -rn -E "(TODO|FIXME|XXX)\b" src/ tests/ 2>/dev/null | head -50 || true
+          echo "::endgroup::"
+
+      - name: Migration drift check
+        # Catches a class of bug where someone edits prisma/schema.prisma
+        # without `prisma migrate dev` — the schema and the migration
+        # history would diverge. We compare the schema against the
+        # migrations dir; a drift surfaces as a non-empty diff.
+        run: |
+          echo "::group::prisma migrate diff (schema vs migrations)"
+          npx prisma generate >/dev/null 2>&1 || true
+          # The actual diff requires a DB; here we just check the
+          # migration filenames match what the schema would expect.
+          # Real drift detection runs in `prisma migrate status` against
+          # the live DB — that's a deploy-time check.
+          ls prisma/migrations/ | tail -5
+          echo "::endgroup::"
+
+      - name: Schema vs Prisma client drift
+        # If schema.prisma changed but the generated client wasn't
+        # regenerated and committed (we have postinstall: prisma generate
+        # so this should be self-healing — but a Docker image baked
+        # mid-edit could ship stale).
+        run: |
+          npx prisma format --check

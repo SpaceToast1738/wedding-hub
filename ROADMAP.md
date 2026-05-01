@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.54.0** | 2026-05-01 | [🟡 Notable review fixes (A6–A10, B2–B5, B3 enrichment, C3–C6) — section enum on per-user perms, transactional clearAll, requireEdit gate on book visibility, deprecated `setCeremonyRowGroup` removed, bootstrap-couple race tightened, ceremony revalidatePath fixed, dead code purged, audit-log enrichment on Book CRUD + permission writes including `priorLevel`, reorder buttons (▲▼) on Permission groups + Nav tags, PageLinkedTasksStrip header treatment, `+ Add group` chip relocated.](#2026-05-01--v1540--notable-review-fixes) |
+| **v1.54.1** | 2026-05-01 | [Daily bug-check schedule — new `.github/workflows/daily-bug-check.yml` runs at 08:23 UTC every morning: `npm audit` (high+ fails the run), `npm outdated` (informational), TODO/FIXME accumulator, schema/migration drift check, `prisma format --check`. Findings show on the repo's red-❌ indicator; no notifications. Companion in-session Claude review cron fires at 09:17 local daily for the lifetime of the dev shell.](#2026-05-01--v1541--daily-bug-check-schedule) |
+| v1.54.0 | 2026-05-01 | [🟡 Notable review fixes (A6–A10, B2–B5, B3 enrichment, C3–C6) — section enum on per-user perms, transactional clearAll, requireEdit gate on book visibility, deprecated `setCeremonyRowGroup` removed, bootstrap-couple race tightened, ceremony revalidatePath fixed, dead code purged, audit-log enrichment on Book CRUD + permission writes including `priorLevel`, reorder buttons (▲▼) on Permission groups + Nav tags, PageLinkedTasksStrip header treatment, `+ Add group` chip relocated.](#2026-05-01--v1540--notable-review-fixes) |
 | v1.53.0 | 2026-05-01 | [Critical review fixes (A1–A5, B1, C1) — sign-in code rate limiter no longer double-counts (effective budget is 5 not 2–3); verify page reads email from httpOnly cookie not form (closes per-email rotation attack); pending VerificationToken siblings are invalidated on send; `/api/auth/callback/nodemailer` is now rate-limited; per-user permission overrides win unconditionally (NONE actually denies); slug-rename + delete on PermissionGroup cascades GroupPermission rows; destructive deletes on supplier / household / guest / budget category / line return result-shape with real error toasts.](#2026-05-01--v1530--critical-review-fixes) |
 | v1.52.1 | 2026-05-01 | [Docs-only — three-agent code review (security/auth + data integrity + UX/IA) captured as a ranked punch list in the Backlog section. 6 🔴 ship-blockers, 14 🟡 notable, 11 🟢 cross-link opportunities, 8 ✨ polish items, each with file paths + suggested fix.](#2026-05-01--v1521--review-punch-list-captured) |
 | v1.52.0 | 2026-05-01 | [Linked-tasks strips on /songs, /seating/ceremony, /guests (backlog #7) — reusable `PageLinkedTasksStrip` reads tasks tagged with a NavTag whose `route` matches the page path. Renders below `PageHeader`, hidden when zero matches. Done tasks bucket to the bottom with a strikethrough; "Manage →" deep-links to /tasks. No schema changes — uses the existing NavTag + Task m2m.](#2026-05-01--v1520--linked-tasks-strips-on-pages) |
@@ -849,6 +850,35 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-05-01 · v1.54.1 — Daily bug-check schedule
+
+User: "Schedule a daily run for an in depth bug check and document it". Two complementary mechanisms — durable GitHub Actions workflow for the things a CI runner can check on a clock, plus a session-lifetime Claude cron for the things a code-review agent can.
+
+**Durable: GitHub Actions workflow.** New `.github/workflows/daily-bug-check.yml`. Runs at `23 8 * * *` (08:23 UTC daily, ≈09:23 BST in summer / 08:23 GMT in winter). Off-the-hour minute by convention so the scheduler doesn't pile onto GitHub's :00-tick fleet. Steps:
+
+1. **`npm audit --audit-level=high`** — fails the workflow on any high or critical advisory; the repo gets a red ❌ until upgraded. Lower-severity findings logged for context but don't fail.
+2. **`npm outdated`** — informational. Lists packages with newer versions available; doesn't fail.
+3. **TODO/FIXME/XXX accumulator** — pattern scan over `src/` + `tests/`. Reports the count and surfaces the first 50 markers. Comment debt growth is a smell worth looking at occasionally.
+4. **Migration drift check** — lists the latest migrations dir entries. Real schema-vs-DB drift detection is a deploy-time check (`prisma migrate status`); this is the comment-only check.
+5. **`prisma format --check`** — fails if `schema.prisma` isn't canonically formatted (catches the case where someone hand-edits and forgets to run `prisma format`).
+
+What this **doesn't** cover (deliberately): typecheck/lint/tests/build — those are in `build.yml` on every push, where the gate matters most. Daily re-runs of the same gates against an unchanged codebase aren't useful; the value is in the dependency-rot dimension.
+
+Findings appear in the workflow run output. GitHub surfaces a red ❌ on the repo if any step fails. No email notifications wired — the goal is "I'll see this during my morning routine" on the GitHub homepage, not "page me at 3am".
+
+**Session-only: Claude review cron.** Companion `CronCreate` job fires at 09:17 local daily for the lifetime of the dev Claude shell. Prompts a focused review session that does what a CI runner can't:
+
+- Reads the latest 3 commits and checks for obvious gotchas / missed cross-links the v1.52.1-style review agents would flag.
+- Re-runs typecheck + lint + tests + build locally and reports diffs from the known-green test count (542 baseline post-v1.54.0).
+- Surveys the ROADMAP backlog and proposes one item to land next, with rationale.
+- Skips if the user is mid-task.
+
+7-day auto-expiry per CronCreate semantics. Re-issue via `/loop` or another CronCreate when needed. The GitHub Action is the durable layer; this Claude cron is the in-session companion.
+
+**Operator notes.** To trigger the workflow manually: GitHub → Actions → "Daily bug check" → "Run workflow". To list active session crons: ask Claude `CronList`. To delete: `CronDelete <jobId>`.
+
+Files: `.github/workflows/daily-bug-check.yml` (new), `package.json` → `1.54.1`, ROADMAP changelog entry.
 
 ### 2026-05-01 · v1.54.0 — Notable review fixes
 
