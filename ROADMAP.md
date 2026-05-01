@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.52.0** | 2026-05-01 | [Linked-tasks strips on /songs, /seating/ceremony, /guests (backlog #7) — reusable `PageLinkedTasksStrip` reads tasks tagged with a NavTag whose `route` matches the page path. Renders below `PageHeader`, hidden when zero matches. Done tasks bucket to the bottom with a strikethrough; "Manage →" deep-links to /tasks. No schema changes — uses the existing NavTag + Task m2m.](#2026-05-01--v1520--linked-tasks-strips-on-pages) |
+| **v1.52.1** | 2026-05-01 | [Docs-only — three-agent code review (security/auth + data integrity + UX/IA) captured as a ranked punch list in the Backlog section. 6 🔴 ship-blockers, 14 🟡 notable, 11 🟢 cross-link opportunities, 8 ✨ polish items, each with file paths + suggested fix.](#2026-05-01--v1521--review-punch-list-captured) |
+| v1.52.0 | 2026-05-01 | [Linked-tasks strips on /songs, /seating/ceremony, /guests (backlog #7) — reusable `PageLinkedTasksStrip` reads tasks tagged with a NavTag whose `route` matches the page path. Renders below `PageHeader`, hidden when zero matches. Done tasks bucket to the bottom with a strikethrough; "Manage →" deep-links to /tasks. No schema changes — uses the existing NavTag + Task m2m.](#2026-05-01--v1520--linked-tasks-strips-on-pages) |
 | v1.51.0 | 2026-05-01 | [Inline task linking on cards (backlog #8) — parallel `Task ↔ BookSubsection` m2m alongside the existing section-level m2m. TopicPicker on Tasks/Questions gains a "Wedding Book — cards" group; book pages render a compact `LinkedTasksPanel` directly below each card with at least one linked task. Section-level link stays.](#2026-05-01--v1510--inline-task-linking-on-cards) |
 | v1.50.0 | 2026-05-01 | [Numeric sign-in code (backlog #6) — sign-in email now contains a 6-digit code AND the magic link; either signs in. `/signin/verify` rewritten as a code-entry form with auto-fill from a short-lived cookie. Token TTL tightened from 24h to 15min, code-entry rate-limit (5 wrong guesses per 15 min) added on a separate bucket of `MagicLinkAttempt`. Audit log captures success / failure / rate-limit outcomes per attempt.](#2026-05-01--v1500--numeric-sign-in-code) |
 | v1.49.0 | 2026-05-01 | [`GuestGroupsControl` — reusable chips + popover picker for managing per-guest group memberships. Wired into the guests list (inline pill strip), guest detail page (Details section), and seating canvas detail panel (read-only). Same `toggleGuestGroupMember` action everywhere; couple-only writes.](#2026-05-01--v1490--per-guest-group-affordances) |
@@ -225,6 +226,82 @@ introduce guest-facing surfaces (public RSVP forms, guest portals,
 magic links sent to invitees, etc.). If a feature drifts toward giving
 guests access, defer to "out of scope" rather than building behind a
 feature flag.
+
+### Review punch list — captured 1 May 2026
+
+After clearing the original backlog (#1–#8 shipped across v1.39.0 →
+v1.52.0), three parallel review agents — security/auth, server-side
+data integrity, UX/IA/cross-links — produced a single ranked punch
+list. Items below carry IDs (`A` = auth, `B` = data, `C` = UX, `XL` =
+cross-link, `P` = polish) for easy referencing in commits.
+
+**Suggested cadence.** Land 🔴 Critical as **v1.53.0** before the next
+deploy — most are sub-30-line diffs. 🟡 Notable rolls into **v1.54.0**.
+🟢 Cross-link sweep slots in as **v1.55.0** (one Promise per page; the
+v1.30.5 read-time-query rule means no schema work). ✨ Polish items
+trickle in alongside whatever feature work is open.
+
+#### 🔴 Critical (ship-blockers)
+
+| ID | Files | Issue | Fix | Size |
+|---|---|---|---|---|
+| **A1** | `src/lib/rate-limit.ts:87-135`<br>`src/app/signin/verify/page.tsx:39-71` | Verify-code rate limiter double-counts. `bucket: "guess"` writes a row on the *pre-check* (when `decision.ok`); the page then *also* calls `recordFailedGuess` on a wrong code. One wrong guess = two rows. Effective budget: 2–3 guesses, not 5. | Split `checkGuessLimit()` (read-only) from `recordFailedGuess()` (write-on-fail). Pre-check no longer records. | ~15 lines |
+| **A2** | `src/app/signin/verify/page.tsx:28, 66-67`<br>`src/app/signin/page.tsx:24-32` | Verify page trusts the **form-submitted** `email` field, not the httpOnly cookie. Attacker can rotate across known allowlisted emails to get 25 guesses/15min on a 1M-space code; also burns legit users' lockout budget. | Read email from `signin-email` cookie. If absent → redirect to `/signin`. Drop the form `<input>` to read-only display. | ~20 lines |
+| **A3** | `src/auth.ts:165-230` | Auth.js `PrismaAdapter` doesn't invalidate prior pending tokens. Two sends within 15 min → two valid 6-digit codes for the same email. | In `sendVerificationRequest`, `db.verificationToken.deleteMany({ where: { identifier } })` *before* the adapter writes the new row. | ~5 lines |
+| **A4** | new middleware or `src/middleware.ts` | `/api/auth/callback/nodemailer` has no rate limit — bypasses the verify-page bucket entirely. Direct GET with `?token=...&email=...` is wide open for brute-force. | Add rate-limit middleware on `/api/auth/callback/*` when `?token` is present. Reuse the `bucket: "guess"` machinery. | ~30 lines |
+| **A5** | `src/lib/permissions.ts:95-100` | Per-user `NONE` overrides are silently no-ops. `mergeOverrides` does `max(group, override)`, so an override of NONE never lowers the inherited level. The Settings UI still offers NONE on the per-user matrix → ghost UI. | **Decision needed.** Either change `mergeOverrides` to "override wins unconditionally when present" (matches v1.43.0 design intent) and rebuild the unit tests, OR grey out levels weaker than the inherited level in the UI. Lean: behaviour change. | ~30 lines + test updates |
+| **B1** | `src/app/(app)/settings/permission-group-actions.ts:86-128, 131-155` | Renaming a `PermissionGroup` slug orphans every `GroupPermission` row keyed on `group:<old-slug>`. `deletePermissionGroup` has the same hazard — rows survive as zombies. | In `updatePermissionGroup`, when slug changes: `updateMany({ where: { groupKey: "group:<old>" }, data: { groupKey: "group:<new>" } })` in the same transaction. In `deletePermissionGroup`, `deleteMany` for the slug. | ~20 lines |
+| **C1** | `src/app/(app)/suppliers/SupplierCard.tsx:62-67`<br>`src/app/(app)/guests/HouseholdBlock.tsx:117, 213`<br>`src/app/(app)/budget/BudgetClient.tsx:136-138, 223-227`<br>+ ~5 more | Destructive actions throw raw — silent failures in production. 32 raw throws across 7 action files; Next prod redaction swallows the message → user sees nothing happen. | Migrate each delete action to the v1.30.5 `{ ok, error }` result-shape pattern. Wrap callers in try/catch + `notify("error", res.error)`. | ~80 lines across the sweep |
+
+#### 🟡 Notable (ship soon)
+
+| ID | Files | Issue | Fix |
+|---|---|---|---|
+| **A6** | `src/auth.ts:91-96, 245-258` | Bootstrap-as-couple race. Two simultaneous first-sign-ins from different allowlisted addresses can both pass `shouldBootstrapAsCouple` and both stamp `isCouple = true`. Low risk for a 5-user app. | Conditional update (`where: { id, isCouple: false }`) + retry, or accept it. |
+| **A7** | `src/app/(app)/settings/actions.ts:9-13, 52-56` | `setPermSchema` / `clearPermSchema` use `z.string().min(1)` for `section`. Couple can write rows with section `"made-up-thing"` — never resolves but pollutes the table. `setGroupPermission` already validates with `z.enum(SECTIONS)`. | Same `z.enum(SECTIONS)` on both per-user schemas. |
+| **A8** | `src/app/(app)/settings/actions.ts:108-110` | `clearAllUserOverrides` non-transactional. Find-then-deleteMany has a window where another admin's `setPermission` lands between → audit under-reports. | Wrap in `db.$transaction`. |
+| **A9** | `src/app/(app)/book/actions.ts:205-251` | `setBookSubsectionVisibility` / `setBookSectionVisibility` use `requireUser`, not `requireEdit("book")`. Couple-tier user with `book` set to NONE can still flip visibility. | Add `requireEdit("book")` before the `isCouple` check. |
+| **A10** | `src/app/(app)/seating/actions.ts:521-601` | `setCeremonyRowGroup` writes to the v1.48.0-deprecated `CeremonyRow` table. Action unreferenced from any UI but still exported — stale browser tab could happily write rows. | Delete the export, OR throw with a clear "deprecated as of v1.48.0" message. |
+| **B2** | `src/app/(app)/settings/guest-group-actions.ts:89-90, 154-155, 184-185, 239-240, 318-319` | `revalidatePath('/seating')` doesn't reach `/seating/ceremony` (App Router segment scoping). Re-orders + side flips + member toggles look unapplied until hard reload. | Add `revalidatePath('/seating/ceremony')` to every guest-group write. |
+| **B3** | `src/app/(app)/book/actions.ts:49, 56, 187, 196, 343, 397, 679, 693, 768, 782, 2100, 2132`<br>`src/app/(app)/settings/permission-group-actions.ts:271-296`<br>`src/app/(app)/settings/actions.ts:34-44` | Audit-log gaps. `deleteBookSection` doesn't read the row first — audit gives an opaque cuid. Several other Book CRUD actions same. `setGroupPermission` and `setPermission` don't capture `priorLevel`. | Pre-read for snapshot, push `changedFields` + `priorLevel` per the v1.30.5 standing rule. |
+| **B4** | `prisma/seed.ts:2707-2736` | `seedCeremonyRowAssignments` is dead code — removed from `main()` in v1.48.0 but the function still exists referencing `db.ceremonyRow`. Future operator script importing it would silently re-populate the deprecated table. | Delete the function. |
+| **B5** | `src/lib/ceremony-fill.ts` | Fully orphaned. v1.47.0's per-row model; v1.48.0 replaced it with `ceremony-allocate.ts`. Nothing imports it. | Delete the module + its test file. |
+| **C2** | `src/app/(app)/settings/MemberOverridesBlock.tsx`<br>`src/app/(app)/settings/PermissionGroupsBlock.tsx` | Adding a wedding-party member to a custom group requires bouncing between two panels (MemberOverrides for the user, PermissionGroups for the group's checkbox grid). UX assumes a different mental model from the data model. | Each user-card's expanded view should have an *inline* "Add to group" multi-select (mirroring `GuestGroupsControl` on /guests). |
+| **C3** | `src/app/(app)/settings/PermissionGroupsBlock.tsx`<br>`src/app/(app)/settings/NavTagsBlock.tsx` | Reorder buttons (▲▼) missing on permission groups + nav tags. Schema has `order`; `reorderGuestGroup` exists for guest groups; the others don't. | Add ▲▼ next to Edit/× in each row. New `reorderPermissionGroup` + `reorderNavTag` actions following the existing pattern. |
+| **C4** | `src/components/ui/PageLinkedTasksStrip.tsx:77-94` | v1.52.0 strip header reads as metadata, not a section. Same `text-[10px] uppercase tracking-wider font-bold text-ink-tertiary` treatment as column labels. | Bump header to `text-xs font-semibold text-ink-primary`. Add a faint left rule or small icon. |
+| **C5** | `src/app/(app)/guests/HouseholdBlock.tsx:306-314`<br>`src/components/ui/GuestGroupsControl.tsx:96-106` | `+ Add group` chip on guests with no memberships is buried in the meta-pill row (next to +1, child, table, song-count). Eye learns to ignore that 10px chip cluster. | When `memberGroups.length === 0` and `canEdit`, render the affordance as right-aligned ghost text aligned with the row's Edit/× action buttons, not in the chip row. |
+| **C6** | `src/app/(app)/songs/page.tsx:78` | Spotify chip on /songs deep-links to `/settings#spotify-integration`, but post-v1.44.0 reorg the SpotifySettingsPanel may not have a matching `id` (now nested inside `<SettingsSection title="Wedding details">`). | Verify the anchor resolves; add `id="spotify-integration"` to the panel root if missing. |
+
+#### 🟢 Cross-link opportunities (data exists, just not surfaced)
+
+All fall under the v1.30.5 read-time-query rule. No schema work — just additional `db.X.findMany` calls on existing pages. Bundle as a v1.55.0 cross-module-wiring sweep.
+
+| ID | Page | Surface |
+|---|---|---|
+| **XL1** | `/guests/[id]` | Tasks linked via the guest's groups (their group → that group's tasks). Already loaded; just join. |
+| **XL2** | `/guests/[id]` | Files / budget-lines / STAY card linkbacks (some present for suppliers, missing for guests). |
+| **XL3** | `/guests` | Household card — summarize "members at N tables (Top, Family-3)". `tableSeat.table` is already in the page query. |
+| **XL4** | `/suppliers/[id]` | Files linked to the supplier and BUILD cards whose `budgetLine.supplierId === id`. |
+| **XL5** | `/budget` | Line rows don't show their source BUILD card. v1.31.0 "Copy to Budget" creates the link but it's invisible per-row. Thread `Map<lineId, buildCard>` through to LineRow. |
+| **XL6** | `/book/[slug]` | BookSubsection cards show inline tasks (v1.51.0) but not linked suppliers (via `setupItem.source`), files, or budget lines. |
+| **XL7** | TaskDrawer | TopicPicker chips aren't deep-linked. Add `→ /book/<sectionSlug>#<subsectionSlug>` and `→ /suppliers/<id>` deep-links. |
+| **XL8** | `/payments` | Doesn't accept `?supplier=<id>` filter — `/tasks` has it; `/payments` doesn't. SupplierDetail's "Manage on Payments →" lands at the unfiltered list. |
+| **XL9** | `/songs` | Doesn't accept `?guest=<id>` filter — coming from a guest detail page loses context. |
+| **XL10** | `/` (Today) | Task list doesn't show topic chips. "Wedding Book — Ceremony: confirm officiant arrival" is more actionable than the bare title. |
+| **XL11** | `/seating` | Deep-links from guest chips are too coarse — `/seating` instead of `/seating#table-<id>` (no scroll/highlight). |
+
+#### ✨ Polish (low urgency)
+
+| ID | Issue |
+|---|---|
+| **P1** | Empty-state copy is inconsistent ("Add one below" vs "Add one above" vs "Add your first X"). Pick one direction word per layout. |
+| **P2** | Confirm dialogs vary in detail richness — `MemberOverridesBlock` shows full consequence; `SupplierCard` says just `Delete supplier "X"?` despite having FK-related counts already loaded. |
+| **P3** | Dirty-check + Save-disabled patterns inconsistent. `TaskDrawer` does it well; `SupplierForm` / `GuestForm` / `EventForm` don't — easy to fire double-saves. |
+| **P4** | Today page Snapshot strip wraps awkwardly at 1280px viewport. Either always wrap to a 2-row grid or limit to top-4 with "+ N more" tooltip. |
+| **P5** | BookSection anchor jumps don't visually flash the destination card. Add `:target { ... }` or `scroll-margin-top` + brief `animate-pulse`. |
+| **P6** | `BudgetClient.tsx:132-133` uses raw `alert()` for "Delete the lines in this category first". Outside the design system, blocks on mobile, no path forward. Disable the Delete button when `lines.length > 0` with a tooltip, or offer "Move N lines to another category" inline. |
+| **P7** | Type coercion: `book/actions.ts:69` casts `formData.get("kind")` to `BookSubsectionKind` without Zod validation. Replace with `z.nativeEnum(BookSubsectionKind).default(...)`. |
+| **P8** | `removeUser` audit comment lists `Account` / `Session` / `AuditLog` cleanup but not `_PermissionGroupMembers` (which cascades fine via Prisma — comment just stale). |
 
 ### Planner-only feature shortlist (post-v1.17.0)
 
@@ -770,6 +847,30 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-05-01 · v1.52.1 — Review punch list captured
+
+User: "Do a full review, looking for bugs, gotchas and any features that could be linked but are not, the site needs to be graceful, intuitive and well managed. Come back with a report" → followed by "Lets document all these to fix and polish".
+
+After the original backlog (#1–#8) cleared, three parallel review agents covered different slices: security/auth correctness, server-side data integrity, UX/IA + cross-link opportunities. Synthesized into a single ranked punch list, captured in [Deferred / Backlog → Review punch list — captured 1 May 2026](#review-punch-list--captured-1-may-2026).
+
+**Headline counts:**
+
+- **6 🔴 Critical ship-blockers** — verify-code rate limiter double-counts (effective budget is 2–3 not 5), form-supplied email trust on the verify page (bypassable per-email rotation), pending-token siblings staying valid for 15 min, no rate limit on `/api/auth/callback/nodemailer`, per-user NONE overrides silently no-op, slug-rename orphans `GroupPermission` rows, raw-throw destructive actions across 7 action files (silent failure in production).
+- **14 🟡 Notable** — bootstrap-as-couple race, unvalidated `section` strings on per-user perms, non-transactional `clearAllUserOverrides`, missing `requireEdit("book")` on visibility flips, deprecated `setCeremonyRowGroup` still exported, missing `revalidatePath('/seating/ceremony')`, audit-log gaps on Book CRUD + permission writes, dead seed code, orphaned `ceremony-fill.ts` module, three-panel UX for adding wedding-party members to groups, missing reorder buttons on permission/nav groups, v1.52.0 strip styled as metadata, `+ Add group` chip lost in pill rows, broken Spotify deep-link anchor.
+- **11 🟢 Cross-link opportunities** — guest detail misses tasks-via-groups + files + budget-lines, household card misses table summary, supplier detail misses files + BUILD-card backlinks, budget rows miss source-card chip, BookSubsection cards miss supplier/file/budget-line links, TaskDrawer chips not deep-linked, `/payments` + `/songs` lack supplier/guest filters, Today page tasks miss topic chips, `/seating` deep-links too coarse.
+- **8 ✨ Polish** — empty-state copy inconsistency, confirm-dialog richness inconsistency, dirty-check pattern drift, Today snapshot wrapping at 1280px, no anchor-target highlight, raw `alert()` in Budget, type coercion on `BookSubsectionKind`, stale comment on `removeUser` cleanup.
+
+**Suggested cadence.**
+
+- **v1.53.0** — land all 🔴 (most are sub-30-line diffs; A4 callback rate-limit is the largest at ~30 lines).
+- **v1.54.0** — sweep 🟡 items, ordered by daily-use impact (C2 unified add-to-group UX first; B-series follows).
+- **v1.55.0** — cross-module-wiring sweep covering all 🟢 items (one Promise + one render line per page; the v1.30.5 read-time-query rule means no schema work).
+- **Polish items trickle** alongside whatever feature work is open — no dedicated ship.
+
+Each item carries an ID (`A1`, `B3`, `C5`, `XL7`, `P2`) for easy referencing in commits. File paths + line numbers + suggested fix all captured in the table.
+
+Files: `ROADMAP.md` only. `package.json` → `1.52.1`.
 
 ### 2026-05-01 · v1.52.0 — Linked-tasks strips on pages
 
