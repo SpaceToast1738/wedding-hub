@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.54.1** | 2026-05-01 | [Daily bug-check schedule — new `.github/workflows/daily-bug-check.yml` runs at 08:23 UTC every morning: `npm audit` (high+ fails the run), `npm outdated` (informational), TODO/FIXME accumulator, schema/migration drift check, `prisma format --check`. Findings show on the repo's red-❌ indicator; no notifications. Companion in-session Claude review cron fires at 09:17 local daily for the lifetime of the dev shell.](#2026-05-01--v1541--daily-bug-check-schedule) |
+| **v1.55.0** | 2026-05-01 | [Add-New affordances normalised to inline-expand. `AddTaskToggle` and `AddEventToggle` were the last two pages still using the v1.27.0 fixed-position popover-modal pattern. Converted to the inline-expand card pattern every other page uses (AddHouseholdToggle, AddSupplierToggle, AddPlaylistToggle, AddTableToggle, AddPaymentToggle, AddSection/SubsectionToggle). Same UX everywhere: button → in-place form-card.](#2026-05-01--v1550--add-new-affordances-normalised) |
+| v1.54.1 | 2026-05-01 | [Daily bug-check schedule — new `.github/workflows/daily-bug-check.yml` runs at 08:23 UTC every morning: `npm audit` (high+ fails the run), `npm outdated` (informational), TODO/FIXME accumulator, schema/migration drift check, `prisma format --check`. Findings show on the repo's red-❌ indicator; no notifications. Companion in-session Claude review cron fires at 09:17 local daily for the lifetime of the dev shell.](#2026-05-01--v1541--daily-bug-check-schedule) |
 | v1.54.0 | 2026-05-01 | [🟡 Notable review fixes (A6–A10, B2–B5, B3 enrichment, C3–C6) — section enum on per-user perms, transactional clearAll, requireEdit gate on book visibility, deprecated `setCeremonyRowGroup` removed, bootstrap-couple race tightened, ceremony revalidatePath fixed, dead code purged, audit-log enrichment on Book CRUD + permission writes including `priorLevel`, reorder buttons (▲▼) on Permission groups + Nav tags, PageLinkedTasksStrip header treatment, `+ Add group` chip relocated.](#2026-05-01--v1540--notable-review-fixes) |
 | v1.53.0 | 2026-05-01 | [Critical review fixes (A1–A5, B1, C1) — sign-in code rate limiter no longer double-counts (effective budget is 5 not 2–3); verify page reads email from httpOnly cookie not form (closes per-email rotation attack); pending VerificationToken siblings are invalidated on send; `/api/auth/callback/nodemailer` is now rate-limited; per-user permission overrides win unconditionally (NONE actually denies); slug-rename + delete on PermissionGroup cascades GroupPermission rows; destructive deletes on supplier / household / guest / budget category / line return result-shape with real error toasts.](#2026-05-01--v1530--critical-review-fixes) |
 | v1.52.1 | 2026-05-01 | [Docs-only — three-agent code review (security/auth + data integrity + UX/IA) captured as a ranked punch list in the Backlog section. 6 🔴 ship-blockers, 14 🟡 notable, 11 🟢 cross-link opportunities, 8 ✨ polish items, each with file paths + suggested fix.](#2026-05-01--v1521--review-punch-list-captured) |
@@ -850,6 +851,32 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-05-01 · v1.55.0 — Add-New affordances normalised
+
+User: "check the 'Add new' buttons on each page, instead of popping out in the middle of the page like add new tasks they open in the task bar instead". Audit found two pages were the outliers — every other "+ New X" affordance already used inline-expansion.
+
+**The split.** A code review across `src/app/(app)/` found two patterns competing:
+
+- **Modal popover** (v1.27.0 origin) — fixed-position card with backdrop, click-outside / Esc to dismiss. Used on `/tasks` (`AddTaskToggle`) and `/schedule` (`AddEventToggle`). Originally introduced to "keep the page header uncrowded" when the form was tall.
+- **Inline expand** (v1.0.x origin) — button toggles to a form-card in place; same flex slot. Used on every other Add affordance: `AddHouseholdToggle` (guests), `AddSupplierToggle` (suppliers), `AddPlaylistToggle` (songs), `AddTableToggle` (seating), `AddPaymentToggle` (payments), `AddSectionToggle` + `AddSubsectionToggle` (book), `BudgetClient`'s category/line adds, plus all four Settings sub-pickers (custom fields, nav tags, permission groups, guest groups).
+
+13 inline-expand vs. 2 modal-popover. The user's complaint is the inconsistency — adding a task feels jarring vs. adding a guest, even though both are everyday actions.
+
+**The fix.** `AddTaskToggle` and `AddEventToggle` rewritten to inline-expand. Each:
+
+- Renders a `+ New X` button when `open === false`.
+- Replaces the button with a form-card when `open === true` — `bg-surface border border-moss-100 rounded-md p-4 mb-4 shadow-sm w-full sm:w-[680px]` (or 640px for events). The card lives in the same `PageHeader.actions` flex slot as the button; it wraps to its own line on the flex-wrap row when wider than the title side leaves room.
+- No backdrop, no `position: fixed`, no Escape handler. The Cancel + × buttons in the form chrome do the dismissal.
+- All the existing form props (TaskForm / EventForm) flow through unchanged — only the wrapper changed.
+
+The 680px width on TaskForm matches the previous modal's `max-w-[680px]`; same content density, just unmoored from the centred fixed-position layout. On mobile both go full width.
+
+**Why this is fine even though TaskForm is tall.** The original v1.27.0 rationale ("keep the header uncrowded") assumed the form would render *inside* the page header itself. With the flex-wrap layout, the expanded card wraps onto its own line *below* the title row but still inside the PageHeader's surface — it's part of the toolbar, just bigger when needed. Adjacent pages with fewer fields keep their compact form-cards; tasks and events take more vertical space when active, then collapse back when done. Same behaviour as opening any inspector panel.
+
+**Verified.** typecheck clean · lint clean · 542 tests pass · production build clean. No new tests — the change is structural / styling only and the form contracts are unchanged.
+
+Files: `src/app/(app)/tasks/AddTaskToggle.tsx` (rewrite), `src/app/(app)/schedule/AddEventToggle.tsx` (rewrite), `package.json` → `1.55.0`.
 
 ### 2026-05-01 · v1.54.1 — Daily bug-check schedule
 

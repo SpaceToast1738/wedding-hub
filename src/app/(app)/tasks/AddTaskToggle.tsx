@@ -1,15 +1,21 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { TaskForm, type UserOpt, type SupplierOpt, type BookSectionOpt, type BookSubsectionOpt, type NavTagOpt } from "./TaskForm";
 import { createTask } from "./actions";
 
-// v1.27.0: New-task button now opens a fixed-position popover at
-// the top-right of the page instead of the v1.0.x inline-expanded
-// form that was rendered in the page-header `actions` slot (which
-// made the header visually crowded). Backdrop dims the rest of the
-// page; clicking outside / Escape / Cancel / Create all close.
+// v1.27.0 → v1.55.0: shipped originally as a fixed-position popover
+// modal with a backdrop. v1.55.0 converts to inline-expand, matching
+// every other "+ New X" affordance in the app (AddHouseholdToggle,
+// AddSupplierToggle, AddPlaylistToggle, AddTableToggle, AddPaymentToggle,
+// AddSectionToggle, AddSubsectionToggle, etc.). User feedback:
+// "instead of popping out in the middle of the page like add new
+// tasks they open in the task bar instead". Modals were
+// jarring against the inline pattern everywhere else; consistent
+// in-page expansion wins on UX even if TaskForm is the largest of
+// the lot — the form-card just wraps to its own line in the
+// PageHeader.actions flex row.
 export function AddTaskToggle({
   users,
   suppliers = [],
@@ -44,70 +50,55 @@ export function AddTaskToggle({
 }) {
   const [open, setOpen] = useState(false);
 
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open]);
-
-  return (
-    <>
+  if (!open) {
+    return (
       <Button variant="primary" size="sm" onClick={() => setOpen(true)}>
         {buttonLabel}
       </Button>
-      {open && (
-        <div
-          className="fixed inset-0 z-[400] bg-black/30 flex items-start sm:items-center justify-center pt-6 sm:pt-0 px-4 overflow-y-auto"
+    );
+  }
+
+  // Inline expansion. The form-card is full-width on mobile and
+  // wraps to its own line on desktop because `PageHeader.actions`
+  // is a `flex-wrap` row — the card flow-wraps cleanly when wider
+  // than the title side. Same pattern as AddHouseholdToggle but
+  // sized for the bigger TaskForm.
+  return (
+    <div className="bg-surface border border-moss-100 rounded-md p-4 mb-4 shadow-sm w-full sm:w-[680px] sm:max-w-[calc(100vw-3rem)]">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-sm font-semibold text-ink-primary">
+          {buttonLabel.replace("+ ", "")}
+        </h3>
+        <button
+          type="button"
           onClick={() => setOpen(false)}
-          aria-hidden="true"
+          aria-label="Close"
+          className="text-ink-tertiary hover:text-ink-primary text-lg leading-none px-1"
         >
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-label={buttonLabel.replace("+ ", "")}
-            onClick={(e) => e.stopPropagation()}
-            className="relative bg-surface border border-border-soft rounded-md p-4 shadow-lg w-full max-w-[680px] my-8"
-          >
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-base font-semibold text-ink-primary">
-                {buttonLabel.replace("+ ", "")}
-              </h3>
-              <button
-                type="button"
-                onClick={() => setOpen(false)}
-                aria-label="Close"
-                className="text-ink-tertiary hover:text-ink-primary text-lg leading-none px-1"
-              >
-                ×
-              </button>
-            </div>
-            <TaskForm
-              users={users}
-              suppliers={suppliers}
-              bookSections={bookSections}
-              bookSubsections={bookSubsections}
-              navTags={navTags}
-              showType={showType}
-              initial={{
-                type: defaultType,
-                supplierId: defaultSupplierId ?? null,
-                bookSectionIds: defaultBookSectionIds ?? [],
-                bookSubsectionIds: defaultBookSubsectionIds ?? [],
-                navTagIds: defaultNavTagIds ?? [],
-              }}
-              submitLabel="Create"
-              onSubmit={async (fd) => {
-                await createTask(fd);
-                setOpen(false);
-              }}
-              onCancel={() => setOpen(false)}
-            />
-          </div>
-        </div>
-      )}
-    </>
+          ×
+        </button>
+      </div>
+      <TaskForm
+        users={users}
+        suppliers={suppliers}
+        bookSections={bookSections}
+        bookSubsections={bookSubsections}
+        navTags={navTags}
+        showType={showType}
+        initial={{
+          type: defaultType,
+          supplierId: defaultSupplierId ?? null,
+          bookSectionIds: defaultBookSectionIds ?? [],
+          bookSubsectionIds: defaultBookSubsectionIds ?? [],
+          navTagIds: defaultNavTagIds ?? [],
+        }}
+        submitLabel="Create"
+        onSubmit={async (fd) => {
+          await createTask(fd);
+          setOpen(false);
+        }}
+        onCancel={() => setOpen(false)}
+      />
+    </div>
   );
 }
