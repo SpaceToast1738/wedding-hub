@@ -68,6 +68,28 @@ export default async function SupplierDetailPage({
   });
   if (!supplier) notFound();
 
+  // v1.58.0 (XL4): BUILD cards whose budget line is supplier-linked.
+  // BookBuildCard → BudgetLine → supplierId chain. Surfaces "this
+  // supplier provides materials for these DIY projects" so the
+  // couple can spot the cross-cutting relationships without
+  // bouncing between /budget and /book.
+  const buildCardsViaBudget = await db.bookBuildCard.findMany({
+    where: { budgetLine: { supplierId: id } },
+    select: {
+      id: true,
+      status: true,
+      quantityNeeded: true,
+      subsection: {
+        select: {
+          slug: true,
+          title: true,
+          section: { select: { slug: true, title: true } },
+        },
+      },
+      budgetLine: { select: { id: true, description: true, estimated: true } },
+    },
+  });
+
   // v1.37.5 (P7b/C): "Used in setup" — find every BookSetupItem
   // whose `source` field matches this supplier's name (case-
   // insensitive). String match, no FK — matches the v1.30.5 cross-
@@ -243,6 +265,54 @@ export default async function SupplierDetailPage({
                         </span>
                       )}
                     </span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+
+          {/* v1.58.0 (XL4): BUILD cards whose budget line is supplier-
+              linked. The chain BookBuildCard → BudgetLine.supplierId
+              is invisible elsewhere; this surfaces "this supplier is
+              the source of materials for these DIY projects". */}
+          {buildCardsViaBudget.length > 0 && (
+            <section className="bg-surface border border-border-soft rounded-md shadow-sm">
+              <header className="px-4 py-3 border-b border-border-soft flex items-baseline justify-between">
+                <h2 className="text-sm font-semibold text-ink-primary">
+                  Linked from DIY
+                  <span className="ml-2 text-[11px] font-normal text-ink-tertiary">
+                    {buildCardsViaBudget.length} {buildCardsViaBudget.length === 1 ? "card" : "cards"}
+                  </span>
+                </h2>
+                <span className="text-[10px] text-ink-tertiary italic">
+                  via budget line
+                </span>
+              </header>
+              <ul className="divide-y divide-border-soft text-sm">
+                {buildCardsViaBudget.map((c) => (
+                  <li key={c.id} className="px-4 py-2 flex items-baseline gap-3">
+                    <Link
+                      href={`/book/${c.subsection.section.slug}#${c.subsection.slug}`}
+                      className="text-ink-primary hover:text-moss-700 hover:underline truncate flex-1"
+                    >
+                      <span className="font-medium">{c.subsection.title}</span>
+                      <span className="text-ink-tertiary"> · {c.subsection.section.title}</span>
+                    </Link>
+                    {c.status && (
+                      <span className="text-[10px] uppercase tracking-wider text-ink-tertiary">{c.status}</span>
+                    )}
+                    {c.quantityNeeded != null && (
+                      <span className="text-xs text-ink-tertiary tabular-nums">×{c.quantityNeeded}</span>
+                    )}
+                    {c.budgetLine && (
+                      <Link
+                        href="/budget"
+                        className="text-[10px] text-info hover:underline whitespace-nowrap"
+                        title={c.budgetLine.description}
+                      >
+                        £{c.budgetLine.estimated == null ? "—" : Number(c.budgetLine.estimated).toFixed(0)}
+                      </Link>
+                    )}
                   </li>
                 ))}
               </ul>

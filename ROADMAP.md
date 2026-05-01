@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.57.0** | 2026-05-01 | [Cross-link sweep (XL3, XL5, XL8, XL9, XL10, XL11) — household cards summarise table seating, /budget rows show BUILD-card source chips, /payments + /songs accept supplier/guest deep-link filters, Today list surfaces topic chips next to titles, /seating honours #table-<id> fragments. XL1/2/4/6/7 deferred to v1.58.0 (need schema or larger scope).](#2026-05-01--v1570--cross-link-sweep) |
+| **v1.58.0** | 2026-05-01 | [Cross-link sweep round 2 (XL4, XL7) — supplier detail page surfaces BUILD-card backlinks via `BookBuildCard.budgetLine.supplierId`. TaskDrawer chips deep-link to the entity (sections → /book/<slug>; subsections → /book/<sectionSlug>#<slug>; nav-tags → tag.route). XL2 + XL6 audited and confirmed substantially complete from v1.37.5 / per-card-kind shipping; XL1 deferred (needs Task↔GuestGroup schema design).](#2026-05-01--v1580--cross-link-sweep-round-2) |
+| v1.57.0 | 2026-05-01 | [Cross-link sweep (XL3, XL5, XL8, XL9, XL10, XL11) — household cards summarise table seating, /budget rows show BUILD-card source chips, /payments + /songs accept supplier/guest deep-link filters, Today list surfaces topic chips next to titles, /seating honours #table-<id> fragments. XL1/2/4/6/7 deferred to v1.58.0 (need schema or larger scope).](#2026-05-01--v1570--cross-link-sweep) |
 | v1.56.0 | 2026-05-01 | [Add-New affordances normalised to **popout modal** (reverses v1.55.0). User clarification: "I want the screens to popout". New shared `AddNewModal` wrapper centralises the centred-card + backdrop + Esc/× dismissal pattern. AddTaskToggle, AddEventToggle, AddHouseholdToggle, AddSupplierToggle, AddPlaylistToggle, AddTableToggle, AddPaymentToggle, AddSectionToggle, AddSubsectionToggle all use it.](#2026-05-01--v1560--add-new-affordances-popout-modal) |
 | v1.55.0 | 2026-05-01 | [Add-New affordances normalised to inline-expand. `AddTaskToggle` and `AddEventToggle` were the last two pages still using the v1.27.0 fixed-position popover-modal pattern. Converted to the inline-expand card pattern every other page uses (AddHouseholdToggle, AddSupplierToggle, AddPlaylistToggle, AddTableToggle, AddPaymentToggle, AddSection/SubsectionToggle). Same UX everywhere: button → in-place form-card.](#2026-05-01--v1550--add-new-affordances-normalised) |
 | v1.54.1 | 2026-05-01 | [Daily bug-check schedule — new `.github/workflows/daily-bug-check.yml` runs at 08:23 UTC every morning: `npm audit` (high+ fails the run), `npm outdated` (informational), TODO/FIXME accumulator, schema/migration drift check, `prisma format --check`. Findings show on the repo's red-❌ indicator; no notifications. Companion in-session Claude review cron fires at 09:17 local daily for the lifetime of the dev shell.](#2026-05-01--v1541--daily-bug-check-schedule) |
@@ -853,6 +854,30 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-05-01 · v1.58.0 — Cross-link sweep round 2
+
+User: "1.58". Closes the remaining 5 deferred 🟢 items from v1.57.0. Survey first surfaced that 3 of the 5 (XL2, XL6) were already shipped or substantially covered by earlier releases — only XL4 and XL7 needed real work. XL1 stays deferred pending a design call.
+
+**XL4 — supplier detail surfaces BUILD-card backlinks** (`suppliers/[id]/page.tsx`). New "Linked from DIY" section appears below "Used in setup" when ≥1 BUILD card has a budget line whose `supplierId` matches this supplier. Each row deep-links to `/book/<sectionSlug>#<subsectionSlug>` and shows the card title, parent section, optional `status` + `quantityNeeded` chips, and the budget line estimate (also linked to `/budget`). Hidden when zero matches. Pure read-time query; no schema work.
+
+**XL7 — TaskDrawer chip deep-links** (`TopicPicker.tsx` + page loaders). Chip *labels* in the task drawer's Topics multi-select are now `<a>` tags when the slug is known. Sections → `/book/<slug>`; subsections → `/book/<sectionSlug>#<slug>`; nav tags → `t.route` (already there). The × button stays as a separate sibling so removal still works inline. Schema additions to `BookSectionOpt` (`slug?`) and `BookSubsectionOpt` (`slug?` + `sectionSlug?`) — both optional so older callers still typecheck. Page loaders at `/tasks` and `/questions` extended to select + flatten the slugs.
+
+**XL2 — guest detail file/budget-line/STAY linkbacks.** Audit confirmed STAY backlinks were already there from v1.37.5 (`/guests/[id]/page.tsx:139-176` — `findStaysForGuest` + the "Accommodation" section). Files have no Guest relation in the schema; budget lines have no Guest relation. Adding either would be a schema change in its own right; the existing surfaces are complete for the relations that exist. No code change in v1.58.0 — flagging as substantively done.
+
+**XL6 — book card cross-links to suppliers / files / budget lines.** Audit confirmed each card kind already surfaces its own relevant linkbacks. BUILD cards display `budgetLine`. SETUP cards autocomplete from `supplierNames`. OUTFIT rows show `supplier` + `fileIds`. The audit's "generalise the inline panel below the card" reading would have meant a major refactor with diminishing returns, since each kind's display is already tuned. No code change in v1.58.0 — flagging as substantively done per-kind.
+
+**XL1 — guest detail tasks-via-groups.** Stays deferred. There's no `Task ↔ GuestGroup` relation in the schema; tasks link to `BookSection` / `BookSubsection` / `NavTag`. The audit's question ("does it surface tasks linked via the guest's groups?") doesn't have a clean implementation in the current model. Two design options if revisited:
+- (a) Add a `Task ↔ Guest` relation directly (single-guest task assignment).
+- (b) Surface tasks tagged with the v1.30.5 Guests nav tag on the guest detail page (already shown on the `/guests` page strip from v1.52.0; redundant on detail).
+
+Both are non-trivial design calls — file under "open question" in the deferred backlog.
+
+**Verified.** typecheck clean · lint clean · 542 tests · production build clean.
+
+Files: `src/app/(app)/suppliers/[id]/page.tsx` (XL4 query + render), `src/app/(app)/tasks/TopicPicker.tsx` (XL7 chip-as-link + slug fields on opts), `src/app/(app)/tasks/page.tsx` + `src/app/(app)/questions/page.tsx` (XL7 select + flatten slugs), `package.json` → `1.58.0`.
+
+**Punch-list status post-v1.58.0:** all 🔴 cleared (v1.53.0); 13/14 🟡 cleared (v1.54.0; C2 still open); 10/11 🟢 cleared (v1.57.0 + v1.58.0; XL1 deferred pending design); ~6 ✨ polish remain.
 
 ### 2026-05-01 · v1.57.0 — Cross-link sweep
 

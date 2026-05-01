@@ -29,17 +29,20 @@ export default async function QuestionsPage() {
       select: { id: true, name: true, category: true },
     }),
     // v1.30.5: book sections + nav tags for the Topics multi-select.
+    // v1.58.0 (XL7): + slug for chip deep-link.
     db.bookSection.findMany({
       orderBy: { order: "asc" },
-      select: { id: true, title: true },
+      select: { id: true, title: true, slug: true },
     }),
     // v1.51.0: subsections for the parallel card-level link picker.
+    // v1.58.0 (XL7): + slug + section.slug for chip deep-link.
     db.bookSubsection.findMany({
       orderBy: [{ section: { order: "asc" } }, { order: "asc" }],
       select: {
         id: true,
         title: true,
-        section: { select: { title: true } },
+        slug: true,
+        section: { select: { title: true, slug: true } },
       },
     }),
     db.navTag.findMany({
@@ -50,7 +53,9 @@ export default async function QuestionsPage() {
   const bookSubsections = bookSubsectionsRaw.map((s) => ({
     id: s.id,
     title: s.title,
+    slug: s.slug,
     sectionTitle: s.section.title,
+    sectionSlug: s.section.slug,
   }));
   const customFieldDefsTyped: CustomFieldDef[] = customFieldDefs.map((f) => ({
     id: f.id,

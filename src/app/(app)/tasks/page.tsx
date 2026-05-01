@@ -51,20 +51,23 @@ export default async function TasksPage({
       select: { id: true, name: true, category: true },
     }),
     // v1.30.5: book sections (page-level) for the Topics multi-select.
+    // v1.58.0 (XL7): + slug for chip deep-link.
     db.bookSection.findMany({
       orderBy: { order: "asc" },
-      select: { id: true, title: true },
+      select: { id: true, title: true, slug: true },
     }),
     // v1.51.0: book subsections (cards) for the Topics multi-select —
     // tasks can link directly to a single card now. Nested section
     // title flattened in the map below so the picker can render
     // "Section · Card" labels without unambiguous collisions.
+    // v1.58.0 (XL7): + slug + sectionSlug for chip deep-link.
     db.bookSubsection.findMany({
       orderBy: [{ section: { order: "asc" } }, { order: "asc" }],
       select: {
         id: true,
         title: true,
-        section: { select: { title: true } },
+        slug: true,
+        section: { select: { title: true, slug: true } },
       },
     }),
     // v1.30.5: nav tags for the Topics multi-select.
@@ -74,11 +77,14 @@ export default async function TasksPage({
     }),
   ]);
   // Flatten subsection.section.title to subsection.sectionTitle for
-  // the picker shape.
+  // the picker shape. v1.58.0 (XL7): also flatten slug + sectionSlug
+  // so the chip can deep-link.
   const bookSubsections = bookSubsectionsRaw.map((s) => ({
     id: s.id,
     title: s.title,
+    slug: s.slug,
     sectionTitle: s.section.title,
+    sectionSlug: s.section.slug,
   }));
   // Cast the task rows so the bookSubsections relation flows through
   // to the drawer / picker with the same flattened shape.

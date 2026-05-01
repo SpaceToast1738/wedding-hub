@@ -16,13 +16,21 @@ import { useEffect, useRef, useState } from "react";
 // In read-only mode (canEdit=false) the dropdown trigger is omitted —
 // just the chip row renders.
 
-export type BookSectionOpt = { id: string; title: string };
+export type BookSectionOpt = {
+  id: string;
+  title: string;
+  /** v1.58.0 (XL7): slug for chip deep-link → `/book/<slug>`. */
+  slug?: string;
+};
 export type BookSubsectionOpt = {
   id: string;
   title: string;
   /** Parent section title; rendered as a prefix so two cards with
    *  the same name on different pages stay unambiguous. */
   sectionTitle: string;
+  /** v1.58.0 (XL7): slugs for chip deep-link → `/book/<sectionSlug>#<slug>`. */
+  slug?: string;
+  sectionSlug?: string;
 };
 export type NavTagOpt = { id: string; name: string; route: string | null };
 
@@ -105,19 +113,43 @@ export function TopicPicker({
   const subsectionLookup = new Map(bookSubsections.map((s) => [s.id, s]));
   const tagLookup = new Map(navTags.map((t) => [t.id, t]));
 
-  const selectedChips: { key: string; label: string; kind: "section" | "subsection" | "tag" }[] = [
+  // v1.58.0 (XL7): each chip carries an optional `href` for chip-
+  // label deep-link. Sections → /book/<slug>; subsections →
+  // /book/<sectionSlug>#<slug>; nav tags → t.route. The × stays as
+  // a separate button so removal still works inline.
+  const selectedChips: {
+    key: string;
+    label: string;
+    kind: "section" | "subsection" | "tag";
+    href: string | null;
+  }[] = [
     ...bookSectionIds.map((id) => {
       const s = sectionLookup.get(id);
-      return { key: `bookSection:${id}`, label: s?.title ?? "Unknown section", kind: "section" as const };
+      return {
+        key: `bookSection:${id}`,
+        label: s?.title ?? "Unknown section",
+        kind: "section" as const,
+        href: s?.slug ? `/book/${s.slug}` : null,
+      };
     }),
     ...bookSubsectionIds.map((id) => {
       const s = subsectionLookup.get(id);
       const label = s ? `${s.sectionTitle} · ${s.title}` : "Unknown card";
-      return { key: `bookSubsection:${id}`, label, kind: "subsection" as const };
+      return {
+        key: `bookSubsection:${id}`,
+        label,
+        kind: "subsection" as const,
+        href: s?.sectionSlug && s.slug ? `/book/${s.sectionSlug}#${s.slug}` : null,
+      };
     }),
     ...navTagIds.map((id) => {
       const t = tagLookup.get(id);
-      return { key: `navTag:${id}`, label: t?.name ?? "Unknown tag", kind: "tag" as const };
+      return {
+        key: `navTag:${id}`,
+        label: t?.name ?? "Unknown tag",
+        kind: "tag" as const,
+        href: t?.route ?? null,
+      };
     }),
   ];
 
@@ -147,7 +179,17 @@ export function TopicPicker({
                     : "bg-marigold-100/40 border-marigold-700/30 text-marigold-700",
               ].join(" ")}
             >
-              {c.label}
+              {c.href ? (
+                <a
+                  href={c.href}
+                  className="hover:underline"
+                  title={`Open ${c.label}`}
+                >
+                  {c.label}
+                </a>
+              ) : (
+                c.label
+              )}
               {canEdit && (
                 <button
                   type="button"
