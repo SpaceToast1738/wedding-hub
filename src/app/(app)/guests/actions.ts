@@ -152,25 +152,38 @@ export async function updateHousehold(id: string, formData: FormData) {
   revalidatePath("/guests");
 }
 
-export async function deleteHousehold(id: string) {
+// v1.53.0 (C1): result-shape return so caller can render a real
+// error toast instead of relying on Next prod redaction.
+export type DeleteResult = { ok: true } | { ok: false; error: string };
+
+export async function deleteHousehold(id: string): Promise<DeleteResult> {
   const user = await requireEdit("guests");
-  // Snapshot name + guest count before delete.
-  const before = await db.household.findUnique({
-    where: { id },
-    include: { _count: { select: { guests: true } } },
-  });
-  await db.household.delete({ where: { id } });
-  await audit(user, {
-    action: "delete",
-    entity: "Household",
-    entityId: id,
-    metadata: {
-      name: before?.name ?? null,
-      side: before?.side ?? null,
-      guestCount: before?._count.guests ?? 0,
-    },
-  });
-  revalidatePath("/guests");
+  try {
+    // Snapshot name + guest count before delete.
+    const before = await db.household.findUnique({
+      where: { id },
+      include: { _count: { select: { guests: true } } },
+    });
+    await db.household.delete({ where: { id } });
+    await audit(user, {
+      action: "delete",
+      entity: "Household",
+      entityId: id,
+      metadata: {
+        name: before?.name ?? null,
+        side: before?.side ?? null,
+        guestCount: before?._count.guests ?? 0,
+      },
+    });
+    revalidatePath("/guests");
+    return { ok: true };
+  } catch (err) {
+    console.error("deleteHousehold failed", err);
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : "Couldn't delete household",
+    };
+  }
 }
 
 export async function createGuest(formData: FormData) {
@@ -375,38 +388,47 @@ export async function setGuestRsvp(id: string, rsvp: RsvpStatus) {
 // flow now sets `archived = true`; the row is hidden from default
 // views but can be restored. Their tableSeat is freed at the same
 // time so the seat goes back into the pool.
-export async function deleteGuest(id: string) {
+export async function deleteGuest(id: string): Promise<DeleteResult> {
   const user = await requireEdit("guests");
-  const guest = await db.guest.findUnique({
-    where: { id },
-    select: { firstName: true, lastName: true, tableSeatId: true },
-  });
-  if (!guest) return;
-  // Archive the host AND any of its +1 rows in a single transaction so
-  // the totals never see a half-archived household. Free both seats.
-  await db.$transaction([
-    db.guest.update({
+  try {
+    const guest = await db.guest.findUnique({
       where: { id },
-      data: { archived: true, tableSeatId: null },
-    }),
-    db.guest.updateMany({
-      where: { parentGuestId: id },
-      data: { archived: true, tableSeatId: null },
-    }),
-  ]);
-  await audit(user, {
-    action: "archive",
-    entity: "Guest",
-    entityId: id,
-    metadata: {
-      firstName: guest.firstName,
-      lastName: guest.lastName,
-      hadSeat: guest.tableSeatId !== null,
-    },
-  });
-  revalidatePath("/guests");
-  revalidatePath("/seating");
-  revalidatePath("/");
+      select: { firstName: true, lastName: true, tableSeatId: true },
+    });
+    if (!guest) return { ok: true }; // already gone — idempotent
+    // Archive the host AND any of its +1 rows in a single transaction so
+    // the totals never see a half-archived household. Free both seats.
+    await db.$transaction([
+      db.guest.update({
+        where: { id },
+        data: { archived: true, tableSeatId: null },
+      }),
+      db.guest.updateMany({
+        where: { parentGuestId: id },
+        data: { archived: true, tableSeatId: null },
+      }),
+    ]);
+    await audit(user, {
+      action: "archive",
+      entity: "Guest",
+      entityId: id,
+      metadata: {
+        firstName: guest.firstName,
+        lastName: guest.lastName,
+        hadSeat: guest.tableSeatId !== null,
+      },
+    });
+    revalidatePath("/guests");
+    revalidatePath("/seating");
+    revalidatePath("/");
+    return { ok: true };
+  } catch (err) {
+    console.error("deleteGuest failed", err);
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : "Couldn't archive guest",
+    };
+  }
 }
 
 // Bring an archived guest back. Their seat does NOT auto-reassign —

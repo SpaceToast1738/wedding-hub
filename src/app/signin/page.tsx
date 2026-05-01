@@ -69,6 +69,11 @@ export default async function SignInPage({
             Please enter a valid email address.
           </p>
         )}
+        {error === "expired" && (
+          <p className="text-xs text-marigold-700 mt-4">
+            Your sign-in session timed out. Enter your email to get a new code.
+          </p>
+        )}
         <p className="text-xs text-ink-tertiary mt-6">
           Sign-in is restricted to the wedding party. If you weren&apos;t given
           access, contact {wedding.brideFirst} or {wedding.groomFirst}.

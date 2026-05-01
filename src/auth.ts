@@ -163,6 +163,20 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       // the practical attack cost stays high.
       maxAge: 15 * 60,
       sendVerificationRequest: async ({ identifier, url, token, provider }) => {
+        // v1.53.0 (A3): invalidate every prior pending VerificationToken
+        // for this identifier *before* the adapter writes the new row.
+        // Auth.js's PrismaAdapter only deletes the matched token on
+        // successful sign-in, so two consecutive sends within the
+        // 15-min TTL would otherwise leave two valid 6-digit codes
+        // active simultaneously. We want exactly one pending code per
+        // email at any time. Run before the rate-limit pre-check so
+        // a quota-blocked send still cleans up the user's previous
+        // (unconsumed) code — they re-request, the older one was
+        // already invalidated.
+        await db.verificationToken
+          .deleteMany({ where: { identifier } })
+          .catch(() => undefined);
+
         // Rate-limit BEFORE we check the allowlist or send anything.
         // We don't want to leak which addresses are on the allowlist by
         // having different timing for allowed/disallowed emails — but

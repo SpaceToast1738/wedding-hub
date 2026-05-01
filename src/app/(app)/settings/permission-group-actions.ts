@@ -99,16 +99,41 @@ export async function updatePermissionGroup(
     const before = await db.permissionGroup.findUnique({ where: { id } });
     if (!before) return { ok: false, error: "Group not found" };
 
-    await db.permissionGroup.update({
-      where: { id },
-      data: {
-        slug: parsed.slug,
-        name: parsed.name,
-        description: parsed.description,
-      },
-    });
+    // v1.53.0 (B1): GroupPermission rows are keyed on the polymorphic
+    // string `group:<slug>` (no FK because built-ins aren't stored).
+    // When the slug changes we must rewrite every row that pointed
+    // at the old slug, otherwise those rows become orphans that the
+    // resolver silently treats as a permissions-less group. Wrap the
+    // parent update + the cascading rewrite in a transaction so an
+    // interrupted update doesn't leave the keys half-renamed.
+    const slugChanged = before.slug !== parsed.slug;
+    if (slugChanged) {
+      await db.$transaction([
+        db.permissionGroup.update({
+          where: { id },
+          data: {
+            slug: parsed.slug,
+            name: parsed.name,
+            description: parsed.description,
+          },
+        }),
+        db.groupPermission.updateMany({
+          where: { groupKey: `group:${before.slug}` },
+          data: { groupKey: `group:${parsed.slug}` },
+        }),
+      ]);
+    } else {
+      await db.permissionGroup.update({
+        where: { id },
+        data: {
+          slug: parsed.slug,
+          name: parsed.name,
+          description: parsed.description,
+        },
+      });
+    }
     const changedFields: string[] = [];
-    if (before.slug !== parsed.slug) changedFields.push("slug");
+    if (slugChanged) changedFields.push("slug");
     if (before.name !== parsed.name) changedFields.push("name");
     if (before.description !== parsed.description) changedFields.push("description");
 
@@ -136,7 +161,16 @@ export async function deletePermissionGroup(id: string): Promise<GroupActionResu
       include: { _count: { select: { members: true } } },
     });
     if (!before) return { ok: false, error: "Group not found" };
-    await db.permissionGroup.delete({ where: { id } });
+    // v1.53.0 (B1): cascade-clear the GroupPermission rows keyed on
+    // `group:<slug>` along with the parent. No FK exists (built-ins
+    // share the table) so Prisma can't cascade automatically.
+    // Transaction so a partial delete can't leave dangling rows.
+    const groupKey = `group:${before.slug}`;
+    const [, deleted] = await db.$transaction([
+      db.groupPermission.deleteMany({ where: { groupKey } }),
+      db.permissionGroup.delete({ where: { id } }),
+    ]);
+    void deleted; // result unused; transaction order matters (perms first, then group)
     await audit(user, {
       action: "delete",
       entity: "PermissionGroup",

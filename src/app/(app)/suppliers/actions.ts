@@ -125,38 +125,53 @@ export async function setSupplierStatus(id: string, status: SupplierStatus) {
   revalidatePath("/suppliers");
 }
 
-export async function deleteSupplier(id: string) {
+// v1.53.0 (C1): result-shape return so the caller can render a real
+// error toast instead of relying on the action throwing into Next's
+// production redactor (which surfaces a generic overlay). Failures
+// here are usually FK-blocked deletes (e.g. a payment row references
+// the supplier) — the user wants to see "Can't delete: 3 payments
+// still linked", not silent.
+export type DeleteResult = { ok: true } | { ok: false; error: string };
+
+export async function deleteSupplier(id: string): Promise<DeleteResult> {
   const user = await requireEdit("suppliers");
-  // Snapshot before delete.
-  const before = await db.supplier.findUnique({
-    where: { id },
-    include: {
-      _count: {
-        select: {
-          contacts: true,
-          contracts: true,
-          communications: true,
-          payments: true,
-          tasks: true,
+  try {
+    // Snapshot before delete.
+    const before = await db.supplier.findUnique({
+      where: { id },
+      include: {
+        _count: {
+          select: {
+            contacts: true,
+            contracts: true,
+            communications: true,
+            payments: true,
+            tasks: true,
+          },
         },
       },
-    },
-  });
-  await db.supplier.delete({ where: { id } });
-  await audit(user, {
-    action: "delete",
-    entity: "Supplier",
-    entityId: id,
-    metadata: {
-      name: before?.name ?? null,
-      category: before?.category ?? null,
-      status: before?.status ?? null,
-      contactCount: before?._count.contacts ?? 0,
-      contractCount: before?._count.contracts ?? 0,
-      paymentCount: before?._count.payments ?? 0,
-    },
-  });
-  revalidatePath("/suppliers");
+    });
+    await db.supplier.delete({ where: { id } });
+    await audit(user, {
+      action: "delete",
+      entity: "Supplier",
+      entityId: id,
+      metadata: {
+        name: before?.name ?? null,
+        category: before?.category ?? null,
+        status: before?.status ?? null,
+        contactCount: before?._count.contacts ?? 0,
+        contractCount: before?._count.contracts ?? 0,
+        paymentCount: before?._count.payments ?? 0,
+      },
+    });
+    revalidatePath("/suppliers");
+    return { ok: true };
+  } catch (err) {
+    console.error("deleteSupplier failed", err);
+    const msg = err instanceof Error ? err.message : "Couldn't delete supplier";
+    return { ok: false, error: msg };
+  }
 }
 
 // ── Supplier sub-resources ────────────────────────────────────────────────

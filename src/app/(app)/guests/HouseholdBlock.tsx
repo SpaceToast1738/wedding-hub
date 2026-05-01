@@ -8,6 +8,7 @@ import { StatusPill } from "@/components/ui/StatusPill";
 import { GuestForm } from "./GuestForm";
 import { GuestGroupsControl, type GuestGroupSummary } from "@/components/ui/GuestGroupsControl";
 import { createGuest, deleteGuest, deleteHousehold, setGuestRsvp, updateGuest, updateHousehold } from "./actions";
+import { notify } from "@/lib/notify";
 import type { RsvpStatus, Side } from "@prisma/client";
 
 type Guest = {
@@ -114,7 +115,12 @@ export function HouseholdBlock({
     } else {
       if (!confirm(`Delete household "${household.name}"?`)) return;
     }
-    startTransition(async () => { await deleteHousehold(household.id); });
+    startTransition(async () => {
+      // v1.53.0 (C1): result-shape — show real toast on failure.
+      const res = await deleteHousehold(household.id);
+      if (res.ok) notify("success", "Household deleted");
+      else notify("error", res.error);
+    });
   }
 
   return (
@@ -210,7 +216,12 @@ export function HouseholdBlock({
       } else {
         if (!confirm(`Archive ${guest.firstName} ${guest.lastName}? Any +1 will be archived too.`)) return;
       }
-      startTransition(async () => { await deleteGuest(guest.id); });
+      startTransition(async () => {
+        // v1.53.0 (C1): result-shape.
+        const res = await deleteGuest(guest.id);
+        if (res.ok) notify("success", "Guest archived");
+        else notify("error", res.error);
+      });
     }
 
     if (editing) {

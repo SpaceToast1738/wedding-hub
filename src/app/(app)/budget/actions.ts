@@ -52,25 +52,49 @@ export async function createCategory(formData: FormData) {
   revalidatePath("/budget");
 }
 
-export async function deleteCategory(id: string) {
+// v1.53.0 (C1): result-shape return so caller can render a real
+// error toast instead of relying on Next prod redaction. Most
+// failures here are FK-blocked deletes (category has lines).
+export type DeleteResult = { ok: true } | { ok: false; error: string };
+
+export async function deleteCategory(id: string): Promise<DeleteResult> {
   const user = await requireEdit("budget");
-  // Snapshot before delete so the audit row reads usefully even
-  // after the row is gone.
-  const before = await db.budgetCategory.findUnique({
-    where: { id },
-    include: { _count: { select: { lines: true } } },
-  });
-  await db.budgetCategory.delete({ where: { id } });
-  await audit(user, {
-    action: "delete",
-    entity: "BudgetCategory",
-    entityId: id,
-    metadata: {
-      name: before?.name ?? null,
-      lineCount: before?._count.lines ?? 0,
-    },
-  });
-  revalidatePath("/budget");
+  try {
+    // Snapshot before delete so the audit row reads usefully even
+    // after the row is gone.
+    const before = await db.budgetCategory.findUnique({
+      where: { id },
+      include: { _count: { select: { lines: true } } },
+    });
+    if (before && before._count.lines > 0) {
+      // Friendlier than a Prisma FK-violation message: tell the user
+      // to clear the lines first. (Schema may not enforce this — if
+      // cascade is set, the delete would succeed and silently nuke
+      // every line. Belt-and-braces.)
+      return {
+        ok: false,
+        error: `Can't delete "${before.name}" — ${before._count.lines} line${before._count.lines === 1 ? "" : "s"} still in this category.`,
+      };
+    }
+    await db.budgetCategory.delete({ where: { id } });
+    await audit(user, {
+      action: "delete",
+      entity: "BudgetCategory",
+      entityId: id,
+      metadata: {
+        name: before?.name ?? null,
+        lineCount: before?._count.lines ?? 0,
+      },
+    });
+    revalidatePath("/budget");
+    return { ok: true };
+  } catch (err) {
+    console.error("deleteCategory failed", err);
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : "Couldn't delete category",
+    };
+  }
 }
 
 export async function createLine(formData: FormData) {
@@ -163,24 +187,33 @@ export async function updateLine(id: string, formData: FormData) {
   revalidatePath("/budget");
 }
 
-export async function deleteLine(id: string) {
+export async function deleteLine(id: string): Promise<DeleteResult> {
   const user = await requireEdit("budget");
-  const before = await db.budgetLine.findUnique({
-    where: { id },
-    include: { category: { select: { name: true } } },
-  });
-  await db.budgetLine.delete({ where: { id } });
-  await audit(user, {
-    action: "delete",
-    entity: "BudgetLine",
-    entityId: id,
-    metadata: {
-      description: before?.description ?? null,
-      categoryName: before?.category.name ?? null,
-      estimated: decimalToNumber(before?.estimated),
-      actual: decimalToNumber(before?.actual),
-      paid: decimalToNumber(before?.paid),
-    },
-  });
-  revalidatePath("/budget");
+  try {
+    const before = await db.budgetLine.findUnique({
+      where: { id },
+      include: { category: { select: { name: true } } },
+    });
+    await db.budgetLine.delete({ where: { id } });
+    await audit(user, {
+      action: "delete",
+      entity: "BudgetLine",
+      entityId: id,
+      metadata: {
+        description: before?.description ?? null,
+        categoryName: before?.category.name ?? null,
+        estimated: decimalToNumber(before?.estimated),
+        actual: decimalToNumber(before?.actual),
+        paid: decimalToNumber(before?.paid),
+      },
+    });
+    revalidatePath("/budget");
+    return { ok: true };
+  } catch (err) {
+    console.error("deleteLine failed", err);
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : "Couldn't delete line",
+    };
+  }
 }

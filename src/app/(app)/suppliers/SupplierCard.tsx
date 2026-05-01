@@ -7,6 +7,7 @@ import { StatusPill } from "@/components/ui/StatusPill";
 import { SupplierForm } from "./SupplierForm";
 import { deleteSupplier, setSupplierStatus, updateSupplier } from "./actions";
 import { formatMoneyDecimal } from "@/lib/format";
+import { notify } from "@/lib/notify";
 
 // Local mirror of `formatRelativeDate` from SupplierDetailClient — keep
 // in sync if the contract changes (would centralise in @/lib/format if
@@ -62,7 +63,12 @@ export function SupplierCard({ supplier, canEdit }: { supplier: Supplier; canEdi
   function onDelete() {
     if (!confirm(`Delete supplier "${supplier.name}"?`)) return;
     startTransition(async () => {
-      await deleteSupplier(supplier.id);
+      // v1.53.0 (C1): result-shape — show a real toast on FK-blocked
+      // delete instead of relying on Next prod redaction (silent
+      // failure with no row removed).
+      const res = await deleteSupplier(supplier.id);
+      if (res.ok) notify("success", "Supplier deleted");
+      else notify("error", res.error);
     });
   }
 

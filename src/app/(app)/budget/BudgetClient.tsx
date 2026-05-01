@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/Input";
 import { formatMoneyDecimal } from "@/lib/format";
 import { computeActual, isManualOverride, sumOfPayments } from "@/lib/budget";
 import { createCategory, createLine, deleteCategory, deleteLine, updateLine } from "./actions";
+import { notify } from "@/lib/notify";
 
 type Supplier = { id: string; name: string };
 
@@ -128,13 +129,23 @@ function CategoryBlock({ category, suppliers }: { category: Category; suppliers:
   const [pending, startTransition] = useTransition();
 
   function onDeleteCat() {
+    // v1.53.0: server action validates the empty-category constraint
+    // and returns a friendly message. Pre-fix used raw alert() — now
+    // we just attempt + show the toast on rejection. (Belt-and-braces
+    // client-side check below for the common path so the user doesn't
+    // see a network round-trip on the obvious case.)
     if (category.lines.length > 0) {
-      alert("Delete the lines in this category first.");
+      notify(
+        "error",
+        `Can't delete "${category.name}" — ${category.lines.length} line${category.lines.length === 1 ? "" : "s"} still in this category. Move or delete them first.`,
+      );
       return;
     }
     if (!confirm(`Delete category "${category.name}"?`)) return;
     startTransition(async () => {
-      await deleteCategory(category.id);
+      const res = await deleteCategory(category.id);
+      if (res.ok) notify("success", "Category deleted");
+      else notify("error", res.error);
     });
   }
 
@@ -222,7 +233,9 @@ function LineRow({ line, categoryId, suppliers }: { line: Line; categoryId: stri
   function onDelete() {
     if (!confirm(`Delete "${line.description}"?`)) return;
     startTransition(async () => {
-      await deleteLine(line.id);
+      const res = await deleteLine(line.id);
+      if (res.ok) notify("success", "Line deleted");
+      else notify("error", res.error);
     });
   }
 

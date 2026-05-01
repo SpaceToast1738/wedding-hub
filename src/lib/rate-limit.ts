@@ -82,25 +82,24 @@ export function decideRateLimit(args: {
 // MagicLinkAttempt table but use a prefix on the identifier so
 // counts don't bleed across kinds. Different limits per bucket
 // (sends: 5/hr; guesses: 5/15min).
+//
+// v1.53.0 (A1): the check-then-record pattern is for the **send**
+// bucket only. The guess bucket uses `checkGuessLimit` (read-only)
+// + `recordFailedGuess` (write on failed match) so a single failed
+// guess doesn't double-count: the legacy path was writing on the
+// pre-check (when ok), and the verify page was *also* recording on
+// failure — effective budget was 2–3, not 5. The new shape: the
+// pre-check is read-only for guesses; only failures count.
 export type AttemptBucket = "send" | "guess";
 
-export async function checkAndRecordAttempt(input: {
-  identifier: string;
-  ip?: string | null;
-  now?: Date;
-  bucket?: AttemptBucket;
-}): Promise<RateLimitDecision> {
-  const now = input.now ?? new Date();
-  const bucket = input.bucket ?? "send";
-  const max = bucket === "guess" ? VERIFY_LIMIT_MAX_PER_EMAIL : RATE_LIMIT_MAX_PER_EMAIL;
-  const windowMs = bucket === "guess" ? VERIFY_LIMIT_WINDOW_MS : RATE_LIMIT_WINDOW_MS;
-  const windowStart = new Date(now.getTime() - windowMs);
-  const baseIdentifier = input.identifier.toLowerCase().trim();
-  const identifier = bucket === "guess" ? `verify:${baseIdentifier}` : baseIdentifier;
+function bucketParams(bucket: AttemptBucket) {
+  return bucket === "guess"
+    ? { max: VERIFY_LIMIT_MAX_PER_EMAIL, windowMs: VERIFY_LIMIT_WINDOW_MS, prefix: "verify:" }
+    : { max: RATE_LIMIT_MAX_PER_EMAIL, windowMs: RATE_LIMIT_WINDOW_MS, prefix: "" };
+}
 
-  // Parallel: count attempts in window, find oldest in window, prune stale.
-  // Prune doesn't block the decision — even if it fails, we still get a
-  // correct answer from the count.
+async function readBucket(identifier: string, windowMs: number, now: Date) {
+  const windowStart = new Date(now.getTime() - windowMs);
   const [attemptsInWindow, oldest] = await Promise.all([
     db.magicLinkAttempt.count({
       where: { identifier, createdAt: { gte: windowStart } },
@@ -114,24 +113,62 @@ export async function checkAndRecordAttempt(input: {
       .deleteMany({ where: { createdAt: { lt: windowStart } } })
       .catch(() => undefined),
   ]);
+  return { attemptsInWindow, oldest: oldest?.createdAt ?? null };
+}
 
+export async function checkAndRecordAttempt(input: {
+  identifier: string;
+  ip?: string | null;
+  now?: Date;
+  bucket?: AttemptBucket;
+}): Promise<RateLimitDecision> {
+  const now = input.now ?? new Date();
+  const bucket = input.bucket ?? "send";
+  const { max, windowMs, prefix } = bucketParams(bucket);
+  const baseIdentifier = input.identifier.toLowerCase().trim();
+  const identifier = `${prefix}${baseIdentifier}`;
+
+  const { attemptsInWindow, oldest } = await readBucket(identifier, windowMs, now);
   const decision = decideRateLimit({
     attemptsInWindow,
-    oldestAttemptInWindow: oldest?.createdAt ?? null,
+    oldestAttemptInWindow: oldest,
     now,
     max,
     windowMs,
   });
 
-  if (decision.ok) {
-    // Record the new attempt only when allowed. Failed attempts shouldn't
-    // count against the user's quota.
+  if (decision.ok && bucket === "send") {
+    // Send bucket: every successful pre-check writes a row so the
+    // user's per-hour send quota is enforced. Guess bucket uses the
+    // separate recordFailedGuess path — failures count, successes
+    // don't, so the pre-check is read-only.
     await db.magicLinkAttempt.create({
       data: { identifier, ip: input.ip ?? null },
     });
   }
 
   return decision;
+}
+
+// v1.53.0 (A1): read-only guess-bucket check. Returns the decision
+// without recording anything. Pair with `recordFailedGuess` on a
+// failed code match. A successful match consumes nothing — the
+// resolver sets a hard limit on attempts (5/15min) and only failures
+// burn the budget.
+export async function checkGuessLimit(
+  email: string,
+  now: Date = new Date(),
+): Promise<RateLimitDecision> {
+  const identifier = `verify:${email.toLowerCase().trim()}`;
+  const { windowMs, max } = bucketParams("guess");
+  const { attemptsInWindow, oldest } = await readBucket(identifier, windowMs, now);
+  return decideRateLimit({
+    attemptsInWindow,
+    oldestAttemptInWindow: oldest,
+    now,
+    max,
+    windowMs,
+  });
 }
 
 // v1.50.0: record a *failed* code-entry attempt. Failures DO count

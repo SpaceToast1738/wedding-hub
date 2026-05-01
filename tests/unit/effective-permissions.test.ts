@@ -173,7 +173,11 @@ describe("reduceGroupPermissions", () => {
   });
 });
 
-describe("mergeOverrides", () => {
+describe("mergeOverrides — v1.53.0 override-wins-unconditionally", () => {
+  // Pre-v1.53.0 the merge was `max(group, override)`, so a per-user
+  // NONE override never lowered an inherited level — the Settings
+  // UI offered NONE but it was a no-op. v1.53.0 (A5) fixes this:
+  // when a per-user row exists, it's authoritative for that section.
   it("returns the group map unchanged when no overrides", () => {
     const groupMap = new Map([["tasks", VIEW], ["songs", EDIT]]);
     const out = mergeOverrides(groupMap, []);
@@ -191,7 +195,7 @@ describe("mergeOverrides", () => {
     expect(out.get("tasks")).toBe(VIEW);
   });
 
-  it("takes max(group, override) — override stronger wins", () => {
+  it("override stronger than group wins", () => {
     const groupMap = new Map([["tasks", VIEW]]);
     const out = mergeOverrides(groupMap, [
       { section: "tasks", level: EDIT },
@@ -199,21 +203,30 @@ describe("mergeOverrides", () => {
     expect(out.get("tasks")).toBe(EDIT);
   });
 
-  it("takes max(group, override) — group stronger wins", () => {
+  it("override weaker than group wins (downgrade is the whole point)", () => {
+    // The exception case: a couple wants this specific user
+    // *excluded* from a section their group otherwise grants.
     const groupMap = new Map([["tasks", EDIT]]);
     const out = mergeOverrides(groupMap, [
       { section: "tasks", level: VIEW },
     ]);
-    // Override of VIEW shouldn't strip EDIT inherited from the group.
-    expect(out.get("tasks")).toBe(EDIT);
+    expect(out.get("tasks")).toBe(VIEW);
   });
 
-  it("override of NONE never lowers an inherited group level", () => {
-    // Critical correctness: removing an override row should never
-    // strip a permission the group actually grants.
+  it("override of NONE denies even when group grants EDIT", () => {
+    // Pre-v1.53.0: this returned EDIT (no-op override).
+    // Post-v1.53.0: returns NONE — the deny is honoured.
     const groupMap = new Map([["tasks", EDIT]]);
     const out = mergeOverrides(groupMap, [
       { section: "tasks", level: NONE },
+    ]);
+    expect(out.get("tasks")).toBe(NONE);
+  });
+
+  it("override on a section the group doesn't cover is just the override", () => {
+    const groupMap = new Map<string, typeof VIEW>();
+    const out = mergeOverrides(groupMap, [
+      { section: "tasks", level: EDIT },
     ]);
     expect(out.get("tasks")).toBe(EDIT);
   });

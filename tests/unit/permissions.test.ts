@@ -245,15 +245,29 @@ describe("v1.43.0 — group-driven inheritance", () => {
     expect(await canEdit(member, "tasks")).toBe(true);
   });
 
-  it("override of NONE never lowers a stronger inherited group level", async () => {
+  it("override of NONE denies the user even when their group grants VIEW (v1.53.0)", async () => {
+    // v1.53.0 (A5): override-wins-unconditionally. Pre-fix this
+    // returned true (NONE was a silent no-op vs the group's VIEW).
+    // Post-fix: NONE override wins, user is denied. This is the
+    // whole point of having a per-user override layer.
     userRows = baseUserRows();
     setMemberRole("WEDDING_PARTY");
     groupPermissionRows = [
       { groupKey: "builtin:wedding-party-role", section: "tasks", level: "VIEW" },
     ];
     permissionRows = [{ userId: member.id, section: "tasks", level: "NONE" }];
-    // Group grants VIEW, override of NONE shouldn't strip it.
+    expect(await canView(member, "tasks")).toBe(false);
+  });
+
+  it("override of VIEW downgrades the user even when their group grants EDIT (v1.53.0)", async () => {
+    userRows = baseUserRows();
+    setMemberRole("PLANNER");
+    groupPermissionRows = [
+      { groupKey: "builtin:planners-role", section: "tasks", level: "EDIT" },
+    ];
+    permissionRows = [{ userId: member.id, section: "tasks", level: "VIEW" }];
     expect(await canView(member, "tasks")).toBe(true);
+    expect(await canEdit(member, "tasks")).toBe(false);
   });
 
   it("couple-only sections deny non-couple even with group EDIT", async () => {

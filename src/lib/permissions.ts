@@ -85,8 +85,21 @@ export function reduceGroupPermissions(
 
 /**
  * Combine a group-derived permission map with per-user override rows.
- * Override wins only when its level is strictly stronger; same level
- * is a no-op. Pure.
+ *
+ * v1.53.0 (A5): override wins **unconditionally** when present.
+ * Pre-fix the merge was `max(group, override)` so a per-user NONE
+ * override silently became a no-op against a stronger inherited
+ * level — the Settings UI offered NONE but it never lowered access,
+ * which was both a UI lie and removed the only way to express
+ * "this specific user is excluded from a section their group can
+ * see". Now: if there's a row, it's authoritative for that section.
+ *
+ * Practical implication: setting a user's override to NONE *does*
+ * deny them, even if their group grants EDIT. Setting an override
+ * of EDIT *does* grant them, even if their group has nothing.
+ * Couple-only sections (budget / payments) still deny non-couple
+ * regardless — the wrapper `canView` / `canEdit` short-circuits
+ * before hitting the resolver. Pure.
  */
 export function mergeOverrides(
   groupMap: Map<string, PermissionLevel>,
@@ -94,8 +107,7 @@ export function mergeOverrides(
 ): Map<string, PermissionLevel> {
   const out = new Map(groupMap);
   for (const o of overrides) {
-    const prev = out.get(o.section);
-    out.set(o.section, prev ? maxLevel(prev, o.level) : o.level);
+    out.set(o.section, o.level);
   }
   return out;
 }
