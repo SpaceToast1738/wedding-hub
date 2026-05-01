@@ -11,7 +11,7 @@
 - **Repo:** [SpaceToast1738/wedding-hub](https://github.com/SpaceToast1738/wedding-hub) · `claude/main` (releases) + `dev` (work-in-progress)
 - **Stack:** Next.js 15 · TypeScript · Tailwind v4 · Prisma · Postgres 16 · Auth.js v5 · Caddy · Docker Compose
 - **Working tree:** `C:\Users\Admin\Code\wedding-hub` (local SSD). The old `\\TOWER\Jamie Spencer\Claude\wedding-hub` mirror is no longer in use — run `Remove-Item -Recurse -Force "\\TOWER\Jamie Spencer\Claude\wedding-hub"` from a fresh PowerShell to delete it.
-- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` at **v1.15.0**, promoted 28 Apr 2026). `dev` is ahead at **v1.18.5** with four pending releases: v1.16.0 (task CSV importer + seating guest names), v1.17.0 (countdown breakdown + mobile pass + guest filter/sort), v1.18.0 (decisions surfaced + planner backlog), v1.18.5 (bugfix: edit Q/D). Multi-version plan F1 covers v1.19.0 → v1.25.0+. Standing rule: admin-only. R6 deferred to scheduled agent run on 26 Aug 2026.
+- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` at **v1.59.0**, promoted 1 May 2026 — jumped 32 releases from v1.27.2). `dev` and `claude/main` are now level. Standing rule: admin-only.
 
 ## Phase status
 
@@ -855,6 +855,39 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-05-01 · v1.59.0 promotion — `claude/main` jumps 32 releases
+
+User: "Promotion". Production lag had grown uncomfortable — `claude/main` was at **v1.27.2** (28 Apr 2026), `dev` at **v1.59.0** (1 May 2026). Three days of work, but 32 tagged releases including the entire Wedding Book expansion arc, the permissions-groups overhaul, ceremony seating auto-fill, numeric auth, the audit-log enrichment sweep, and two cross-link sweeps. Sat down to bridge the gap.
+
+**Procedure (single ship).**
+
+1. Verified GHA build green on dev tip `842fd03` via `curl https://api.github.com/repos/.../actions/runs?branch=dev`.
+2. Audited the 22 schema migrations in the gap. 20 purely additive. The 2 non-additive (P5 OUTFIT rework `20260430070000`, P7a TEXT body→bodyHtml `20260430090000`) both gate on `IS NULL` of the new column — re-run safe. `CREATE EXTENSION IF NOT EXISTS pgcrypto` at the top of the OUTFIT migration is needed for `gen_random_bytes()`; runs cleanly on the self-hosted Postgres 16 in the production Docker compose.
+3. `git checkout claude/main && git merge --ff-only dev` (64 commits fast-forwarded; no merge commits, clean history).
+4. Annotated `v1.59.0` tag with the headline-feature summary and a CI-green-on-same-SHA confirmation. Pushed both branch and tag.
+5. ROADMAP snapshot updated to reflect new prod state (was stuck at v1.15.0 in the doc — actually had been v1.27.2 in git, dual drift).
+
+**Headline features production users now see:**
+- Wedding Book expansion arc (P1–P8): BUILD / MENU / BAR / SETUP / LEGAL / OUTFIT-rework / STAY / LODGING_GUIDE cards + TEXT WYSIWYG via Tiptap.
+- Permission groups + group-driven permissions (replaces per-user matrix as the primary surface).
+- Auto-filled, group-coloured ceremony seating from ordered guest groups with side constraints.
+- 6-digit OTP at sign-in alongside the magic link.
+- Recent-activity feed on Today (couple-only).
+- Tasks ↔ supplier / book section / book card linkage with deep-links across modules.
+- Linked-tasks strips on /songs /seating/ceremony /guests.
+- Cross-link sweeps round 1+2: household seating summaries, BUILD-card chips on /budget, supplier/guest deep-link filters, Today topic chips, /seating fragment routing, supplier-detail BUILD-card backlinks, TaskDrawer chip deep-links.
+- Daily bug-check workflow.
+
+**Three-agent review punch list status post-promotion:** all 6 🔴 cleared (v1.53.0); all 14 🟡 cleared (v1.54.0 + v1.59.0); 10/11 🟢 cleared (v1.57.0 + v1.58.0; XL1 deferred pending Task↔GuestGroup schema design); ~6 ✨ polish remain.
+
+**Deploy command (Unraid box):** `docker compose pull && docker compose up -d` once the GHCR image build for `v1.59.0` finishes. The image build is a separate GHA job triggered by the tag push; it typically takes 8-10 min for this stack.
+
+**Migrations apply on container start** via `prisma migrate deploy`. The 22 migrations run in timestamp order; the data-touching ones (P5 OUTFIT, P7a TEXT) are no-ops if production data hasn't accumulated affected rows yet, idempotent re-runs otherwise.
+
+**Open the v1.30.5 standing rule about promotion** — "no calendar-based feature freeze; risk is managed by the rules above, not by stopping iteration" — held up here even with a 32-release gap. Every ship in the gap had passed typecheck / lint / tests / build green on the same SHA before tagging.
+
+---
 
 ### 2026-05-01 · v1.59.0 — Inline "add to group" UX
 
