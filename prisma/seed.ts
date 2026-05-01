@@ -2509,30 +2509,91 @@ export async function seedPostWeddingSection() {
   console.log(`  ✓ post-wedding seeded (${subs.length} subsections · ${totalDefs} FIELD defs)`);
 }
 
-// v1.40.0 (backlog #3): seed one example custom user-group ("After-
-// party") with the COUPLE + WEDDING_PARTY users as initial members.
-// Idempotent — skip if a group with this slug already exists.
-async function seedUserGroups() {
+// v1.40.0 (backlog #3): seed one example custom permission group
+// ("After-party") with the COUPLE + WEDDING_PARTY app users as
+// initial members. v1.42.0: renamed from UserGroup. Idempotent.
+async function seedPermissionGroups() {
   const slug = "after-party";
-  const existing = await db.userGroup.findUnique({ where: { slug } });
+  const existing = await db.permissionGroup.findUnique({ where: { slug } });
   if (existing) {
-    console.log(`  ✓ user group "${slug}" already present; skipping seed`);
+    console.log(`  ✓ permission group "${slug}" already present; skipping seed`);
     return;
   }
   const members = await db.user.findMany({
     where: { role: { in: ["COUPLE", "WEDDING_PARTY"] } },
     select: { id: true },
   });
-  await db.userGroup.create({
+  await db.permissionGroup.create({
     data: {
       slug,
       name: "After-party",
-      description: "Inner-circle invite for the after-party at the bridal suite once the venue closes.",
+      description:
+        "Inner-circle invite for the after-party at the bridal suite once the venue closes.",
       order: 0,
       members: { connect: members.map((m) => ({ id: m.id })) },
     },
   });
-  console.log(`  ✓ user group "${slug}" seeded with ${members.length} members`);
+  console.log(
+    `  ✓ permission group "${slug}" seeded with ${members.length} members`,
+  );
+}
+
+// v1.42.0: seed two example custom guest groups so the seating
+// canvas + Settings panel both show the colour-coding pattern out
+// of the box. Idempotent — skips per-slug.
+async function seedGuestGroups() {
+  type GroupSeed = {
+    slug: string;
+    name: string;
+    description: string;
+    colour: string;
+    side: "BRIDE" | "GROOM";
+    order: number;
+  };
+  const seeds: GroupSeed[] = [
+    {
+      slug: "spencer-extended",
+      name: "Spencer extended family",
+      description: "Jamie's extended family — aunts, uncles, cousins on the groom's side.",
+      colour: "#7c9c8f",
+      side: "GROOM",
+      order: 0,
+    },
+    {
+      slug: "olwyn-davis-extended",
+      name: "Olwyn-Davis extended family",
+      description: "Bryony's extended family — aunts, uncles, cousins on the bride's side.",
+      colour: "#c79a91",
+      side: "BRIDE",
+      order: 1,
+    },
+  ];
+  for (const s of seeds) {
+    const existing = await db.guestGroup.findUnique({ where: { slug: s.slug } });
+    if (existing) {
+      console.log(`  ✓ guest group "${s.slug}" already present; skipping seed`);
+      continue;
+    }
+    // Connect every guest on the matching `side` as initial members.
+    // Couple edits via the UI from there.
+    const members = await db.guest.findMany({
+      where: { side: s.side, archived: false },
+      select: { id: true },
+    });
+    await db.guestGroup.create({
+      data: {
+        slug: s.slug,
+        name: s.name,
+        description: s.description,
+        colour: s.colour,
+        order: s.order,
+        members: { connect: members.map((m) => ({ id: m.id })) },
+      },
+    });
+    console.log(
+      `  ✓ guest group "${s.slug}" seeded with ${members.length} members`,
+    );
+  }
 }
 
 async function main() {
@@ -2565,7 +2626,8 @@ async function main() {
   await seedPhotographyCards();
   await seedGuestExperienceCards();
   await seedPostWeddingSection();
-  await seedUserGroups();
+  await seedPermissionGroups();
+  await seedGuestGroups();
   console.log("Done.");
 }
 

@@ -31,11 +31,14 @@ model User {
   accounts      Account[]
   sessions      Session[]
   auditLogs     AuditLog[]
-  // v1.40.0 (backlog #3): per-user m2m to UserGroup. Groups are a
-  // way to bundle users for picking attendees / recipients without
-  // enumerating individuals. Future: groups may also carry
-  // permission overrides (the original "permission-group" framing).
-  groups        UserGroup[] @relation("UserGroupMembers")
+  // v1.40.0 (backlog #3): per-user m2m to PermissionGroup. Groups
+  // bundle admin users for schedule attendees, future per-section
+  // permission inheritance, future email-reminder targeting.
+  // v1.42.0: renamed UserGroup → PermissionGroup so the intent
+  // (permission inheritance) is unambiguous in the schema, and so
+  // it doesn't get confused with GuestGroup (organisational bundles
+  // of wedding guests, not app users).
+  permissionGroups PermissionGroup[] @relation("PermissionGroupMembers")
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
 
@@ -137,6 +140,11 @@ model Guest {
   childrenMeal    Boolean        @default(false)
   archived        Boolean        @default(false)
   notes           String?        @db.Text
+  // v1.42.0: m2m back-relation to GuestGroup. Distinct from the
+  // flat `tags: String[]` field above — tags are ad-hoc hashtags
+  // ("vegetarian friend", "knows the band"); groups are structured,
+  // named, optionally colour-coded cohorts.
+  groups          GuestGroup[]   @relation("GuestGroupMembers")
   tags            String[]       @default([])
   lastNudgedAt    DateTime?
   // Self-relation for plus-ones. When a host has plusOneAllowed=true and
@@ -994,12 +1002,16 @@ model NavTag {
   updatedAt DateTime @updatedAt
 }
 
-// ─── User groups (v1.40.0, backlog #3) ────────────────────────────────────
+// ─── Permission groups (v1.40.0 / renamed in v1.42.0) ────────────────────
 //
-// User-configurable list of groups for bundling users together when
-// picking attendees / recipients (and, in future, attaching
-// permission overrides as a unit — hence the original "permission-
-// group" framing in the deferred backlog).
+// Bundles of **app users** (the COUPLE + WEDDING_PARTY + PLANNER set
+// who log in to the hub). Used today for picking schedule attendees;
+// destined to carry per-section permission inheritance, email-
+// reminder targeting, and similar admin-cohort surfaces.
+//
+// v1.42.0: renamed UserGroup → PermissionGroup to make the intent
+// unambiguous and to clearly distinguish from GuestGroup (which
+// bundles wedding *guests*, an entirely different cohort).
 //
 // Built-in virtual groups computed from User.role / User.isCouple
 // are surfaced in pickers alongside DB-backed custom groups (see
@@ -1012,14 +1024,47 @@ model NavTag {
 //
 // DB-backed groups have stable slugs (couple-editable) so callers
 // can reference them across schema migrations without churning ids.
-// The User.groups m2m back-relation lives on the User model.
-model UserGroup {
+model PermissionGroup {
   id          String   @id @default(cuid())
   slug        String   @unique
   name        String
   description String?  @db.Text
   order       Int      @default(0)
-  members     User[]   @relation("UserGroupMembers")
+  members     User[]   @relation("PermissionGroupMembers")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// ─── Guest groups (v1.42.0) ───────────────────────────────────────────────
+//
+// Bundles of **wedding guests** (the ~80-strong list living in the
+// Guest table). Purely organisational — used for the ceremony
+// seating colour-coding (deferred backlog #5), bulk RSVP follow-up,
+// "who's coming to the after-party" filters, etc.
+//
+// Distinct from PermissionGroup, which bundles app users for
+// permission / scheduling purposes. A wedding guest is NOT a User
+// and does not log in.
+//
+// Built-in virtual groups computed from Guest.side at render time:
+//   - "bride-side" (Guest.side === BRIDE)
+//   - "groom-side" (Guest.side === GROOM)
+//   - "both-sides" (Guest.side === BOTH)
+// See src/lib/guest-group-members.ts for resolver helpers.
+//
+// `colour` is an optional hex string (e.g. "#a3c9a8") used by the
+// seating canvas to colour-code rows / dots. Null = use the default
+// neutral colour — couple sets the value via the Settings UI.
+model GuestGroup {
+  id          String   @id @default(cuid())
+  slug        String   @unique
+  name        String
+  description String?  @db.Text
+  /// Hex string like "#a3c9a8" (with leading #). Null = no colour set.
+  /// Used by the ceremony seating canvas for colour-coded rows.
+  colour      String?
+  order       Int      @default(0)
+  members     Guest[]  @relation("GuestGroupMembers")
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }

@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.41.0** | 2026-04-30 | [Schedule attendees rework (backlog #4) — `attendeeIds: String[]` becomes polymorphic `attendeeRefs: String[]` mixing `user:<id>` / `builtin:<slug>` / `group:<slug>` refs. Picker UI splits Groups + Individuals. Today page "Mine" filter resolves group membership server-side. Audit log shows attendee-kind breakdown.](#2026-04-30--v1410--schedule-attendees-rework-backlog-4) |
+| **v1.42.0** | 2026-05-01 | [Two-track group model: rename `UserGroup` → `PermissionGroup` (admin app users) + new `GuestGroup` model (wedding guests, with colour). Settings page splits into two panels — Permission groups + Guest groups. Colour picker on each guest group; foundation for ceremony-seating colour-coding (#5).](#2026-05-01--v1420--permission-groups--guest-groups-split) |
+| v1.41.0 | 2026-04-30 | [Schedule attendees rework (backlog #4) — `attendeeIds: String[]` becomes polymorphic `attendeeRefs: String[]` mixing `user:<id>` / `builtin:<slug>` / `group:<slug>` refs. Picker UI splits Groups + Individuals. Today page "Mine" filter resolves group membership server-side. Audit log shows attendee-kind breakdown.](#2026-04-30--v1410--schedule-attendees-rework-backlog-4) |
 | v1.40.0 | 2026-04-30 | [User-group model (backlog #3) — `UserGroup` table + `User.groups` m2m + four built-in virtual groups (Everyone / Couple / Wedding party-by-role / Planners-by-role) computed from `User.role`. Couple-only Settings panel for CRUD. Foundation for the Schedule attendees rework (#4).](#2026-04-30--v1400--user-group-model-backlog-3) |
 | v1.39.1 | 2026-04-30 | [Recent-activity feed on Today (couple-only) — last 10 audit rows rendered as human sentences via `formatAuditAction` + `timeAgo`. Auto-hides for non-couple users + when log is empty. Closes backlog item #2.](#2026-04-30--v1391--recent-activity-feed) |
 | v1.39.0 | 2026-04-30 | [Audit-log enrichment sweep across non-Book modules — budget / seating / songs / guests / suppliers / payments / files / tasks all now emit snapshot fields + `changedFields` diff per the v1.30.5 standing rule. ~34 bare audits enriched. 29 new audit-format tests, 392 total.](#2026-04-30--v1390--audit-log-enrichment-sweep) |
@@ -756,6 +757,45 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-05-01 · v1.42.0 — Permission groups + Guest groups split
+
+User-flagged after v1.41.0 review: "there should be one group for permissions, this will be a permissions group used to set permissions that users will inherit. There will then be guest groups which are purely organisation related, for the ceremony seating plan, and other info needed across the website".
+
+The v1.40.0 single `UserGroup` model conflated two genuinely different concepts. App users (5–6 admin accounts) need permission inheritance + scheduling. Wedding guests (~80 people in the `Guest` table) need organisational bundling for the seating plan, RSVP cohorts, after-party invites etc. Same word, very different cohorts.
+
+**Two-model split:**
+
+- `UserGroup` → `PermissionGroup`. Schema rename (table + indexes + relation + implicit m2m) preserves all data — the seeded "After-party" group survives intact. UI relabel "User groups" → "Permission groups".
+- New `GuestGroup` model: `id`, `slug`, `name`, `description`, `colour`, `order`, m2m to `Guest`. Distinct from `Guest.tags` (flat ad-hoc hashtags) and `Guest.side` (BRIDE/GROOM/BOTH enum) — `GuestGroup` is structured, named, and optionally colour-coded.
+
+**Migration `20260501000000_permission_groups_and_guest_groups`:** rename + new table + new implicit m2m. Structural-only — no data lost. `RENAME` is preferable here to a drop+recreate since the v1.40.0 ship landed real data on prod.
+
+**Built-in virtual guest groups** computed from `Guest.side` at render time, not stored:
+- `builtin:bride-side`
+- `builtin:groom-side`
+- `builtin:both-sides`
+
+**Pure helpers** in [`src/lib/guest-group-members.ts`](src/lib/guest-group-members.ts) mirror the PermissionGroup pattern: `resolveBuiltinGuestGroup`, `resolveGuestGroupMembers`, `resolveGuestGroupMembersUnion`, `guestGroupsForGuest`, `guestDisplayName`. Reference format mirrors PermissionGroup: `builtin:<slug>` / `group:<slug>` / `guest:<id>`. Plus `normaliseHexColour` — accepts 3- or 6-digit hex with/without leading `#`, expands `#abc` → `#aabbcc`, returns `null` on invalid input. **24 unit tests** covering each helper.
+
+**Server actions** — `permission-group-actions.ts` (renamed from `group-actions.ts`) and new `guest-group-actions.ts`. Same single-bulk-save pattern, both audit-enriched. P2002 surfaced as `"already exists"` for slug collisions.
+
+**Settings UI** — couple-only, two stacked panels:
+
+1. **Permission groups** — admin app users. Header copy explicit: "Bundle **app users** (the people who log in) together for picking schedule attendees, sending reminders, and (in future) per-section permission inheritance. For organising **wedding guests**, see the next panel."
+2. **Guest groups** — wedding guests. Custom groups expand to a checkbox grid of all non-archived guests; each card has a colour swatch (`<input type="color">`) + hex input + Clear button. The colour swatch appears next to the group name in the list view so the couple can see at a glance which group has which colour.
+
+**Seed** — example guest groups: "Spencer extended family" (sage `#7c9c8f`, all `side=GROOM` guests) and "Olwyn-Davis extended family" (rose `#c79a91`, all `side=BRIDE` guests). Idempotent per-slug skip.
+
+**Audit format** — patterns rename `UserGroup → PermissionGroup` (sentences read "Added permission group …"). New `GuestGroup` patterns surface the colour on create + treat member-add/remove as guest-rather-than-user wording. **11 new audit-format tests**.
+
+**Schedule + Today** — automatically pick up the rename via `db.permissionGroup` Prisma client — no behavioural change. The PermissionGroup-driven attendee picker on the schedule editor stays exactly as v1.41.0 left it.
+
+**Foundation for backlog #5** (group-coloured ceremony seating): the colour now exists on each `GuestGroup`. The ceremony seating canvas can read each guest's group memberships and colour-code rows accordingly. Wiring lands in a follow-up ship when we tackle #5.
+
+**Verification gate:** typecheck + lint + 476 unit tests + production build all green.
+
+Files: [prisma/schema.prisma](prisma/schema.prisma) · [prisma/migrations/20260501000000_permission_groups_and_guest_groups/migration.sql](prisma/migrations/20260501000000_permission_groups_and_guest_groups/migration.sql) · [src/lib/guest-group-members.ts](src/lib/guest-group-members.ts) · [tests/unit/guest-group-members.test.ts](tests/unit/guest-group-members.test.ts) · [src/app/(app)/settings/permission-group-actions.ts](src/app/(app)/settings/permission-group-actions.ts) · [src/app/(app)/settings/guest-group-actions.ts](src/app/(app)/settings/guest-group-actions.ts) · [src/app/(app)/settings/PermissionGroupsBlock.tsx](src/app/(app)/settings/PermissionGroupsBlock.tsx) · [src/app/(app)/settings/GuestGroupsBlock.tsx](src/app/(app)/settings/GuestGroupsBlock.tsx) · [src/app/(app)/settings/page.tsx](src/app/(app)/settings/page.tsx) · [src/lib/audit-format.ts](src/lib/audit-format.ts) · [tests/unit/audit-format-enrichment.test.ts](tests/unit/audit-format-enrichment.test.ts) · [prisma/seed.ts](prisma/seed.ts).
 
 ### 2026-04-30 · v1.41.0 — Schedule attendees rework (backlog #4)
 

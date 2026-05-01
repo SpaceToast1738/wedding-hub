@@ -338,55 +338,120 @@ describe("formatAuditAction — v1.39.0 enrichment", () => {
     });
   });
 
-  describe("UserGroup (v1.40.0)", () => {
+  describe("PermissionGroup (v1.40.0, renamed in v1.42.0)", () => {
     it("create", () => {
       expect(
         formatAuditAction({
           action: "create",
-          entity: "UserGroup",
+          entity: "PermissionGroup",
           metadata: { name: "After-party", slug: "after-party" },
         }),
-      ).toBe(`Added user group "After-party"`);
+      ).toBe(`Added permission group "After-party"`);
     });
 
     it("update with changedFields", () => {
       expect(
         formatAuditAction({
           action: "update",
-          entity: "UserGroup",
+          entity: "PermissionGroup",
           metadata: { name: "After-party", changedFields: ["description"] },
         }),
-      ).toBe(`Updated user group "After-party" — description`);
+      ).toBe(`Updated permission group "After-party" — description`);
     });
 
     it("delete with member count", () => {
       expect(
         formatAuditAction({
           action: "delete",
-          entity: "UserGroup",
+          entity: "PermissionGroup",
           metadata: { name: "After-party", memberCount: 4 },
         }),
-      ).toBe(`Deleted user group "After-party" (4 members unlinked)`);
+      ).toBe(`Deleted permission group "After-party" (4 members unlinked)`);
     });
 
     it("member-add", () => {
       expect(
         formatAuditAction({
           action: "member-add",
-          entity: "UserGroup",
+          entity: "PermissionGroup",
           metadata: { name: "After-party", memberName: "Aimee Hollingsworth" },
         }),
-      ).toBe(`Added "Aimee Hollingsworth" to user group "After-party"`);
+      ).toBe(`Added "Aimee Hollingsworth" to permission group "After-party"`);
     });
 
     it("member-remove falls back to memberEmail when name absent", () => {
       expect(
         formatAuditAction({
           action: "member-remove",
-          entity: "UserGroup",
+          entity: "PermissionGroup",
           metadata: { name: "After-party", memberEmail: "viewer@example.com" },
         }),
-      ).toBe(`Removed "viewer@example.com" from user group "After-party"`);
+      ).toBe(`Removed "viewer@example.com" from permission group "After-party"`);
+    });
+  });
+
+  describe("GuestGroup (v1.42.0)", () => {
+    it("create with colour", () => {
+      expect(
+        formatAuditAction({
+          action: "create",
+          entity: "GuestGroup",
+          metadata: { name: "Spencer family", slug: "spencer-family", colour: "#a3c9a8" },
+        }),
+      ).toBe(`Added guest group "Spencer family" (#a3c9a8)`);
+    });
+
+    it("create without colour", () => {
+      expect(
+        formatAuditAction({
+          action: "create",
+          entity: "GuestGroup",
+          metadata: { name: "Uni friends" },
+        }),
+      ).toBe(`Added guest group "Uni friends"`);
+    });
+
+    it("update with colour in changedFields", () => {
+      expect(
+        formatAuditAction({
+          action: "update",
+          entity: "GuestGroup",
+          metadata: {
+            name: "Spencer family",
+            changedFields: ["colour", "description"],
+          },
+        }),
+      ).toBe(`Updated guest group "Spencer family" — colour, description`);
+    });
+
+    it("delete with member count", () => {
+      expect(
+        formatAuditAction({
+          action: "delete",
+          entity: "GuestGroup",
+          metadata: { name: "Spencer family", memberCount: 12 },
+        }),
+      ).toBe(`Deleted guest group "Spencer family" (12 guests unlinked)`);
+    });
+
+    it("member-add with guest name", () => {
+      expect(
+        formatAuditAction({
+          action: "member-add",
+          entity: "GuestGroup",
+          metadata: { name: "Spencer family", guestName: "Robert Spencer" },
+        }),
+      ).toBe(`Added guest "Robert Spencer" to "Spencer family"`);
+    });
+
+    it("member-remove with guest name", () => {
+      expect(
+        formatAuditAction({
+          action: "member-remove",
+          entity: "GuestGroup",
+          metadata: { name: "Uni friends", guestName: "Margaret Spencer" },
+        }),
+      ).toBe(`Removed guest "Margaret Spencer" from "Uni friends"`);
     });
   });
 

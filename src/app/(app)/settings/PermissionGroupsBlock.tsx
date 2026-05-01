@@ -4,17 +4,21 @@ import { useState, useTransition } from "react";
 import { Button } from "@/components/ui/Button";
 import { notify } from "@/lib/notify";
 import {
-  createUserGroup,
-  deleteUserGroup,
-  toggleUserGroupMember,
-  updateUserGroup,
-} from "./group-actions";
+  createPermissionGroup,
+  deletePermissionGroup,
+  togglePermissionGroupMember,
+  updatePermissionGroup,
+} from "./permission-group-actions";
 
-// v1.40.0 (backlog #3): UserGroup admin panel. Couple-only —
+// v1.40.0 (backlog #3): PermissionGroup admin panel. Couple-only —
 // matches the rest of Settings. Shows DB-backed groups (custom)
 // alongside the four virtual built-ins (read-only — they're
 // computed from User.role / isCouple, not stored). Each custom
 // group has an inline member-toggle list.
+//
+// v1.42.0: renamed from UserGroupsBlock. These manage **admin app
+// users**. The parallel GuestGroupsBlock manages wedding-guest
+// groups (different model, different consumers).
 
 type UserRow = { id: string; name: string };
 
@@ -33,7 +37,7 @@ type BuiltinRow = {
   members: UserRow[];
 };
 
-export function UserGroupsBlock({
+export function PermissionGroupsBlock({
   groups,
   builtins,
   allUsers,
@@ -49,7 +53,7 @@ export function UserGroupsBlock({
 
   function onAdd(fd: FormData) {
     startTransition(async () => {
-      const res = await createUserGroup(fd);
+      const res = await createPermissionGroup(fd);
       if (res.ok) {
         notify("success", "Group added");
         setAdding(false);
@@ -61,7 +65,7 @@ export function UserGroupsBlock({
 
   function onSave(id: string, fd: FormData) {
     startTransition(async () => {
-      const res = await updateUserGroup(id, fd);
+      const res = await updatePermissionGroup(id, fd);
       if (res.ok) {
         notify("success", "Saved");
         setEditingId(null);
@@ -78,7 +82,7 @@ export function UserGroupsBlock({
         : `Delete "${name}"?`;
     if (!confirm(msg)) return;
     startTransition(async () => {
-      const res = await deleteUserGroup(id);
+      const res = await deletePermissionGroup(id);
       if (res.ok) notify("success", "Deleted");
       else notify("error", res.error);
     });
@@ -86,7 +90,7 @@ export function UserGroupsBlock({
 
   function onToggleMember(groupId: string, userId: string, on: boolean) {
     startTransition(async () => {
-      const res = await toggleUserGroupMember({ groupId, userId, on });
+      const res = await togglePermissionGroupMember({ groupId, userId, on });
       if (!res.ok) notify("error", res.error);
     });
   }
@@ -95,9 +99,9 @@ export function UserGroupsBlock({
     <section className="bg-surface border border-border-soft rounded-md shadow-sm">
       <header className="px-4 py-3 border-b border-border-soft flex items-baseline justify-between gap-3">
         <div>
-          <h2 className="text-sm font-semibold text-ink-primary">User groups</h2>
+          <h2 className="text-sm font-semibold text-ink-primary">Permission groups</h2>
           <p className="text-xs text-ink-tertiary mt-0.5">
-            Bundle users together for picking attendees, sending reminders, etc.
+            Bundle <strong>app users</strong> (the people who log in) together for picking schedule attendees, sending reminders, and (in future) per-section permission inheritance. For organising <strong>wedding guests</strong>, see the next panel.
             Built-in groups (Everyone / Couple / Wedding party / Planners) are
             computed from each user&apos;s role — they always exist. Add custom
             groups for ad-hoc bundles like &quot;After-party&quot; or

@@ -12,12 +12,18 @@ import { WeddingSettingsPanel } from "./WeddingSettingsPanel";
 import { AuditLogPanel } from "./AuditLogPanel";
 import { NudgesPanel } from "./NudgesPanel";
 import { NavTagsBlock } from "./NavTagsBlock";
-import { UserGroupsBlock } from "./UserGroupsBlock";
+import { PermissionGroupsBlock } from "./PermissionGroupsBlock";
+import { GuestGroupsBlock } from "./GuestGroupsBlock";
 import {
   BUILTIN_GROUPS,
   displayName,
   resolveBuiltinGroup,
 } from "@/lib/group-members";
+import {
+  BUILTIN_GUEST_GROUPS,
+  guestDisplayName,
+  resolveBuiltinGuestGroup,
+} from "@/lib/guest-group-members";
 
 export default async function SettingsPage({
   searchParams,
@@ -28,7 +34,17 @@ export default async function SettingsPage({
   const editable = await canEdit(user, "settings");
   const { audit_before, audit_q } = await searchParams;
 
-  const [users, permissions, me, customFields, wedding, navTagsRaw, userGroupsRaw] = await Promise.all([
+  const [
+    users,
+    permissions,
+    me,
+    customFields,
+    wedding,
+    navTagsRaw,
+    permissionGroupsRaw,
+    guestGroupsRaw,
+    allGuests,
+  ] = await Promise.all([
     db.user.findMany({ orderBy: [{ isCouple: "desc" }, { name: "asc" }] }),
     db.permission.findMany(),
     db.user.findUnique({
@@ -47,13 +63,37 @@ export default async function SettingsPage({
           include: { _count: { select: { tasks: true } } },
         })
       : Promise.resolve([]),
-    // v1.40.0 (backlog #3): UserGroup rows for the couple-only
-    // UserGroupsBlock. Eager-load member ids so the toggle UI
-    // renders without a second round-trip.
+    // v1.40.0 (backlog #3): PermissionGroup rows for the couple-only
+    // PermissionGroupsBlock. Eager-load member ids so the toggle UI
+    // renders without a second round-trip. v1.42.0: renamed from
+    // UserGroup.
     user.isCouple
-      ? db.userGroup.findMany({
+      ? db.permissionGroup.findMany({
           orderBy: [{ order: "asc" }, { name: "asc" }],
           include: { members: { select: { id: true } } },
+        })
+      : Promise.resolve([]),
+    // v1.42.0: GuestGroup rows + member ids for the couple-only
+    // GuestGroupsBlock. Same pattern.
+    user.isCouple
+      ? db.guestGroup.findMany({
+          orderBy: [{ order: "asc" }, { name: "asc" }],
+          include: { members: { select: { id: true } } },
+        })
+      : Promise.resolve([]),
+    // All non-archived guests for the GuestGroup membership picker.
+    // Cheap read; the picker shows checkboxes per guest.
+    user.isCouple
+      ? db.guest.findMany({
+          where: { archived: false },
+          orderBy: [{ side: "asc" }, { lastName: "asc" }, { firstName: "asc" }],
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            side: true,
+            archived: true,
+          },
         })
       : Promise.resolve([]),
   ]);
@@ -147,7 +187,7 @@ export default async function SettingsPage({
                 name: displayName(u),
               })),
             }));
-            const groupRows = userGroupsRaw.map((g) => ({
+            const groupRows = permissionGroupsRaw.map((g) => ({
               id: g.id,
               slug: g.slug,
               name: g.name,
@@ -159,10 +199,47 @@ export default async function SettingsPage({
                 .map((u) => ({ id: u.id, name: displayName(u) })),
             }));
             return (
-              <UserGroupsBlock
+              <PermissionGroupsBlock
                 groups={groupRows}
                 builtins={builtins}
                 allUsers={allUsersForBlock}
+              />
+            );
+          })()}
+
+          {/* v1.42.0: GuestGroups admin block — couple-only.
+              Bundles wedding guests for ceremony seating colour-
+              coding etc. Distinct from PermissionGroups above. */}
+          {user.isCouple && (() => {
+            const allGuestsForBlock = allGuests.map((g) => ({
+              id: g.id,
+              name: guestDisplayName(g),
+            }));
+            const guestBuiltins = BUILTIN_GUEST_GROUPS.map((bg) => ({
+              slug: bg.slug,
+              name: bg.name,
+              members: resolveBuiltinGuestGroup(bg.slug, allGuests).map((g) => ({
+                id: g.id,
+                name: guestDisplayName(g),
+              })),
+            }));
+            const guestGroupRows = guestGroupsRaw.map((g) => ({
+              id: g.id,
+              slug: g.slug,
+              name: g.name,
+              description: g.description,
+              colour: g.colour,
+              order: g.order,
+              members: g.members
+                .map((m) => allGuests.find((x) => x.id === m.id))
+                .filter((x): x is (typeof allGuests)[number] => Boolean(x))
+                .map((x) => ({ id: x.id, name: guestDisplayName(x) })),
+            }));
+            return (
+              <GuestGroupsBlock
+                groups={guestGroupRows}
+                builtins={guestBuiltins}
+                allGuests={allGuestsForBlock}
               />
             );
           })()}

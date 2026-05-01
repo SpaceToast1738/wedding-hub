@@ -7,11 +7,16 @@ import { db } from "@/lib/db";
 import { audit, requireUser } from "@/lib/actions";
 import { BUILTIN_GROUP_SLUGS } from "@/lib/group-members";
 
-// v1.40.0 (backlog #3): UserGroup CRUD. Couple-only — group
+// v1.40.0 (backlog #3): PermissionGroup CRUD. Couple-only — group
 // management is part of the couple's domain (deciding who's in the
 // after-party / who gets a Sunday-brunch invite / etc.). Audit
 // every mutating action with snapshot fields per the v1.30.5
 // standing rule.
+//
+// v1.42.0: renamed from UserGroup → PermissionGroup. The model
+// bundles admin app users for permission inheritance (future) and
+// schedule-attendee picking (today). Distinct from GuestGroup,
+// which lives in guest-group-actions.ts and bundles wedding guests.
 
 export type GroupActionResult = { ok: true } | { ok: false; error: string };
 
@@ -43,7 +48,7 @@ function ensureNotBuiltin(slug: string): void {
   }
 }
 
-export async function createUserGroup(formData: FormData): Promise<GroupActionResult> {
+export async function createPermissionGroup(formData: FormData): Promise<GroupActionResult> {
   const user = await requireCoupleEditor();
   try {
     const rawName = String(formData.get("name") ?? "").trim();
@@ -52,8 +57,8 @@ export async function createUserGroup(formData: FormData): Promise<GroupActionRe
     const slug = rawSlug || slugify(rawName);
     const parsed = groupSchema.parse({ name: rawName, slug, description });
     ensureNotBuiltin(parsed.slug);
-    const last = await db.userGroup.findFirst({ orderBy: { order: "desc" } });
-    const created = await db.userGroup.create({
+    const last = await db.permissionGroup.findFirst({ orderBy: { order: "desc" } });
+    const created = await db.permissionGroup.create({
       data: {
         slug: parsed.slug,
         name: parsed.name,
@@ -63,7 +68,7 @@ export async function createUserGroup(formData: FormData): Promise<GroupActionRe
     });
     await audit(user, {
       action: "create",
-      entity: "UserGroup",
+      entity: "PermissionGroup",
       entityId: created.id,
       metadata: { slug: created.slug, name: created.name },
     });
@@ -77,7 +82,7 @@ export async function createUserGroup(formData: FormData): Promise<GroupActionRe
   }
 }
 
-export async function updateUserGroup(
+export async function updatePermissionGroup(
   id: string,
   formData: FormData,
 ): Promise<GroupActionResult> {
@@ -90,10 +95,10 @@ export async function updateUserGroup(
     const parsed = groupSchema.parse({ name: rawName, slug, description });
     ensureNotBuiltin(parsed.slug);
 
-    const before = await db.userGroup.findUnique({ where: { id } });
+    const before = await db.permissionGroup.findUnique({ where: { id } });
     if (!before) return { ok: false, error: "Group not found" };
 
-    await db.userGroup.update({
+    await db.permissionGroup.update({
       where: { id },
       data: {
         slug: parsed.slug,
@@ -108,7 +113,7 @@ export async function updateUserGroup(
 
     await audit(user, {
       action: "update",
-      entity: "UserGroup",
+      entity: "PermissionGroup",
       entityId: id,
       metadata: { slug: parsed.slug, name: parsed.name, changedFields },
     });
@@ -122,18 +127,18 @@ export async function updateUserGroup(
   }
 }
 
-export async function deleteUserGroup(id: string): Promise<GroupActionResult> {
+export async function deletePermissionGroup(id: string): Promise<GroupActionResult> {
   const user = await requireCoupleEditor();
   try {
-    const before = await db.userGroup.findUnique({
+    const before = await db.permissionGroup.findUnique({
       where: { id },
       include: { _count: { select: { members: true } } },
     });
     if (!before) return { ok: false, error: "Group not found" };
-    await db.userGroup.delete({ where: { id } });
+    await db.permissionGroup.delete({ where: { id } });
     await audit(user, {
       action: "delete",
-      entity: "UserGroup",
+      entity: "PermissionGroup",
       entityId: id,
       metadata: {
         slug: before.slug,
@@ -154,7 +159,7 @@ const memberToggleSchema = z.object({
   on: z.boolean(),
 });
 
-export async function toggleUserGroupMember(input: {
+export async function togglePermissionGroupMember(input: {
   groupId: string;
   userId: string;
   on: boolean;
@@ -162,7 +167,7 @@ export async function toggleUserGroupMember(input: {
   const actor = await requireCoupleEditor();
   try {
     const parsed = memberToggleSchema.parse(input);
-    const group = await db.userGroup.findUnique({
+    const group = await db.permissionGroup.findUnique({
       where: { id: parsed.groupId },
       select: { id: true, slug: true, name: true },
     });
@@ -175,19 +180,19 @@ export async function toggleUserGroupMember(input: {
 
     if (parsed.on) {
       // Adding — set adds; safe to call even if already a member.
-      await db.userGroup.update({
+      await db.permissionGroup.update({
         where: { id: group.id },
         data: { members: { connect: { id: member.id } } },
       });
     } else {
-      await db.userGroup.update({
+      await db.permissionGroup.update({
         where: { id: group.id },
         data: { members: { disconnect: { id: member.id } } },
       });
     }
     await audit(actor, {
       action: parsed.on ? "member-add" : "member-remove",
-      entity: "UserGroup",
+      entity: "PermissionGroup",
       entityId: group.id,
       metadata: {
         slug: group.slug,

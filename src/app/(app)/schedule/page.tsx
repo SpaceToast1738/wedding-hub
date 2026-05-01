@@ -33,7 +33,7 @@ export default async function SchedulePage() {
         firstName: true, lastName: true, role: true, isCouple: true,
       },
     }),
-    db.userGroup.findMany({
+    db.permissionGroup.findMany({
       orderBy: [{ order: "asc" }, { name: "asc" }],
       include: { members: { select: { id: true } } },
     }),

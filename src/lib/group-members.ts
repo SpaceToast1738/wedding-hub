@@ -1,8 +1,14 @@
 // v1.40.0 (backlog #3): pure helpers for resolving "group → user
-// list" — both DB-backed UserGroup rows and four built-in virtual
-// groups computed from User.role / User.isCouple. The Schedule
-// attendees picker (backlog #4) and any future "send email to
-// group" surface use these.
+// list" — both DB-backed PermissionGroup rows and four built-in
+// virtual groups computed from User.role / User.isCouple. The
+// Schedule attendees picker (backlog #4) and any future "send email
+// to group" surface use these.
+//
+// v1.42.0: UserGroup → PermissionGroup rename. The shape, helpers,
+// and ref format ("builtin:<slug>" / "group:<slug>" / "user:<id>")
+// stay identical. See src/lib/guest-group-members.ts for the
+// parallel resolver that bundles wedding *guests* (a different
+// cohort entirely).
 //
 // Built-in virtual groups always exist regardless of DB state:
 //   "everyone"           — all non-archived users
@@ -28,7 +34,7 @@ export type UserShape = {
   isCouple?: boolean;
 };
 
-export type UserGroupShape = {
+export type PermissionGroupShape = {
   id: string;
   slug: string;
   name: string;
@@ -98,7 +104,7 @@ export function resolveBuiltinGroup(
 export function resolveGroupMembers(
   ref: string,
   users: UserShape[],
-  customGroups: UserGroupShape[],
+  customGroups: PermissionGroupShape[],
 ): UserShape[] {
   if (ref.startsWith("builtin:")) {
     const slug = ref.slice("builtin:".length);
@@ -128,7 +134,7 @@ export function resolveGroupMembers(
 export function resolveGroupMembersUnion(
   refs: string[],
   users: UserShape[],
-  customGroups: UserGroupShape[],
+  customGroups: PermissionGroupShape[],
 ): UserShape[] {
   const seen = new Set<string>();
   const out: UserShape[] = [];
@@ -158,7 +164,7 @@ export function resolveGroupMembersUnion(
 export function resolveAttendeeRefs(
   event: { attendeeRefs?: string[] | null; attendeeIds?: string[] | null },
   users: UserShape[],
-  customGroups: UserGroupShape[],
+  customGroups: PermissionGroupShape[],
 ): UserShape[] {
   const refs =
     event.attendeeRefs && event.attendeeRefs.length > 0
@@ -177,7 +183,7 @@ export function isAttendee(
   event: { attendeeRefs?: string[] | null; attendeeIds?: string[] | null },
   userId: string,
   users: UserShape[],
-  customGroups: UserGroupShape[],
+  customGroups: PermissionGroupShape[],
 ): boolean {
   const refs =
     event.attendeeRefs && event.attendeeRefs.length > 0
@@ -198,7 +204,7 @@ export function isAttendee(
 export function groupsForUser(
   userId: string,
   users: UserShape[],
-  customGroups: UserGroupShape[],
+  customGroups: PermissionGroupShape[],
 ): string[] {
   const out: string[] = [];
   const u = users.find((x) => x.id === userId);

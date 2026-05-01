@@ -76,7 +76,8 @@ function entityLabel(entity: string): string {
     CustomField: "custom field",
     WeddingSettings: "wedding settings",
     CeremonySeating: "ceremony layout",
-    UserGroup: "user group",
+    PermissionGroup: "permission group",
+    GuestGroup: "guest group",
   };
   return map[entity] ?? entity.replace(/([A-Z])/g, " $1").trim().toLowerCase();
 }
@@ -552,27 +553,57 @@ export function formatAuditAction(row: AuditRow): string {
     if (a === "delete") return `Deleted file ${quoted(n)}`;
   }
 
-  // UserGroup (v1.40.0)
-  if (row.entity === "UserGroup") {
+  // PermissionGroup (v1.40.0, renamed from UserGroup in v1.42.0)
+  if (row.entity === "PermissionGroup") {
     const n = asString(meta.name);
-    if (a === "create") return `Added user group ${quoted(n)}`;
+    if (a === "create") return `Added permission group ${quoted(n)}`;
     if (a === "update") {
       const changed = Array.isArray(meta.changedFields)
         ? (meta.changedFields as unknown[]).filter((f) => typeof f === "string")
         : [];
-      return `Updated user group ${quoted(n)}${changed.length > 0 ? ` — ${changed.join(", ")}` : ""}`;
+      return `Updated permission group ${quoted(n)}${changed.length > 0 ? ` — ${changed.join(", ")}` : ""}`;
     }
     if (a === "delete") {
       const mc = asNumber(meta.memberCount) ?? 0;
-      return `Deleted user group ${quoted(n)}${mc > 0 ? ` (${pluralise(mc, "member", "members")} unlinked)` : ""}`;
+      return `Deleted permission group ${quoted(n)}${mc > 0 ? ` (${pluralise(mc, "member", "members")} unlinked)` : ""}`;
     }
     if (a === "member-add") {
       const memberName = asString(meta.memberName) ?? asString(meta.memberEmail);
-      return `Added ${quoted(memberName)} to user group ${quoted(n)}`;
+      return `Added ${quoted(memberName)} to permission group ${quoted(n)}`;
     }
     if (a === "member-remove") {
       const memberName = asString(meta.memberName) ?? asString(meta.memberEmail);
-      return `Removed ${quoted(memberName)} from user group ${quoted(n)}`;
+      return `Removed ${quoted(memberName)} from permission group ${quoted(n)}`;
+    }
+  }
+
+  // GuestGroup (v1.42.0) — bundles wedding guests for ceremony
+  // seating colour-coding etc. Mirror the PermissionGroup patterns
+  // but with "guest group" wording and surface the colour on
+  // create/update where set.
+  if (row.entity === "GuestGroup") {
+    const n = asString(meta.name);
+    const colour = asString(meta.colour);
+    if (a === "create") {
+      return `Added guest group ${quoted(n)}${colour ? ` (${colour})` : ""}`;
+    }
+    if (a === "update") {
+      const changed = Array.isArray(meta.changedFields)
+        ? (meta.changedFields as unknown[]).filter((f) => typeof f === "string")
+        : [];
+      return `Updated guest group ${quoted(n)}${changed.length > 0 ? ` — ${changed.join(", ")}` : ""}`;
+    }
+    if (a === "delete") {
+      const mc = asNumber(meta.memberCount) ?? 0;
+      return `Deleted guest group ${quoted(n)}${mc > 0 ? ` (${pluralise(mc, "guest", "guests")} unlinked)` : ""}`;
+    }
+    if (a === "member-add") {
+      const guestName = asString(meta.guestName);
+      return `Added guest ${quoted(guestName)} to ${quoted(n)}`;
+    }
+    if (a === "member-remove") {
+      const guestName = asString(meta.guestName);
+      return `Removed guest ${quoted(guestName)} from ${quoted(n)}`;
     }
   }
 

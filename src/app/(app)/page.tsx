@@ -82,7 +82,7 @@ export default async function TodayPage() {
         isCouple: true,
       },
     }),
-    db.userGroup.findMany({
+    db.permissionGroup.findMany({
       include: { members: { select: { id: true } } },
     }),
     // LEGAL cards — pull dueByDate + items.expiresAt; the Today
