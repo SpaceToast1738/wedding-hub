@@ -3,6 +3,8 @@ import {
   decideRateLimit,
   RATE_LIMIT_MAX_PER_EMAIL,
   RATE_LIMIT_WINDOW_MS,
+  VERIFY_LIMIT_MAX_PER_EMAIL,
+  VERIFY_LIMIT_WINDOW_MS,
 } from "@/lib/rate-limit";
 
 const NOW = new Date("2026-04-28T10:00:00.000Z");
@@ -112,5 +114,55 @@ describe("decideRateLimit", () => {
       max: 1000,
     });
     expect(looser.ok).toBe(true);
+  });
+});
+
+// v1.50.0: code-entry guess bucket. Same decideRateLimit logic with
+// the tighter VERIFY_LIMIT constants applied. The DB wrapper
+// `checkAndRecordAttempt` swaps in these constants when called with
+// `bucket: "guess"` — these tests cover the underlying decision math.
+describe("decideRateLimit — v1.50.0 verify-code bucket", () => {
+  it("VERIFY_LIMIT constants are 5 / 15 min", () => {
+    expect(VERIFY_LIMIT_MAX_PER_EMAIL).toBe(5);
+    expect(VERIFY_LIMIT_WINDOW_MS).toBe(15 * 60 * 1000);
+  });
+
+  it("allows the first 5 guesses then blocks the 6th", () => {
+    const allowed = decideRateLimit({
+      attemptsInWindow: 4,
+      oldestAttemptInWindow: new Date(NOW.getTime() - 100),
+      now: NOW,
+      max: VERIFY_LIMIT_MAX_PER_EMAIL,
+      windowMs: VERIFY_LIMIT_WINDOW_MS,
+    });
+    expect(allowed.ok).toBe(true);
+
+    const blocked = decideRateLimit({
+      attemptsInWindow: 5,
+      oldestAttemptInWindow: new Date(NOW.getTime() - 100),
+      now: NOW,
+      max: VERIFY_LIMIT_MAX_PER_EMAIL,
+      windowMs: VERIFY_LIMIT_WINDOW_MS,
+    });
+    expect(blocked.ok).toBe(false);
+  });
+
+  it("retryAfter against the 15-min window", () => {
+    // Oldest attempt 5 min ago; 5 attempts in window. Should retry
+    // in (15 - 5) = 10 minutes.
+    const oldest = new Date(NOW.getTime() - 5 * 60 * 1000);
+    const blocked = decideRateLimit({
+      attemptsInWindow: VERIFY_LIMIT_MAX_PER_EMAIL,
+      oldestAttemptInWindow: oldest,
+      now: NOW,
+      max: VERIFY_LIMIT_MAX_PER_EMAIL,
+      windowMs: VERIFY_LIMIT_WINDOW_MS,
+    });
+    expect(blocked.ok).toBe(false);
+    if (!blocked.ok) {
+      // 10 min = 600 s, allow ±1 for ceil rounding
+      expect(blocked.retryAfterSec).toBeGreaterThanOrEqual(599);
+      expect(blocked.retryAfterSec).toBeLessThanOrEqual(601);
+    }
   });
 });

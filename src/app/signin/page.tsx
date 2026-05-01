@@ -1,3 +1,4 @@
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { signIn, isAllowed } from "@/auth";
 import { getWeddingSettings, formatWeddingDateShort } from "@/lib/wedding-settings";
@@ -11,6 +12,20 @@ async function startSignIn(formData: FormData) {
   if (!isAllowed(email)) {
     redirect("/signin/error?error=AccessDenied");
   }
+  // v1.50.0: stash the email in a short-lived cookie so the
+  // verify page can pre-fill the email field. Cookie scoped to
+  // /signin so it doesn't leak elsewhere; httpOnly so client JS
+  // can't read it. Lifetime matches the verification-token TTL
+  // (15 min). Auth.js redirects to pages.verifyRequest after
+  // sending — that's `/signin/verify`.
+  const cookieStore = await cookies();
+  cookieStore.set("signin-email", email, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    maxAge: 15 * 60,
+    path: "/signin",
+  });
   await signIn("nodemailer", { email, redirectTo: "/" });
 }
 
@@ -46,7 +61,7 @@ export default async function SignInPage({
             type="submit"
             className="text-sm font-medium bg-moss-500 text-white rounded-sm px-3 py-2 mt-2 hover:bg-moss-700 transition-colors"
           >
-            Send magic link
+            Email me a sign-in code
           </button>
         </form>
         {error === "invalid" && (

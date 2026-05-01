@@ -18,6 +18,14 @@ import { db } from "@/lib/db";
 export const RATE_LIMIT_MAX_PER_EMAIL = 5;
 export const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000; // 1 hour
 
+// v1.50.0: separate bucket for code-entry attempts on /signin/verify.
+// 6-digit codes have a 1M guess space — without rate limits a brute-
+// force gets through quickly. 5 wrong guesses in 15 minutes is the
+// human-error budget; a 6th wrong guess locks the email out for the
+// remainder of the window.
+export const VERIFY_LIMIT_MAX_PER_EMAIL = 5;
+export const VERIFY_LIMIT_WINDOW_MS = 15 * 60 * 1000; // 15 min
+
 export type RateLimitDecision =
   | { ok: true; remaining: number }
   | { ok: false; retryAfterSec: number; reason: "email_quota_exceeded" };
@@ -68,14 +76,27 @@ export function decideRateLimit(args: {
 //
 // Opportunistically prunes rows older than the window on the same call
 // so the table stays tiny. The prune runs in parallel with the count.
+//
+// v1.50.0: optional `bucket` param distinguishes magic-link sends
+// from code-entry guesses on /signin/verify. Buckets share the
+// MagicLinkAttempt table but use a prefix on the identifier so
+// counts don't bleed across kinds. Different limits per bucket
+// (sends: 5/hr; guesses: 5/15min).
+export type AttemptBucket = "send" | "guess";
+
 export async function checkAndRecordAttempt(input: {
   identifier: string;
   ip?: string | null;
   now?: Date;
+  bucket?: AttemptBucket;
 }): Promise<RateLimitDecision> {
   const now = input.now ?? new Date();
-  const windowStart = new Date(now.getTime() - RATE_LIMIT_WINDOW_MS);
-  const identifier = input.identifier.toLowerCase().trim();
+  const bucket = input.bucket ?? "send";
+  const max = bucket === "guess" ? VERIFY_LIMIT_MAX_PER_EMAIL : RATE_LIMIT_MAX_PER_EMAIL;
+  const windowMs = bucket === "guess" ? VERIFY_LIMIT_WINDOW_MS : RATE_LIMIT_WINDOW_MS;
+  const windowStart = new Date(now.getTime() - windowMs);
+  const baseIdentifier = input.identifier.toLowerCase().trim();
+  const identifier = bucket === "guess" ? `verify:${baseIdentifier}` : baseIdentifier;
 
   // Parallel: count attempts in window, find oldest in window, prune stale.
   // Prune doesn't block the decision — even if it fails, we still get a
@@ -98,6 +119,8 @@ export async function checkAndRecordAttempt(input: {
     attemptsInWindow,
     oldestAttemptInWindow: oldest?.createdAt ?? null,
     now,
+    max,
+    windowMs,
   });
 
   if (decision.ok) {
@@ -109,4 +132,18 @@ export async function checkAndRecordAttempt(input: {
   }
 
   return decision;
+}
+
+// v1.50.0: record a *failed* code-entry attempt. Failures DO count
+// against the guess quota (unlike the send bucket where failed
+// sends don't decrement). Caller passes the email; we prefix it
+// internally to keep the bucket separated from sends.
+export async function recordFailedGuess(
+  email: string,
+  ip?: string | null,
+): Promise<void> {
+  const identifier = `verify:${email.toLowerCase().trim()}`;
+  await db.magicLinkAttempt
+    .create({ data: { identifier, ip: ip ?? null } })
+    .catch(() => undefined);
 }

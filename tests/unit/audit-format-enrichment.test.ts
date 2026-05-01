@@ -415,6 +415,48 @@ describe("formatAuditAction — v1.39.0 enrichment", () => {
     });
   });
 
+  describe("VerificationToken sign-in code (v1.50.0)", () => {
+    it("signin_code_succeeded surfaces email", () => {
+      expect(
+        formatAuditAction({
+          action: "signin_code_succeeded",
+          entity: "VerificationToken",
+          metadata: { email: "bryony@example.com" },
+        }),
+      ).toBe("Sign-in code accepted for bryony@example.com");
+    });
+
+    it("signin_code_failed surfaces email + reason", () => {
+      expect(
+        formatAuditAction({
+          action: "signin_code_failed",
+          entity: "VerificationToken",
+          metadata: { email: "attacker@example.com", reason: "no_match" },
+        }),
+      ).toBe("Sign-in code failed for attacker@example.com (no_match)");
+    });
+
+    it("signin_code_failed without reason still produces a sentence", () => {
+      expect(
+        formatAuditAction({
+          action: "signin_code_failed",
+          entity: "VerificationToken",
+          metadata: { email: "foo@example.com" },
+        }),
+      ).toBe("Sign-in code failed for foo@example.com");
+    });
+
+    it("signin_code_rate_limited surfaces retry seconds", () => {
+      expect(
+        formatAuditAction({
+          action: "signin_code_rate_limited",
+          entity: "VerificationToken",
+          metadata: { email: "foo@example.com", retryAfterSec: 600 },
+        }),
+      ).toBe("Sign-in code rate-limited for foo@example.com (retry in 600s)");
+    });
+  });
+
   describe("GuestGroup reorder (v1.48.0)", () => {
     it("up reorder surfaces direction + neighbour", () => {
       expect(

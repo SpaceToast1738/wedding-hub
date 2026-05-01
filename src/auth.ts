@@ -17,13 +17,38 @@ export function isAllowed(email: string): boolean {
   return allowedEmails().includes(email.toLowerCase());
 }
 
-// Friendly "Wedding Hub" magic-link email. Inline CSS only — Gmail / Outlook /
+// v1.50.0: generate a 6-digit numeric token instead of the default
+// UUID. Sign-in works two ways now:
+//   (a) Click the magic link in the email — same flow as before.
+//   (b) Type the 6-digit code into /signin/verify — useful when the
+//       user opens the email on a different device than they're
+//       signing in on, or when the email client mangles the link.
+// Both routes hit the same /api/auth/callback/nodemailer endpoint
+// with the same token, so the validation path is identical.
+//
+// Security note: a 6-digit code has a guess space of 1M, which would
+// be brute-forceable without rate limits. The code TTL is reduced to
+// 15 minutes (down from the 24h default) and /signin/verify enforces
+// a per-email guess limit (see src/lib/rate-limit.ts).
+function generateOtpToken(): string {
+  // crypto.getRandomValues for unbiased uniform 0–999999. Math.random
+  // is fine in practice but let's not give a future security review
+  // any easy targets.
+  const buf = new Uint32Array(1);
+  crypto.getRandomValues(buf);
+  const value = buf[0]! % 1000000;
+  return value.toString().padStart(6, "0");
+}
+
+// Friendly "Wedding Hub" sign-in email. Inline CSS only — Gmail / Outlook /
 // Apple Mail discard <style> blocks. Wrapped in a 600px table for desktop and
 // stacks naturally on mobile.
 //
 // v1.20.0: brideFirst / groomFirst / weddingDateLabel injected from the
 // WeddingSettings singleton at send time — no env-var hardcoding.
-function magicLinkHtml(url: string, brideFirst: string, groomFirst: string, weddingDateLabel: string): string {
+// v1.50.0: surfaces the 6-digit code prominently above the magic-link
+// button. Either path signs the user in.
+function magicLinkHtml(url: string, code: string, brideFirst: string, groomFirst: string, weddingDateLabel: string): string {
   return `<!doctype html>
 <html lang="en">
   <head>
@@ -44,8 +69,18 @@ function magicLinkHtml(url: string, brideFirst: string, groomFirst: string, wedd
             </tr>
             <tr>
               <td style="padding:28px 32px 8px;">
-                <h1 style="margin:0 0 12px;font-family:Georgia,'Times New Roman',serif;font-size:24px;font-weight:600;color:#2A2620;line-height:1.25;">Your sign-in link</h1>
-                <p style="margin:0 0 24px;font-size:15px;line-height:1.55;color:#5C544A;">Tap the button below to open Wedding Hub. The link is valid for 24 hours and only works once.</p>
+                <h1 style="margin:0 0 12px;font-family:Georgia,'Times New Roman',serif;font-size:24px;font-weight:600;color:#2A2620;line-height:1.25;">Your sign-in code</h1>
+                <p style="margin:0 0 18px;font-size:15px;line-height:1.55;color:#5C544A;">Use either option below — both sign you in. The code and link expire in 15 minutes and only work once.</p>
+                <!-- v1.50.0: 6-digit code prominently displayed for typing into /signin/verify. -->
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 22px;">
+                  <tr>
+                    <td style="background:#FBF9F4;border:1px solid #E5DFD2;border-radius:10px;padding:18px 28px;text-align:center;">
+                      <div style="font-size:11px;color:#8A8175;text-transform:uppercase;letter-spacing:0.12em;font-weight:600;margin-bottom:6px;">Sign-in code</div>
+                      <div style="font-family:'SFMono-Regular',Menlo,Consolas,monospace;font-size:32px;font-weight:700;color:#3F4F30;letter-spacing:0.18em;">${code}</div>
+                    </td>
+                  </tr>
+                </table>
+                <p style="margin:0 0 12px;font-size:13px;line-height:1.55;color:#5C544A;">…or tap the button to sign in directly:</p>
                 <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 24px;">
                   <tr>
                     <td style="background:#5C7148;border-radius:8px;">
@@ -71,12 +106,14 @@ function magicLinkHtml(url: string, brideFirst: string, groomFirst: string, wedd
 </html>`;
 }
 
-function magicLinkText(url: string, brideFirst: string, groomFirst: string, weddingDateLabel: string): string {
+function magicLinkText(url: string, code: string, brideFirst: string, groomFirst: string, weddingDateLabel: string): string {
   return [
     `Wedding Hub — ${brideFirst} & ${groomFirst} · ${weddingDateLabel}`,
     "",
-    "Your sign-in link (valid 24 hours, single-use):",
+    `Sign-in code: ${code}`,
+    "(Type into the code-entry page; valid 15 minutes; single-use.)",
     "",
+    "…or click the link instead:",
     url,
     "",
     "Didn't request this? You can safely ignore this email — no account is created until the link is opened.",
@@ -114,7 +151,18 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           }
         : { host: "localhost", port: 1025 },
       from: process.env.EMAIL_FROM ?? "noreply@localhost",
-      sendVerificationRequest: async ({ identifier, url, provider }) => {
+      // v1.50.0: 6-digit numeric code instead of UUID. Same token
+      // backs both the magic link and the code-entry form on
+      // /signin/verify — they hit the same callback URL with the
+      // same token, so validation is identical.
+      generateVerificationToken: async () => generateOtpToken(),
+      // v1.50.0: 15-minute TTL (was 24h default). Six-digit codes
+      // have a 1M guess space; tightening the window cuts the
+      // attack surface against a brute-force guesser. Combined
+      // with the per-email rate limit on /signin/verify guesses,
+      // the practical attack cost stays high.
+      maxAge: 15 * 60,
+      sendVerificationRequest: async ({ identifier, url, token, provider }) => {
         // Rate-limit BEFORE we check the allowlist or send anything.
         // We don't want to leak which addresses are on the allowlist by
         // having different timing for allowed/disallowed emails — but
@@ -147,7 +195,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
         if (!process.env.EMAIL_SERVER_HOST) {
           console.log(
-            `\n📧 Magic link for ${identifier}\n   ${url}\n   (set EMAIL_SERVER_HOST in .env.local to send real emails)\n`,
+            `\n📧 Sign-in for ${identifier}\n   Code: ${token}\n   Link: ${url}\n   (set EMAIL_SERVER_HOST in .env.local to send real emails)\n`,
           );
           return;
         }
@@ -171,9 +219,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           to: identifier,
           from: provider.from,
           replyTo,
-          subject: "Your Wedding Hub sign-in link",
-          text: magicLinkText(url, wedding.brideFirst, wedding.groomFirst, dateLabel),
-          html: magicLinkHtml(url, wedding.brideFirst, wedding.groomFirst, dateLabel),
+          subject: `Your Wedding Hub sign-in code: ${token}`,
+          text: magicLinkText(url, token, wedding.brideFirst, wedding.groomFirst, dateLabel),
+          html: magicLinkHtml(url, token, wedding.brideFirst, wedding.groomFirst, dateLabel),
           headers: {
             "List-Unsubscribe": `<mailto:${unsubscribeAddress}?subject=unsubscribe>`,
             "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",

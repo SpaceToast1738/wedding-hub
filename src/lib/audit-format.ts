@@ -77,6 +77,7 @@ function entityLabel(entity: string): string {
     WeddingSettings: "wedding settings",
     CeremonySeating: "ceremony layout",
     CeremonyRow: "ceremony row",
+    VerificationToken: "sign-in code",
     PermissionGroup: "permission group",
     GuestGroup: "guest group",
   };
@@ -552,6 +553,24 @@ export function formatAuditAction(row: AuditRow): string {
   if (row.entity === "File") {
     const n = asString(meta.name);
     if (a === "delete") return `Deleted file ${quoted(n)}`;
+  }
+
+  // VerificationToken — sign-in code attempts (v1.50.0).
+  // Surfaces the email + outcome so a security review can audit
+  // anomalous sign-in patterns without re-joining tables.
+  if (row.entity === "VerificationToken") {
+    const email = asString(meta.email);
+    if (a === "signin_code_succeeded" && email) {
+      return `Sign-in code accepted for ${email}`;
+    }
+    if (a === "signin_code_failed" && email) {
+      const reason = asString(meta.reason);
+      return `Sign-in code failed for ${email}${reason ? ` (${reason})` : ""}`;
+    }
+    if (a === "signin_code_rate_limited" && email) {
+      const retry = asNumber(meta.retryAfterSec);
+      return `Sign-in code rate-limited for ${email}${retry !== null ? ` (retry in ${retry}s)` : ""}`;
+    }
   }
 
   // User — per-user permission overrides (v1.44.0)

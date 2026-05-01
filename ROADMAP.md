@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.49.0** | 2026-05-01 | [`GuestGroupsControl` — reusable chips + popover picker for managing per-guest group memberships. Wired into the guests list (inline pill strip), guest detail page (Details section), and seating canvas detail panel (read-only). Same `toggleGuestGroupMember` action everywhere; couple-only writes.](#2026-05-01--v1490--per-guest-group-affordances) |
+| **v1.50.0** | 2026-05-01 | [Numeric sign-in code (backlog #6) — sign-in email now contains a 6-digit code AND the magic link; either signs in. `/signin/verify` rewritten as a code-entry form with auto-fill from a short-lived cookie. Token TTL tightened from 24h to 15min, code-entry rate-limit (5 wrong guesses per 15 min) added on a separate bucket of `MagicLinkAttempt`. Audit log captures success / failure / rate-limit outcomes per attempt.](#2026-05-01--v1500--numeric-sign-in-code) |
+| v1.49.0 | 2026-05-01 | [`GuestGroupsControl` — reusable chips + popover picker for managing per-guest group memberships. Wired into the guests list (inline pill strip), guest detail page (Details section), and seating canvas detail panel (read-only). Same `toggleGuestGroupMember` action everywhere; couple-only writes.](#2026-05-01--v1490--per-guest-group-affordances) |
 | v1.48.0 | 2026-05-01 | [Auto-fill ceremony seating from ordered groups + side constraint. Couple manages an ordered list of guest groups (each with `side: BRIDE / GROOM / BOTH`); allocator walks the list, packing BRIDE groups on LEFT, GROOM on RIGHT, BOTH on whichever side has more space. Reorder buttons in Settings + on /seating/ceremony. Per-row manual assignments deprecated.](#2026-05-01--v1480--auto-fill-from-ordered-groups) |
 | v1.47.0 | 2026-05-01 | [Ceremony seating fills by group member count — packs each group's members across its assigned rows aisle-outward. Three seat states: filled (full colour + glyph), spare (faded tint, no glyph — assigned but no member), neutral (unassigned). Legend shows guests-seated / reserved / spare-or-shortfall per group. Row panel surfaces per-row fill counts.](#2026-05-01--v1470--seat-allocation-from-member-count) |
 | v1.46.0 | 2026-05-01 | [Group-coloured ceremony seating (backlog #5) — new `CeremonyRow` model maps `(side, rowIndex)` to a `GuestGroup`. Canvas tints every seat in an assigned row with the group's colour and overlays a glyph (first letter) for colour-blind accessibility. Couple-only Row Assignments panel below the SVG; legend lists groups in use with row + member counts.](#2026-05-01--v1460--group-coloured-ceremony-seating) |
@@ -767,6 +768,41 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-05-01 · v1.50.0 — Numeric sign-in code
+
+User: "6". Backlog #6 — numeric auth code at sign-in. Three design alternatives were enumerated in the older backlog: (a) Email OTP, (b) TOTP authenticator-app MFA, (c) SMS code. Recommendation in the doc was (a). Shipping (a) — but **alongside** the magic link, not replacing it. Both paths use the same token, both sign you in.
+
+**The same token does double duty.** Auth.js's `EmailProvider.generateVerificationToken` callback now returns a 6-digit numeric code instead of a UUID. The token is written to the `VerificationToken` table (managed by `PrismaAdapter`) keyed by `(identifier, token)`. The magic-link URL embeds the same token in its query string. So:
+
+- **Click the magic-link button** → Auth.js's `/api/auth/callback/nodemailer` validates the token + signs you in. Same flow as before.
+- **Type the code on `/signin/verify`** → server action validates against `db.verificationToken.findUnique({ where: { identifier_token } })`, then redirects to the *exact same* callback URL with the code as the token. Auth.js then validates again, deletes the token, and signs the user in. Identical post-validation path — bootstrap-as-couple, audit-row, session cookie, redirect — all unchanged.
+
+**TTL tightened.** Default token lifetime was 24h. A 6-digit code has only 1M possible values, so a long window is a brute-force vulnerability. `EmailProvider.maxAge` is now `15 * 60` seconds. The magic link inherits this same TTL — clicking a 4-hour-old link now fails too. That's an acceptable trade — wedding admin sign-ins happen interactively, not over days.
+
+**Rate limit on guesses.** New `bucket: "guess"` parameter on `checkAndRecordAttempt`. Reuses the existing `MagicLinkAttempt` table by prefixing the identifier with `verify:` so guess counts don't bleed into send counts. Limits: 5 wrong guesses per 15 minutes per email; 6th guess is blocked with a `retryAfterSec` value calculated from when the oldest in-window guess rolls out. Failed guesses *do* count against the quota (unlike send attempts where only successful sends are recorded).
+
+**Email template.** Surfaces the 6-digit code in a large monospace block above the magic-link button:
+
+```
+SIGN-IN CODE
+ 1 2 3 4 5 6
+
+…or tap the button to sign in directly:
+[ Sign in to Wedding Hub → ]
+```
+
+Subject line includes the code (`Your Wedding Hub sign-in code: 123456`) so it's visible in notification toasts on locked phones — no need to open the email if you're typing the code on the same device.
+
+**Verify page.** Rewritten from a static "check your inbox" placeholder to a code-entry form with a 6-digit input pattern (`inputMode="numeric"`, `autoComplete="one-time-code"` so iOS surfaces the code from the SMS-strength heuristic on its keyboard). Email field pre-fills from a short-lived `signin-email` cookie set by the signin page. Error states cover bad code, invalid format, expired, and rate-limit-exceeded with a human "try again in N minutes" message.
+
+**Audit. **New `VerificationToken`-entity patterns: `signin_code_succeeded`, `signin_code_failed` (with `reason: "no_match" | "expired"`), `signin_code_rate_limited` (with `retryAfterSec`). The audit-format pretty-prints these as `Sign-in code accepted for foo@example.com` etc. so a security review reads naturally. 4 new tests cover the patterns; 3 new tests cover the verify-bucket rate-limit math.
+
+**No schema migration.** `VerificationToken` already exists (managed by `PrismaAdapter`). `MagicLinkAttempt` already exists (added with the original rate-limit). The bucket distinction lives in the prefix, not in a new column.
+
+**Verified.** typecheck clean · lint clean · 555 tests (548 → 555; +3 rate-limit + 4 audit-format) · production build clean.
+
+Files: `src/auth.ts` (new `generateOtpToken`, `generateVerificationToken` callback, `maxAge: 15*60`, email template surfaces code, subject includes code), `src/lib/rate-limit.ts` (`bucket` param + `recordFailedGuess` + `VERIFY_LIMIT_*` constants), `src/app/signin/page.tsx` (sets `signin-email` cookie + button copy), `src/app/signin/verify/page.tsx` (rewrite — code-entry form + server action), `src/lib/audit-format.ts` (`VerificationToken` patterns + entity label), `tests/unit/rate-limit.test.ts` (3 new), `tests/unit/audit-format-enrichment.test.ts` (4 new), `package.json` → `1.50.0`.
 
 ### 2026-05-01 · v1.49.0 — Per-guest group affordances
 
