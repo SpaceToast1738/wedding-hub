@@ -47,8 +47,17 @@ const member = { id: "u_member", isCouple: false };
 // Stable user-row fixtures so the resolver's findUnique succeeds.
 // Role is set to a non-matching string so the WEDDING_PARTY /
 // PLANNER built-in groups don't auto-include the member — every
-// test that needs a different role overrides userRows in the body.
-function baseUserRows() {
+// test that needs a different role calls setMemberRole below.
+type UserRowShape = {
+  id: string;
+  role: string | null;
+  isCouple: boolean;
+  email: string;
+  firstName: string | null;
+  lastName: string | null;
+  name: string | null;
+};
+function baseUserRows(): Record<string, UserRowShape> {
   return {
     [couple.id]: {
       id: couple.id,
@@ -68,6 +77,20 @@ function baseUserRows() {
       lastName: null,
       name: "Member",
     },
+  };
+}
+// Replace the member's row with one carrying a different role.
+// Constructed fully (no spread of an `unknown | undefined` index
+// access) to keep `noUncheckedIndexedAccess` happy.
+function setMemberRole(role: string): void {
+  userRows[member.id] = {
+    id: member.id,
+    role,
+    isCouple: false,
+    email: "member@example.com",
+    firstName: null,
+    lastName: null,
+    name: "Member",
   };
 }
 
@@ -184,7 +207,7 @@ describe("v1.43.0 — group-driven inheritance", () => {
   it("inherits VIEW from a built-in group when no override exists", async () => {
     // Member is WEDDING_PARTY → in builtin:wedding-party-role.
     userRows = baseUserRows();
-    userRows[member.id] = { ...userRows[member.id], role: "WEDDING_PARTY" };
+    setMemberRole("WEDDING_PARTY");
     groupPermissionRows = [
       { groupKey: "builtin:wedding-party-role", section: "schedule", level: "VIEW" },
     ];
@@ -214,7 +237,7 @@ describe("v1.43.0 — group-driven inheritance", () => {
 
   it("override stronger than group wins (max)", async () => {
     userRows = baseUserRows();
-    userRows[member.id] = { ...userRows[member.id], role: "WEDDING_PARTY" };
+    setMemberRole("WEDDING_PARTY");
     groupPermissionRows = [
       { groupKey: "builtin:wedding-party-role", section: "tasks", level: "VIEW" },
     ];
@@ -224,7 +247,7 @@ describe("v1.43.0 — group-driven inheritance", () => {
 
   it("override of NONE never lowers a stronger inherited group level", async () => {
     userRows = baseUserRows();
-    userRows[member.id] = { ...userRows[member.id], role: "WEDDING_PARTY" };
+    setMemberRole("WEDDING_PARTY");
     groupPermissionRows = [
       { groupKey: "builtin:wedding-party-role", section: "tasks", level: "VIEW" },
     ];
@@ -235,7 +258,7 @@ describe("v1.43.0 — group-driven inheritance", () => {
 
   it("couple-only sections deny non-couple even with group EDIT", async () => {
     userRows = baseUserRows();
-    userRows[member.id] = { ...userRows[member.id], role: "PLANNER" };
+    setMemberRole("PLANNER");
     groupPermissionRows = [
       { groupKey: "builtin:planners-role", section: "budget", level: "EDIT" },
     ];
@@ -245,7 +268,7 @@ describe("v1.43.0 — group-driven inheritance", () => {
 
   it("max across multiple groups — user in two groups picks the strongest", async () => {
     userRows = baseUserRows();
-    userRows[member.id] = { ...userRows[member.id], role: "WEDDING_PARTY" };
+    setMemberRole("WEDDING_PARTY");
     customGroups = [
       { slug: "vip", members: [{ id: member.id }] },
     ];
