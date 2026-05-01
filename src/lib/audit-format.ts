@@ -633,7 +633,15 @@ export function formatAuditAction(row: AuditRow): string {
   // GuestGroup (v1.42.0) — bundles wedding guests for ceremony
   // seating colour-coding etc. Mirror the PermissionGroup patterns
   // but with "guest group" wording and surface the colour on
-  // create/update where set.
+  // create/update where set. v1.48.0 adds reorder + side metadata.
+  if (row.entity === "GuestGroup") {
+    const reorderName = asString(meta.name);
+    const direction = asString(meta.direction);
+    if (a === "reorder" && reorderName && direction) {
+      const neighbour = asString(meta.neighbourName);
+      return `Moved guest group ${quoted(reorderName)} ${direction}${neighbour ? ` (swapped with ${quoted(neighbour)})` : ""}`;
+    }
+  }
   if (row.entity === "GuestGroup") {
     const n = asString(meta.name);
     const colour = asString(meta.colour);

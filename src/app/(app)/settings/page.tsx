@@ -341,6 +341,7 @@ export default async function SettingsPage({
               name: g.name,
               description: g.description,
               colour: g.colour,
+              side: g.side as "BRIDE" | "GROOM" | "BOTH",
               order: g.order,
               members: g.members
                 .map((m) => allGuests.find((x) => x.id === m.id))

@@ -5,40 +5,28 @@ import { requireUser } from "@/lib/actions";
 import { SeatingTabs } from "../SeatingTabs";
 import { CeremonyClient } from "./CeremonyClient";
 
-// v1.23.0: ceremony seating placeholder. No per-seat assignments yet —
-// just configure rows + seats per side and render the layout. The
-// reception canvas at /seating handles the dinner; this page handles
-// the ceremony itself (aisle, rows, side allocations).
-//
-// v1.46.0: per-row group assignments. Each row of seats can be tagged
-// with a custom GuestGroup; the canvas tints every seat in the row
-// with the group's colour and overlays a glyph (first letter) for
-// colour-blind accessibility. Row assignments are couple-only via
-// the panel below the canvas.
+// v1.23.0: ceremony seating placeholder.
+// v1.46.0: per-row group assignments via the CeremonyRow table.
+// v1.47.0: aisle-outward fill from member counts within each row.
+// v1.48.0: auto-fill — couple manages an ordered list of guest
+// groups (each with side BRIDE/GROOM/BOTH); allocator walks the
+// list in order, packing each group's members into eligible seats.
+// CeremonyRow rows are no longer rendered; preserved one release
+// as a buffer (see schema.prisma comment).
 export default async function CeremonySeatingPage() {
   const user = await requireUser();
   const editable = await canEdit(user, "seating");
 
-  // Three reads run in parallel — layout config, row assignments,
-  // and the custom guest groups for the picker / legend. All are
-  // small reads; no need for a join.
-  const [row, rowAssignments, groupsRaw] = await Promise.all([
+  const [row, groupsRaw] = await Promise.all([
     db.ceremonySeating.findUnique({ where: { id: 1 } }),
-    db.ceremonyRow.findMany({
-      orderBy: [{ side: "asc" }, { rowIndex: "asc" }],
-      select: {
-        side: true,
-        rowIndex: true,
-        guestGroupId: true,
-        notes: true,
-      },
-    }),
     db.guestGroup.findMany({
       orderBy: [{ order: "asc" }, { name: "asc" }],
       select: {
         id: true,
         name: true,
         colour: true,
+        side: true,
+        order: true,
         _count: { select: { members: true } },
       },
     }),
@@ -55,19 +43,12 @@ export default async function CeremonySeatingPage() {
   const totalSeats =
     seating.leftRows * seating.leftSeatsRow + seating.rightRows * seating.rightSeatsRow;
 
-  // Coerce the polymorphic `side` string to the typed union the
-  // client expects. Schema stores "LEFT" | "RIGHT" but Prisma
-  // returns String. (Using String not enum keeps labelling
-  // configurable in future without a migration.)
-  const initialAssignments = rowAssignments
-    .filter((a): a is { side: "LEFT" | "RIGHT"; rowIndex: number; guestGroupId: string | null; notes: string | null } =>
-      a.side === "LEFT" || a.side === "RIGHT",
-    );
-
   const groups = groupsRaw.map((g) => ({
     id: g.id,
     name: g.name,
     colour: g.colour,
+    side: g.side as "BRIDE" | "GROOM" | "BOTH",
+    order: g.order,
     memberCount: g._count.members,
   }));
 
@@ -77,8 +58,6 @@ export default async function CeremonySeatingPage() {
         title="Ceremony seating"
         subtitle={`${totalSeats} seats · ${seating.leftRows}×${seating.leftSeatsRow} left / ${seating.rightRows}×${seating.rightSeatsRow} right`}
       />
-      {/* v1.23.1: same Reception/Ceremony tab bar as the main
-          /seating page so the IA is consistent across both views. */}
       <SeatingTabs />
       <CeremonyClient
         initial={{
@@ -88,7 +67,6 @@ export default async function CeremonySeatingPage() {
           rightSeatsRow: seating.rightSeatsRow,
           notes: seating.notes ?? "",
         }}
-        initialAssignments={initialAssignments}
         groups={groups}
         canEdit={editable}
       />

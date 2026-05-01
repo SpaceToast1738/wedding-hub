@@ -1063,10 +1063,19 @@ model GuestGroup {
   /// Hex string like "#a3c9a8" (with leading #). Null = no colour set.
   /// Used by the ceremony seating canvas for colour-coded rows.
   colour        String?
+  /// v1.48.0: side constraint for the ceremony seating allocator.
+  /// BRIDE → members fill the LEFT side only.
+  /// GROOM → members fill the RIGHT side only.
+  /// BOTH (default) → members fill whichever side has more space.
+  /// Reuses the existing `Side` enum used for `Guest.side`.
+  side          Side           @default(BOTH)
   order         Int            @default(0)
   members       Guest[]        @relation("GuestGroupMembers")
-  /// v1.46.0: rows of ceremony seats assigned to this group.
-  /// Cleared (SetNull) if the group is deleted.
+  /// v1.46.0: legacy per-row pinning. Deprecated in v1.48.0 in
+  /// favour of `side` + `order` driving auto-fill. Rows are no
+  /// longer rendered; the table is preserved for one release as a
+  /// recoverability buffer in case the auto-fill model needs a
+  /// rollback.
   ceremonyRows  CeremonyRow[]
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt

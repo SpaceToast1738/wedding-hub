@@ -415,6 +415,32 @@ describe("formatAuditAction — v1.39.0 enrichment", () => {
     });
   });
 
+  describe("GuestGroup reorder (v1.48.0)", () => {
+    it("up reorder surfaces direction + neighbour", () => {
+      expect(
+        formatAuditAction({
+          action: "reorder",
+          entity: "GuestGroup",
+          metadata: {
+            name: "Spencer extended family",
+            direction: "up",
+            neighbourName: "Olwyn-Davis extended family",
+          },
+        }),
+      ).toBe(`Moved guest group "Spencer extended family" up (swapped with "Olwyn-Davis extended family")`);
+    });
+
+    it("down reorder without neighbour name still produces a sentence", () => {
+      expect(
+        formatAuditAction({
+          action: "reorder",
+          entity: "GuestGroup",
+          metadata: { name: "Spencer extended family", direction: "down" },
+        }),
+      ).toBe(`Moved guest group "Spencer extended family" down`);
+    });
+  });
+
   describe("CeremonyRow (v1.46.0)", () => {
     it("ceremony-row-assign surfaces side + row + group", () => {
       expect(

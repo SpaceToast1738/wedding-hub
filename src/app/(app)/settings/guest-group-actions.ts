@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { Prisma } from "@prisma/client";
+import { Prisma, Side } from "@prisma/client";
 import { db } from "@/lib/db";
 import { audit, requireUser } from "@/lib/actions";
 import {
@@ -24,6 +24,9 @@ const groupSchema = z.object({
   // Hex string is validated + normalised by normaliseHexColour
   // before write; here we just allow it through Zod for shape.
   colour: z.string().max(20).nullable(),
+  // v1.48.0: per-group side constraint for the ceremony seating
+  // allocator. Default BOTH so existing callers don't need to opt in.
+  side: z.nativeEnum(Side).default(Side.BOTH),
 });
 
 async function requireCoupleEditor() {
@@ -55,12 +58,14 @@ export async function createGuestGroup(formData: FormData): Promise<GuestGroupAc
     const rawSlug = String(formData.get("slug") ?? "").trim();
     const description = (formData.get("description") as string | null)?.trim() || null;
     const rawColour = (formData.get("colour") as string | null)?.trim() || null;
+    const rawSide = String(formData.get("side") ?? "BOTH").trim();
     const slug = rawSlug || slugify(rawName);
     const parsed = groupSchema.parse({
       name: rawName,
       slug,
       description,
       colour: rawColour,
+      side: rawSide,
     });
     ensureNotBuiltin(parsed.slug);
     const colour = normaliseHexColour(parsed.colour);
@@ -71,6 +76,7 @@ export async function createGuestGroup(formData: FormData): Promise<GuestGroupAc
         name: parsed.name,
         description: parsed.description,
         colour,
+        side: parsed.side,
         order: (last?.order ?? -1) + 1,
       },
     });
@@ -78,7 +84,7 @@ export async function createGuestGroup(formData: FormData): Promise<GuestGroupAc
       action: "create",
       entity: "GuestGroup",
       entityId: created.id,
-      metadata: { slug: created.slug, name: created.name, colour: created.colour },
+      metadata: { slug: created.slug, name: created.name, colour: created.colour, side: created.side },
     });
     revalidatePath("/settings");
     revalidatePath("/seating");
@@ -101,12 +107,14 @@ export async function updateGuestGroup(
     const rawSlug = String(formData.get("slug") ?? "").trim();
     const description = (formData.get("description") as string | null)?.trim() || null;
     const rawColour = (formData.get("colour") as string | null)?.trim() || null;
+    const rawSide = String(formData.get("side") ?? "BOTH").trim();
     const slug = rawSlug || slugify(rawName);
     const parsed = groupSchema.parse({
       name: rawName,
       slug,
       description,
       colour: rawColour,
+      side: rawSide,
     });
     ensureNotBuiltin(parsed.slug);
     const colour = normaliseHexColour(parsed.colour);
@@ -121,6 +129,7 @@ export async function updateGuestGroup(
         name: parsed.name,
         description: parsed.description,
         colour,
+        side: parsed.side,
       },
     });
     const changedFields: string[] = [];
@@ -128,6 +137,7 @@ export async function updateGuestGroup(
     if (before.name !== parsed.name) changedFields.push("name");
     if (before.description !== parsed.description) changedFields.push("description");
     if (before.colour !== colour) changedFields.push("colour");
+    if (before.side !== parsed.side) changedFields.push("side");
 
     await audit(user, {
       action: "update",
@@ -137,6 +147,7 @@ export async function updateGuestGroup(
         slug: parsed.slug,
         name: parsed.name,
         colour,
+        side: parsed.side,
         changedFields,
       },
     });
@@ -232,6 +243,85 @@ export async function toggleGuestGroupMember(input: {
     return {
       ok: false,
       error: err instanceof Error ? err.message : "Couldn't update guest-group membership",
+    };
+  }
+}
+
+// v1.48.0: nudge a guest group up or down in the ordered list. The
+// ceremony seating allocator walks groups in `order` ascending — the
+// first group fills the front aisle, the next fills behind, etc.
+// Couples need to reorder without dropping into Settings to set
+// numeric values manually.
+//
+// Implementation: swap the `order` field with the adjacent group on
+// the chosen direction. Done in a transaction so two simultaneous
+// reorders can't end up with duplicate `order` values.
+const reorderSchema = z.object({
+  id: z.string().min(1),
+  direction: z.enum(["up", "down"]),
+});
+
+export async function reorderGuestGroup(input: {
+  id: string;
+  direction: "up" | "down";
+}): Promise<GuestGroupActionResult> {
+  const actor = await requireCoupleEditor();
+  try {
+    const parsed = reorderSchema.parse(input);
+    const target = await db.guestGroup.findUnique({
+      where: { id: parsed.id },
+      select: { id: true, order: true, name: true },
+    });
+    if (!target) return { ok: false, error: "Guest group not found" };
+
+    // Find the adjacent group: "up" means the one with the highest
+    // `order` strictly less than ours; "down" means the lowest above.
+    const neighbour = await db.guestGroup.findFirst({
+      where:
+        parsed.direction === "up"
+          ? { order: { lt: target.order } }
+          : { order: { gt: target.order } },
+      orderBy: { order: parsed.direction === "up" ? "desc" : "asc" },
+      select: { id: true, order: true, name: true },
+    });
+    if (!neighbour) {
+      // Already at the edge — no-op rather than an error so the
+      // button can stay clickable without throwing.
+      return { ok: true };
+    }
+
+    // Swap orders in a transaction. Note the schema doesn't have a
+    // unique constraint on `order` so the intermediate state where
+    // both rows briefly hold the same value is fine.
+    await db.$transaction([
+      db.guestGroup.update({
+        where: { id: target.id },
+        data: { order: neighbour.order },
+      }),
+      db.guestGroup.update({
+        where: { id: neighbour.id },
+        data: { order: target.order },
+      }),
+    ]);
+
+    await audit(actor, {
+      action: "reorder",
+      entity: "GuestGroup",
+      entityId: target.id,
+      metadata: {
+        name: target.name,
+        direction: parsed.direction,
+        neighbourId: neighbour.id,
+        neighbourName: neighbour.name,
+      },
+    });
+    revalidatePath("/settings");
+    revalidatePath("/seating");
+    return { ok: true };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : "Couldn't reorder guest group",
     };
   }
 }

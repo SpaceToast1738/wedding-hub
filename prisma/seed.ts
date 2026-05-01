@@ -2642,6 +2642,10 @@ async function seedGuestGroups() {
         name: s.name,
         description: s.description,
         colour: s.colour,
+        // v1.48.0: seeded extended-family groups carry their side
+        // constraint so the ceremony allocator places them correctly
+        // out of the box (Olwyn-Davis on left, Spencer on right).
+        side: s.side,
         order: s.order,
         members: { connect: members.map((m) => ({ id: m.id })) },
       },
@@ -2685,7 +2689,9 @@ async function main() {
   await seedPermissionGroups();
   await seedGroupPermissions();
   await seedGuestGroups();
-  await seedCeremonyRowAssignments();
+  // v1.48.0: ceremony seating now auto-fills from GuestGroup.order
+  // + side; no per-row seed needed. seedCeremonyRowAssignments
+  // function preserved one release as a recoverability buffer.
   console.log("Done.");
 }
 

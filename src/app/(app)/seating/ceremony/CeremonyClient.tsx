@@ -3,16 +3,15 @@
 import { useState, useTransition } from "react";
 import { Button } from "@/components/ui/Button";
 import { notify } from "@/lib/notify";
-import { setCeremonyRowGroup, updateCeremonySeating } from "../actions";
+import { updateCeremonySeating } from "../actions";
+import { reorderGuestGroup } from "../../settings/guest-group-actions";
 import {
-  allocateAll,
-  resolveSeat,
-  type AssignmentLite,
-  type GroupAllocation,
+  allocateCeremony,
   type GroupLite,
   type LayoutLite,
   type SeatFill,
-} from "@/lib/ceremony-fill";
+  type SeatKey,
+} from "@/lib/ceremony-allocate";
 
 type Config = {
   leftRows: number;
@@ -22,27 +21,29 @@ type Config = {
   notes: string;
 };
 
-type RowAssignment = AssignmentLite & {
-  notes: string | null;
-};
-
 type GroupSummary = GroupLite;
 
+const SIDE_LABELS: Record<"BRIDE" | "GROOM" | "BOTH", string> = {
+  BRIDE: "Bride",
+  GROOM: "Groom",
+  BOTH: "Both",
+};
+
 // v1.23.0: ceremony seating layout (rows + seats-per-row + altar).
-// v1.46.0: per-row group tinting. Each row can be assigned to a
-// GuestGroup; every seat in the row picks up the group's colour.
-// Glyph (first letter of the group name) overlays each seat for
-// colour-blind accessibility — same pattern as the reception canvas
-// uses for RSVP status. Assignments are couple-only via the panel
-// below the SVG.
+// v1.46.0: per-row group tinting (manual assignments).
+// v1.47.0: aisle-outward fill from member counts.
+// v1.48.0: auto-fill from ordered group list. Couple manages
+// `GuestGroup.order` + `GuestGroup.side`; allocator walks the list
+// in order, fills BRIDE groups on the LEFT, GROOM on the RIGHT,
+// BOTH on whichever side has more remaining seats. The Row
+// Assignments panel from v1.46.0 is replaced by a Group Order
+// panel showing each group's fill status + reorder buttons.
 export function CeremonyClient({
   initial,
-  initialAssignments,
   groups,
   canEdit,
 }: {
   initial: Config;
-  initialAssignments: RowAssignment[];
   groups: GroupSummary[];
   canEdit: boolean;
 }) {
@@ -57,21 +58,17 @@ export function CeremonyClient({
     config.rightSeatsRow !== savedConfig.rightSeatsRow ||
     config.notes !== savedConfig.notes;
 
-  // Index assignments by (side, rowIndex) for fast lookup from the
-  // canvas + the assignments panel.
-  const byRow = new Map<string, RowAssignment>();
-  for (const a of initialAssignments) byRow.set(`${a.side}-${a.rowIndex}`, a);
-  const groupById = new Map<string, GroupSummary>();
-  for (const g of groups) groupById.set(g.id, g);
-
-  // v1.47.0: pre-compute per-group allocations (member-count packed
-  // across assigned rows aisle-outward). The canvas + legend + Row
-  // Assignments panel all read from these.
+  // v1.48.0: run the allocator. Recomputes when layout numbers
+  // change (the form's local state) or when groups change (server
+  // refetch on revalidate). The allocator is a pure function so
+  // it's cheap to re-run on every render.
   const layout: LayoutLite = {
+    leftRows: config.leftRows,
     leftSeatsRow: config.leftSeatsRow,
+    rightRows: config.rightRows,
     rightSeatsRow: config.rightSeatsRow,
   };
-  const allocations = allocateAll(groups, initialAssignments, layout);
+  const result = allocateCeremony(groups, layout);
 
   function onSave() {
     const fd = new FormData();
@@ -95,27 +92,11 @@ export function CeremonyClient({
     });
   }
 
-  function onAssign(side: "LEFT" | "RIGHT", rowIndex: number, guestGroupId: string | null) {
+  function onReorder(id: string, direction: "up" | "down") {
     startTransition(async () => {
-      try {
-        const res = await setCeremonyRowGroup({ side, rowIndex, guestGroupId });
-        if (res.ok) {
-          notify("success", guestGroupId ? "Row assigned" : "Row cleared");
-        } else {
-          notify("error", res.error);
-        }
-      } catch (err) {
-        notify("error", err instanceof Error ? err.message : "Couldn't update");
-      }
+      const res = await reorderGuestGroup({ id, direction });
+      if (!res.ok) notify("error", res.error);
     });
-  }
-
-  // v1.47.0: resolve a single seat's fill via the pure helper.
-  // Returns "neutral" for unassigned rows, "filled" for actual
-  // member seats, "spare" for assigned-but-empty seats. The canvas
-  // distinguishes the three by opacity + glyph presence.
-  function seatFill(side: "LEFT" | "RIGHT", rowIndex: number, seatIndex: number): SeatFill {
-    return resolveSeat(side, rowIndex, seatIndex, layout, initialAssignments, groups, allocations);
   }
 
   return (
@@ -205,25 +186,20 @@ export function CeremonyClient({
             leftSeatsRow={config.leftSeatsRow}
             rightRows={config.rightRows}
             rightSeatsRow={config.rightSeatsRow}
-            seatFill={seatFill}
+            fills={result.fills}
           />
-          <Legend groups={groups} assignments={initialAssignments} allocations={allocations} />
+          <Legend groups={groups} result={result} />
         </section>
 
-        {/* Row assignments — couple-only. v1.46.0; v1.47.0 surfaces
-            per-row fill counts so the couple sees "8 of 12 seated
-            here, 4 spill to row 2". */}
+        {/* Group order — couple-only. v1.48.0 replaces v1.46.0's
+            Row Assignments panel. The couple reorders groups; the
+            allocator walks the list in order. */}
         {canEdit && (
-          <RowAssignmentsPanel
-            leftRows={config.leftRows}
-            rightRows={config.rightRows}
-            leftSeatsPerRow={config.leftSeatsRow}
-            rightSeatsPerRow={config.rightSeatsRow}
-            byRow={byRow}
+          <GroupOrderPanel
             groups={groups}
-            allocations={allocations}
+            result={result}
             pending={pending}
-            onAssign={onAssign}
+            onReorder={onReorder}
           />
         )}
       </div>
@@ -269,28 +245,22 @@ function NumberField({
 }
 
 // SVG render of the ceremony layout. ALTAR block at top, AISLE down
-// the middle, two grids of seat dots either side. v1.46.0 tinted
-// whole rows by group colour; v1.47.0 packs each group's members
-// aisle-outward across its assigned rows so the canvas shows actual
-// fill rather than blanket tinting. Three seat states:
-//   • filled  — full colour + white-on-tint glyph
-//   • spare   — faded tint (no glyph) — assigned but no member
-//   • neutral — moss-100 fill, no glyph — unassigned row
+// the middle, two grids of seat dots either side. v1.48.0: each
+// seat looks up its fill in the allocator's `fills` map. Filled
+// seats render full colour + glyph; unassigned stay neutral.
 function CeremonySvg({
   leftRows,
   leftSeatsRow,
   rightRows,
   rightSeatsRow,
-  seatFill,
+  fills,
 }: {
   leftRows: number;
   leftSeatsRow: number;
   rightRows: number;
   rightSeatsRow: number;
-  seatFill: (side: "LEFT" | "RIGHT", rowIndex: number, seatIndex: number) => SeatFill;
+  fills: Map<SeatKey, SeatFill>;
 }) {
-  // Bumped seat size from 14 → 18 to accommodate the in-circle
-  // glyph at a legible point size.
   const SEAT = 18;
   const SEAT_GAP = 4;
   const ROW_GAP = 8;
@@ -361,7 +331,7 @@ function CeremonySvg({
               cx={leftStartX + s * (SEAT + SEAT_GAP) + SEAT / 2}
               cy={seatStartY + r * (SEAT + ROW_GAP) + SEAT / 2}
               r={SEAT / 2}
-              fill={seatFill("LEFT", r, s)}
+              fill={fills.get(`LEFT-${r}-${s}` as SeatKey)}
             />
           )),
         )}
@@ -373,7 +343,7 @@ function CeremonySvg({
               cx={rightStartX + s * (SEAT + SEAT_GAP) + SEAT / 2}
               cy={seatStartY + r * (SEAT + ROW_GAP) + SEAT / 2}
               r={SEAT / 2}
-              fill={seatFill("RIGHT", r, s)}
+              fill={fills.get(`RIGHT-${r}-${s}` as SeatKey)}
             />
           )),
         )}
@@ -382,11 +352,9 @@ function CeremonySvg({
   );
 }
 
-// One seat dot — three visual states driven by SeatFill:
-//   • filled  → full group colour + white glyph
-//   • spare   → group colour at 30% opacity, no glyph (reserved
-//               but the group ran out of members)
-//   • neutral → moss palette, no glyph (unassigned row)
+// One seat dot. Two states:
+//   • filled (fill !== undefined) → group colour + white glyph
+//   • neutral (fill === undefined) → moss palette
 function SeatDot({
   cx,
   cy,
@@ -396,42 +364,20 @@ function SeatDot({
   cx: number;
   cy: number;
   r: number;
-  fill: SeatFill;
+  fill: SeatFill | undefined;
 }) {
-  if (fill.kind === "neutral") {
+  if (!fill) {
     return (
-      <g>
-        <circle
-          cx={cx}
-          cy={cy}
-          r={r}
-          fill="var(--color-moss-100)"
-          stroke="var(--color-moss-700)"
-          strokeWidth={1}
-        />
-      </g>
+      <circle
+        cx={cx}
+        cy={cy}
+        r={r}
+        fill="var(--color-moss-100)"
+        stroke="var(--color-moss-700)"
+        strokeWidth={1}
+      />
     );
   }
-  if (fill.kind === "spare") {
-    const colour = fill.colour ?? "var(--color-moss-100)";
-    return (
-      <g>
-        <circle
-          cx={cx}
-          cy={cy}
-          r={r}
-          fill={colour}
-          fillOpacity={0.3}
-          stroke={colour}
-          strokeWidth={1}
-          strokeDasharray="2 2"
-        >
-          <title>{fill.groupName} (reserved, no member)</title>
-        </circle>
-      </g>
-    );
-  }
-  // filled
   const colour = fill.colour ?? "var(--color-moss-700)";
   return (
     <g>
@@ -457,37 +403,28 @@ function SeatDot({
   );
 }
 
-// Legend below the canvas. Lists every group used in row assignments
-// with its swatch + name + members + reserved seats + spare-or-shortfall.
-// v1.47.0: legend now reflects actual allocation, not just row count.
+// Legend below the canvas. One row per group with swatch + name +
+// side chip + member count + fill status (seated / shortfall).
 function Legend({
   groups,
-  assignments,
-  allocations,
+  result,
 }: {
   groups: GroupSummary[];
-  assignments: RowAssignment[];
-  allocations: Map<string, GroupAllocation>;
+  result: ReturnType<typeof allocateCeremony>;
 }) {
-  const usedGroupIds = new Set(
-    assignments.map((a) => a.guestGroupId).filter((id): id is string => Boolean(id)),
-  );
-  const usedGroups = groups.filter((g) => usedGroupIds.has(g.id));
-  if (usedGroups.length === 0) {
+  if (groups.length === 0) {
     return (
       <p className="text-[11px] text-ink-tertiary italic mt-3">
-        No row assignments yet — assign rows below to colour-code them.
+        No guest groups exist yet — add some in Settings → Guest groups.
       </p>
     );
   }
   return (
     <ul className="mt-3 space-y-1 text-[12px]">
-      {usedGroups.map((g) => {
-        const a = allocations.get(g.id);
-        const reserved = a?.totalAssignedSeats ?? 0;
-        const filled = a?.totalFilledSeats ?? 0;
-        const surplus = a?.surplus ?? 0;
-        const shortfall = a?.shortfall ?? 0;
+      {groups.map((g) => {
+        const alloc = result.perGroup.get(g.id);
+        const seated = alloc?.filledSeats.length ?? 0;
+        const shortfall = alloc?.shortfall ?? 0;
         return (
           <li key={g.id} className="flex items-baseline gap-2 flex-wrap">
             <span
@@ -496,168 +433,134 @@ function Legend({
               aria-hidden="true"
             />
             <span className="text-ink-secondary font-medium">{g.name}</span>
-            <span className="text-ink-tertiary text-[11px]">
-              {filled} of {g.memberCount} {g.memberCount === 1 ? "guest" : "guests"} seated · {reserved} {reserved === 1 ? "seat" : "seats"} reserved
+            <span className="text-[10px] uppercase tracking-wider text-ink-tertiary font-semibold">
+              {SIDE_LABELS[g.side]}
             </span>
-            {surplus > 0 && (
-              <span className="text-[11px] text-ink-tertiary italic">
-                · {surplus} spare
-              </span>
-            )}
+            <span className="text-ink-tertiary text-[11px]">
+              {seated} of {g.memberCount} {g.memberCount === 1 ? "guest" : "guests"} seated
+            </span>
             {shortfall > 0 && (
               <span className="text-[11px] text-marigold-700 font-semibold">
-                · {shortfall} won&apos;t fit — assign more rows
+                · {shortfall} won&apos;t fit
               </span>
             )}
           </li>
         );
       })}
+      {(result.unfilledLeft > 0 || result.unfilledRight > 0) && (
+        <li className="text-[11px] text-ink-tertiary italic pt-1">
+          {result.unfilledLeft + result.unfilledRight} seats empty —{" "}
+          {result.unfilledLeft} left · {result.unfilledRight} right
+        </li>
+      )}
     </ul>
   );
 }
 
-// Row-by-row assignment editor. Two columns (left + right side),
-// each showing every row 0..N-1 with the assigned group name + a
-// dropdown to (re)assign or clear. v1.47.0: each row also shows
-// "X of Y seated" so the couple can see how much of the row's
-// capacity the assigned group actually uses.
-function RowAssignmentsPanel({
-  leftRows,
-  rightRows,
-  leftSeatsPerRow,
-  rightSeatsPerRow,
-  byRow,
+// Couple-only group-order editor. Listed in `order` ascending.
+// Up/down buttons swap the order with the adjacent group; the
+// allocator re-runs on next render. Member count is informational —
+// edit memberships in Settings → Guest groups.
+function GroupOrderPanel({
   groups,
-  allocations,
+  result,
   pending,
-  onAssign,
+  onReorder,
 }: {
-  leftRows: number;
-  rightRows: number;
-  leftSeatsPerRow: number;
-  rightSeatsPerRow: number;
-  byRow: Map<string, RowAssignment>;
   groups: GroupSummary[];
-  allocations: Map<string, GroupAllocation>;
+  result: ReturnType<typeof allocateCeremony>;
   pending: boolean;
-  onAssign: (side: "LEFT" | "RIGHT", rowIndex: number, guestGroupId: string | null) => void;
+  onReorder: (id: string, direction: "up" | "down") => void;
 }) {
   return (
     <section className="bg-surface border border-border-soft rounded-md shadow-sm p-4">
       <h2 className="text-sm font-semibold text-ink-primary mb-1">
-        Row assignments
+        Group order
       </h2>
       <p className="text-[11px] text-ink-tertiary mb-3">
-        Assign each row to a guest group. Every seat in the row picks
-        up the group&apos;s colour on the canvas above. Unassigned rows
-        stay neutral. Manage groups + colours in{" "}
+        The allocator fills seats in this order — first group takes
+        the front aisle, next takes whatever&apos;s next, and so on.{" "}
+        <strong>Bride</strong> groups fill left only; <strong>Groom</strong> right
+        only; <strong>Both</strong> takes whichever side has more space. Edit
+        membership + colour + side in{" "}
         <a href="/settings" className="text-moss-700 underline">Settings → Guest groups</a>.
       </p>
       {groups.length === 0 ? (
         <p className="text-xs text-ink-tertiary italic">
-          No guest groups exist yet — add one in Settings to start
-          colour-coding rows.
+          No guest groups yet. Add one in Settings to start filling
+          the canvas.
         </p>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1.5">
-          <RowList
-            side="LEFT"
-            label="Left side"
-            rowCount={leftRows}
-            seatsPerRow={leftSeatsPerRow}
-            byRow={byRow}
-            groups={groups}
-            allocations={allocations}
-            pending={pending}
-            onAssign={onAssign}
-          />
-          <RowList
-            side="RIGHT"
-            label="Right side"
-            rowCount={rightRows}
-            seatsPerRow={rightSeatsPerRow}
-            byRow={byRow}
-            groups={groups}
-            allocations={allocations}
-            pending={pending}
-            onAssign={onAssign}
-          />
-        </div>
+        <ol className="divide-y divide-border-soft">
+          {groups.map((g, idx) => {
+            const alloc = result.perGroup.get(g.id);
+            const seated = alloc?.filledSeats.length ?? 0;
+            const shortfall = alloc?.shortfall ?? 0;
+            return (
+              <li key={g.id} className="py-2 flex items-center gap-2 text-sm">
+                <span className="text-[11px] text-ink-tertiary tabular-nums w-6 flex-shrink-0">
+                  {idx + 1}
+                </span>
+                <span className="flex items-center gap-0.5 flex-shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => onReorder(g.id, "up")}
+                    disabled={pending || idx === 0}
+                    aria-label="Move up"
+                    title="Move up — fills sooner"
+                    className="text-[10px] text-ink-tertiary hover:text-ink-primary disabled:opacity-30 px-0.5"
+                  >
+                    ▲
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onReorder(g.id, "down")}
+                    disabled={pending || idx === groups.length - 1}
+                    aria-label="Move down"
+                    title="Move down — fills later"
+                    className="text-[10px] text-ink-tertiary hover:text-ink-primary disabled:opacity-30 px-0.5"
+                  >
+                    ▼
+                  </button>
+                </span>
+                {g.colour && (
+                  <span
+                    className="inline-block w-2.5 h-2.5 rounded-full border border-border-soft flex-shrink-0"
+                    style={{ background: g.colour }}
+                    aria-hidden="true"
+                  />
+                )}
+                <span className="flex-1 min-w-0 truncate text-ink-primary font-medium">
+                  {g.name}
+                </span>
+                <span
+                  className={`text-[10px] uppercase tracking-wider font-semibold flex-shrink-0 ${
+                    g.side === "BRIDE"
+                      ? "text-rose-700"
+                      : g.side === "GROOM"
+                        ? "text-moss-700"
+                        : "text-ink-tertiary"
+                  }`}
+                >
+                  {SIDE_LABELS[g.side]}
+                </span>
+                <span
+                  className={`text-[11px] tabular-nums flex-shrink-0 ${
+                    shortfall > 0 ? "text-marigold-700 font-semibold" : "text-ink-tertiary"
+                  }`}
+                  title={
+                    shortfall > 0
+                      ? `${shortfall} guests can't fit — promote this group higher or reduce its membership`
+                      : `${seated} of ${g.memberCount} guests seated`
+                  }
+                >
+                  {seated}/{g.memberCount}
+                </span>
+              </li>
+            );
+          })}
+        </ol>
       )}
     </section>
-  );
-}
-
-function RowList({
-  side,
-  label,
-  rowCount,
-  seatsPerRow,
-  byRow,
-  groups,
-  allocations,
-  pending,
-  onAssign,
-}: {
-  side: "LEFT" | "RIGHT";
-  label: string;
-  rowCount: number;
-  seatsPerRow: number;
-  byRow: Map<string, RowAssignment>;
-  groups: GroupSummary[];
-  allocations: Map<string, GroupAllocation>;
-  pending: boolean;
-  onAssign: (side: "LEFT" | "RIGHT", rowIndex: number, guestGroupId: string | null) => void;
-}) {
-  return (
-    <div>
-      <h3 className="text-[10px] uppercase tracking-wider text-ink-tertiary font-bold mb-1.5">
-        {label}
-      </h3>
-      <ul className="divide-y divide-border-soft">
-        {Array.from({ length: rowCount }).map((_, r) => {
-          const a = byRow.get(`${side}-${r}`);
-          const groupId = a?.guestGroupId ?? "";
-          const group = groupId ? groups.find((g) => g.id === groupId) : null;
-          const filledHere = group ? (allocations.get(group.id)?.rowFills.get(`${side}-${r}`) ?? 0) : 0;
-          return (
-            <li key={r} className="py-1.5 flex items-center gap-2 text-sm">
-              <span className="text-[11px] text-ink-tertiary tabular-nums w-12 flex-shrink-0">
-                Row {r + 1}
-                {r === 0 && <span className="ml-0.5 text-ink-tertiary">(front)</span>}
-              </span>
-              {group?.colour && (
-                <span
-                  className="inline-block w-2.5 h-2.5 rounded-full border border-border-soft flex-shrink-0"
-                  style={{ background: group.colour }}
-                  aria-hidden="true"
-                />
-              )}
-              <select
-                value={groupId}
-                onChange={(e) => onAssign(side, r, e.target.value || null)}
-                disabled={pending}
-                className="flex-1 min-w-0 text-[12px] bg-canvas border border-border-soft rounded-sm px-1.5 py-0.5 text-ink-secondary outline-none disabled:opacity-50"
-              >
-                <option value="">— Unassigned —</option>
-                {groups.map((g) => (
-                  <option key={g.id} value={g.id}>
-                    {g.name}
-                  </option>
-                ))}
-              </select>
-              {group && (
-                <span
-                  className="text-[10px] text-ink-tertiary tabular-nums flex-shrink-0"
-                  title={`${filledHere} of ${seatsPerRow} seats filled in this row`}
-                >
-                  {filledHere}/{seatsPerRow}
-                </span>
-              )}
-            </li>
-          );
-        })}
-      </ul>
-    </div>
   );
 }

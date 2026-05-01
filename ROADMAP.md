@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.47.0** | 2026-05-01 | [Ceremony seating fills by group member count — packs each group's members across its assigned rows aisle-outward. Three seat states: filled (full colour + glyph), spare (faded tint, no glyph — assigned but no member), neutral (unassigned). Legend shows guests-seated / reserved / spare-or-shortfall per group. Row panel surfaces per-row fill counts.](#2026-05-01--v1470--seat-allocation-from-member-count) |
+| **v1.48.0** | 2026-05-01 | [Auto-fill ceremony seating from ordered groups + side constraint. Couple manages an ordered list of guest groups (each with `side: BRIDE / GROOM / BOTH`); allocator walks the list, packing BRIDE groups on LEFT, GROOM on RIGHT, BOTH on whichever side has more space. Reorder buttons in Settings + on /seating/ceremony. Per-row manual assignments deprecated.](#2026-05-01--v1480--auto-fill-from-ordered-groups) |
+| v1.47.0 | 2026-05-01 | [Ceremony seating fills by group member count — packs each group's members across its assigned rows aisle-outward. Three seat states: filled (full colour + glyph), spare (faded tint, no glyph — assigned but no member), neutral (unassigned). Legend shows guests-seated / reserved / spare-or-shortfall per group. Row panel surfaces per-row fill counts.](#2026-05-01--v1470--seat-allocation-from-member-count) |
 | v1.46.0 | 2026-05-01 | [Group-coloured ceremony seating (backlog #5) — new `CeremonyRow` model maps `(side, rowIndex)` to a `GuestGroup`. Canvas tints every seat in an assigned row with the group's colour and overlays a glyph (first letter) for colour-blind accessibility. Couple-only Row Assignments panel below the SVG; legend lists groups in use with row + member counts.](#2026-05-01--v1460--group-coloured-ceremony-seating) |
 | v1.45.2 | 2026-05-01 | [Role select in the per-user editor — `setUserRole` action drives membership in the role-based built-ins (Wedding party / Planners). Built-in member lists now print directive copy explaining how to change membership for each (toggle Couple-tier checkbox, change role, or remove the user) instead of opaque "not editable here". Last-admin lock extended to `setUserRole`.](#2026-05-01--v1452--role-select--directive-copy) |
 | v1.45.1 | 2026-05-01 | [Last-admin lock + duplicate-name disambiguator. `setUserCouple` and `removeUser` server-side refuse to leave the running session with zero couple-tier admins; the UI shows a 🔒 chip on the last couple-tier user and disables their toggle/remove. Member lists now show email next to display name so two accounts sharing a name are distinguishable.](#2026-05-01--v1451--last-admin-lock--name-disambiguator) |
@@ -765,6 +766,59 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-05-01 · v1.48.0 — Auto-fill from ordered groups
+
+User: "Can we order groups, so I assign a group to seats, it fills then assigns the next group, options should also accommodate bride, groom and both side constraints".
+
+Replaces v1.46.0's per-row manual assignment model with a single ordered-list mental model: define groups with side constraints, order them by priority, the allocator does the rest.
+
+**Schema** (`prisma/schema.prisma`).
+
+`GuestGroup.side: Side @default(BOTH)` — reuses the existing `Side` enum (`BRIDE | GROOM | BOTH`) used for `Guest.side`. Migration `20260504000000_guest_group_side` is a single `ALTER TABLE ADD COLUMN` with default `'BOTH'` so existing rows retain their behaviour without a backfill.
+
+`CeremonyRow` model is marked deprecated in the schema commentary but **preserved one release** as a recoverability buffer (per the v1.30.5 standing pattern). The seating canvas no longer reads from it; the allocator drives everything from `GuestGroup.order` + `side` + `_count.members`.
+
+**Pure allocator** `src/lib/ceremony-allocate.ts`.
+
+`allocateCeremony(groups, layout)` returns a `Map<SeatKey, SeatFill>` plus per-group totals (filled count, shortfall) and unfilled-side counts. Algorithm:
+
+1. Sort groups by `order` ascending (ID tie-break for determinism).
+2. For each group, walk its eligible side(s):
+   - **BRIDE** → LEFT only, packed front-to-back, aisle-outward (rightmost seat backward).
+   - **GROOM** → RIGHT only, packed front-to-back, aisle-outward (seatIndex 0 forward).
+   - **BOTH** → fill whichever side has more remaining capacity at each step. Tie goes to LEFT (matches "front-and-aisle first" preference).
+3. Take `min(remaining, capacity)` consecutive seats. Anything left over is the group's shortfall.
+
+14 unit tests cover BRIDE-LEFT-only, GROOM-RIGHT-only, BOTH balancing, ordering (input order doesn't matter, only `order` field), front-row aisle-outward direction, multi-row overflow, shortfall when capacity exhausted, zero-member edge case.
+
+**Server actions** (`src/app/(app)/settings/guest-group-actions.ts`).
+
+`createGuestGroup` + `updateGuestGroup` now accept a `side` field (defaults to `BOTH`). `updateGuestGroup` includes `side` in the `changedFields` audit metadata.
+
+New `reorderGuestGroup({ id, direction: "up" | "down" })` — swaps the group's `order` value with the adjacent group on the chosen direction. No-op at the edges. Couple-only, audited with `{ name, direction, neighbourName }` so the audit log reads `Moved guest group "Spencer extended family" up (swapped with "Olwyn-Davis extended family")`.
+
+**Settings UI** (`GuestGroupsBlock.tsx`).
+
+Each custom group row gains:
+- ▲ / ▼ reorder buttons on the left (disabled at the edges)
+- Side chip (uppercase "Bride" / "Groom" / "Both") tinted rose / moss / neutral
+
+The edit form gains a Side dropdown above the colour picker.
+
+**Ceremony page** (`CeremonyClient.tsx`).
+
+Replaces the v1.46.0 Row Assignments panel with a **Group Order** panel — couple-only, lists groups in `order` ascending with reorder buttons, side chip, and a `seated/memberCount` chip per group (tinted marigold when shortfall > 0). The legend below the SVG also shows the side chip + seating progress.
+
+Canvas drops the spare-seat rendering from v1.47.0 — every seat is either filled (group colour + glyph) or neutral (moss palette). Spare seats no longer make sense in the auto-fill model; the allocator just stops when groups run out of members, leaving the rest neutral.
+
+**Seed.** Olwyn-Davis extended family seeded with `side: BRIDE`; Spencer extended family with `side: GROOM`. The ceremony canvas immediately shows the bride's family on the left, the groom's on the right, with the front rows tinted by colour. `seedCeremonyRowAssignments` is no longer called from `main()` (kept as a function for one release).
+
+**Audit format.** New pattern for `reorder` action under `GuestGroup` entity. 2 new tests.
+
+**Verified.** typecheck clean · lint clean · 548 tests (532 → 548; +14 ceremony-allocate, +2 audit-format) · production build clean.
+
+Files: `prisma/schema.prisma` (Side on GuestGroup), `prisma/migrations/20260504000000_guest_group_side/migration.sql`, `src/lib/ceremony-allocate.ts` (new), `tests/unit/ceremony-allocate.test.ts` (new, 14 cases), `src/app/(app)/settings/guest-group-actions.ts` (side + reorder), `src/app/(app)/settings/GuestGroupsBlock.tsx` (side picker + reorder buttons + side chip), `src/app/(app)/settings/page.tsx` (thread side through), `src/app/(app)/seating/ceremony/page.tsx` (load groups instead of rows), `src/app/(app)/seating/ceremony/CeremonyClient.tsx` (rewrite using auto-fill + GroupOrderPanel), `src/lib/audit-format.ts` (reorder pattern), `prisma/seed.ts` (set side on seeded groups; drop CeremonyRow seed call), `package.json` → `1.48.0`.
 
 ### 2026-05-01 · v1.47.0 — Seat allocation from member count
 

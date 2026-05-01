@@ -6,9 +6,18 @@ import { notify } from "@/lib/notify";
 import {
   createGuestGroup,
   deleteGuestGroup,
+  reorderGuestGroup,
   toggleGuestGroupMember,
   updateGuestGroup,
 } from "./guest-group-actions";
+
+type Side = "BRIDE" | "GROOM" | "BOTH";
+
+const SIDE_LABELS: Record<Side, string> = {
+  BRIDE: "Bride",
+  GROOM: "Groom",
+  BOTH: "Both",
+};
 
 // v1.42.0: GuestGroup admin panel. Couple-only — same gating as the
 // PermissionGroup panel above. Bundles wedding *guests* (rows in
@@ -26,6 +35,7 @@ type GroupRow = {
   name: string;
   description: string | null;
   colour: string | null;
+  side: Side;
   order: number;
   members: GuestRow[];
 };
@@ -94,6 +104,13 @@ export function GuestGroupsBlock({
     });
   }
 
+  function onReorder(id: string, direction: "up" | "down") {
+    startTransition(async () => {
+      const res = await reorderGuestGroup({ id, direction });
+      if (!res.ok) notify("error", res.error);
+    });
+  }
+
   return (
     <section className="bg-surface border border-border-soft rounded-md shadow-sm">
       <header className="px-4 py-3 border-b border-border-soft flex items-baseline justify-between gap-3">
@@ -133,7 +150,7 @@ export function GuestGroupsBlock({
         </ul>
       </div>
       <ul className="divide-y divide-border-soft">
-        {groups.map((g) =>
+        {groups.map((g, idx) =>
           editingId === g.id ? (
             <li key={g.id} className="px-4 py-3">
               <GroupEditForm
@@ -146,6 +163,31 @@ export function GuestGroupsBlock({
           ) : (
             <li key={g.id} className="px-4 py-2.5">
               <div className="flex items-baseline gap-3">
+                {/* v1.48.0: reorder buttons. The first/last group can
+                    only nudge inward. Order drives the seating
+                    allocator's fill priority. */}
+                <span className="flex items-center gap-0.5 flex-shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => onReorder(g.id, "up")}
+                    disabled={pending || idx === 0}
+                    aria-label="Move up"
+                    title="Higher priority — fills sooner"
+                    className="text-[10px] text-ink-tertiary hover:text-ink-primary disabled:opacity-30 px-0.5"
+                  >
+                    ▲
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onReorder(g.id, "down")}
+                    disabled={pending || idx === groups.length - 1}
+                    aria-label="Move down"
+                    title="Lower priority — fills later"
+                    className="text-[10px] text-ink-tertiary hover:text-ink-primary disabled:opacity-30 px-0.5"
+                  >
+                    ▼
+                  </button>
+                </span>
                 <button
                   type="button"
                   onClick={() => setOpenGroupId(openGroupId === g.id ? null : g.id)}
@@ -163,6 +205,18 @@ export function GuestGroupsBlock({
                   )}
                   <span>{g.name}</span>
                 </button>
+                <span
+                  className={`text-[10px] uppercase tracking-wider font-semibold flex-shrink-0 ${
+                    g.side === "BRIDE"
+                      ? "text-rose-700"
+                      : g.side === "GROOM"
+                        ? "text-moss-700"
+                        : "text-ink-tertiary"
+                  }`}
+                  title={`Side constraint for ceremony allocator: ${SIDE_LABELS[g.side]}`}
+                >
+                  {SIDE_LABELS[g.side]}
+                </span>
                 <span className="text-[10px] uppercase tracking-wider text-ink-tertiary font-mono">
                   group:{g.slug}
                 </span>
@@ -257,6 +311,7 @@ function GroupEditForm({
 }) {
   // Local state for colour so the swatch + hex input stay in sync.
   const [colour, setColour] = useState<string>(group?.colour ?? "");
+  const [side, setSide] = useState<Side>(group?.side ?? "BOTH");
 
   return (
     <form action={onSubmit} className="grid grid-cols-1 sm:grid-cols-2 gap-2 items-end">
@@ -297,6 +352,24 @@ function GroupEditForm({
           placeholder="What this group is for"
           className="w-full text-sm bg-surface text-ink-primary border border-border-soft rounded-sm px-2 py-1 outline-none focus:border-moss-500"
         />
+      </div>
+      <div>
+        <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">
+          Side (ceremony allocator)
+        </label>
+        <select
+          value={side}
+          onChange={(e) => setSide(e.target.value as Side)}
+          disabled={pending}
+          className="w-full text-sm bg-surface text-ink-primary border border-border-soft rounded-sm px-2 py-1 outline-none focus:border-moss-500"
+          title="BRIDE → fills LEFT seats only; GROOM → RIGHT only; BOTH → either side, balanced"
+        >
+          <option value="BRIDE">Bride (left side only)</option>
+          <option value="GROOM">Groom (right side only)</option>
+          <option value="BOTH">Both (either side)</option>
+        </select>
+        {/* Hidden field carries the value into the form action. */}
+        <input type="hidden" name="side" value={side} />
       </div>
       <div>
         <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">
