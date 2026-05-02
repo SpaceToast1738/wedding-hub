@@ -10,6 +10,7 @@ import { requireUser } from "@/lib/actions";
 import { isSpotifyConfigured } from "@/lib/spotify";
 import { getWeddingSettings } from "@/lib/wedding-settings";
 import { MemberOverridesBlock } from "./MemberOverridesBlock";
+import { InviteBlock } from "./InviteBlock";
 import { MyProfilePanel } from "./MyProfilePanel";
 import { SpotifySettingsPanel } from "./SpotifySettingsPanel";
 import { CustomFieldsPanel } from "./CustomFieldsPanel";
@@ -78,6 +79,7 @@ export default async function SettingsPage({
     groupPermissionsRaw,
     guestGroupsRaw,
     allGuests,
+    invites,
   ] = await Promise.all([
     db.user.findMany({ orderBy: [{ isCouple: "desc" }, { name: "asc" }] }),
     db.permission.findMany(),
@@ -137,6 +139,12 @@ export default async function SettingsPage({
             side: true,
             archived: true,
           },
+        })
+      : Promise.resolve([]),
+    user.isCouple
+      ? db.invite.findMany({
+          orderBy: { createdAt: "desc" },
+          select: { id: true, email: true, role: true, isCouple: true, status: true, createdAt: true },
         })
       : Promise.resolve([]),
   ]);
@@ -357,11 +365,16 @@ export default async function SettingsPage({
             );
           })()}
 
-          {editable && (
-            <div className="bg-marigold-100/40 border border-marigold-700/20 text-marigold-700 rounded-md px-4 py-2.5 text-xs">
-              ⓘ Sign-in is gated by the <code>AUTH_ALLOWED_EMAILS</code> env var. To add a new member, add their email there and have them sign in once — they&apos;ll appear in the Members panel below.
-            </div>
-          )}
+          <InviteBlock
+            invites={invites.map((i) => ({
+              id: i.id,
+              email: i.email,
+              role: i.role,
+              isCouple: i.isCouple,
+              status: i.status,
+              createdAt: i.createdAt,
+            }))}
+          />
 
           {/* v1.45.0: per-user editor — replaces the dense
               PermissionMatrix table. Each user is its own

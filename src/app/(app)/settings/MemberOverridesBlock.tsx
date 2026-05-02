@@ -188,7 +188,7 @@ export function MemberOverridesBlock({
   async function remove(u: UserRow) {
     const label = u.name ?? u.email;
     const bodyParts: string[] = [
-      "This deletes their account row, sessions, and per-section permissions. They can still sign in again if their email is in AUTH_ALLOWED_EMAILS.",
+      "This deletes their account row, sessions, and per-section permissions. They can sign in again if you re-invite them.",
     ];
     if (u.isCouple) {
       bodyParts.push(
@@ -274,7 +274,7 @@ export function MemberOverridesBlock({
                       )}
                     </div>
                     <div className="text-[11px] text-ink-tertiary truncate">
-                      {u.role.replace("_", " ").toLowerCase()} · {u.email}
+                      {u.isCouple ? "couple" : u.role.replace("_", " ").toLowerCase()} · {u.email}
                     </div>
                   </div>
                 </button>
@@ -372,7 +372,7 @@ export function MemberOverridesBlock({
                       <option value="VIEWER">Viewer</option>
                     </select>
                     <span className="text-[11px] text-ink-tertiary">
-                      drives the &ldquo;{u.role === "WEDDING_PARTY" ? "Wedding party" : u.role === "PLANNER" ? "Planners" : "Everyone"}&rdquo; built-in group
+                      {u.isCouple ? "couple-tier bypasses role groups" : `drives the “${u.role === "WEDDING_PARTY" ? "Wedding party" : u.role === "PLANNER" ? "Planners" : "Everyone"}” built-in group`}
                     </span>
                   </div>
 

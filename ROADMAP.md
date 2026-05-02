@@ -11,7 +11,7 @@
 - **Repo:** [SpaceToast1738/wedding-hub](https://github.com/SpaceToast1738/wedding-hub) · `claude/main` (releases) + `dev` (work-in-progress)
 - **Stack:** Next.js 15 · TypeScript · Tailwind v4 · Prisma · Postgres 16 · Auth.js v5 · Caddy · Docker Compose
 - **Working tree:** `C:\Users\Admin\Code\wedding-hub` (local SSD). The old `\\TOWER\Jamie Spencer\Claude\wedding-hub` mirror is no longer in use — run `Remove-Item -Recurse -Force "\\TOWER\Jamie Spencer\Claude\wedding-hub"` from a fresh PowerShell to delete it.
-- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` at **v1.59.0**, promoted 1 May 2026 — jumped 32 releases from v1.27.2). `dev` and `claude/main` are now level. Standing rule: admin-only.
+- **Current state:** **🟢 LIVE** at https://wedding.spencer-net.com (`claude/main` at **v1.59.0**, promoted 1 May 2026 — jumped 32 releases from v1.27.2). `dev` is ahead. Standing rule: admin-only.
 
 ## Phase status
 
@@ -34,6 +34,7 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
+| **v1.69.0** | 2026-05-02 | [DB-backed invite system + welcome sign-out + couple label fix — replaces `AUTH_ALLOWED_EMAILS` allowlist with an in-app invite flow. New `Invite` model (email · role · isCouple · status · invitedBy). Settings page gains `InviteBlock`: send invite with role preset (Viewer / Wedding party / Planner / Couple), pending invites list with Resend/Revoke. `isAllowed()` in `auth.ts` made async and checks DB (existing user with emailVerified → allow; PENDING invite → allow; ENV fallback for bootstrap). `events.signIn` applies invite role/isCouple to the newly-created User row and marks invite ACCEPTED. Three new server actions (`createInvite` / `revokeInvite` / `resendInvite`) with couple-gate + audit log + HTML invite email via Nodemailer. Welcome page (`/welcome`) gains a "Sign out" server-action link — previously viewers with no firstName/name were trapped (no AppShell, no sign-out). Cosmetic fix: members with `isCouple: true` now display "couple" label in the Members panel (was showing role string).](#2026-05-02--v1690--db-backed-invite-system--welcome-sign-out--couple-label-fix) |
 | **v1.68.0** | 2026-05-02 | [Design-pass brief — final piece of pre-2.0 prep documentation. New `docs/DESIGN-PASS-BRIEF.md` captures the goal (visual refresh shipping as v2.0.0), constraints (admin-only, no API changes, accessibility floor, dark-mode parity, print fidelity), and the user's explicit direction: **two themes** (Base + Whimsical Forest) × **two modes** (light + dark) = four combinations. Theme picker via new `User.theme` enum (the only schema change v2.0 is allowed). Designer entry point linking the four reference docs (component inventory, form patterns, mobile, brief).](#2026-05-02--v1680--design-pass-brief) |
 | v1.67.0 | 2026-05-02 | [Guest profile pictures — manual upload per guest, replaces the initials placeholder. New `Guest.profilePictureFileId` column (additive migration), three new server actions (`uploadGuestProfilePicture` / `setGuestProfilePicture` / `clearGuestProfilePicture`), `<Avatar>` extended with `pictureFileId` prop. Upload UI on `/guests/[id]` (avatar-as-trigger pattern: tap the photo to upload), photos render on the guest list (HouseholdBlock rows) and the seating side panel. Skipped seating canvas seat-dots (too small to help) and catering-brief print (low marginal value). Originated from "is it possible to link guests with Facebook profile pictures?" — Facebook OAuth blocked by admin-only standing rule + Meta API restrictions; manual upload is the cleanest path.](#2026-05-02--v1670--guest-profile-pictures) |
 | v1.66.0 | 2026-05-02 | [DR-1 mobile compatibility pass — first phase of pre-wedding hardening. Added `docs/MOBILE.md` codifying breakpoint / fixed-bottom / touch-target / table / modal / drawer conventions. Fixed five real bugs: Toaster sat behind the MobileTabBar (z-bumped + padding); QuickCapture success toast same; three tables (BookBuildCard materials, /guests/catering breakdown + dietary + meal-choice) lacked `overflow-x-auto`; SeatingCanvas was unusable on touch (now defaults to list view on first-visit mobile). Bumped touch targets on ConfirmDialog buttons (28px → 40px), AddNewModal close × (16px → 36px), ImageGallery detach × (24px → 32px, always-visible on touch). Page-level `p-6` paddings converted to `p-4 sm:p-6` across 18 pages so phones get more breathing room.](#2026-05-02--v1660--mobile-compatibility-pass-dr-1) |
@@ -899,6 +900,40 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-05-02 · v1.69.0 — DB-backed invite system + welcome sign-out + couple label fix
+
+User request: "add an invite option to the page, move from env, to explicit invite and whitelist in admin settings, where I can also set perms at time of invite. Also fix the cosmetic issue thats a bug, she should show 'couple'". Context: Bryony had been added via `AUTH_ALLOWED_EMAILS` (two-line ENV bug was also fixed in this session) and the Members panel was showing "wedding party" for her because the label code read `u.role.replace("_"," ").toLowerCase()` without checking `isCouple` first.
+
+**Invite system.** New `Invite` model in `prisma/schema.prisma` (`id, email, role, isCouple, status: PENDING|ACCEPTED|REVOKED, invitedById, acceptedAt, createdAt, updatedAt`). Migration at `prisma/migrations/20260509000000_add_invite_model/migration.sql` (hand-authored — `prisma migrate dev` is blocked in this repo). Prisma client regenerated (`npx prisma generate`).
+
+`auth.ts` — `isAllowed()` promoted from sync ENV-scan to async DB check:
+1. Returning user with `emailVerified` → allow (prevents locked-out re-auth).
+2. PENDING invite for that email → allow.
+3. ENV `AUTH_ALLOWED_EMAILS` CSV → bootstrap fallback (couples can still sign in even if they forget to create an invite for themselves).
+
+`events.signIn` in `auth.ts` — after the User row is guaranteed to exist, applies any matching PENDING invite (`role`, `isCouple`) to the user record and marks the invite ACCEPTED. This is how invite-time role assignment reaches the DB without a separate admin step.
+
+`src/app/(app)/settings/invite-actions.ts` — three new server actions, all `requireCouple()`-gated:
+- `createInvite` — validates email + role + isCouple, rejects if user already has an account (they should be edited in the Members panel instead), upserts the invite (reopens a REVOKED invite if the email matches), sends invite email, audit logs.
+- `revokeInvite` — marks PENDING → REVOKED.
+- `resendInvite` — resends the invite email without touching the record.
+
+`sendInviteEmail()` — private helper. Logs to console in dev (no `EMAIL_SERVER_HOST`). In production sends a styled HTML + plaintext invite email via Nodemailer, personalised with the inviter's first name and wedding date/couple names from `getWeddingSettings()`. Sign-in URL links to `/signin`.
+
+`src/app/(app)/settings/InviteBlock.tsx` — new client component. Email input + role dropdown (Viewer / Wedding party / Planner / Couple). Selecting Couple forces `isCouple: true` and shows a warning ("Couple-tier gives full edit access to every section including budget and payments"). Pending invites list below with Resend and Revoke buttons. Fully `useTransition`-driven.
+
+`src/app/(app)/settings/page.tsx` — fetches `db.invite.findMany(...)` in the existing parallel query block; replaces the old AUTH_ALLOWED_EMAILS info box with `<InviteBlock>`.
+
+`src/lib/actions.ts` — added `requireCouple()` (returns SessionUser or throws "Forbidden").
+
+**Welcome sign-out.** New users who have never set a `firstName`/`name` are redirected by `(app)/layout.tsx` to `/welcome` — a page outside the AppShell that had no sign-out affordance. If a user signs in but can't complete the welcome form (wrong account, etc.), they were trapped. Fixed by adding a `signOutAction` server action to `src/app/welcome/page.tsx` and a sibling `<form action={signOutAction}>` with a "Sign out" link in `WelcomeForm.tsx`. Outer container changed from `<form>` to `<div>` to avoid nested form HTML.
+
+**Couple label fix.** `src/app/(app)/settings/MemberOverridesBlock.tsx` — two display sites were showing `u.role.replace("_", " ").toLowerCase()` without checking `isCouple`. Both now show `u.isCouple ? "couple" : u.role.replace("_", " ").toLowerCase()`. Same fix already present in `InviteBlock.tsx`'s pending invite list.
+
+**Verification.** typecheck ✅, lint ✅, 557 tests ✅, build ✅.
+
+---
 
 ### 2026-05-02 · v1.68.0 — design-pass brief
 

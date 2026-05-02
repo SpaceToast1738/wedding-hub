@@ -23,6 +23,12 @@ export async function requireUser(): Promise<SessionUser> {
   };
 }
 
+export async function requireCouple(): Promise<SessionUser> {
+  const user = await requireUser();
+  if (!user.isCouple) throw new Error("Forbidden: couple-tier required");
+  return user;
+}
+
 export async function requireEdit(section: Section): Promise<SessionUser> {
   const user = await requireUser();
   if (!(await canEdit(user, section))) {

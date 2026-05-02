@@ -9,7 +9,7 @@ async function startSignIn(formData: FormData) {
   if (!email || !email.includes("@")) {
     redirect("/signin?error=invalid");
   }
-  if (!isAllowed(email)) {
+  if (!(await isAllowed(email))) {
     redirect("/signin/error?error=AccessDenied");
   }
   // v1.50.0: stash the email in a short-lived cookie so the

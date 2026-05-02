@@ -39,6 +39,7 @@ model User {
   // it doesn't get confused with GuestGroup (organisational bundles
   // of wedding guests, not app users).
   permissionGroups PermissionGroup[] @relation("PermissionGroupMembers")
+  invitesSent   Invite[]     @relation("InvitesSent")
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
 
@@ -78,6 +79,33 @@ model VerificationToken {
   expires    DateTime
 
   @@unique([identifier, token])
+}
+
+// ─── Invites ────────────────────────────────────────────────────────────────
+
+// Admin-issued invites that gate new-user sign-in. Replaces the
+// AUTH_ALLOWED_EMAILS env var for new users. Existing users (emailVerified
+// set) bypass this — they can always re-authenticate.
+model Invite {
+  id          String       @id @default(cuid())
+  email       String       @unique
+  role        UserRole     @default(VIEWER)
+  isCouple    Boolean      @default(false)
+  status      InviteStatus @default(PENDING)
+  invitedById String?
+  invitedBy   User?        @relation("InvitesSent", fields: [invitedById], references: [id], onDelete: SetNull)
+  acceptedAt  DateTime?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@index([email])
+  @@index([status])
+}
+
+enum InviteStatus {
+  PENDING
+  ACCEPTED
+  REVOKED
 }
 
 enum UserRole {

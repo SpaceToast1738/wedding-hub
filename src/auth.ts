@@ -6,15 +6,27 @@ import { db } from "@/lib/db";
 import { authConfig } from "@/auth.config";
 import { checkAndRecordAttempt } from "@/lib/rate-limit";
 
-function allowedEmails(): string[] {
-  return (process.env.AUTH_ALLOWED_EMAILS ?? "")
+// Returning users (emailVerified set) can always sign in.
+// New users require a pending Invite created by an admin.
+// AUTH_ALLOWED_EMAILS is kept as an emergency bootstrap fallback only.
+export async function isAllowed(email: string): Promise<boolean> {
+  const lc = email.toLowerCase();
+  const existing = await db.user.findUnique({
+    where: { email: lc },
+    select: { emailVerified: true },
+  });
+  if (existing?.emailVerified) return true;
+  const invite = await db.invite.findUnique({
+    where: { email: lc },
+    select: { status: true },
+  });
+  if (invite?.status === "PENDING") return true;
+  // Bootstrap fallback: if AUTH_ALLOWED_EMAILS is still set, honour it.
+  const fallback = (process.env.AUTH_ALLOWED_EMAILS ?? "")
     .split(",")
     .map((e) => e.trim().toLowerCase())
     .filter(Boolean);
-}
-
-export function isAllowed(email: string): boolean {
-  return allowedEmails().includes(email.toLowerCase());
+  return fallback.includes(lc);
 }
 
 // v1.50.0: generate a 6-digit numeric token instead of the default
@@ -248,7 +260,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     ...authConfig.callbacks,
     async signIn({ user }) {
       const email = user.email?.toLowerCase();
-      if (!email || !isAllowed(email)) return false;
+      if (!email || !(await isAllowed(email))) return false;
 
       let dbUser = await db.user.findUnique({ where: { email } });
 
@@ -297,7 +309,28 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   },
   events: {
     async signIn({ user }) {
-      if (!user.id) return;
+      if (!user.id || !user.email) return;
+      const email = user.email.toLowerCase();
+
+      // Apply invite role/isCouple on first use, then mark accepted.
+      try {
+        const invite = await db.invite.findUnique({
+          where: { email, status: "PENDING" },
+        });
+        if (invite) {
+          await db.user.update({
+            where: { id: user.id },
+            data: { role: invite.role, isCouple: invite.isCouple },
+          });
+          await db.invite.update({
+            where: { id: invite.id },
+            data: { status: "ACCEPTED", acceptedAt: new Date() },
+          });
+        }
+      } catch (err) {
+        console.error("invite apply failed", err);
+      }
+
       try {
         await db.auditLog.create({
           data: { userId: user.id, action: "signin", entity: "user", entityId: user.id },
