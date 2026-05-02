@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.64.0** | 2026-05-02 | [Pre-2.0 design-pass prep batch (DP-2 + DP-3 + DP-5). New `docs/COMPONENT-INVENTORY.md` documents every reusable UI primitive + which pages use what — the design pass's required input. Empty-state convention codified in `Illustrations.tsx` (top-level pages get illustrated `<EmptyState>`; nested-section empties get a single italic paragraph; "Add" verb everywhere). Audit-log final sweep — 9 bare `audit({entity, entityId})` calls enriched with snapshot fields per the v1.30.5 standing rule (`field-delete`, `field-set`, `recipe-update`, `shot-toggle`, `shot-delete`, `outfit-add`, `outfit-update`, `outfit-delete`, wedding-settings update with `changedFields` diff).](#2026-05-02--v1640--design-pass-prep-batch) |
+| **v1.65.0** | 2026-05-02 | [DP-4 form-pattern audit + DP-6 seed cleanup. New `docs/FORM-PATTERNS.md` codifies three legitimate form patterns (uncontrolled+action / controlled-per-field / single-draft-state) with a decision tree; flags the EventForm hybrid as deprecated for next-touch migration. `prisma/seed.ts` drops 6 legacy section slug seeds (wedding-party / venue / legal-admin / ceremony / reception / logistics) and the orphaned `seedWeddingPartySubsections` function — fresh DBs no longer get cluttered deprecated sections; existing prod data preserved via the `LEGACY_SLUGS` filter on /book. Seed file shrinks 2718 → 2681 lines.](#2026-05-02--v1650--dp-4-form-patterns--dp-6-seed-cleanup) |
+| v1.64.0 | 2026-05-02 | [Pre-2.0 design-pass prep batch (DP-2 + DP-3 + DP-5). New `docs/COMPONENT-INVENTORY.md` documents every reusable UI primitive + which pages use what — the design pass's required input. Empty-state convention codified in `Illustrations.tsx` (top-level pages get illustrated `<EmptyState>`; nested-section empties get a single italic paragraph; "Add" verb everywhere). Audit-log final sweep — 9 bare `audit({entity, entityId})` calls enriched with snapshot fields per the v1.30.5 standing rule (`field-delete`, `field-set`, `recipe-update`, `shot-toggle`, `shot-delete`, `outfit-add`, `outfit-update`, `outfit-delete`, wedding-settings update with `changedFields` diff).](#2026-05-02--v1640--design-pass-prep-batch) |
 | v1.63.0 | 2026-05-02 | [Image galleries on Wedding Book cards (user request: "centerpieces and clothing"). New reusable `<ImageGallery>` component with thumbnails for image MIMEs, click-to-zoom lightbox (← / → keyboard nav, Esc closes), three add paths (direct upload from camera roll / pick from existing /files / detach), and chip-text fallback for non-image attachments. Wired into BUILD (centerpieces, place cards, signage), OUTFIT (per-person reference photos — replaces v1.35.0's chip-only display), SETUP (space layouts), and STAY (bridal suite, property exterior). Schema gains `fileIds: String[]` on `BookBuildCard` / `BookSetupCard` / `BookStayCard` (additive). New server actions `uploadAndAttach<Kind>File` upload+attach in one step from a phone's camera roll.](#2026-05-02--v1630--image-galleries-on-book-cards) |
 | v1.62.0 | 2026-05-02 | [`<ConfirmDialog>` component sweep — replaces all 40 native browser `confirm()` calls across 29 files with a single shared in-app dialog. New `<ConfirmProvider>` mounts at the AppShell level; new `useConfirm()` hook returns a Promise<boolean>. Body accepts `ReactNode` so callers can render structured content (SupplierCard's snapshot fields now render as a definition list instead of `\n`-joined plaintext). Tone supports `default` / `danger`. Esc + backdrop click cancel; cancel button focused on open (safer default for destructive actions). Critical pre-design-pass cleanup — designer redesigns one dialog instead of 40.](#2026-05-02--v1620--confirm-dialog-sweep) |
 | v1.61.1 | 2026-05-02 | [Two bugs caught by the daily Claude bug-check session — (1) clearing every chip in the TaskDrawer / TaskForm Topics picker was a silent no-op (zero `topicKeys` entries → `formData.has("topicKeys")` false → server skipped the m2m `set:` ops → existing relations stayed intact). Fixed via a `__touched__` sentinel hidden input always emitted by TopicPicker (when editable) and always appended by TaskDrawer.save(). (2) `parseTopicKeys` had no test coverage despite v1.61.0 adding the `guestGroup:` prefix branch. Extracted to `@/lib/task-topics` (pure module) and covered with 10 new unit tests — total 552 (was 542).](#2026-05-02--v1611--task-topics-parser-bug--coverage) |
@@ -895,6 +896,60 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-05-02 · v1.65.0 — DP-4 form patterns + DP-6 seed cleanup
+
+User: "DP4" → "Wait should I defer dp4" → "Lets do dp6". Settled on DP-4-as-doc-only (no code migrations) + DP-6 (seed cleanup) batched as one ship.
+
+**DP-4 — form-pattern audit.** New `docs/FORM-PATTERNS.md` codifies three legitimate form patterns + one deprecated hybrid:
+
+- **Pattern A — uncontrolled + form action.** Simple forms (5-10 fields, no conditional UI). `defaultValue` everywhere, dirty-check via form-level `onChange={() => setDirty(true)}`. Used by SupplierForm, GuestForm, PaymentForm, WeddingSettingsPanel.
+- **Pattern B — controlled per field.** Edit drawers / dense panels with conditional UI, live preview. One `useState` per field, dirty derived from comparing each state to original. Used by TaskDrawer, MyProfilePanel, AnswerForm.
+- **Pattern D — single draft state.** Edit ↔ View card editors. One `useState` for the whole draft object; cancel restores via `buildDraft(card)`. Used by every Wedding Book card kind (BookBuildCard, BookSetupCard, BookOutfitCard, BookMenuCard, BookBarCard, BookLegalCard, BookStayCard, BookLodgingCard, BookFieldsCard, BookShotListCard, BookRecipeCard).
+- **Pattern C — hybrid (DEPRECATED).** Some fields controlled, others uncontrolled, manual setDirty plumbing. The one current example is `EventForm.tsx` (allDay + attendeeRefs controlled, rest uncontrolled). Migration plan: convert to Pattern B when next touched for a feature; not as a standalone refactor.
+
+The doc includes a decision tree, full example shapes, a list of anti-patterns, and the rationale for keeping three patterns instead of unifying. The design pass (Phase B) does NOT need to unify these — they serve different needs. The designer reskins the inputs / buttons / chrome inside whichever pattern is in use.
+
+**No code changes** — DP-4 is doc-only this release. EventForm migration deferred to "next time it's touched". The original "defer DP-4" instinct was about the code work (designer informs the pick); the audit doc captures findings without committing to a refactor.
+
+**DP-6 — seed cleanup.** `prisma/seed.ts` carried six legacy BookSection slugs from earlier splits:
+
+- `wedding-party` (replaced by `wedding-party-people` + `wedding-party-dayof` in v1.35.0)
+- `venue` (replaced by `venue-spaces` + `venue-decor` in v1.33.0)
+- `legal-admin` (replaced by `legal-before` + `legal-day` + `legal-after` in v1.34.0)
+- `ceremony` / `reception` / `logistics` (v1.4.0 legacy)
+
+Each was preserved in the seed "in case the couple has user-added subsections under the legacy slug" — but on a fresh install there are no such subsections, so the seed was creating empty deprecated sections that cluttered every fresh DB. The `/book` index already hides empty legacy sections via the `LEGACY_SLUGS` filter (v1.38.5), so user-visible behaviour was unchanged; the seed just stops asserting them. Production DBs that already have the legacy rows keep them — the seed never deletes existing data.
+
+**Other cleanups:**
+- `seedWeddingPartySubsections()` function deleted (was already commented out from `main()` in v1.38.5; now the orphan body is gone too).
+- `seedBuildCards()` legacy `venue` slug fallback dropped — `venue-decor` is the canonical target since v1.33.0 and is always seeded; the fallback was theoretical safety for a state combination that doesn't exist in practice.
+- The 47-line comment block at the top of `seedBookSections()` condensed from history-archeology to the actually-canonical 12-section set.
+- Order conflict fixed: both `post-wedding` and legacy `wedding-party` were at order 12; once `wedding-party` is removed, no conflict.
+
+**Defensive code preserved:**
+- `LEGACY_SLUGS` Set in `book/page.tsx` — still filters empty legacy sections from the hub for prod DBs that have them.
+- `Illustrations.tsx` slug-keyed icon mapping — still maps legacy slugs to icons so prod data renders correctly.
+- The `// v1.38.5: skip legacy seedWeddingPartySubsections — duplicates` comments in operator scripts — kept (they document why those scripts don't import the seeder, useful for future maintainers).
+
+**Seed file shrinks 2718 → 2681 lines.** Modest but real.
+
+**Verification.** typecheck ✅, lint ✅, 557 tests ✅, build ✅.
+
+**Pre-2.0 plan progress post-v1.65.0:**
+- ✅ DP-1 ConfirmDialog sweep (v1.62.0)
+- ✅ DP-2 component inventory doc (v1.64.0)
+- ✅ DP-3 empty-state convention (v1.64.0)
+- ✅ DP-4 form-pattern audit (v1.65.0, doc-only)
+- ✅ DP-5 audit-log final sweep (v1.64.0)
+- ✅ DP-6 seed cleanup (v1.65.0)
+- ✅ DP-7 production promotion — claude/main now at v1.63.0; v1.64.0 + v1.65.0 pending CI.
+
+**Phase A (design-pass readiness) is complete.** Next up: DR-1 (mobile compatibility pass), targeted as v1.66.0 next session per user request.
+
+Files: `docs/FORM-PATTERNS.md` (new), `prisma/seed.ts` (cleanup of `seedBookSections`, removal of `seedWeddingPartySubsections`, fallback removal in `seedBuildCards`, main() comment update), `package.json` → `1.65.0`.
+
+---
 
 ### 2026-05-02 · v1.64.0 — design-pass prep batch
 

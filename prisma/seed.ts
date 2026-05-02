@@ -133,28 +133,23 @@ async function seedSampleHouseholds() {
 }
 
 async function seedBookSections() {
-  // Prototype's 7 canonical sections (orders 1–7). Re-running the seed
-  // is upsert-safe: existing rows have their title + order refreshed
-  // without touching subsections, and the 5 sections that didn't ship
-  // in v1.4.0's seed are added.
+  // The canonical 12 BookSections shipped on a fresh DB seed.
   //
-  // The 3 v1.4.0 legacy slugs (ceremony / reception / logistics) are
-  // kept at orders 8–10 so they don't conflict with the prototype set
-  // and still appear at the bottom of the hub. The user can delete
-  // them via the UI later if they want a clean 7-card hub. Their
-  // content (if any subsections were added) is preserved.
-  // v1.33.0: venue split — venue-spaces / venue-decor at 3 / 4.
-  // v1.34.0: legal split — legal-before / legal-day / legal-after at
-  //   9 / 10 / 11. Legacy `legal-admin` stays at order 8 with any
-  //   user-added content; the /book index hides empty legacy sections.
-  // v1.35.0: wedding-party split — wedding-party-people /
-  //   wedding-party-dayof at 1 / 2. Legacy `wedding-party` slug stays
-  //   in place (with any couple-edited subsections) and is pushed
-  //   towards the back as a deprecated section.
-  // Existing sections shift down; the upsert's `update: { order }`
-  // re-numbers them on re-run.
+  // History (v1.65.0 cleanup, DP-6): earlier seeds also asserted six
+  // legacy slugs (`wedding-party`, `venue`, `legal-admin`, `ceremony`,
+  // `reception`, `logistics`) that had been replaced by split sections
+  // in v1.33.0–v1.35.0. They were preserved "in case the couple has
+  // user-added subsections under the legacy slug" — but on a fresh
+  // install there are no such subsections, so the seed was creating
+  // empty deprecated sections that cluttered the hub. The `/book`
+  // index hides empty legacy sections, so the user-visible behaviour
+  // didn't change; the seed just stops asserting them. Production
+  // DBs that already have the legacy rows keep them — the seed never
+  // deletes existing data.
+  //
+  // Re-running this seed is upsert-safe: existing rows have their
+  // title + order refreshed without touching subsections.
   const sections = [
-    // Prototype-aligned set
     { slug: "wedding-party-people", title: "Wedding Party — People",   order: 1 },
     { slug: "wedding-party-dayof",  title: "Wedding Party — Day-of",   order: 2 },
     { slug: "venue-spaces",      title: "Venue — Spaces",            order: 3 },
@@ -170,20 +165,7 @@ async function seedBookSections() {
     { slug: "legal-day",         title: "Legal — On the day",        order: 9 },
     { slug: "legal-after",       title: "Legal — After",             order: 10 },
     { slug: "accommodation",     title: "Accommodation",             order: 11 },
-    { slug: "post-wedding",      title: "Post-wedding",               order: 12 },
-    // Deprecated split sources — pushed to the bottom so the new
-    // sections lead. Kept (not deleted) because they may carry
-    // couple-edited subsections from earlier releases. The /book
-    // index hides legacy sections that have zero subsections.
-    { slug: "wedding-party",     title: "Wedding Party",             order: 12 },
-    { slug: "venue",             title: "Venue, Décor & Setup",      order: 13 },
-    { slug: "legal-admin",       title: "Legal & Admin",             order: 14 },
-    // Legacy v1.4.0 sections — pushed to the bottom of the order so
-    // the prototype's 7 lead. Kept (rather than deleted) because they
-    // may carry user-added subsection content from prior versions.
-    { slug: "ceremony",          title: "Ceremony",                  order: 15 },
-    { slug: "reception",         title: "Reception",                 order: 16 },
-    { slug: "logistics",         title: "Logistics",                 order: 17 },
+    { slug: "post-wedding",      title: "Post-wedding",              order: 12 },
   ];
   for (const s of sections) {
     await db.bookSection.upsert({
@@ -195,28 +177,13 @@ async function seedBookSections() {
   console.log(`  ✓ ${sections.length} book sections`);
 }
 
-// Seed the Wedding Party subsections only on first run — never overwrite
-// real notes the couple has added.
-export async function seedWeddingPartySubsections() {
-  const section = await db.bookSection.findUnique({ where: { slug: "wedding-party" } });
-  if (!section) return;
-  const existing = await db.bookSubsection.count({ where: { sectionId: section.id } });
-  if (existing > 0) {
-    console.log(`  ✓ wedding party subsections already present (${existing}); skipping seed`);
-    return;
-  }
-  const subs = [
-    { slug: "roles",          title: "Roles",                order: 1, body: "Best Man · Joshua Dickson\nMaid of Honour · Aimee Hollingsworth\nGroomsmen · …\nBridesmaids · …" },
-    { slug: "outfits",        title: "Outfits",              order: 2, body: "Suits via Slaters — fitting on …\nDresses ordered from …\nBouquets and buttonholes from Paintbox Blooms" },
-    { slug: "ring-keepers",   title: "Ring keepers",         order: 3, body: "Joshua holds both rings until the ceremony.\nHand-off in the groomsmen room at 1:30pm.\nConfirm with Aimee day-of." },
-    { slug: "stag-hen",       title: "Stag & Hen",           order: 4, body: "Stag · …\nHen · …" },
-    { slug: "day-of",         title: "Day-of logistics",     order: 5, body: "Bridesmaids arrive at the bridal suite 11:00.\nGroomsmen arrive at the manor 12:30.\nPhotographer with the groomsmen 12:45.\nPhotographer with the bridesmaids 13:00." },
-  ];
-  await db.bookSubsection.createMany({
-    data: subs.map((s) => ({ ...s, sectionId: section.id })),
-  });
-  console.log(`  ✓ ${subs.length} wedding party subsections`);
-}
+// v1.65.0 (DP-6): seedWeddingPartySubsections removed. The function
+// seeded the legacy `wedding-party` section that was split into
+// `wedding-party-people` + `wedding-party-dayof` in v1.35.0. The
+// caller in main() was already commented out in v1.38.5; this
+// release deletes the orphaned function. Production DBs that already
+// have content under the legacy slug keep it — nothing reads the
+// legacy section on a fresh seed any more.
 
 // v1.30.5: PhotographyShot seed removed. Data was migrated to BookShot
 // under a SHOT_LIST card on the Photography section in v1.27.6; the
@@ -285,14 +252,14 @@ export async function seedBuildCards() {
     console.log(`  ✓ build cards already present (${existing}); skipping seed`);
     return;
   }
-  // Prefer venue-decor; fall back to legacy venue for installs that
-  // still have it. The BookSection seeder creates venue-decor on
-  // every fresh seed, so the fallback is theoretical safety.
-  const venue =
-    (await db.bookSection.findUnique({ where: { slug: "venue-decor" } })) ??
-    (await db.bookSection.findUnique({ where: { slug: "venue" } }));
+  // v1.65.0 (DP-6): legacy `venue` fallback dropped — `venue-decor` is
+  // the canonical target since v1.33.0 and is always seeded on a
+  // fresh DB. The fallback was theoretical safety for installs that
+  // somehow had the legacy slug but not the new one; that combination
+  // doesn't exist in practice.
+  const venue = await db.bookSection.findUnique({ where: { slug: "venue-decor" } });
   if (!venue) {
-    console.log(`  · no 'venue-decor' or 'venue' section found; skipping build seed`);
+    console.log(`  · no 'venue-decor' section found; skipping build seed`);
     return;
   }
   const drafts = [
@@ -2664,13 +2631,9 @@ async function main() {
   await seedSampleTasks();
   await seedSampleHouseholds();
   await seedBookSections();
-  // v1.38.5: stop seeding the legacy `wedding-party` section. The
-  // v1.35.0 split moved its content to `wedding-party-people` +
-  // `wedding-party-dayof`; running both seeders fills the legacy
-  // section with content that duplicates the new sections. The
-  // BookSection row stays in seedBookSections for back-compat with
-  // existing prod databases, but no fresh content goes in.
-  // await seedWeddingPartySubsections();  // removed — see comment above
+  // v1.65.0 (DP-6): legacy `wedding-party` section + its seeder
+  // both removed. New content lives under `wedding-party-people`
+  // and `wedding-party-dayof` (see seedWeddingPartyPeopleAndDayof).
   await seedNavTags();
   // v1.38.5: venue-decor seeder must run before the BUILD seeder so
   // its non-BUILD subsections (Printed signage / Florist brief / etc.)
