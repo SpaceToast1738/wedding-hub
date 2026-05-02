@@ -156,19 +156,17 @@ export function GuestList<T extends Household>({
             </thead>
             <tbody>
               {filtered.map((h) => {
-                const showHouseholdHeader = h.guests.length > 1;
+                const isMultiMember = h.guests.length > 1;
                 return (
                   <Fragment key={h.id}>
-                    {showHouseholdHeader && (
-                      <tr className="bg-muted">
-                        <td
-                          colSpan={6}
-                          className="text-[11px] text-ink-tertiary font-medium py-1.5 px-3"
-                        >
-                          {h.name}
-                        </td>
-                      </tr>
-                    )}
+                    <tr className="bg-muted">
+                      <td
+                        colSpan={6}
+                        className="text-[11px] text-ink-tertiary font-medium py-1.5 px-3"
+                      >
+                        {h.name}
+                      </td>
+                    </tr>
                     {h.guests.map((g) => {
                       const fullName = `${g.firstName} ${g.lastName}`.trim();
                       const isPlusOne = !!g.parentGuestId;
@@ -186,7 +184,7 @@ export function GuestList<T extends Household>({
                         >
                           <td
                             className={
-                              "py-2 px-3 " + (showHouseholdHeader ? "pl-7" : "")
+                              "py-2 px-3 " + (isMultiMember ? "pl-7" : "")
                             }
                           >
                             <Link
