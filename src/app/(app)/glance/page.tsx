@@ -180,7 +180,7 @@ export default async function AtAGlancePage() {
         subtitle="Big-picture stats and KPIs"
       />
       <div className="flex-1 overflow-auto">
-        <div className="max-w-[1100px] mx-auto p-6">
+        <div className="max-w-[1100px] mx-auto p-4 sm:p-6">
           {/* Four long columns on lg+; stack on smaller viewports so the
               cards don't squish below ~280px. The four cards (RSVPs,
               Budget/Wedding-day, Payments/Tasks, Recent activity) line

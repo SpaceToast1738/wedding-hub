@@ -215,7 +215,7 @@ export default async function TodayPage() {
     .join(" · ");
 
   return (
-    <div className="flex-1 overflow-auto p-6">
+    <div className="flex-1 overflow-auto p-4 sm:p-6">
       <div className="max-w-[1100px] mx-auto">
         <div className="mb-6 flex items-start justify-between gap-3 flex-wrap">
           <div>

@@ -175,11 +175,18 @@ export function ImageGallery({
                   </Link>
                 )}
                 {canEdit && (
+                  // v1.66.0 (DR-1): w-8 h-8 + always-visible on touch
+                  // (sm:opacity-0). On hover-capable devices the chrome
+                  // hides until hover; on touch devices the button stays
+                  // visible because there's no hover state. Touch
+                  // targets at 32px are still below the 44px ideal but
+                  // sit on a 132px+ thumbnail so the wider tap area
+                  // around them is forgiving.
                   <button
                     type="button"
                     onClick={() => onDetach(f.id)}
                     disabled={pending}
-                    className="absolute top-1 right-1 w-6 h-6 rounded-full bg-surface/90 border border-border-soft text-ink-tertiary hover:text-danger hover:border-danger leading-none text-sm shadow-sm opacity-0 group-hover:opacity-100 transition-opacity"
+                    className="absolute top-1 right-1 w-8 h-8 rounded-full bg-surface/90 border border-border-soft text-ink-tertiary hover:text-danger hover:border-danger leading-none text-base shadow-sm opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity"
                     aria-label={`Detach ${f.name}`}
                     title={`Detach ${f.name}`}
                   >

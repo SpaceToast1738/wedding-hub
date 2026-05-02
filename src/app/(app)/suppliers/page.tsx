@@ -34,7 +34,7 @@ export default async function SuppliersPage() {
         actions={editable ? <AddSupplierToggle /> : undefined}
       />
       <div className="flex-1 overflow-auto">
-        <div className="max-w-6xl mx-auto p-6">
+        <div className="max-w-6xl mx-auto p-4 sm:p-6">
           {/* v1.21.0: SuppliersClient owns the sticky-search state +
               category grouping. Server fetches + sums; client filters. */}
           <SuppliersClient suppliers={suppliers} canEdit={editable} />

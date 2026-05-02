@@ -224,7 +224,7 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
         }
       />
       <div className="flex-1 overflow-auto">
-        <div className="max-w-3xl mx-auto p-6 space-y-4">
+        <div className="max-w-3xl mx-auto p-4 sm:p-6 space-y-4">
           <Link href="/book" className="text-xs text-moss-500 hover:underline inline-block">← Wedding Book</Link>
 
           {/* On-page anchor row — quick jumps for long sections. */}

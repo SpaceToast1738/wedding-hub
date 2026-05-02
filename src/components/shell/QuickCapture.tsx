@@ -212,8 +212,11 @@ export function QuickCapture() {
       )}
 
       {confirm && (
+        // v1.66.0 (DR-1): bump bottom on mobile so the toast doesn't
+        // sit behind the MobileTabBar (h-14 = 56px). Desktop stays at
+        // 24px since there's no tabbar.
         <div
-          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[700] bg-moss-700 text-white text-sm px-4 py-2 rounded-md shadow-lg"
+          className="fixed bottom-20 sm:bottom-6 left-1/2 -translate-x-1/2 z-[700] bg-moss-700 text-white text-sm px-4 py-2 rounded-md shadow-lg"
           role="status"
           aria-live="polite"
         >

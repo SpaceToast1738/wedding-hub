@@ -188,7 +188,7 @@ export default async function SettingsPage({
           scroll sideways. Stops the trackpad-wobble where two scroll
           axes fight each other. */}
       <div className="flex-1 overflow-y-auto overflow-x-hidden">
-        <div className="max-w-6xl mx-auto p-6">
+        <div className="max-w-6xl mx-auto p-4 sm:p-6">
           {/* v1.44.0: panels grouped under named sections so the page
               reads like a document with chapters instead of one long
               stream of cards. Section headings are small uppercase

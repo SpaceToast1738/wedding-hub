@@ -59,7 +59,7 @@ export function BudgetClient({
 
   return (
     <div className="flex-1 overflow-auto">
-      <div className="max-w-5xl mx-auto p-6 space-y-6">
+      <div className="max-w-5xl mx-auto p-4 sm:p-6 space-y-6">
         <SummaryBar totals={totals} remaining={remaining} />
         {categories.length === 0 ? (
           <p className="text-sm text-ink-tertiary text-center py-12">

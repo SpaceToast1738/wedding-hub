@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.65.0** | 2026-05-02 | [DP-4 form-pattern audit + DP-6 seed cleanup. New `docs/FORM-PATTERNS.md` codifies three legitimate form patterns (uncontrolled+action / controlled-per-field / single-draft-state) with a decision tree; flags the EventForm hybrid as deprecated for next-touch migration. `prisma/seed.ts` drops 6 legacy section slug seeds (wedding-party / venue / legal-admin / ceremony / reception / logistics) and the orphaned `seedWeddingPartySubsections` function — fresh DBs no longer get cluttered deprecated sections; existing prod data preserved via the `LEGACY_SLUGS` filter on /book. Seed file shrinks 2718 → 2681 lines.](#2026-05-02--v1650--dp-4-form-patterns--dp-6-seed-cleanup) |
+| **v1.66.0** | 2026-05-02 | [DR-1 mobile compatibility pass — first phase of pre-wedding hardening. Added `docs/MOBILE.md` codifying breakpoint / fixed-bottom / touch-target / table / modal / drawer conventions. Fixed five real bugs: Toaster sat behind the MobileTabBar (z-bumped + padding); QuickCapture success toast same; three tables (BookBuildCard materials, /guests/catering breakdown + dietary + meal-choice) lacked `overflow-x-auto`; SeatingCanvas was unusable on touch (now defaults to list view on first-visit mobile). Bumped touch targets on ConfirmDialog buttons (28px → 40px), AddNewModal close × (16px → 36px), ImageGallery detach × (24px → 32px, always-visible on touch). Page-level `p-6` paddings converted to `p-4 sm:p-6` across 18 pages so phones get more breathing room.](#2026-05-02--v1660--mobile-compatibility-pass-dr-1) |
+| v1.65.0 | 2026-05-02 | [DP-4 form-pattern audit + DP-6 seed cleanup. New `docs/FORM-PATTERNS.md` codifies three legitimate form patterns (uncontrolled+action / controlled-per-field / single-draft-state) with a decision tree; flags the EventForm hybrid as deprecated for next-touch migration. `prisma/seed.ts` drops 6 legacy section slug seeds (wedding-party / venue / legal-admin / ceremony / reception / logistics) and the orphaned `seedWeddingPartySubsections` function — fresh DBs no longer get cluttered deprecated sections; existing prod data preserved via the `LEGACY_SLUGS` filter on /book. Seed file shrinks 2718 → 2681 lines.](#2026-05-02--v1650--dp-4-form-patterns--dp-6-seed-cleanup) |
 | v1.64.0 | 2026-05-02 | [Pre-2.0 design-pass prep batch (DP-2 + DP-3 + DP-5). New `docs/COMPONENT-INVENTORY.md` documents every reusable UI primitive + which pages use what — the design pass's required input. Empty-state convention codified in `Illustrations.tsx` (top-level pages get illustrated `<EmptyState>`; nested-section empties get a single italic paragraph; "Add" verb everywhere). Audit-log final sweep — 9 bare `audit({entity, entityId})` calls enriched with snapshot fields per the v1.30.5 standing rule (`field-delete`, `field-set`, `recipe-update`, `shot-toggle`, `shot-delete`, `outfit-add`, `outfit-update`, `outfit-delete`, wedding-settings update with `changedFields` diff).](#2026-05-02--v1640--design-pass-prep-batch) |
 | v1.63.0 | 2026-05-02 | [Image galleries on Wedding Book cards (user request: "centerpieces and clothing"). New reusable `<ImageGallery>` component with thumbnails for image MIMEs, click-to-zoom lightbox (← / → keyboard nav, Esc closes), three add paths (direct upload from camera roll / pick from existing /files / detach), and chip-text fallback for non-image attachments. Wired into BUILD (centerpieces, place cards, signage), OUTFIT (per-person reference photos — replaces v1.35.0's chip-only display), SETUP (space layouts), and STAY (bridal suite, property exterior). Schema gains `fileIds: String[]` on `BookBuildCard` / `BookSetupCard` / `BookStayCard` (additive). New server actions `uploadAndAttach<Kind>File` upload+attach in one step from a phone's camera roll.](#2026-05-02--v1630--image-galleries-on-book-cards) |
 | v1.62.0 | 2026-05-02 | [`<ConfirmDialog>` component sweep — replaces all 40 native browser `confirm()` calls across 29 files with a single shared in-app dialog. New `<ConfirmProvider>` mounts at the AppShell level; new `useConfirm()` hook returns a Promise<boolean>. Body accepts `ReactNode` so callers can render structured content (SupplierCard's snapshot fields now render as a definition list instead of `\n`-joined plaintext). Tone supports `default` / `danger`. Esc + backdrop click cancel; cancel button focused on open (safer default for destructive actions). Critical pre-design-pass cleanup — designer redesigns one dialog instead of 40.](#2026-05-02--v1620--confirm-dialog-sweep) |
@@ -896,6 +897,35 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-05-02 · v1.66.0 — mobile compatibility pass (DR-1)
+
+User: "Lets do the mobile pass". First phase of Phase C (day-of readiness arc). Audit-driven sweep — without a real phone in hand, this is code review for known mobile-breakage patterns plus convention-codification for future work. Real-conditions testing (DR-3) is still TBD.
+
+**The convention doc.** New `docs/MOBILE.md` codifies breakpoint (640px / Tailwind `sm:`), fixed-bottom-element rules (must clear the 56px tabbar), touch-target sizing, table conventions, drag-drop fallbacks, modal+drawer patterns, page-specific notes. Every fix shipped here pairs with a section in the doc so future maintainers see why and what.
+
+**Five real bugs caught + fixed.**
+
+1. **`<Toaster>` sat behind the MobileTabBar.** The toast wrapper was at `z-[100]` with `p-4` (16px from bottom). The tabbar is at `z-[200]` (higher) and 56px tall — toasts on mobile were visually hidden. Fixed: wrapper now `z-[250]` + `pb-20 sm:pb-4` so toasts clear the tabbar with breathing room.
+2. **`<QuickCapture>` success toast same problem.** The "✓ Task added" pill at `bottom-6` (24px) was inside the tabbar zone. Bumped to `bottom-20 sm:bottom-6`.
+3. **Three tables lacked `overflow-x-auto` wrappers.** `BookBuildCard` materials (7 cols), `guests/catering` per-table breakdown (6 cols), dietary + meal-choice tables (2 cols). On mobile these triggered horizontal page-scroll instead of table-only scroll. Wrapped each. The 7- and 6-col ones got `min-w-[560/640px]` so they stay readable instead of squashing.
+4. **`<SeatingCanvas>` unusable on touch.** SVG drag-drop conflicts with page scroll, no pinch-zoom, dense layout doesn't fit a 360px viewport. Fix: `<SeatingClient>` defaults to **list view** on first visit when `window.innerWidth < 640`. User's saved-view preference still wins so they can opt back into canvas explicitly.
+5. **Touch targets too small.** ConfirmDialog buttons were 28px (`text-xs py-1.5`) — destructive confirms shouldn't require precision aim. Bumped to 40px (`text-sm py-2.5 min-h-[40px]`). AddNewModal close × was ~16px — bumped to 36px (`w-9 h-9`). ImageGallery detach × was 24px hover-only — bumped to 32px and always-visible on touch (`opacity-100 sm:opacity-0 sm:group-hover:opacity-100`).
+
+**Padding sweep.** 18 page-level `mx-auto p-6` wrappers converted to `mx-auto p-4 sm:p-6`. On a 320-414px phone, the 24px-each-side padding was wasting ~15% of horizontal space; reducing to 16px on mobile gives content more breathing room without affecting the desktop layout.
+
+**Verification.** typecheck ✅, lint ✅, 557 tests ✅, build ✅. (No new tests — the changes are visual / responsive-class adjustments. Real-conditions testing is the right verification path; DR-3 will cover that.)
+
+**Pre-2.0 plan progress post-v1.66.0:**
+- Phase A complete (DP-1 through DP-7).
+- Phase C kickoff: ✅ DR-1 (this ship).
+- Open: DR-2 (backup + restore drill), DR-3 (day-of-mode rehearsal on real phone), DR-4 (print stylesheets review), DR-5 (offline mode), DR-6 (wedding-day freeze procedure), DR-7 (DMARC follow-ups).
+
+DR-3 is the next high-value item — it's the user actually picking up their phone and walking through `/today/day-of` as if it's the morning of. That'll catch what an audit can't.
+
+Files: `docs/MOBILE.md` (new), `src/components/ui/Toaster.tsx`, `src/components/shell/QuickCapture.tsx`, `src/components/ui/ConfirmDialog.tsx`, `src/components/ui/AddNewModal.tsx`, `src/components/ui/ImageGallery.tsx`, `src/app/(app)/seating/SeatingClient.tsx`, `src/app/(app)/book/[slug]/BookBuildCard.tsx`, `src/app/(app)/guests/catering/page.tsx`, plus 18 page-level padding conversions across `src/app/(app)/{book,budget,diy,files,glance,guests,page,payments,questions,seating,settings,songs,suppliers,tasks}`. `package.json` → `1.66.0`.
+
+---
 
 ### 2026-05-02 · v1.65.0 — DP-4 form patterns + DP-6 seed cleanup
 

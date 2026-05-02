@@ -139,12 +139,17 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
                 {opts.body}
               </div>
             )}
+            {/* v1.66.0 (DR-1): bumped buttons to text-sm + py-2.5 so
+                they meet touch-target minimums on mobile. Destructive
+                confirms are the highest-stakes interactions in the
+                app — users shouldn't have to aim for a 24px tap area
+                to undo a delete. */}
             <div className="flex justify-end gap-2">
               <button
                 ref={cancelButtonRef}
                 type="button"
                 onClick={() => close(false)}
-                className="text-xs font-medium px-3 py-1.5 rounded-sm border border-border-soft bg-canvas text-ink-secondary hover:border-moss-300 hover:text-moss-700"
+                className="text-sm font-medium px-4 py-2.5 min-h-[40px] rounded-sm border border-border-soft bg-canvas text-ink-secondary hover:border-moss-300 hover:text-moss-700"
               >
                 {opts.cancelLabel ?? "Cancel"}
               </button>
@@ -154,8 +159,8 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
                 autoFocus={false}
                 className={
                   opts.tone === "danger"
-                    ? "text-xs font-medium px-3 py-1.5 rounded-sm border border-danger bg-danger text-white hover:opacity-90"
-                    : "text-xs font-medium px-3 py-1.5 rounded-sm border border-moss-700 bg-moss-700 text-white hover:bg-moss-900"
+                    ? "text-sm font-medium px-4 py-2.5 min-h-[40px] rounded-sm border border-danger bg-danger text-white hover:opacity-90"
+                    : "text-sm font-medium px-4 py-2.5 min-h-[40px] rounded-sm border border-moss-700 bg-moss-700 text-white hover:bg-moss-900"
                 }
               >
                 {opts.confirmLabel ?? "Confirm"}

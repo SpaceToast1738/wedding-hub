@@ -131,7 +131,7 @@ export default async function CateringBriefPage() {
 
   return (
     <div className="flex-1 overflow-auto">
-      <div className="catering-page max-w-3xl mx-auto p-6 space-y-6">
+      <div className="catering-page max-w-3xl mx-auto p-4 sm:p-6 space-y-6">
         {/* Action bar — hidden in print */}
         <div className="no-print flex items-center justify-between gap-2 mb-2">
           <Link
@@ -181,6 +181,7 @@ export default async function CateringBriefPage() {
           {dietaryCounts.size === 0 ? (
             <p className="text-sm text-ink-tertiary italic">None recorded.</p>
           ) : (
+            <div className="overflow-x-auto">
             <table className="w-full text-sm border border-border-soft">
               <thead>
                 <tr className="bg-canvas border-b border-border-soft text-[11px] font-bold text-ink-tertiary uppercase tracking-wider text-left">
@@ -197,6 +198,7 @@ export default async function CateringBriefPage() {
                 ))}
               </tbody>
             </table>
+            </div>
           )}
         </section>
 
@@ -267,6 +269,7 @@ function CourseSection({
   return (
     <section className="print-break-avoid">
       <h2 className="text-sm font-semibold text-ink-primary mb-2">{title}</h2>
+      <div className="overflow-x-auto">
       <table className="w-full text-sm border border-border-soft">
         <thead>
           <tr className="bg-canvas border-b border-border-soft text-[11px] font-bold text-ink-tertiary uppercase tracking-wider text-left">
@@ -291,6 +294,7 @@ function CourseSection({
           )}
         </tbody>
       </table>
+      </div>
     </section>
   );
 }
@@ -312,7 +316,12 @@ function TableBlock({
           <span className="text-[11px] text-ink-tertiary">{headerBits.join(" · ")}</span>
         </div>
       </header>
-      <table className="w-full text-xs">
+      {/* v1.66.0 (DR-1): table is 6-column wide and won't fit a phone
+          viewport without horizontal scroll. The wrapper handles
+          that without breaking the print layout (print stylesheet
+          ignores overflow). */}
+      <div className="overflow-x-auto">
+      <table className="w-full text-xs min-w-[640px]">
         <thead>
           <tr className="bg-canvas border-b border-border-soft text-[10px] font-bold text-ink-tertiary uppercase tracking-wider text-left">
             <th className="px-3 py-1">Seat</th>
@@ -356,6 +365,7 @@ function TableBlock({
           })}
         </tbody>
       </table>
+      </div>
     </div>
   );
 }

@@ -154,7 +154,7 @@ export default async function SupplierDetailPage({
         }
       />
       <div className="flex-1 overflow-auto">
-        <div className="max-w-3xl mx-auto p-6 space-y-5">
+        <div className="max-w-3xl mx-auto p-4 sm:p-6 space-y-5">
           {/* Status + headline numbers */}
           <section className="bg-surface border border-border-soft rounded-md shadow-sm">
             <div className="px-4 py-3 border-b border-border-soft flex items-baseline justify-between gap-3 flex-wrap">

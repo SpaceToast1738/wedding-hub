@@ -57,7 +57,7 @@ export function TaskBoard({
 
   return (
     <div className="flex-1 overflow-auto">
-      <div className="max-w-[1200px] mx-auto p-6">
+      <div className="max-w-[1200px] mx-auto p-4 sm:p-6">
         <div className="grid gap-3 md:grid-cols-3">
           {COLUMNS.map((c) => (
             <div

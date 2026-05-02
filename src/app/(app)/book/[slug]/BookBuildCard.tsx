@@ -463,7 +463,10 @@ function ViewBody({
         {card.materials.length === 0 ? (
           <Empty hint="No materials added yet." />
         ) : (
-          <table className="w-full text-sm">
+          // v1.66.0 (DR-1): 7-column table — overflow on mobile.
+          // min-w forces the wrapper to scroll instead of squashing.
+          <div className="overflow-x-auto">
+          <table className="w-full text-sm min-w-[560px]">
             <thead>
               <tr className="text-[10px] uppercase tracking-wider text-ink-tertiary font-bold border-b border-border-soft">
                 <Th align="left">Material</Th>
@@ -497,6 +500,7 @@ function ViewBody({
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </Section>
 

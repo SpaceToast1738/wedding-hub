@@ -94,7 +94,7 @@ export default async function DiyOverviewPage() {
         subtitle={`${enriched.length} project${enriched.length === 1 ? "" : "s"} across the Wedding Book`}
       />
       <div className="flex-1 overflow-auto">
-        <div className="max-w-4xl mx-auto p-6 space-y-4">
+        <div className="max-w-4xl mx-auto p-4 sm:p-6 space-y-4">
           {enriched.length === 0 ? (
             <p className="text-sm text-ink-tertiary text-center py-12">
               No DIY projects yet. Add a BUILD card on any Wedding Book section

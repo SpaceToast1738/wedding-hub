@@ -77,7 +77,11 @@ export function AddNewModal({
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="text-ink-tertiary hover:text-ink-primary text-lg leading-none px-1"
+            // v1.66.0 (DR-1): w-9 h-9 touch target. Pre-fix the close
+            // × was a ~16px tap area — fine with a mouse, frustrating
+            // on a phone where the user has to land precisely on a
+            // 1.5cm-wide button.
+            className="text-ink-tertiary hover:text-ink-primary text-xl leading-none w-9 h-9 -m-1.5 rounded-sm flex items-center justify-center"
           >
             ×
           </button>

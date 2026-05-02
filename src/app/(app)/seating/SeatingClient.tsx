@@ -126,7 +126,16 @@ export function SeatingClient({
   useEffect(() => {
     try {
       const saved = localStorage.getItem(VIEW_STORAGE_KEY);
-      if (saved === "canvas" || saved === "list") setView(saved);
+      if (saved === "canvas" || saved === "list") {
+        setView(saved);
+      } else if (typeof window !== "undefined" && window.innerWidth < 640) {
+        // v1.66.0 (DR-1): mobile users default to list view. The
+        // SVG drag-drop canvas is unusable on touch — too dense, no
+        // pinch-zoom, drag conflicts with page scroll. Existing
+        // saved-view preference still wins; this is just the
+        // first-visit default.
+        setView("list");
+      }
     } catch {}
     setHydrated(true);
   }, []);
@@ -210,7 +219,7 @@ function ListView({
 }) {
   return (
     <div className="flex-1 overflow-auto">
-      <div className="max-w-6xl mx-auto p-6 space-y-4">
+      <div className="max-w-6xl mx-auto p-4 sm:p-6 space-y-4">
         {/* v1.23.2: collapsible notes + checklist at the top of list
             view. Canvas view mounts the same content in the right
             sidebar instead. */}

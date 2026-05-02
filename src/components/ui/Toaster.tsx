@@ -37,10 +37,14 @@ export function Toaster() {
 
   return (
     <div
-      // Bottom-right on desktop, top-centre-ish on mobile (avoiding the
-      // mobile tab bar). Pointer-events on individual toasts so the
-      // wrapper itself doesn't block interaction with the page.
-      className="fixed inset-0 pointer-events-none z-[100] flex flex-col items-end justify-end p-4 gap-2 sm:items-end sm:justify-end"
+      // v1.66.0 (DR-1): bottom-right on desktop, bottom-right ABOVE
+      // the mobile tabbar on mobile. Pre-fix `p-4` (16px) puts the
+      // toast inside the 56px tabbar — and z-100 < z-200 (tabbar)
+      // means it was hidden behind. Bumped padding-bottom + z-index
+      // so toasts clear the tabbar on every viewport.
+      // Pointer-events on individual toasts so the wrapper itself
+      // doesn't block interaction with the page.
+      className="fixed inset-0 pointer-events-none z-[250] flex flex-col items-end justify-end p-4 pb-20 sm:pb-4 gap-2"
       aria-live="polite"
       aria-atomic="false"
     >

@@ -130,7 +130,7 @@ export default async function BookHubPage() {
         actions={editable ? <AddSectionToggle /> : undefined}
       />
       <div className="flex-1 overflow-auto">
-        <div className="max-w-[960px] mx-auto p-6">
+        <div className="max-w-[960px] mx-auto p-4 sm:p-6">
           {sections.length === 0 ? (
             <p className="text-sm text-ink-tertiary text-center py-12">
               No sections yet. {editable && "Add one above."}

@@ -102,7 +102,7 @@ export function FilesClient({
 
   return (
     <div className="flex-1 overflow-auto">
-      <div className="max-w-5xl mx-auto p-6 space-y-5">
+      <div className="max-w-5xl mx-auto p-4 sm:p-6 space-y-5">
         {canEdit && <UploadDropzone folderNames={folderNames} isCouple={isCouple} />}
 
         {files.length > 0 && (
