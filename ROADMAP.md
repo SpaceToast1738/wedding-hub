@@ -34,6 +34,7 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
+| **v1.72.3** | 2026-05-02 | [Drop the table-wrapper border on /guests so it matches the borderless row treatment used on /tasks. Remove `border border-border-soft rounded-sm bg-surface` from the table container; the row dividers + household subheader bands carry the visual structure on their own.](#2026-05-02--v1723--drop-guests-table-border) |
 | **v1.72.2** | 2026-05-02 | [Always show household subheader on /guests — solo-household guests (e.g. Barry Scott, Gianmarco Schiaffonati) appeared visually nested under the previous household's subheader, since the v1.72.0 logic only rendered the household label when `guests.length > 1`. Now every household gets the muted `bg-muted` rule row with the household name, making boundaries unambiguous regardless of size. Indentation (`pl-7`) still only applies inside multi-member households so single-guest rows don't sit awkwardly indented under their own header.](#2026-05-02--v1722--always-show-household-subheader) |
 | **v1.72.1** | 2026-05-02 | [Guests page width + linked-tasks strip polish — drop the `max-w-7xl mx-auto` constraint on `/guests` so the table goes edge-to-edge matching `/tasks`. Reshape `PageLinkedTasksStrip` from a centered card (`mx-auto max-w-5xl rounded-md shadow-sm`) into a flush full-width banner (`bg-surface border-b border-border-soft px-4 sm:px-6`) — same treatment as the supplier-filter banner on `/tasks`. Empty state collapses into the header row instead of a separate paragraph. Affects /songs, /seating/ceremony, /guests.](#2026-05-02--v1721--guests-width--linked-tasks-strip-polish) |
 | **v1.72.0** | 2026-05-02 | [Guests page redesign — flat-table layout matching `prototype/GuestsPage.jsx`. Replaces the v1.17.0 `HouseholdBlock` card-based list with a single table (Name · Table · RSVP · Type · Tags · Dietary), household subheader rows when 2+ members, row-click → `/guests/[id]`. Tag-filter pill row above (driven by `allGroups`); compact search box; pills + search live on the same scrolling layer (no sticky-header band). Page subtitle changed from `"X invited · Y attending · Z pending · W declined"` to `"X confirmed · Y pending · Z total"` to match the prototype. `+1` badge on plus-one rows (parentGuestId). Container widened from `max-w-5xl` to `max-w-7xl`. `HouseholdBlock.tsx` deleted (its only consumer was the previous GuestList; inline editing now lives on the per-guest detail page). Sort/RSVP/Side/Show filter selects dropped — tag pills + search cover the common case; the heavier filtering can be re-introduced if the household-card flow is missed. Migration: none.](#2026-05-02--v1720--guests-page-redesign-flat-table) |
@@ -905,6 +906,10 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-05-02 · v1.72.3 — Drop /guests table border
+
+Strip the `border border-border-soft rounded-sm bg-surface` wrapper from the table container so the rows sit directly on the page background — same treatment as `/tasks`. Row dividers + the muted household subheader bands carry the structure on their own.
 
 ### 2026-05-02 · v1.72.2 — Always show household subheader
 

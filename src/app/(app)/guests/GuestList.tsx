@@ -140,7 +140,7 @@ export function GuestList<T extends Household>({
           <p className="text-sm text-ink-tertiary text-center py-12">No households yet.</p>
         )
       ) : (
-        <div className="overflow-x-auto border border-border-soft rounded-sm bg-surface">
+        <div className="overflow-x-auto">
           <table className="w-full border-collapse">
             <thead>
               <tr className="border-b border-border-soft bg-canvas">
