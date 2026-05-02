@@ -755,6 +755,7 @@ model BookOutfit {
   role        String?        // legacy buffer
   items       String[]       @default([])
   supplier    String?
+  website     String?        // v1.71.0: optional URL (supplier page, product listing, etc.)
   status      String?        // "Designed" | "Ordered" | "Fitted" | "Collected"
   notes       String?        @db.Text
   order       Int            @default(0)
@@ -805,6 +806,7 @@ model BookBuildMaterial {
   quantity    Float?
   unit        String?
   supplier    String?
+  website     String?        // v1.71.0: optional URL (supplier page, product listing, etc.)
   costPence   Int?
   ordered     Boolean        @default(false)
   arrived     Boolean        @default(false)
@@ -900,6 +902,7 @@ model BookBarItem {
   quantityPlanned Float?
   unit            String?
   supplier        String?
+  website         String?      // v1.71.0: optional URL (supplier page, product listing, etc.)
   costPence       Int?
   notes           String?
   order           Int          @default(0)
@@ -947,6 +950,7 @@ model BookSetupItem {
   // Free-text but auto-completes from existing Supplier.name in the
   // editor — read-time string match for the cross-module reference.
   source       String?
+  website      String?       // v1.71.0: optional URL (supplier page, product listing, etc.)
   packed       Boolean       @default(false)
   placed       Boolean       @default(false)
   packDownPlan String?

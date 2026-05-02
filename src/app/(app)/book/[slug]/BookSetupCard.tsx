@@ -30,6 +30,7 @@ type Item = {
   quantity: number | null;
   location: string | null;
   source: string | null;
+  website: string | null;
   packed: boolean;
   placed: boolean;
   packDownPlan: string | null;
@@ -104,6 +105,7 @@ export function BookSetupCard({
         quantity: i.quantity,
         location: i.location || null,
         source: i.source || null,
+        website: i.website || null,
         packed: i.packed,
         placed: i.placed,
         packDownPlan: i.packDownPlan || null,
@@ -256,7 +258,12 @@ function ViewBody({
                   {item.quantity ?? ""}
                 </td>
                 <td className="py-1.5 px-2 text-ink-secondary">{item.location ?? ""}</td>
-                <td className="py-1.5 px-2 text-ink-secondary">{item.source ?? ""}</td>
+                <td className="py-1.5 px-2 text-ink-secondary">
+                  {item.source ?? ""}
+                  {item.website && (
+                    <a href={item.website} target="_blank" rel="noopener noreferrer" className="text-[10px] text-moss-700 hover:underline ml-1">Link ↗</a>
+                  )}
+                </td>
                 <td className="py-1.5 px-2 text-center">
                   {item.packed ? (
                     <span className="text-moss-700" aria-label="packed">●</span>
@@ -368,6 +375,7 @@ function EditBody({
           quantity: null,
           location: null,
           source: null,
+          website: null,
           packed: false,
           placed: false,
           packDownPlan: null,
@@ -564,6 +572,18 @@ function ItemEditRow({
           />
         </FieldLabel>
       </div>
+      {/* Row 3 — website */}
+      <FieldLabel>
+        <Label>Website</Label>
+        <input
+          type="url"
+          value={item.website ?? ""}
+          onChange={(e) => onChange({ website: e.target.value || null })}
+          disabled={pending}
+          placeholder="https://…"
+          className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2 py-1.5 text-ink-primary outline-none focus:border-moss-500"
+        />
+      </FieldLabel>
       <div className="flex items-center justify-between gap-2 pt-1 text-xs">
         <div className="flex gap-3">
           <label className="flex items-center gap-1.5">

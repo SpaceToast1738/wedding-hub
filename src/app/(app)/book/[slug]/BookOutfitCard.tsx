@@ -59,6 +59,7 @@ type Item = {
   itemLabel: string;
   description: string | null;
   supplier: string | null;
+  website: string | null;
   status: string | null;
   notes: string | null;
   order: number;
@@ -146,6 +147,7 @@ export function BookOutfitCardEditor({
         itemLabel: i.itemLabel.trim(),
         description: i.description?.trim() || null,
         supplier: i.supplier?.trim() || null,
+        website: i.website?.trim() || null,
         status: i.status || null,
         notes: i.notes?.trim() || null,
       })),
@@ -373,13 +375,23 @@ function ViewBody({
         ) : (
           <ul className="divide-y divide-border-soft border border-border-soft rounded-md text-sm">
             {card.items.map((item) => (
-              <li key={item.id} className="px-3 py-2 flex items-baseline gap-2">
+              <li key={item.id} className="px-3 py-2 flex items-baseline gap-2 flex-wrap">
                 <span className="font-medium text-ink-primary">{item.itemLabel}</span>
                 {item.description && (
                   <span className="text-xs text-ink-secondary truncate">{item.description}</span>
                 )}
                 {item.supplier && (
                   <span className="text-[10px] text-ink-tertiary"> · {item.supplier}</span>
+                )}
+                {item.website && (
+                  <a
+                    href={item.website}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[10px] text-moss-700 hover:underline ml-1"
+                  >
+                    Link ↗
+                  </a>
                 )}
                 <span className="ml-auto flex-shrink-0">
                   {item.status ? (
@@ -491,6 +503,7 @@ function EditBody({
           itemLabel: "",
           description: null,
           supplier: null,
+          website: null,
           status: null,
           notes: null,
           order: draft.items.length,
@@ -746,7 +759,19 @@ function ItemEditRow({
           />
         </FieldLabel>
       </div>
-      {/* Row 3 — reorder/remove */}
+      {/* Row 3 — website */}
+      <FieldLabel>
+        <Label>Website</Label>
+        <input
+          type="url"
+          value={item.website ?? ""}
+          onChange={(e) => onChange({ website: e.target.value || null })}
+          disabled={pending}
+          placeholder="https://…"
+          className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2 py-1.5 text-ink-primary outline-none focus:border-moss-500"
+        />
+      </FieldLabel>
+      {/* Row 4 — reorder/remove */}
       <div className="flex items-center justify-end gap-1 pt-1">
         <button
           type="button"

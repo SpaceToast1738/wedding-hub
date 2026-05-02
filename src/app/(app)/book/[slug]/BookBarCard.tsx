@@ -32,6 +32,7 @@ type Item = {
   quantityPlanned: number | null;
   unit: string | null;
   supplier: string | null;
+  website: string | null;
   costPence: number | null;
   notes: string | null;
   order: number;
@@ -109,6 +110,7 @@ export function BookBarCard({
         quantityPlanned: i.quantityPlanned,
         unit: i.unit || null,
         supplier: i.supplier || null,
+        website: i.website || null,
         costPence: i.pricePerHeadPence != null ? null : i.costPence,
         notes: i.notes || null,
         pricePerHeadPence: i.pricePerHeadPence,
@@ -365,6 +367,9 @@ function ItemViewRow({
           )
         )}
         {item.supplier && <span className="text-ink-tertiary"> · {item.supplier}</span>}
+        {item.website && (
+          <a href={item.website} target="_blank" rel="noopener noreferrer" className="text-[10px] text-moss-700 hover:underline ml-1">Link ↗</a>
+        )}
       </span>
       <span className="text-ink-secondary tabular-nums w-24 text-right">
         {isPerHead && (!confirmedAdults || confirmedAdults <= 0) ? (
@@ -428,6 +433,7 @@ function EditBody({
           quantityPlanned: null,
           unit: "bottles",
           supplier: null,
+          website: null,
           costPence: null,
           notes: null,
           order: draft.items.length,
@@ -718,8 +724,20 @@ function ItemEditRow({
           )}
         </FieldLabel>
       </div>
+      {/* Row 3 — website */}
+      <FieldLabel>
+        <span className="text-[10px] uppercase tracking-wider text-ink-tertiary font-bold">Website</span>
+        <input
+          type="url"
+          value={item.website ?? ""}
+          onChange={(e) => onChange({ website: e.target.value || null })}
+          disabled={pending}
+          placeholder="https://…"
+          className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2 py-1.5 text-ink-primary outline-none focus:border-moss-500"
+        />
+      </FieldLabel>
 
-      {/* Row 3 — pricing toggle + reorder/remove */}
+      {/* Row 4 — pricing toggle + reorder/remove */}
       <div className="flex items-center justify-between gap-2 pt-1">
         <div className="flex items-center gap-1 text-[11px]">
           <span className="text-ink-tertiary uppercase tracking-wider font-bold">Pricing</span>

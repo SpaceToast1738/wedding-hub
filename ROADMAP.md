@@ -34,6 +34,7 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
+| **v1.71.0** | 2026-05-02 | [Inline task add everywhere + website links on all item cards — two quality-of-life features. (1) `+ Task` button added to the section-level `LinkedTasksPanel`, per-card `CardLinkedTasksPanel`, and all three `PageLinkedTasksStrip` instances (/songs, /guests, /seating/ceremony); new tasks are pre-linked to the section, card, or nav-tag respectively. Task rows are now interactive checkboxes (optimistic OPEN↔DONE toggle, `useTransition`). `PageLinkedTasksStrip` split into a server shell + `PageLinkedTasksRows` client component; panels show even when empty so the button is always reachable for editors. `UserOpt` re-exported from `AddTaskToggle`. (2) Optional `website` URL field added to `BookOutfit`, `BookBuildMaterial`, `BookBarItem`, and `BookSetupItem` (additive migration `20260510000000_website_on_items`). Edit mode shows a URL input on each item row; view mode shows a "Link ↗" anchor next to the supplier/source. `CardRouter`'s `Sub` type updated for all four item arrays.](#2026-05-02--v1710--inline-task-add-everywhere--website-links-on-item-cards) |
 | **v1.70.0** | 2026-05-02 | [Ceremony deduplication + household clustering + reception seat drag-swap — three seating improvements. Ceremony allocator (`src/lib/ceremony-allocate.ts`): `GroupLite.members` now carries `GuestMember[]` (id · householdId · isChild) instead of a bare count. Deduplication: a guest appearing in multiple groups is allocated only to the lowest-`order` group; later groups show `duplicateCount` in their `GroupAllocation`. Household clustering: members with the same `householdId` are emitted consecutively so families sit together. Row-no-split: on BRIDE/GROOM groups, a multi-member household that won't fit the remaining row seats but fits a full row skips to the next row — gap seats are counted as unfilled. `CeremonyClient` legend shows a duplicate-guest warning banner and per-group `(N↑)` chip when duplicates exist. Reception `TableCard` gains drag-to-reorder seats via the HTML5 drag API — ⣿ handle + `onDragEnter` hover ring; `swapSeats` server action null-then-reassign transaction satisfies the unique constraint.](#2026-05-02--v1700--ceremony-deduplication--household-clustering--reception-seat-drag-swap) |
 | **v1.69.0** | 2026-05-02 | [DB-backed invite system + welcome sign-out + couple label fix — replaces `AUTH_ALLOWED_EMAILS` allowlist with an in-app invite flow. New `Invite` model (email · role · isCouple · status · invitedBy). Settings page gains `InviteBlock`: send invite with role preset (Viewer / Wedding party / Planner / Couple), pending invites list with Resend/Revoke. `isAllowed()` in `auth.ts` made async and checks DB (existing user with emailVerified → allow; PENDING invite → allow; ENV fallback for bootstrap). `events.signIn` applies invite role/isCouple to the newly-created User row and marks invite ACCEPTED. Three new server actions (`createInvite` / `revokeInvite` / `resendInvite`) with couple-gate + audit log + HTML invite email via Nodemailer. Welcome page (`/welcome`) gains a "Sign out" server-action link — previously viewers with no firstName/name were trapped (no AppShell, no sign-out). Cosmetic fix: members with `isCouple: true` now display "couple" label in the Members panel (was showing role string).](#2026-05-02--v1690--db-backed-invite-system--welcome-sign-out--couple-label-fix) |
 | **v1.68.0** | 2026-05-02 | [Design-pass brief — final piece of pre-2.0 prep documentation. New `docs/DESIGN-PASS-BRIEF.md` captures the goal (visual refresh shipping as v2.0.0), constraints (admin-only, no API changes, accessibility floor, dark-mode parity, print fidelity), and the user's explicit direction: **two themes** (Base + Whimsical Forest) × **two modes** (light + dark) = four combinations. Theme picker via new `User.theme` enum (the only schema change v2.0 is allowed). Designer entry point linking the four reference docs (component inventory, form patterns, mobile, brief).](#2026-05-02--v1680--design-pass-brief) |
@@ -901,6 +902,26 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-05-02 · v1.71.0 — Inline task add everywhere + website links on item cards
+
+Two quality-of-life features shipped together.
+
+**Task add + inline toggle (all locations)**
+
+`LinkedTasksPanel` (section-level) and `CardLinkedTasksPanel` (per-card, inside `CardRouter`) both gain a `+ Task` button — `AddTaskToggle` with `defaultBookSectionIds` / `defaultBookSubsectionIds` pre-filled so new tasks are linked in one click. The three `PageLinkedTasksStrip` instances on /songs, /guests, and /seating/ceremony gain the same button via `defaultNavTagIds`. Panels that had no tasks are now shown anyway when `canEdit=true` so the button is always reachable for editors.
+
+Task rows are now interactive: each row renders a checkbox button that optimistically toggles `status` OPEN↔DONE (`useState` + `useTransition` → `setTaskStatus`). `setTaskStatus` gains `revalidatePath("/book", "layout")`, `/guests`, `/songs`, and `/seating/ceremony` so the revalidation covers all surfaces.
+
+`PageLinkedTasksStrip` was a server component — to avoid adding `"use client"` to it directly, the interactive rows were extracted into a new `PageLinkedTasksRows.tsx` client component; `AddTaskToggle` (already a client component) is imported directly.
+
+`UserOpt` was imported-not-re-exported from `AddTaskToggle.tsx`; fixed with `export type { UserOpt }`. `CardRouter.tsx`'s `Sub` type updated to include `website: string | null` in all four item-array shapes.
+
+**Website links on item cards**
+
+New optional `website String?` column on four models: `BookOutfit`, `BookBuildMaterial`, `BookBarItem`, `BookSetupItem`. Migration `20260510000000_website_on_items` adds the column to all four tables (additive). Zod `saveOutfitCard` / `saveBuildCard` / `saveBarCard` / `saveSetupCard` schemas updated; server actions thread the value through to `upsert`.
+
+Edit mode: each item edit row gains a `type="url"` input labelled "Website". View mode: a small "Link ↗" anchor (`target="_blank" rel="noopener noreferrer"`) appears next to the supplier/source text when `website` is non-null. `BookLodgingItem` already had `website` from v1.36.0.
 
 ### 2026-05-02 · v1.70.0 — Ceremony deduplication + household clustering + reception seat drag-swap
 

@@ -59,6 +59,7 @@ type Material = {
   quantity: number | null;
   unit: string | null;
   supplier: string | null;
+  website: string | null;
   costPence: number | null;
   ordered: boolean;
   arrived: boolean;
@@ -179,6 +180,7 @@ export function BookBuildCard({
         quantity: m.quantity,
         unit: m.unit || null,
         supplier: m.supplier || null,
+        website: m.website || null,
         costPence: m.costPence,
         ordered: m.ordered,
         arrived: m.arrived,
@@ -486,7 +488,12 @@ function ViewBody({
                     {m.quantity ?? ""}
                   </td>
                   <td className="py-1.5 px-2 text-ink-secondary">{m.unit ?? ""}</td>
-                  <td className="py-1.5 px-2 text-ink-secondary">{m.supplier ?? ""}</td>
+                  <td className="py-1.5 px-2 text-ink-secondary">
+                    {m.supplier ?? ""}
+                    {m.website && (
+                      <a href={m.website} target="_blank" rel="noopener noreferrer" className="text-[10px] text-moss-700 hover:underline ml-1">Link ↗</a>
+                    )}
+                  </td>
                   <td className="py-1.5 px-2 text-ink-secondary tabular-nums text-right">
                     {formatGBPFromPence(m.costPence)}
                   </td>
@@ -653,6 +660,7 @@ function EditBody({
           quantity: null,
           unit: null,
           supplier: null,
+          website: null,
           costPence: null,
           ordered: false,
           arrived: false,
@@ -917,6 +925,18 @@ function MaterialEditRow({
           </div>
         </FieldLabel>
       </div>
+      {/* Row 3 — website */}
+      <FieldLabel>
+        <Label>Website</Label>
+        <input
+          type="url"
+          value={material.website ?? ""}
+          onChange={(e) => onChange({ website: e.target.value || null })}
+          disabled={pending}
+          placeholder="https://…"
+          className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2 py-1.5 text-ink-primary outline-none focus:border-moss-500"
+        />
+      </FieldLabel>
       <div className="flex items-center justify-between gap-2 pt-1 text-xs">
         <div className="flex gap-3">
           <label className="flex items-center gap-1.5">

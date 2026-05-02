@@ -18,7 +18,7 @@ export default async function CeremonySeatingPage() {
   const user = await requireUser();
   const editable = await canEdit(user, "seating");
 
-  const [row, groupsRaw, navTagForPage] = await Promise.all([
+  const [row, groupsRaw, navTagForPage, taskUsers] = await Promise.all([
     db.ceremonySeating.findUnique({ where: { id: 1 } }),
     db.guestGroup.findMany({
       orderBy: [{ order: "asc" }, { name: "asc" }],
@@ -39,6 +39,10 @@ export default async function CeremonySeatingPage() {
       where: { route: "/seating/ceremony" },
       select: { id: true, name: true },
     }),
+    // v1.71.0: users for AddTaskToggle in the strip.
+    editable
+      ? db.user.findMany({ orderBy: [{ isCouple: "desc" }, { name: "asc" }], select: { id: true, name: true, email: true } })
+      : Promise.resolve([]),
   ]);
 
   const linkedTasks = navTagForPage
@@ -92,6 +96,9 @@ export default async function CeremonySeatingPage() {
         <PageLinkedTasksStrip
           tasks={linkedTasks}
           navTagName={navTagForPage.name}
+          navTagId={navTagForPage.id}
+          canEdit={editable}
+          users={taskUsers}
         />
       )}
       <CeremonyClient

@@ -85,6 +85,14 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
   // how the hub-page filter hides them from the index.
   if (section.visibility === "COUPLE_ONLY" && !user.isCouple) notFound();
 
+  // v1.71.0: users list for AddTaskToggle embedded in linked-task panels.
+  const taskUsers = editable
+    ? await db.user.findMany({
+        orderBy: [{ isCouple: "desc" }, { name: "asc" }],
+        select: { id: true, name: true, email: true },
+      })
+    : [];
+
   // v1.30.5: pull section-level linked tasks (m2m bookSections relation).
   // Replaces v1.30.0's per-subsection link.
   const linkedTasks = await db.task.findMany({
@@ -246,8 +254,13 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
           )}
 
           {/* v1.30.5: section-level linked tasks panel. Renders above
-              the cards. Auto-hides when there are no linked tasks. */}
-          <LinkedTasksPanel tasks={linkedTasks} />
+              the cards. v1.71.0: + task-add affordance + inline toggle. */}
+          <LinkedTasksPanel
+            tasks={linkedTasks}
+            canEdit={editable}
+            users={taskUsers}
+            sectionId={section.id}
+          />
 
           {section.subsections.length === 0 ? (
             <p className="text-sm text-ink-tertiary text-center py-12">
@@ -343,6 +356,7 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
                       itemLabel: o.itemLabel ?? "Outfit",
                       description: o.description,
                       supplier: o.supplier,
+                      website: o.website,
                       status: o.status,
                       notes: o.notes,
                       order: o.order,
@@ -379,6 +393,7 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
                   canEdit={editable}
                   isCouple={user.isCouple}
                   linkedTasks={subsectionTasksById.get(s.id) ?? []}
+                  users={taskUsers}
                 />
               );
             })

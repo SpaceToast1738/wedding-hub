@@ -28,7 +28,7 @@ export default async function SongsPage({
   // playlists keep showing all curated songs. The filter is most
   // useful coming from a guest detail page asking "what did they
   // request?".
-  const [playlists, guestRequests, filteredGuest, navTagForPage] = await Promise.all([
+  const [playlists, guestRequests, filteredGuest, navTagForPage, taskUsers] = await Promise.all([
     db.playlist.findMany({
       orderBy: [{ order: "asc" }, { createdAt: "asc" }],
       include: { songs: { orderBy: [{ order: "asc" }, { createdAt: "asc" }] } },
@@ -58,6 +58,10 @@ export default async function SongsPage({
       where: { route: "/songs" },
       select: { id: true, name: true },
     }),
+    // v1.71.0: users for AddTaskToggle in the strip.
+    editable
+      ? db.user.findMany({ orderBy: [{ isCouple: "desc" }, { name: "asc" }], select: { id: true, name: true, email: true } })
+      : Promise.resolve([]),
   ]);
 
   // v1.52.0: tasks tagged with the page's nav tag. Cheap second query
@@ -136,6 +140,9 @@ export default async function SongsPage({
         <PageLinkedTasksStrip
           tasks={linkedTasks}
           navTagName={navTagForPage.name}
+          navTagId={navTagForPage.id}
+          canEdit={editable}
+          users={taskUsers}
         />
       )}
       <div className="flex-1 overflow-auto">

@@ -1,17 +1,12 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
+import { setTaskStatus } from "@/app/(app)/tasks/actions";
+import { AddTaskToggle, type UserOpt } from "@/app/(app)/tasks/AddTaskToggle";
 
-// v1.30.5: section-level linked tasks panel. Renders above the section's
-// cards on /book/[slug] and lists tasks/questions/decisions linked to
-// this section via the m2m Topics relation. Per-section client-side
-// search keeps the user inline. Empty list collapses entirely.
-//
-// Originally lived inside CardRouter as a per-card panel (v1.30.0). The
-// link was relocated to the BookSection level in v1.30.5; this component
-// followed the link upward and is now imported from the section page
-// rather than rendered per-kind.
+// v1.30.5: section-level linked tasks panel.
+// v1.71.0: + interactive status toggle + AddTaskToggle affordance.
 export type LinkedTask = {
   id: string;
   title: string;
@@ -21,61 +16,148 @@ export type LinkedTask = {
   dueDate: Date | null;
 };
 
-export function LinkedTasksPanel({ tasks }: { tasks: LinkedTask[] }) {
+function statusLabel(s: string): string {
+  if (s === "OPEN") return "Open";
+  if (s === "IN_PROGRESS") return "Doing";
+  if (s === "WAITING") return "Waiting";
+  if (s === "DONE") return "Done";
+  if (s === "ARCHIVED") return "Archived";
+  return s;
+}
+
+function statusClass(s: string): string {
+  if (s === "DONE") return "text-moss-700 bg-moss-50 border-moss-300";
+  if (s === "OPEN") return "text-marigold-700 bg-marigold-100/40 border-marigold-700/30";
+  if (s === "IN_PROGRESS") return "text-info bg-canvas border-border-soft";
+  return "text-ink-tertiary bg-canvas border-border-soft";
+}
+
+function InlineTaskRow({
+  task,
+  canEdit,
+}: {
+  task: LinkedTask;
+  canEdit: boolean;
+}) {
+  const [pending, startTransition] = useTransition();
+  const [optimisticStatus, setOptimisticStatus] = useState(task.status);
+  const isDone = optimisticStatus === "DONE" || optimisticStatus === "ARCHIVED";
+
+  function toggle() {
+    if (!canEdit) return;
+    const next = isDone ? "OPEN" : "DONE";
+    setOptimisticStatus(next);
+    startTransition(async () => {
+      await setTaskStatus(task.id, next as "OPEN" | "DONE");
+    });
+  }
+
+  return (
+    <li className="flex items-baseline gap-2 px-3 py-1.5 text-xs">
+      {canEdit ? (
+        <button
+          type="button"
+          onClick={toggle}
+          disabled={pending}
+          className={`flex-shrink-0 w-3.5 h-3.5 mt-0.5 rounded-sm border transition-colors ${
+            isDone
+              ? "bg-moss-500 border-moss-500 text-white"
+              : "border-border-soft bg-surface hover:border-moss-400"
+          } flex items-center justify-center disabled:opacity-50`}
+          title={isDone ? "Mark as open" : "Mark as done"}
+          aria-label={isDone ? "Mark as open" : "Mark as done"}
+        >
+          {isDone && (
+            <svg width="8" height="6" viewBox="0 0 8 6" fill="none">
+              <path d="M1 3l2 2 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          )}
+        </button>
+      ) : (
+        <span className="text-[10px] font-bold text-ink-tertiary uppercase tracking-wider w-14 flex-shrink-0">
+          {task.type === "TASK" ? "Task" : task.type === "QUESTION" ? "Q" : "Decision"}
+        </span>
+      )}
+      <span className={[
+        "flex-1 min-w-0 truncate",
+        isDone ? "text-ink-tertiary line-through" : "text-ink-primary",
+      ].join(" ")}>
+        {task.title}
+      </span>
+      <span className={`text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded-md border flex-shrink-0 ${statusClass(optimisticStatus)}`}>
+        {statusLabel(optimisticStatus)}
+      </span>
+      {task.dueDate && (
+        <span className="text-[10px] text-ink-tertiary tabular-nums flex-shrink-0">
+          {task.dueDate.toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
+        </span>
+      )}
+    </li>
+  );
+}
+
+export function LinkedTasksPanel({
+  tasks,
+  canEdit = false,
+  users = [],
+  sectionId,
+}: {
+  tasks: LinkedTask[];
+  canEdit?: boolean;
+  users?: UserOpt[];
+  sectionId?: string;
+}) {
   const [search, setSearch] = useState("");
   const filtered = useMemo(() => {
     if (!search.trim()) return tasks;
     const t = search.trim().toLowerCase();
     return tasks.filter((x) => x.title.toLowerCase().includes(t));
   }, [tasks, search]);
-  if (tasks.length === 0) return null;
+
+  if (tasks.length === 0 && !canEdit) return null;
+
   return (
     <div className="bg-canvas/40 border border-border-soft rounded-md">
-      <div className="px-3 py-2 border-b border-border-soft flex items-baseline gap-2 flex-wrap">
+      <div className="px-3 py-2 border-b border-border-soft flex items-center gap-2 flex-wrap">
         <strong className="text-[10px] uppercase tracking-wider text-ink-tertiary font-bold">
           Linked tasks
         </strong>
-        <span className="text-[10px] text-ink-tertiary tabular-nums">
-          {filtered.length}/{tasks.length}
-        </span>
-        <input
-          type="text"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search…"
-          className="ml-auto text-[11px] bg-surface text-ink-primary border border-border-soft rounded-sm px-1.5 py-0.5 outline-none focus:border-moss-500 max-w-[160px]"
-        />
-        <Link
-          href="/tasks"
-          className="text-[10px] text-info hover:underline"
-        >
-          Manage →
-        </Link>
+        {tasks.length > 0 && (
+          <span className="text-[10px] text-ink-tertiary tabular-nums">
+            {filtered.length}/{tasks.length}
+          </span>
+        )}
+        {tasks.length > 3 && (
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search…"
+            className="text-[11px] bg-surface text-ink-primary border border-border-soft rounded-sm px-1.5 py-0.5 outline-none focus:border-moss-500 max-w-[120px]"
+          />
+        )}
+        <div className="ml-auto flex items-center gap-2">
+          {canEdit && sectionId && (
+            <AddTaskToggle
+              users={users}
+              defaultBookSectionIds={[sectionId]}
+              buttonLabel="+ Task"
+              showType={false}
+            />
+          )}
+          <Link href="/tasks" className="text-[10px] text-info hover:underline">
+            Manage →
+          </Link>
+        </div>
       </div>
-      {filtered.length === 0 ? (
+      {tasks.length === 0 ? (
+        <p className="px-3 py-2 text-xs text-ink-tertiary italic">No linked tasks yet.</p>
+      ) : filtered.length === 0 ? (
         <p className="px-3 py-2 text-xs text-ink-tertiary italic">No matches.</p>
       ) : (
         <ul className="divide-y divide-border-soft">
           {filtered.map((t) => (
-            <li key={t.id} className="flex items-baseline gap-2 px-3 py-1.5 text-xs">
-              <span className="text-[10px] font-bold text-ink-tertiary uppercase tracking-wider w-14 flex-shrink-0">
-                {t.type === "TASK" ? "Task" : t.type === "QUESTION" ? "Q" : "Decision"}
-              </span>
-              <span className={[
-                "flex-1 min-w-0 truncate",
-                t.status === "DONE" ? "text-ink-tertiary line-through" : "text-ink-primary",
-              ].join(" ")}>
-                {t.title}
-              </span>
-              <span className="text-[10px] uppercase tracking-wider text-ink-tertiary">
-                {t.status.toLowerCase().replace("_", " ")}
-              </span>
-              {t.dueDate && (
-                <span className="text-[10px] text-ink-tertiary tabular-nums">
-                  {t.dueDate.toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
-                </span>
-              )}
-            </li>
+            <InlineTaskRow key={t.id} task={t} canEdit={canEdit} />
           ))}
         </ul>
       )}

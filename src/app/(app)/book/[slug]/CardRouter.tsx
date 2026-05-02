@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useTransition } from "react";
 import { BookBarCard } from "./BookBarCard";
 import { BookBuildCard } from "./BookBuildCard";
 import { BookFieldsCard } from "./BookFieldsCard";
@@ -12,6 +13,8 @@ import { BookSetupCard } from "./BookSetupCard";
 import { BookShotListCard } from "./BookShotListCard";
 import { BookStayCard } from "./BookStayCard";
 import { SubsectionEditor } from "./SubsectionEditor";
+import { setTaskStatus } from "@/app/(app)/tasks/actions";
+import { AddTaskToggle, type UserOpt } from "@/app/(app)/tasks/AddTaskToggle";
 
 // v1.26.0: kind discriminator → per-kind editor. Each subsection
 // arrives from the server with all its per-kind data eager-loaded
@@ -110,6 +113,7 @@ type Sub = {
       itemLabel: string;
       description: string | null;
       supplier: string | null;
+      website: string | null;
       status: string | null;
       notes: string | null;
       order: number;
@@ -158,6 +162,7 @@ type Sub = {
       quantityPlanned: number | null;
       unit: string | null;
       supplier: string | null;
+      website: string | null;
       costPence: number | null;
       notes: string | null;
       order: number;
@@ -205,6 +210,7 @@ type Sub = {
       quantity: number | null;
       location: string | null;
       source: string | null;
+      website: string | null;
       packed: boolean;
       placed: boolean;
       packDownPlan: string | null;
@@ -275,6 +281,7 @@ type Sub = {
       quantity: number | null;
       unit: string | null;
       supplier: string | null;
+      website: string | null;
       costPence: number | null;
       ordered: boolean;
       arrived: boolean;
@@ -312,19 +319,28 @@ export function CardRouter({
   canEdit,
   isCouple,
   linkedTasks = [],
+  users = [],
 }: {
   sub: Sub;
   canEdit: boolean;
   isCouple: boolean;
   linkedTasks?: LinkedTaskRow[];
+  users?: UserOpt[];
 }) {
   const body = renderCardBody(sub, canEdit, isCouple);
   // v1.51.0: inline panel renders directly below every kind's body.
-  // Hidden when no tasks are linked (empty cards stay clean).
+  // v1.71.0: always shown when canEdit (so "Add task" is available).
   return (
     <>
       {body}
-      {linkedTasks.length > 0 && <CardLinkedTasksPanel tasks={linkedTasks} />}
+      {(linkedTasks.length > 0 || canEdit) && (
+        <CardLinkedTasksPanel
+          tasks={linkedTasks}
+          subsectionId={sub.id}
+          canEdit={canEdit}
+          users={users}
+        />
+      )}
     </>
   );
 }
@@ -672,75 +688,120 @@ function renderCardBody(sub: Sub, canEdit: boolean, isCouple: boolean) {
   }
 }
 
-// v1.51.0: per-card linked tasks panel. Renders directly below the
-// card body for any subsection with at least one task linked via
-// the bookSubsections m2m. Layout mirrors the section-level
-// LinkedTasksPanel but compacted — fewer columns, no search, and
-// hugs the card visually so the relationship is unambiguous.
-function CardLinkedTasksPanel({ tasks }: { tasks: LinkedTaskRow[] }) {
-  function statusLabel(s: string): string {
-    return s === "OPEN"
-      ? "Open"
-      : s === "IN_PROGRESS"
-        ? "Doing"
-        : s === "WAITING"
-          ? "Waiting"
-          : s === "DONE"
-            ? "Done"
-            : s === "ARCHIVED"
-              ? "Archived"
-              : s;
-  }
+// v1.51.0: per-card linked tasks panel.
+// v1.71.0: interactive status toggle + AddTaskToggle affordance.
+function CardInlineTaskRow({ task, canEdit }: { task: LinkedTaskRow; canEdit: boolean }) {
+  const [pending, startTransition] = useTransition();
+  const [optimisticStatus, setOptimisticStatus] = useState(task.status);
+  const isDone = optimisticStatus === "DONE" || optimisticStatus === "ARCHIVED";
+
   function statusClass(s: string): string {
     if (s === "DONE") return "text-moss-700 bg-moss-50 border-moss-300";
     if (s === "OPEN") return "text-marigold-700 bg-marigold-100/40 border-marigold-700/30";
     if (s === "IN_PROGRESS") return "text-info bg-canvas border-border-soft";
-    if (s === "WAITING") return "text-ink-tertiary bg-canvas border-border-soft";
     return "text-ink-tertiary bg-canvas border-border-soft";
   }
-  function typeBadge(t: string): string {
-    return t === "QUESTION" ? "Q" : t === "DECISION" ? "D" : "·";
+  function statusLabel(s: string): string {
+    if (s === "OPEN") return "Open";
+    if (s === "IN_PROGRESS") return "Doing";
+    if (s === "WAITING") return "Waiting";
+    if (s === "DONE") return "Done";
+    if (s === "ARCHIVED") return "Archived";
+    return s;
   }
-  function dueLabel(d: Date | null): string {
-    if (!d) return "";
-    return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short" });
+
+  function toggle() {
+    if (!canEdit) return;
+    const next = isDone ? "OPEN" : "DONE";
+    setOptimisticStatus(next);
+    startTransition(async () => {
+      await setTaskStatus(task.id, next as "OPEN" | "DONE");
+    });
   }
+
+  return (
+    <li className="px-4 py-1.5 flex items-center gap-2">
+      {canEdit ? (
+        <button
+          type="button"
+          onClick={toggle}
+          disabled={pending}
+          className={`flex-shrink-0 w-3.5 h-3.5 rounded-sm border transition-colors ${
+            isDone
+              ? "bg-moss-500 border-moss-500 text-white"
+              : "border-border-soft bg-surface hover:border-moss-400"
+          } flex items-center justify-center disabled:opacity-50`}
+          title={isDone ? "Mark as open" : "Mark as done"}
+        >
+          {isDone && (
+            <svg width="8" height="6" viewBox="0 0 8 6" fill="none">
+              <path d="M1 3l2 2 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          )}
+        </button>
+      ) : (
+        <span className="text-[10px] font-mono text-ink-tertiary w-4 text-center">
+          {task.type === "QUESTION" ? "Q" : task.type === "DECISION" ? "D" : "·"}
+        </span>
+      )}
+      <span className={`flex-1 min-w-0 truncate text-sm ${isDone ? "text-ink-tertiary line-through" : "text-ink-primary"}`}>
+        {task.title}
+      </span>
+      <span className={`text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded-md border flex-shrink-0 ${statusClass(optimisticStatus)}`}>
+        {statusLabel(optimisticStatus)}
+      </span>
+      {task.dueDate && (
+        <span className="text-[10px] text-ink-tertiary tabular-nums whitespace-nowrap flex-shrink-0">
+          {task.dueDate.toLocaleDateString("en-GB", { day: "2-digit", month: "short" })}
+        </span>
+      )}
+    </li>
+  );
+}
+
+function CardLinkedTasksPanel({
+  tasks,
+  subsectionId,
+  canEdit,
+  users,
+}: {
+  tasks: LinkedTaskRow[];
+  subsectionId: string;
+  canEdit: boolean;
+  users: UserOpt[];
+}) {
   return (
     <section className="mt-2 -mx-px border-x border-b border-border-soft bg-canvas/40 rounded-b-md">
       <header className="px-4 py-1.5 border-b border-border-soft flex items-center gap-2">
         <span className="text-[10px] uppercase tracking-wider font-bold text-ink-tertiary">
           Linked tasks
         </span>
-        <span className="text-[10px] text-ink-tertiary tabular-nums">
-          {tasks.length}
-        </span>
-        <a
-          href="/tasks"
-          className="ml-auto text-[10px] text-moss-700 hover:underline"
-        >
-          Manage →
-        </a>
+        {tasks.length > 0 && (
+          <span className="text-[10px] text-ink-tertiary tabular-nums">{tasks.length}</span>
+        )}
+        <div className="ml-auto flex items-center gap-2">
+          {canEdit && (
+            <AddTaskToggle
+              users={users}
+              defaultBookSubsectionIds={[subsectionId]}
+              buttonLabel="+ Task"
+              showType={false}
+            />
+          )}
+          <a href="/tasks" className="text-[10px] text-moss-700 hover:underline">
+            Manage →
+          </a>
+        </div>
       </header>
-      <ul className="divide-y divide-border-soft text-sm">
-        {tasks.map((t) => (
-          <li key={t.id} className="px-4 py-1.5 flex items-center gap-2">
-            <span className="text-[10px] font-mono text-ink-tertiary w-4 text-center">
-              {typeBadge(t.type)}
-            </span>
-            <span className="flex-1 min-w-0 truncate text-ink-primary">{t.title}</span>
-            <span
-              className={`text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded-md border ${statusClass(t.status)}`}
-            >
-              {statusLabel(t.status)}
-            </span>
-            {t.dueDate && (
-              <span className="text-[10px] text-ink-tertiary tabular-nums whitespace-nowrap">
-                {dueLabel(t.dueDate)}
-              </span>
-            )}
-          </li>
-        ))}
-      </ul>
+      {tasks.length === 0 ? (
+        <p className="px-4 py-2 text-xs text-ink-tertiary italic">No linked tasks yet.</p>
+      ) : (
+        <ul className="divide-y divide-border-soft">
+          {tasks.map((t) => (
+            <CardInlineTaskRow key={t.id} task={t} canEdit={canEdit} />
+          ))}
+        </ul>
+      )}
     </section>
   );
 }

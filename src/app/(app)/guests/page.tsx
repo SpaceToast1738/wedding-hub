@@ -71,7 +71,7 @@ export default async function GuestsPage({
   }
 
   // ── Active view ─────────────────────────────────────────────────────
-  const [households, archivedCount, allGroups, navTagForPage] = await Promise.all([
+  const [households, archivedCount, allGroups, navTagForPage, taskUsers] = await Promise.all([
     db.household.findMany({
       orderBy: [{ side: "asc" }, { name: "asc" }],
       include: {
@@ -101,6 +101,10 @@ export default async function GuestsPage({
       where: { route: "/guests" },
       select: { id: true, name: true },
     }),
+    // v1.71.0: users for AddTaskToggle in the strip.
+    editable
+      ? db.user.findMany({ orderBy: [{ isCouple: "desc" }, { name: "asc" }], select: { id: true, name: true, email: true } })
+      : Promise.resolve([]),
   ]);
 
   const linkedTasks = navTagForPage
@@ -169,6 +173,9 @@ export default async function GuestsPage({
         <PageLinkedTasksStrip
           tasks={linkedTasks}
           navTagName={navTagForPage.name}
+          navTagId={navTagForPage.id}
+          canEdit={editable}
+          users={taskUsers}
         />
       )}
       <div className="flex-1 overflow-auto">

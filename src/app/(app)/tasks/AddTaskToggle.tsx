@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { AddNewModal } from "@/components/ui/AddNewModal";
 import { TaskForm, type UserOpt, type SupplierOpt, type BookSectionOpt, type BookSubsectionOpt, type NavTagOpt, type GuestGroupOpt } from "./TaskForm";
+export type { UserOpt };
 import { createTask } from "./actions";
 
 // v1.27.0: opens a fixed-position popover with backdrop instead of

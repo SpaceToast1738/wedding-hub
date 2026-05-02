@@ -237,6 +237,10 @@ export async function setTaskStatus(id: string, status: TaskStatus) {
   revalidatePath("/tasks");
   revalidatePath("/questions");
   revalidatePath("/");
+  revalidatePath("/book", "layout");
+  revalidatePath("/guests");
+  revalidatePath("/songs");
+  revalidatePath("/seating/ceremony");
 }
 
 export async function answerQuestion(id: string, answer: string) {
