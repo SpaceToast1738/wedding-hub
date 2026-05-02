@@ -40,15 +40,38 @@ export async function updateWeddingSettings(formData: FormData) {
   if (Number.isNaN(date.getTime())) {
     throw new Error("Wedding date must be a valid date or ISO timestamp");
   }
+  // v1.64.0 (DP-5): capture changedFields for the audit log. Pre-fix
+  // every wedding-settings save logged just `entity: WeddingSettings,
+  // entityId: 1` — useless for forensics ("who changed the venue?").
+  const before = await db.weddingSettings.findUnique({ where: { id: 1 } });
   await db.weddingSettings.upsert({
     where: { id: 1 },
     create: { id: 1, ...parsed, weddingDate: date, venueAddress: parsed.venueAddress ?? null },
     update: { ...parsed, weddingDate: date, venueAddress: parsed.venueAddress ?? null },
   });
+  const changedFields: string[] = [];
+  if (before) {
+    if (before.weddingDate.getTime() !== date.getTime()) changedFields.push("weddingDate");
+    if (before.ceremonyTime !== parsed.ceremonyTime) changedFields.push("ceremonyTime");
+    if (before.venue !== parsed.venue) changedFields.push("venue");
+    if ((before.venueAddress ?? null) !== (parsed.venueAddress ?? null)) changedFields.push("venueAddress");
+    if (before.coupleLabel !== parsed.coupleLabel) changedFields.push("coupleLabel");
+    if (before.coupleShort !== parsed.coupleShort) changedFields.push("coupleShort");
+    if (before.brideFirst !== parsed.brideFirst) changedFields.push("brideFirst");
+    if (before.groomFirst !== parsed.groomFirst) changedFields.push("groomFirst");
+  }
   await audit(user, {
     action: "update",
     entity: "WeddingSettings",
     entityId: "1",
+    metadata: {
+      changedFields,
+      // Snapshot the post-update values for the most-edited fields so
+      // an audit reader sees "venue is now Alveston Manor" without
+      // re-reading the row.
+      weddingDate: date.toISOString(),
+      venue: parsed.venue,
+    },
   });
   // Invalidate every page that reads wedding settings — the helper at
   // `src/lib/wedding-settings.ts` is React.cache()-wrapped, so

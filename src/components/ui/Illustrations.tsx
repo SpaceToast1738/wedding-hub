@@ -12,6 +12,30 @@
 // The motif icons (ring/candle/plate/camera/bouquet/suitcase) live in
 // `EventMotifIcon.tsx` — kept separate because they have a heuristic
 // classifier paired with them.
+//
+// ── Empty-state convention (DP-3, codified v1.64.0) ──────────────────
+//
+// Two tiers:
+//
+//   1. **Top-level page empties** — when a whole feature page has zero
+//      rows. Use `<EmptyState illustration={EmptyTasks} title=…
+//      body=… action={<AddX />} />`. Bigger, illustrated, encouraging.
+//      Sites: /tasks, /guests, /schedule, /seating, /payments.
+//
+//   2. **Nested-section empties** — when a sub-list inside a page has
+//      zero rows (no notes on this card, no items in this section,
+//      no households yet). Use a single short italic paragraph:
+//      `<p className="text-xs text-ink-tertiary italic">No X yet.</p>`.
+//      Terse, doesn't dominate the surrounding chrome.
+//
+// The shared verb is "Add" — never "Create", "Drop", or any other
+// alternative (P1, v1.60.0). Direction word ("above" / "below") matches
+// where the action affordance actually sits relative to the empty
+// state. Both tiers respect this.
+//
+// New empty states should pick the appropriate tier and not invent a
+// third pattern. If a new top-level page needs an illustration that
+// doesn't exist, add it to the Empty-state family below.
 
 // ── Decorative watermarks ──────────────────────────────────────────────────
 

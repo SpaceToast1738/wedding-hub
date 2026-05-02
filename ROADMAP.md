@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.63.0** | 2026-05-02 | [Image galleries on Wedding Book cards (user request: "centerpieces and clothing"). New reusable `<ImageGallery>` component with thumbnails for image MIMEs, click-to-zoom lightbox (← / → keyboard nav, Esc closes), three add paths (direct upload from camera roll / pick from existing /files / detach), and chip-text fallback for non-image attachments. Wired into BUILD (centerpieces, place cards, signage), OUTFIT (per-person reference photos — replaces v1.35.0's chip-only display), SETUP (space layouts), and STAY (bridal suite, property exterior). Schema gains `fileIds: String[]` on `BookBuildCard` / `BookSetupCard` / `BookStayCard` (additive). New server actions `uploadAndAttach<Kind>File` upload+attach in one step from a phone's camera roll.](#2026-05-02--v1630--image-galleries-on-book-cards) |
+| **v1.64.0** | 2026-05-02 | [Pre-2.0 design-pass prep batch (DP-2 + DP-3 + DP-5). New `docs/COMPONENT-INVENTORY.md` documents every reusable UI primitive + which pages use what — the design pass's required input. Empty-state convention codified in `Illustrations.tsx` (top-level pages get illustrated `<EmptyState>`; nested-section empties get a single italic paragraph; "Add" verb everywhere). Audit-log final sweep — 9 bare `audit({entity, entityId})` calls enriched with snapshot fields per the v1.30.5 standing rule (`field-delete`, `field-set`, `recipe-update`, `shot-toggle`, `shot-delete`, `outfit-add`, `outfit-update`, `outfit-delete`, wedding-settings update with `changedFields` diff).](#2026-05-02--v1640--design-pass-prep-batch) |
+| v1.63.0 | 2026-05-02 | [Image galleries on Wedding Book cards (user request: "centerpieces and clothing"). New reusable `<ImageGallery>` component with thumbnails for image MIMEs, click-to-zoom lightbox (← / → keyboard nav, Esc closes), three add paths (direct upload from camera roll / pick from existing /files / detach), and chip-text fallback for non-image attachments. Wired into BUILD (centerpieces, place cards, signage), OUTFIT (per-person reference photos — replaces v1.35.0's chip-only display), SETUP (space layouts), and STAY (bridal suite, property exterior). Schema gains `fileIds: String[]` on `BookBuildCard` / `BookSetupCard` / `BookStayCard` (additive). New server actions `uploadAndAttach<Kind>File` upload+attach in one step from a phone's camera roll.](#2026-05-02--v1630--image-galleries-on-book-cards) |
 | v1.62.0 | 2026-05-02 | [`<ConfirmDialog>` component sweep — replaces all 40 native browser `confirm()` calls across 29 files with a single shared in-app dialog. New `<ConfirmProvider>` mounts at the AppShell level; new `useConfirm()` hook returns a Promise<boolean>. Body accepts `ReactNode` so callers can render structured content (SupplierCard's snapshot fields now render as a definition list instead of `\n`-joined plaintext). Tone supports `default` / `danger`. Esc + backdrop click cancel; cancel button focused on open (safer default for destructive actions). Critical pre-design-pass cleanup — designer redesigns one dialog instead of 40.](#2026-05-02--v1620--confirm-dialog-sweep) |
 | v1.61.1 | 2026-05-02 | [Two bugs caught by the daily Claude bug-check session — (1) clearing every chip in the TaskDrawer / TaskForm Topics picker was a silent no-op (zero `topicKeys` entries → `formData.has("topicKeys")` false → server skipped the m2m `set:` ops → existing relations stayed intact). Fixed via a `__touched__` sentinel hidden input always emitted by TopicPicker (when editable) and always appended by TaskDrawer.save(). (2) `parseTopicKeys` had no test coverage despite v1.61.0 adding the `guestGroup:` prefix branch. Extracted to `@/lib/task-topics` (pure module) and covered with 10 new unit tests — total 552 (was 542).](#2026-05-02--v1611--task-topics-parser-bug--coverage) |
 | v1.61.0 | 2026-05-02 | [XL1 — tasks-via-guest-groups (closes the last open punch-list item). New Task ↔ GuestGroup m2m mirroring Task ↔ BookSection / BookSubsection / NavTag. TopicPicker gains a fourth "Guest groups" section with colour swatches + member counts; tagged tasks surface on every member's `/guests/[id]` page in a "Tasks via groups" panel with done-bucket-to-bottom ordering and per-row chips showing which group(s) link the task. Read-time query — no auto-sync (v1.30.5 standing rule). Additive migration `_GuestGroupToTask`.](#2026-05-02--v1610--xl1-tasks-via-guest-groups) |
@@ -894,6 +895,52 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-05-02 · v1.64.0 — design-pass prep batch
+
+User: continuation of "lets do all of these" — ships DP-2, DP-3, DP-5 from the pre-2.0 plan as a single batch. DP-6 (seed cleanup) needs its own ship — `prisma/seed.ts` is 2700 lines and a meaningful sweep is its own substantial undertaking. Targeted as v1.65.0.
+
+**DP-2 — component inventory.** New `docs/COMPONENT-INVENTORY.md` lists every reusable UI primitive in `src/components/ui/` and `src/components/shell/` — purpose, API surface, and where it's used. Six sections: layout/shell, forms/inputs, feedback/modals, navigation/page chrome, identity/decoration, domain components, plus a reverse index ("if I redesign Button, I touch X pages") and a "what the design pass should know" section covering tokens / typography / sizing / spacing / print / what-not-to-touch.
+
+This is the design pass's required input. Without it the designer is guessing at scope; with it they reskin a small set of primitives and every page inherits.
+
+**DP-3 — empty-state convention.** Codified in the header comment of `src/components/ui/Illustrations.tsx`. Two tiers:
+
+- **Top-level page empties** → `<EmptyState illustration={Empty…} title=… body=… action=… />` (illustrated, encouraging). Sites: `/tasks`, `/guests`, `/schedule`, `/seating`, `/payments`.
+- **Nested-section empties** → `<p className="text-xs text-ink-tertiary italic">No X yet.</p>` (terse, doesn't dominate).
+
+The shared verb is "Add" (P1, v1.60.0). Direction word matches affordance position. The convention was already implicit; DP-3 just writes it down so future developers don't drift.
+
+**DP-5 — audit-log final sweep.** Final pass through every `audit()` call looking for `metadata`-less ones. Found 9:
+
+- `field-delete` (BookFieldDef removal) → `+ fieldId, fieldLabel, fieldType`
+- `field-set` (BookSubsection field value) → `+ fieldId, fieldLabel, fieldType, cleared`
+- `recipe-update` → `+ ingredientCount, stepCount, hasNotes`
+- `shot-toggle` (capture/uncapture) → `+ shotId, shotTitle, captured`
+- `shot-delete` → `+ shotId, shotTitle, captured`
+- `outfit-add` → `+ personName, role, itemCount, supplier, status`
+- `outfit-update` → `+ outfitId, personName, role, itemCount, supplier, status`
+- `outfit-delete` → `+ outfitId, personName, role, itemCount`
+- `update` on `WeddingSettings` → pre-read for `changedFields` diff + snapshot of `weddingDate` + `venue` so an audit reader sees "venue is now Alveston Manor" without re-reading the row.
+
+The audit-log enrichment standing rule (v1.30.5) is now applied across the entire codebase. Future actions adding `audit()` calls should follow the established pattern. The audit-format unit tests (63 tests in `tests/unit/audit-format-enrichment.test.ts`) cover the rendering of these.
+
+**Verification.** typecheck ✅, lint ✅, 557 tests ✅, build ✅.
+
+**No schema changes.** Pure docs / convention / metadata work.
+
+**DP plan progress post-v1.64.0:**
+- ✅ DP-1 ConfirmDialog sweep (v1.62.0)
+- ✅ DP-2 component inventory doc (v1.64.0)
+- ✅ DP-3 empty-state convention (v1.64.0)
+- open DP-4 form-pattern audit — defer until after design pass (designer informs the pick)
+- ✅ DP-5 audit-log final sweep (v1.64.0)
+- open DP-6 seed cleanup pass — target v1.65.0
+- ✅ DP-7 production promotion — v1.61.1 + v1.62.0 promoted; v1.63.0 + v1.64.0 pending CI green
+
+Files: `docs/COMPONENT-INVENTORY.md` (new), `src/components/ui/Illustrations.tsx` (header comment expansion), `src/app/(app)/book/actions.ts` (8 audit metadata enrichments), `src/app/(app)/settings/wedding-settings-actions.ts` (changedFields diff + snapshot), `package.json` → `1.64.0`.
+
+---
 
 ### 2026-05-02 · v1.63.0 — image galleries on Book cards
 

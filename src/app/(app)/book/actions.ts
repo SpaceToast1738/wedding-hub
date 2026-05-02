@@ -417,7 +417,12 @@ export async function deleteBookFieldDef(id: string): Promise<BookActionResult> 
     // Note: the value entry on BookSubsection.fields (Json bag) is
     // left in place as a dead key. Renderers skip unknown keys so
     // it's harmless. A future sweep could prune.
-    await audit(user, { action: "field-delete", entity: "BookSubsection", entityId: def.subsectionId });
+    await audit(user, {
+      action: "field-delete",
+      entity: "BookSubsection",
+      entityId: def.subsectionId,
+      metadata: { fieldId: def.id, fieldLabel: def.label, fieldType: def.type },
+    });
     await revalidateBookSubsection(def.subsectionId);
     return { ok: true };
   } catch (err) {
@@ -471,7 +476,17 @@ export async function setBookFieldValue(
             : (next as Prisma.InputJsonValue),
       },
     });
-    await audit(user, { action: "field-set", entity: "BookSubsection", entityId: subsectionId });
+    await audit(user, {
+      action: "field-set",
+      entity: "BookSubsection",
+      entityId: subsectionId,
+      metadata: {
+        fieldId: defId,
+        fieldLabel: def.label,
+        fieldType: def.type,
+        cleared: value === null,
+      },
+    });
     await revalidateBookSubsection(subsectionId);
     return { ok: true };
   } catch (err) {
@@ -504,7 +519,16 @@ export async function updateBookRecipe(
         notes: validated.notes,
       },
     });
-    await audit(user, { action: "recipe-update", entity: "BookSubsection", entityId: subsectionId });
+    await audit(user, {
+      action: "recipe-update",
+      entity: "BookSubsection",
+      entityId: subsectionId,
+      metadata: {
+        ingredientCount: validated.ingredients.length,
+        stepCount: validated.steps.length,
+        hasNotes: validated.notes !== null && validated.notes !== "",
+      },
+    });
     await revalidateBookSubsection(subsectionId);
     return { ok: true };
   } catch (err) {
@@ -753,7 +777,12 @@ export async function toggleBookShotCaptured(
       data: { captured, capturedAt: captured ? new Date() : null },
       include: { shotList: true },
     });
-    await audit(user, { action: "shot-toggle", entity: "BookSubsection", entityId: updated.shotList.subsectionId });
+    await audit(user, {
+      action: "shot-toggle",
+      entity: "BookSubsection",
+      entityId: updated.shotList.subsectionId,
+      metadata: { shotId: updated.id, shotTitle: updated.title, captured },
+    });
     await revalidateBookSubsection(updated.shotList.subsectionId);
     return { ok: true };
   } catch (err) {
@@ -767,7 +796,12 @@ export async function deleteBookShot(id: string): Promise<BookActionResult> {
     const shot = await db.bookShot.findUnique({ where: { id }, include: { shotList: true } });
     if (!shot) return { ok: false, error: "Shot not found" };
     await db.bookShot.delete({ where: { id } });
-    await audit(user, { action: "shot-delete", entity: "BookSubsection", entityId: shot.shotList.subsectionId });
+    await audit(user, {
+      action: "shot-delete",
+      entity: "BookSubsection",
+      entityId: shot.shotList.subsectionId,
+      metadata: { shotId: shot.id, shotTitle: shot.title, captured: shot.captured },
+    });
     await revalidateBookSubsection(shot.shotList.subsectionId);
     return { ok: true };
   } catch (err) {
@@ -812,7 +846,18 @@ export async function addBookOutfit(
         order: (last?.order ?? -1) + 1,
       },
     });
-    await audit(user, { action: "outfit-add", entity: "BookSubsection", entityId: card.subsectionId });
+    await audit(user, {
+      action: "outfit-add",
+      entity: "BookSubsection",
+      entityId: card.subsectionId,
+      metadata: {
+        personName: validated.personName,
+        role: validated.role,
+        itemCount: validated.items.length,
+        supplier: validated.supplier,
+        status: validated.status,
+      },
+    });
     await revalidateBookSubsection(card.subsectionId);
     return { ok: true };
   } catch (err) {
@@ -842,7 +887,19 @@ export async function updateBookOutfit(
       data: validated,
       include: { card: true },
     });
-    await audit(user, { action: "outfit-update", entity: "BookSubsection", entityId: updated.card.subsectionId });
+    await audit(user, {
+      action: "outfit-update",
+      entity: "BookSubsection",
+      entityId: updated.card.subsectionId,
+      metadata: {
+        outfitId: updated.id,
+        personName: updated.personName,
+        role: updated.role,
+        itemCount: updated.items.length,
+        supplier: updated.supplier,
+        status: updated.status,
+      },
+    });
     await revalidateBookSubsection(updated.card.subsectionId);
     return { ok: true };
   } catch (err) {
@@ -856,7 +913,17 @@ export async function deleteBookOutfit(id: string): Promise<BookActionResult> {
     const outfit = await db.bookOutfit.findUnique({ where: { id }, include: { card: true } });
     if (!outfit) return { ok: false, error: "Outfit not found" };
     await db.bookOutfit.delete({ where: { id } });
-    await audit(user, { action: "outfit-delete", entity: "BookSubsection", entityId: outfit.card.subsectionId });
+    await audit(user, {
+      action: "outfit-delete",
+      entity: "BookSubsection",
+      entityId: outfit.card.subsectionId,
+      metadata: {
+        outfitId: outfit.id,
+        personName: outfit.personName,
+        role: outfit.role,
+        itemCount: outfit.items.length,
+      },
+    });
     await revalidateBookSubsection(outfit.card.subsectionId);
     return { ok: true };
   } catch (err) {
