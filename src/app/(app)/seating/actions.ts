@@ -512,3 +512,67 @@ export async function updateCeremonySeating(formData: FormData): Promise<SaveRes
 // The CeremonyRow Prisma model itself is still in place as a buffer
 // (per the schema commentary) — drop in a future migration once
 // confidence in the auto-fill model is high.
+
+// v1.70.0: swap the guest assignments of two seats in the same table.
+// Used by the TableCard drag-to-reorder UI. Sequential ops in a single
+// $transaction (null-out both, then re-assign) avoid tripping the
+// Guest.tableSeatId unique constraint.
+export type SwapResult = { ok: true } | { ok: false; error: string };
+
+export async function swapSeats(seatId1: string, seatId2: string): Promise<SwapResult> {
+  if (seatId1 === seatId2) return { ok: true };
+  const user = await requireEdit("seating");
+
+  const [seat1, seat2] = await Promise.all([
+    db.seat.findUnique({
+      where: { id: seatId1 },
+      select: {
+        index: true,
+        tableId: true,
+        table: { select: { name: true } },
+        guest: { select: { id: true } },
+      },
+    }),
+    db.seat.findUnique({
+      where: { id: seatId2 },
+      select: {
+        index: true,
+        tableId: true,
+        guest: { select: { id: true } },
+      },
+    }),
+  ]);
+
+  if (!seat1 || !seat2) return { ok: false, error: "Seat not found" };
+  if (seat1.tableId !== seat2.tableId) return { ok: false, error: "Seats must be on the same table" };
+
+  const guest1 = seat1.guest;
+  const guest2 = seat2.guest;
+  if (!guest1 && !guest2) return { ok: true };
+
+  // Null out both occupants first, then assign to swapped seats.
+  // Sequential within one $transaction satisfies the unique constraint
+  // at each step without needing deferred constraints.
+  const ops: Prisma.PrismaPromise<unknown>[] = [];
+  if (guest1) ops.push(db.guest.update({ where: { id: guest1.id }, data: { tableSeatId: null } }));
+  if (guest2) ops.push(db.guest.update({ where: { id: guest2.id }, data: { tableSeatId: null } }));
+  if (guest1) ops.push(db.guest.update({ where: { id: guest1.id }, data: { tableSeatId: seatId2 } }));
+  if (guest2) ops.push(db.guest.update({ where: { id: guest2.id }, data: { tableSeatId: seatId1 } }));
+  await db.$transaction(ops);
+
+  await audit(user, {
+    action: "swap",
+    entity: "Seat",
+    entityId: seatId1,
+    metadata: {
+      tableName: seat1.table.name,
+      seatIndex1: seat1.index,
+      seatIndex2: seat2.index,
+      guest1Id: guest1?.id ?? null,
+      guest2Id: guest2?.id ?? null,
+    },
+  });
+
+  revalidatePath("/seating");
+  return { ok: true };
+}

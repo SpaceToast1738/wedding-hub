@@ -28,7 +28,9 @@ export default async function CeremonySeatingPage() {
         colour: true,
         side: true,
         order: true,
-        _count: { select: { members: true } },
+        members: {
+          select: { id: true, householdId: true, isChild: true },
+        },
       },
     }),
     // v1.52.0 (backlog #7): tasks tagged with the page's nav tag
@@ -76,7 +78,7 @@ export default async function CeremonySeatingPage() {
     colour: g.colour,
     side: g.side as "BRIDE" | "GROOM" | "BOTH",
     order: g.order,
-    memberCount: g._count.members,
+    members: g.members,
   }));
 
   return (

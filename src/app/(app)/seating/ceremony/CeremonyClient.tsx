@@ -22,6 +22,7 @@ type Config = {
 };
 
 type GroupSummary = GroupLite;
+type AllocResult = ReturnType<typeof allocateCeremony>;
 
 const SIDE_LABELS: Record<"BRIDE" | "GROOM" | "BOTH", string> = {
   BRIDE: "Bride",
@@ -410,7 +411,7 @@ function Legend({
   result,
 }: {
   groups: GroupSummary[];
-  result: ReturnType<typeof allocateCeremony>;
+  result: AllocResult;
 }) {
   if (groups.length === 0) {
     return (
@@ -420,40 +421,56 @@ function Legend({
     );
   }
   return (
-    <ul className="mt-3 space-y-1 text-[12px]">
-      {groups.map((g) => {
-        const alloc = result.perGroup.get(g.id);
-        const seated = alloc?.filledSeats.length ?? 0;
-        const shortfall = alloc?.shortfall ?? 0;
-        return (
-          <li key={g.id} className="flex items-baseline gap-2 flex-wrap">
-            <span
-              className="inline-block w-3 h-3 rounded-full border border-border-soft flex-shrink-0"
-              style={{ background: g.colour ?? "var(--color-moss-100)" }}
-              aria-hidden="true"
-            />
-            <span className="text-ink-secondary font-medium">{g.name}</span>
-            <span className="text-[10px] uppercase tracking-wider text-ink-tertiary font-semibold">
-              {SIDE_LABELS[g.side]}
-            </span>
-            <span className="text-ink-tertiary text-[11px]">
-              {seated} of {g.memberCount} {g.memberCount === 1 ? "guest" : "guests"} seated
-            </span>
-            {shortfall > 0 && (
-              <span className="text-[11px] text-marigold-700 font-semibold">
-                · {shortfall} won&apos;t fit
-              </span>
-            )}
-          </li>
-        );
-      })}
-      {(result.unfilledLeft > 0 || result.unfilledRight > 0) && (
-        <li className="text-[11px] text-ink-tertiary italic pt-1">
-          {result.unfilledLeft + result.unfilledRight} seats empty —{" "}
-          {result.unfilledLeft} left · {result.unfilledRight} right
-        </li>
+    <>
+      {result.duplicateGuests > 0 && (
+        <p className="mt-3 text-[11px] text-marigold-700">
+          ⚠ {result.duplicateGuests} {result.duplicateGuests === 1 ? "guest" : "guests"} appear in
+          multiple groups — they are only allocated to the first group (by order). Fix memberships in{" "}
+          <a href="/settings" className="underline">Settings → Guest groups</a>.
+        </p>
       )}
-    </ul>
+      <ul className="mt-2 space-y-1 text-[12px]">
+        {groups.map((g) => {
+          const alloc = result.perGroup.get(g.id);
+          const seated = alloc?.filledSeats.length ?? 0;
+          const unique = alloc?.uniqueCount ?? g.members.length;
+          const dupes = alloc?.duplicateCount ?? 0;
+          const shortfall = alloc?.shortfall ?? 0;
+          return (
+            <li key={g.id} className="flex items-baseline gap-2 flex-wrap">
+              <span
+                className="inline-block w-3 h-3 rounded-full border border-border-soft flex-shrink-0"
+                style={{ background: g.colour ?? "var(--color-moss-100)" }}
+                aria-hidden="true"
+              />
+              <span className="text-ink-secondary font-medium">{g.name}</span>
+              <span className="text-[10px] uppercase tracking-wider text-ink-tertiary font-semibold">
+                {SIDE_LABELS[g.side]}
+              </span>
+              <span className="text-ink-tertiary text-[11px]">
+                {seated} of {unique} {unique === 1 ? "guest" : "guests"} seated
+              </span>
+              {dupes > 0 && (
+                <span className="text-[11px] text-marigold-700">
+                  · {dupes} in earlier group
+                </span>
+              )}
+              {shortfall > 0 && (
+                <span className="text-[11px] text-marigold-700 font-semibold">
+                  · {shortfall} won&apos;t fit
+                </span>
+              )}
+            </li>
+          );
+        })}
+        {(result.unfilledLeft > 0 || result.unfilledRight > 0) && (
+          <li className="text-[11px] text-ink-tertiary italic pt-1">
+            {result.unfilledLeft + result.unfilledRight} seats empty —{" "}
+            {result.unfilledLeft} left · {result.unfilledRight} right
+          </li>
+        )}
+      </ul>
+    </>
   );
 }
 
@@ -468,7 +485,7 @@ function GroupOrderPanel({
   onReorder,
 }: {
   groups: GroupSummary[];
-  result: ReturnType<typeof allocateCeremony>;
+  result: AllocResult;
   pending: boolean;
   onReorder: (id: string, direction: "up" | "down") => void;
 }) {
@@ -495,7 +512,10 @@ function GroupOrderPanel({
           {groups.map((g, idx) => {
             const alloc = result.perGroup.get(g.id);
             const seated = alloc?.filledSeats.length ?? 0;
+            const unique = alloc?.uniqueCount ?? g.members.length;
+            const dupes = alloc?.duplicateCount ?? 0;
             const shortfall = alloc?.shortfall ?? 0;
+            const hasIssue = shortfall > 0 || dupes > 0;
             return (
               <li key={g.id} className="py-2 flex items-center gap-2 text-sm">
                 <span className="text-[11px] text-ink-tertiary tabular-nums w-6 flex-shrink-0">
@@ -546,15 +566,18 @@ function GroupOrderPanel({
                 </span>
                 <span
                   className={`text-[11px] tabular-nums flex-shrink-0 ${
-                    shortfall > 0 ? "text-marigold-700 font-semibold" : "text-ink-tertiary"
+                    hasIssue ? "text-marigold-700 font-semibold" : "text-ink-tertiary"
                   }`}
                   title={
                     shortfall > 0
-                      ? `${shortfall} guests can't fit — promote this group higher or reduce its membership`
-                      : `${seated} of ${g.memberCount} guests seated`
+                      ? `${shortfall} guests can't fit`
+                      : dupes > 0
+                        ? `${dupes} guests already in an earlier group`
+                        : `${seated} of ${unique} guests seated`
                   }
                 >
-                  {seated}/{g.memberCount}
+                  {seated}/{unique}
+                  {dupes > 0 && <span className="ml-0.5 opacity-60">({dupes}↑)</span>}
                 </span>
               </li>
             );

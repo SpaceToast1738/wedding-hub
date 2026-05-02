@@ -1,16 +1,14 @@
 "use client";
 
-import { useTransition } from "react";
+import { useState, useTransition } from "react";
 import { Button } from "@/components/ui/Button";
 import { notify } from "@/lib/notify";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
-import { assignGuestToSeat, deleteTable, updateTableCapacity } from "./actions";
+import { assignGuestToSeat, deleteTable, updateTableCapacity, swapSeats } from "./actions";
 
 type Seat = {
   id: string;
   index: number;
-  // v1.22.7: rsvp threaded through for canvas dot coloring; not used
-  // here in the list view but the type matches Prisma's select.
   guest: {
     id: string;
     firstName: string;
@@ -35,9 +33,6 @@ type GuestOpt = {
   rsvp?: "PENDING" | "ATTENDING" | "DECLINED" | "MAYBE";
 };
 
-// v1.22.6: prefix pending/maybe entries with their tag so the planner
-// can see at-a-glance which dropdown picks haven't RSVP'd. Attending
-// stays clean (no prefix — most rows).
 function guestOptionLabel(g: GuestOpt): string {
   const name = `${g.firstName} ${g.lastName}`;
   if (g.rsvp === "PENDING") return `? ${name}`;
@@ -56,6 +51,10 @@ export function TableCard({
 }) {
   const [pending, startTransition] = useTransition();
   const confirm = useConfirm();
+  // Drag-to-reorder state: which seat ID is being dragged, which is hovered.
+  const [draggingSeatId, setDraggingSeatId] = useState<string | null>(null);
+  const [overSeatId, setOverSeatId] = useState<string | null>(null);
+
   const assigned = table.seats.filter((s) => s.guest).length;
 
   async function onDelete() {
@@ -79,9 +78,6 @@ export function TableCard({
     });
   }
 
-  // v1.22.6: capacity +/- buttons. v1.22.9: action returns a result
-  // object instead of throwing (see SeatingCanvas onCapacity for the
-  // "why").
   function onCapacity(delta: 1 | -1) {
     const next = table.capacity + delta;
     if (next < 1 || next > 40) return;
@@ -92,6 +88,20 @@ export function TableCard({
       } catch (err) {
         notify("error", err instanceof Error ? err.message : "Couldn't change capacity");
       }
+    });
+  }
+
+  function onDrop(toSeatId: string) {
+    setOverSeatId(null);
+    if (!draggingSeatId || draggingSeatId === toSeatId) {
+      setDraggingSeatId(null);
+      return;
+    }
+    const fromId = draggingSeatId;
+    setDraggingSeatId(null);
+    startTransition(async () => {
+      const res = await swapSeats(fromId, toSeatId);
+      if (!res.ok) notify("error", res.error);
     });
   }
 
@@ -109,7 +119,6 @@ export function TableCard({
             <Button variant="ghost" size="sm" onClick={onDelete} disabled={pending}>Delete</Button>
           )}
         </div>
-        {/* v1.22.7: visible capacity edit row, mirrors FocusPanel. */}
         {canEdit && (
           <div className="mt-3 flex items-center justify-between gap-2 bg-canvas/60 rounded-md px-3 py-2">
             <span className="text-[11px] uppercase tracking-wider font-bold text-ink-secondary">
@@ -144,36 +153,67 @@ export function TableCard({
         )}
       </header>
       <ul className="divide-y divide-border-soft">
-        {table.seats.map((seat) => (
-          <li key={seat.id} className="flex items-center gap-3 px-4 py-2">
-            <span className="text-[10px] text-ink-tertiary w-6">#{seat.index + 1}</span>
-            {canEdit ? (
-              <select
-                value={seat.guest?.id ?? ""}
-                disabled={pending}
-                onChange={(e) => onAssign(seat.id, e.target.value)}
-                className="flex-1 text-sm bg-surface border border-border-soft rounded-sm px-2 py-1 text-ink-primary outline-none"
-              >
-                <option value="">— empty —</option>
-                {seat.guest && (
-                  <option value={seat.guest.id}>
-                    {seat.guest.firstName} {seat.guest.lastName}
-                  </option>
-                )}
-                {unseatedGuests.map((g) => (
-                  <option key={g.id} value={g.id}>{guestOptionLabel(g)}</option>
-                ))}
-              </select>
-            ) : (
-              <span className="flex-1 text-sm text-ink-primary">
-                {seat.guest ? `${seat.guest.firstName} ${seat.guest.lastName}` : <span className="text-ink-tertiary italic">empty</span>}
+        {table.seats.map((seat) => {
+          const isDragging = draggingSeatId === seat.id;
+          const isOver = overSeatId === seat.id && draggingSeatId !== seat.id;
+          return (
+            <li
+              key={seat.id}
+              onDragEnter={(e) => {
+                if (!canEdit) return;
+                e.preventDefault();
+                setOverSeatId(seat.id);
+              }}
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={() => canEdit && onDrop(seat.id)}
+              className={`flex items-center gap-2 px-4 py-2 transition-colors ${
+                isDragging ? "opacity-40" : ""
+              } ${isOver ? "bg-moss-50 ring-1 ring-inset ring-moss-400" : ""}`}
+            >
+              {canEdit && (
+                <span
+                  draggable
+                  onDragStart={() => setDraggingSeatId(seat.id)}
+                  onDragEnd={() => { setDraggingSeatId(null); setOverSeatId(null); }}
+                  className="cursor-grab active:cursor-grabbing select-none text-ink-tertiary hover:text-ink-secondary flex-shrink-0 text-xs leading-none"
+                  aria-label="Drag to reorder"
+                  title="Drag to swap seats"
+                >
+                  ⣿
+                </span>
+              )}
+              <span className="text-[10px] text-ink-tertiary w-5 flex-shrink-0 tabular-nums">
+                #{seat.index + 1}
               </span>
-            )}
-          </li>
-        ))}
+              {canEdit ? (
+                <select
+                  value={seat.guest?.id ?? ""}
+                  disabled={pending}
+                  onChange={(e) => onAssign(seat.id, e.target.value)}
+                  className="flex-1 text-sm bg-surface border border-border-soft rounded-sm px-2 py-1 text-ink-primary outline-none"
+                >
+                  <option value="">— empty —</option>
+                  {seat.guest && (
+                    <option value={seat.guest.id}>
+                      {seat.guest.firstName} {seat.guest.lastName}
+                    </option>
+                  )}
+                  {unseatedGuests.map((g) => (
+                    <option key={g.id} value={g.id}>{guestOptionLabel(g)}</option>
+                  ))}
+                </select>
+              ) : (
+                <span className="flex-1 text-sm text-ink-primary">
+                  {seat.guest
+                    ? `${seat.guest.firstName} ${seat.guest.lastName}`
+                    : <span className="text-ink-tertiary italic">empty</span>
+                  }
+                </span>
+              )}
+            </li>
+          );
+        })}
       </ul>
-      {/* v1.23.0 mounted per-table notes + checklist here. v1.23.1
-          moved both to a global panel above the canvas. */}
     </section>
   );
 }

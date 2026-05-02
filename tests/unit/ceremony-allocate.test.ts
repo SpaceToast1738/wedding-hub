@@ -1,10 +1,14 @@
 // v1.48.0: tests for the auto-fill ceremony seating allocator.
-// Covers ordering, side constraints (BRIDE/GROOM/BOTH), aisle-
-// outward packing per side, overflow into back rows, BOTH-balance
-// behaviour, and shortfall when a group can't fit.
+// v1.70.0: updated for GuestMember[] (was memberCount: number) +
+//   new deduplication and household-clustering tests.
 
 import { describe, expect, it } from "vitest";
-import { allocateCeremony, type GroupLite, type LayoutLite } from "@/lib/ceremony-allocate";
+import {
+  allocateCeremony,
+  type GroupLite,
+  type GuestMember,
+  type LayoutLite,
+} from "@/lib/ceremony-allocate";
 
 const layout: LayoutLite = {
   leftRows: 3,
@@ -13,24 +17,38 @@ const layout: LayoutLite = {
   rightSeatsRow: 4,
 };
 
-function makeGroup(id: string, side: "BRIDE" | "GROOM" | "BOTH", memberCount: number, order = 0, colour = "#abc"): GroupLite {
-  return { id, name: id.toUpperCase(), colour, side, order, memberCount };
+// Creates N members each in their own household (no clustering by default).
+// idPrefix scopes member IDs to the group so different groups don't collide,
+// which would trigger the deduplication logic unintentionally.
+function makeMembers(count: number, idPrefix: string, householdOverrides?: (string | null)[]): GuestMember[] {
+  return Array.from({ length: count }, (_, i) => ({
+    id: `${idPrefix}-${i}`,
+    householdId: householdOverrides?.[i] ?? `h${i}`,
+    isChild: false,
+  }));
+}
+
+function makeGroup(
+  id: string,
+  side: "BRIDE" | "GROOM" | "BOTH",
+  memberCount: number,
+  order = 0,
+  colour = "#abc",
+): GroupLite {
+  return { id, name: id.toUpperCase(), colour, side, order, members: makeMembers(memberCount, id) };
 }
 
 describe("allocateCeremony — BRIDE side packs LEFT only", () => {
   it("front-row LEFT aisle outward (seatIndex 3 first, then 2, 1, 0)", () => {
-    // LEFT layout: 3 rows × 4 seats. A 5-member BRIDE group fills
-    // the front-row aisle-side first (seat 3), then 2, 1, 0 — and
-    // overflows seat 0 of the next row's aisle (seat 3 of row 1).
     const g = makeGroup("bride", "BRIDE", 5);
     const result = allocateCeremony([g], layout);
     const filled = result.perGroup.get("bride")!.filledSeats;
     expect(filled).toEqual([
-      "LEFT-0-3", // aisle-side of row 0
+      "LEFT-0-3",
       "LEFT-0-2",
       "LEFT-0-1",
-      "LEFT-0-0", // far edge of row 0
-      "LEFT-1-3", // aisle-side of row 1 (overflow)
+      "LEFT-0-0",
+      "LEFT-1-3",
     ]);
   });
 
@@ -42,7 +60,6 @@ describe("allocateCeremony — BRIDE side packs LEFT only", () => {
   });
 
   it("shortfall when memberCount exceeds total LEFT capacity", () => {
-    // Total LEFT = 12 seats. 15-member BRIDE group has 3 shortfall.
     const g = makeGroup("bride", "BRIDE", 15);
     const result = allocateCeremony([g], layout);
     expect(result.perGroup.get("bride")!.shortfall).toBe(3);
@@ -56,11 +73,11 @@ describe("allocateCeremony — GROOM side packs RIGHT only", () => {
     const result = allocateCeremony([g], layout);
     const filled = result.perGroup.get("groom")!.filledSeats;
     expect(filled).toEqual([
-      "RIGHT-0-0", // aisle-side of row 0
+      "RIGHT-0-0",
       "RIGHT-0-1",
       "RIGHT-0-2",
-      "RIGHT-0-3", // far edge of row 0
-      "RIGHT-1-0", // overflow
+      "RIGHT-0-3",
+      "RIGHT-1-0",
     ]);
   });
 
@@ -80,12 +97,9 @@ describe("allocateCeremony — BOTH balances across sides", () => {
   });
 
   it("alternates LEFT/RIGHT roughly evenly", () => {
-    // 4 members; capacities equal. Fills LEFT-0-3, then either side.
-    // The tie-breaker prefers LEFT until LEFT has fewer remaining
-    // than RIGHT — so the sequence is L, L, R, R for 4 members.
-    // (LEFT goes from 12→11, RIGHT 12; then LEFT 11>RIGHT 12? no
-    // 11<12 → next goes RIGHT. Then LEFT 11>RIGHT 11 (tie) → LEFT.
-    // Then LEFT 10<RIGHT 11 → RIGHT.) Verify the pattern:
+    // 4 solo members (different households). Balance:
+    // leftRem=12 >= rightRem=12 → L-0-3. leftRem=11 < 12 → R-0-0.
+    // leftRem=11 >= rightRem=11 (tie) → L-0-2. leftRem=10 < 11 → R-0-1.
     const g = makeGroup("both", "BOTH", 4);
     const result = allocateCeremony([g], layout);
     const filled = result.perGroup.get("both")!.filledSeats;
@@ -98,7 +112,6 @@ describe("allocateCeremony — BOTH balances across sides", () => {
   });
 
   it("overflows to whichever side still has space when one fills", () => {
-    // BRIDE first eats all 12 LEFT seats, then BOTH picks up RIGHT.
     const groups = [
       makeGroup("bride", "BRIDE", 12, 0),
       makeGroup("both", "BOTH", 5, 1),
@@ -114,7 +127,6 @@ describe("allocateCeremony — BOTH balances across sides", () => {
 
 describe("allocateCeremony — order matters", () => {
   it("walks groups in ascending `order`", () => {
-    // Two BRIDE groups. order=0 goes first, takes the front aisle.
     const groups = [
       makeGroup("a", "BRIDE", 2, 0),
       makeGroup("b", "BRIDE", 2, 1),
@@ -131,7 +143,6 @@ describe("allocateCeremony — order matters", () => {
   });
 
   it("input order doesn't matter; only `order` field does", () => {
-    // Pass groups in reverse order; result should be the same.
     const groups = [
       makeGroup("b", "BRIDE", 2, 1),
       makeGroup("a", "BRIDE", 2, 0),
@@ -164,7 +175,7 @@ describe("allocateCeremony — fills payload + shortfall + remainders", () => {
       makeGroup("b", "GROOM", 4, 1),
     ];
     const result = allocateCeremony(groups, layout);
-    expect(result.unfilledLeft).toBe(8); // 12 - 4
+    expect(result.unfilledLeft).toBe(8);
     expect(result.unfilledRight).toBe(8);
   });
 
@@ -176,7 +187,6 @@ describe("allocateCeremony — fills payload + shortfall + remainders", () => {
   });
 
   it("BOTH group hits shortfall only when the entire canvas is full", () => {
-    // Total capacity 24; first group eats all of it.
     const groups = [
       makeGroup("a", "BOTH", 24, 0),
       makeGroup("b", "BOTH", 5, 1),
@@ -186,5 +196,138 @@ describe("allocateCeremony — fills payload + shortfall + remainders", () => {
     expect(result.perGroup.get("a")!.shortfall).toBe(0);
     expect(result.perGroup.get("b")!.filledSeats.length).toBe(0);
     expect(result.perGroup.get("b")!.shortfall).toBe(5);
+  });
+});
+
+describe("allocateCeremony — deduplication (one group per guest)", () => {
+  it("guest in two groups is only allocated to the first (lower order)", () => {
+    const sharedMember: GuestMember = { id: "shared", householdId: "hS", isChild: false };
+    const groups: GroupLite[] = [
+      {
+        id: "a",
+        name: "A",
+        colour: null,
+        side: "BRIDE",
+        order: 0,
+        members: [{ id: "a1", householdId: "h1", isChild: false }, sharedMember],
+      },
+      {
+        id: "b",
+        name: "B",
+        colour: null,
+        side: "BRIDE",
+        order: 1,
+        members: [sharedMember, { id: "b1", householdId: "h2", isChild: false }],
+      },
+    ];
+    const result = allocateCeremony(groups, layout);
+    // Group a: both members unique
+    expect(result.perGroup.get("a")!.uniqueCount).toBe(2);
+    expect(result.perGroup.get("a")!.duplicateCount).toBe(0);
+    expect(result.perGroup.get("a")!.filledSeats.length).toBe(2);
+    // Group b: shared is duplicate, only b1 fills a seat
+    expect(result.perGroup.get("b")!.uniqueCount).toBe(1);
+    expect(result.perGroup.get("b")!.duplicateCount).toBe(1);
+    expect(result.perGroup.get("b")!.filledSeats.length).toBe(1);
+    // Total fills = 3 (a1, shared, b1). shared is in group-a's range.
+    expect(result.fills.size).toBe(3);
+    expect(result.duplicateGuests).toBe(1);
+  });
+
+  it("records uniqueCount and duplicateCount=0 when no duplicates", () => {
+    const g = makeGroup("bride", "BRIDE", 3);
+    const result = allocateCeremony([g], layout);
+    const alloc = result.perGroup.get("bride")!;
+    expect(alloc.uniqueCount).toBe(3);
+    expect(alloc.duplicateCount).toBe(0);
+    expect(result.duplicateGuests).toBe(0);
+  });
+});
+
+describe("allocateCeremony — household clustering", () => {
+  it("clusters household members adjacently within a BRIDE group", () => {
+    // 4 members interleaved across 2 households in raw order: h1,h2,h1,h2
+    // After clustering: h1(g0,g2), h2(g1,g3)
+    const members: GuestMember[] = [
+      { id: "g0", householdId: "h1", isChild: false },
+      { id: "g1", householdId: "h2", isChild: false },
+      { id: "g2", householdId: "h1", isChild: false },
+      { id: "g3", householdId: "h2", isChild: false },
+    ];
+    const g: GroupLite = { id: "bride", name: "BRIDE", colour: null, side: "BRIDE", order: 0, members };
+    const result = allocateCeremony([g], layout);
+    const filled = result.perGroup.get("bride")!.filledSeats;
+    // All 4 members seated (no skip — each 2-member cluster fits in 4-seat row)
+    expect(filled).toEqual(["LEFT-0-3", "LEFT-0-2", "LEFT-0-1", "LEFT-0-0"]);
+    // Household h1 is at 0-3 and 0-2; h2 is at 0-1 and 0-0 — all adjacent ✓
+  });
+
+  it("skips row remainder to keep household together (row-no-split)", () => {
+    // h1 has 3 members → fills LEFT-0-3, LEFT-0-2, LEFT-0-1. Cursor at pos 3.
+    // h2 has 2 members → remaining in row = 1. Size 2 > 1 → skip to row 1.
+    // h2 fills LEFT-1-3, LEFT-1-2.
+    const members: GuestMember[] = [
+      { id: "g0", householdId: "h1", isChild: false },
+      { id: "g1", householdId: "h1", isChild: false },
+      { id: "g2", householdId: "h1", isChild: false },
+      { id: "g3", householdId: "h2", isChild: false },
+      { id: "g4", householdId: "h2", isChild: false },
+    ];
+    const g: GroupLite = { id: "bride", name: "BRIDE", colour: null, side: "BRIDE", order: 0, members };
+    const result = allocateCeremony([g], layout);
+    const filled = result.perGroup.get("bride")!.filledSeats;
+    expect(filled).toEqual([
+      "LEFT-0-3", "LEFT-0-2", "LEFT-0-1", // h1 cluster in row 0
+      "LEFT-1-3", "LEFT-1-2",              // h2 cluster skips to row 1
+    ]);
+    // All 5 members seated; no shortfall
+    expect(result.perGroup.get("bride")!.shortfall).toBe(0);
+    // LEFT-0-0 was skipped — shows as part of unfilledLeft
+    expect(result.unfilledLeft).toBe(6); // 12 total - 5 filled - 1 skipped = 6
+  });
+
+  it("does not skip when household fits in remaining row seats", () => {
+    // h1 has 2 members → fills LEFT-0-3, LEFT-0-2. Cursor at pos 2.
+    // h2 has 2 members → remaining = 2. Size 2 <= 2 → NO skip.
+    const members: GuestMember[] = [
+      { id: "g0", householdId: "h1", isChild: false },
+      { id: "g1", householdId: "h1", isChild: false },
+      { id: "g2", householdId: "h2", isChild: false },
+      { id: "g3", householdId: "h2", isChild: false },
+    ];
+    const g: GroupLite = { id: "bride", name: "BRIDE", colour: null, side: "BRIDE", order: 0, members };
+    const result = allocateCeremony([g], layout);
+    const filled = result.perGroup.get("bride")!.filledSeats;
+    expect(filled).toEqual([
+      "LEFT-0-3", "LEFT-0-2", // h1
+      "LEFT-0-1", "LEFT-0-0", // h2 — fits in same row, no skip
+    ]);
+    expect(result.unfilledLeft).toBe(8);
+  });
+
+  it("does not skip for solo guests (cluster size 1)", () => {
+    // All singletons — no row skipping regardless of row position
+    const g = makeGroup("bride", "BRIDE", 5);
+    const result = allocateCeremony([g], layout);
+    const filled = result.perGroup.get("bride")!.filledSeats;
+    expect(filled).toEqual([
+      "LEFT-0-3", "LEFT-0-2", "LEFT-0-1", "LEFT-0-0",
+      "LEFT-1-3",
+    ]);
+  });
+
+  it("clusters household members in BOTH group (no row-no-split)", () => {
+    // BOTH groups cluster by household but balance across sides member-by-member
+    const members: GuestMember[] = [
+      { id: "g0", householdId: "h1", isChild: false },
+      { id: "g1", householdId: "h2", isChild: false },
+      { id: "g2", householdId: "h1", isChild: false },
+    ];
+    const g: GroupLite = { id: "both", name: "BOTH", colour: null, side: "BOTH", order: 0, members };
+    const result = allocateCeremony([g], layout);
+    // After clustering: h1[g0,g2], h2[g1] → [g0, g2, g1]
+    // g0 → L (12>=12 tie→L). g2 → R (11<12). g1 → L (11>=11 tie→L).
+    const filled = result.perGroup.get("both")!.filledSeats;
+    expect(filled).toEqual(["LEFT-0-3", "RIGHT-0-0", "LEFT-0-2"]);
   });
 });

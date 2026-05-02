@@ -1,33 +1,41 @@
 // v1.48.0: auto-fill allocator for the ceremony seating canvas.
 //
-// Replaces the v1.46.0 / v1.47.0 manual per-row assignment model.
-// The couple now manages a single ordered list of GuestGroups (each
-// with a `side` constraint and member count); the canvas walks the
-// list in order and packs members into seats automatically.
+// v1.70.0 changes:
+//   • GroupLite.members: GuestMember[] replaces memberCount: number so
+//     the allocator has per-guest household info for clustering.
+//   • Deduplication: a guest in multiple groups is only allocated once,
+//     to the group with the lowest `order`. Later groups show a
+//     `duplicateCount` in their GroupAllocation.
+//   • Household clustering: within each group, members are emitted in
+//     household order (all members of the same household adjacent) so
+//     families sit together.
+//   • Row-no-split: for BRIDE/GROOM (single-side) groups, if a
+//     household cluster won't fit in the remaining seats of the current
+//     row but fits in a full row, the cursor skips to the next row
+//     start. The skipped seats appear as ordinary empty seats and can
+//     be filled by later groups or left empty.
 //
 // Algorithm (per-group, in `order`):
-//   1. Determine eligible side(s) from `group.side`:
+//   1. Filter out members already claimed by an earlier group.
+//   2. Cluster remaining members by household ID.
+//   3. Determine eligible side(s) from `group.side`:
 //        BRIDE  → LEFT only
 //        GROOM  → RIGHT only
 //        BOTH   → either side, picking whichever has more remaining
-//                 capacity at the moment the seat is taken (balances
-//                 BOTH groups across the canvas instead of dumping
-//                 them all on one side)
-//   2. Walk eligible seats in fill order:
-//        - Front rows first (lower rowIndex)
-//        - Within a row: aisle-outward
-//          • LEFT side: aisle is at the right edge — fill from
-//            highest seatIndex backward
-//          • RIGHT side: aisle is at the left edge — fill from
-//            seatIndex 0 forward
-//   3. Take `min(memberCount, remainingSeats)` consecutive seats.
-//      Any leftover members become a shortfall for that group.
+//                 capacity (balances BOTH groups across the canvas).
+//   4. For BRIDE/GROOM: fill clusters with row-no-split heuristic.
+//      For BOTH: fill clusters member-by-member (balancing per member).
 //
 // Pure: takes plain shapes (no Prisma client) so unit tests don't
-// need a fixture DB. The page-level loader builds the inputs and
-// passes them in.
+// need a fixture DB. The page-level loader builds the inputs.
 
 export type Side = "BRIDE" | "GROOM" | "BOTH";
+
+export type GuestMember = {
+  id: string;
+  householdId: string | null;
+  isChild: boolean;
+};
 
 export type GroupLite = {
   id: string;
@@ -35,7 +43,7 @@ export type GroupLite = {
   colour: string | null;
   side: Side;
   order: number;
-  memberCount: number;
+  members: GuestMember[];
 };
 
 export type LayoutLite = {
@@ -58,8 +66,12 @@ export type GroupAllocation = {
   groupId: string;
   /** Seat keys actually filled by this group's members. */
   filledSeats: SeatKey[];
-  /** memberCount > capacity for the eligible side(s) → how many can't fit. */
+  /** uniqueCount > seated → how many unique members couldn't fit. */
   shortfall: number;
+  /** Members not yet claimed by any earlier group. */
+  uniqueCount: number;
+  /** Members already allocated to an earlier group (skipped). */
+  duplicateCount: number;
 };
 
 export type AllocationResult = {
@@ -70,20 +82,23 @@ export type AllocationResult = {
   /** Number of seats untouched (any group could still fill these). */
   unfilledLeft: number;
   unfilledRight: number;
+  /** Total members skipped because they appeared in an earlier group. */
+  duplicateGuests: number;
 };
 
+// Flattened seat sequence for one side, in fill order:
+//   LEFT:  front row first, aisle (rightmost seatIndex) → far edge.
+//   RIGHT: front row first, aisle (seatIndex 0) → far edge.
 function generateFlatSeats(side: "LEFT" | "RIGHT", layout: LayoutLite): SeatKey[] {
   const out: SeatKey[] = [];
   const rows = side === "LEFT" ? layout.leftRows : layout.rightRows;
   const seatsPerRow = side === "LEFT" ? layout.leftSeatsRow : layout.rightSeatsRow;
   for (let r = 0; r < rows; r++) {
     if (side === "LEFT") {
-      // Aisle is at the right edge — fill from highest seatIndex backward.
       for (let s = seatsPerRow - 1; s >= 0; s--) {
         out.push(`LEFT-${r}-${s}` as SeatKey);
       }
     } else {
-      // Aisle is at the left edge — fill from seatIndex 0 forward.
       for (let s = 0; s < seatsPerRow; s++) {
         out.push(`RIGHT-${r}-${s}` as SeatKey);
       }
@@ -95,6 +110,68 @@ function generateFlatSeats(side: "LEFT" | "RIGHT", layout: LayoutLite): SeatKey[
 function firstLetter(s: string): string | null {
   const c = s.trim().slice(0, 1).toUpperCase();
   return c || null;
+}
+
+type HouseholdCluster = {
+  members: GuestMember[];
+};
+
+// Group members by household, preserving order of first appearance.
+function clusterByHousehold(members: GuestMember[]): HouseholdCluster[] {
+  const map = new Map<string, GuestMember[]>();
+  const order: string[] = [];
+  for (const m of members) {
+    const key = m.householdId ?? `__solo__${m.id}`;
+    if (!map.has(key)) {
+      map.set(key, []);
+      order.push(key);
+    }
+    map.get(key)!.push(m);
+  }
+  return order.map((k) => ({ members: map.get(k)! }));
+}
+
+// Fill a single-side (BRIDE or GROOM) group with household clustering
+// and the row-no-split heuristic. Returns the new cursor position and
+// the shortfall (members that couldn't be seated).
+function fillSingleSide(
+  group: GroupLite,
+  uniqueMembers: GuestMember[],
+  flat: SeatKey[],
+  cursor: number,
+  seatsPerRow: number,
+  commit: (key: SeatKey) => void,
+): { newCursor: number; shortfall: number } {
+  const clusters = clusterByHousehold(uniqueMembers);
+  let cur = cursor;
+  let shortfall = 0;
+
+  for (const cluster of clusters) {
+    const size = cluster.members.length;
+
+    // Row-no-split: if a multi-member household won't fit in the
+    // remaining seats of the current row but fits in a complete row,
+    // advance the cursor to the next row start. The skipped seats
+    // become empty and visible in unfilledLeft/Right.
+    if (size > 1 && seatsPerRow > 0) {
+      const posInRow = cur % seatsPerRow;
+      const remainingInRow = seatsPerRow - posInRow;
+      if (size > remainingInRow && size <= seatsPerRow && posInRow > 0) {
+        cur += remainingInRow;
+      }
+    }
+
+    for (let _mi = 0; _mi < cluster.members.length; _mi++) {
+      if (cur >= flat.length) {
+        shortfall++;
+      } else {
+        commit(flat[cur]!);
+        cur++;
+      }
+    }
+  }
+
+  return { newCursor: cur, shortfall };
 }
 
 /**
@@ -115,6 +192,8 @@ export function allocateCeremony(
 
   const fills = new Map<SeatKey, SeatFill>();
   const perGroup = new Map<string, GroupAllocation>();
+  const seenGuestIds = new Set<string>();
+  let totalDuplicates = 0;
 
   function commit(group: GroupLite, key: SeatKey) {
     fills.set(key, {
@@ -123,38 +202,57 @@ export function allocateCeremony(
       colour: group.colour,
       glyph: firstLetter(group.name),
     });
-    const g = perGroup.get(group.id);
-    if (g) g.filledSeats.push(key);
+    perGroup.get(group.id)!.filledSeats.push(key);
   }
 
   for (const group of sorted) {
+    const uniqueMembers = group.members.filter((m) => !seenGuestIds.has(m.id));
+    const duplicateCount = group.members.length - uniqueMembers.length;
+    totalDuplicates += duplicateCount;
+    for (const m of uniqueMembers) seenGuestIds.add(m.id);
+
     perGroup.set(group.id, {
       groupId: group.id,
       filledSeats: [],
       shortfall: 0,
+      uniqueCount: uniqueMembers.length,
+      duplicateCount,
     });
-    let remaining = Math.max(0, group.memberCount);
 
     if (group.side === "BRIDE") {
-      while (remaining > 0 && leftCursor < leftFlat.length) {
-        commit(group, leftFlat[leftCursor]!);
-        leftCursor++;
-        remaining--;
-      }
+      const { newCursor, shortfall } = fillSingleSide(
+        group,
+        uniqueMembers,
+        leftFlat,
+        leftCursor,
+        layout.leftSeatsRow,
+        (key) => commit(group, key),
+      );
+      leftCursor = newCursor;
+      perGroup.get(group.id)!.shortfall = shortfall;
     } else if (group.side === "GROOM") {
-      while (remaining > 0 && rightCursor < rightFlat.length) {
-        commit(group, rightFlat[rightCursor]!);
-        rightCursor++;
-        remaining--;
-      }
+      const { newCursor, shortfall } = fillSingleSide(
+        group,
+        uniqueMembers,
+        rightFlat,
+        rightCursor,
+        layout.rightSeatsRow,
+        (key) => commit(group, key),
+      );
+      rightCursor = newCursor;
+      perGroup.get(group.id)!.shortfall = shortfall;
     } else {
-      // BOTH — balance across sides, taking from whichever side
-      // has more remaining capacity. Ties go to LEFT (matches the
-      // generic "front-and-aisle first" preference).
-      while (remaining > 0 && (leftCursor < leftFlat.length || rightCursor < rightFlat.length)) {
+      // BOTH — cluster by household then balance member-by-member
+      // across whichever side has more remaining capacity. Row-no-split
+      // is intentionally skipped for BOTH groups since they span sides.
+      const clustered = clusterByHousehold(uniqueMembers).flatMap((c) => c.members);
+      let shortfall = 0;
+      for (let _i = 0; _i < clustered.length; _i++) {
         const leftRem = leftFlat.length - leftCursor;
         const rightRem = rightFlat.length - rightCursor;
-        if (leftRem === 0) {
+        if (leftRem === 0 && rightRem === 0) {
+          shortfall++;
+        } else if (leftRem === 0) {
           commit(group, rightFlat[rightCursor]!);
           rightCursor++;
         } else if (rightRem === 0) {
@@ -167,13 +265,9 @@ export function allocateCeremony(
           commit(group, rightFlat[rightCursor]!);
           rightCursor++;
         }
-        remaining--;
       }
+      perGroup.get(group.id)!.shortfall = shortfall;
     }
-
-    // Anything left over is a shortfall for this group.
-    const ga = perGroup.get(group.id);
-    if (ga) ga.shortfall = remaining;
   }
 
   return {
@@ -181,5 +275,6 @@ export function allocateCeremony(
     perGroup,
     unfilledLeft: leftFlat.length - leftCursor,
     unfilledRight: rightFlat.length - rightCursor,
+    duplicateGuests: totalDuplicates,
   };
 }
