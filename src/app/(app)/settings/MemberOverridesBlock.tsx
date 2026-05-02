@@ -14,6 +14,7 @@ import {
 } from "./actions";
 import { togglePermissionGroupMember } from "./permission-group-actions";
 import { COUPLE_ONLY_SECTIONS, SECTIONS, type Section } from "@/lib/permissions";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 
 // v1.45.0: per-user editor — replaces the dense table-style
 // PermissionMatrix from v1.44.0. One card per user; click to expand
@@ -120,6 +121,7 @@ export function MemberOverridesBlock({
   const coupleCount = users.filter((u) => u.isCouple).length;
   const [openUserId, setOpenUserId] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const confirm = useConfirm();
   const overrideMap = new Map<string, Level>();
   for (const p of permissions) overrideMap.set(`${p.userId}|${p.section}`, p.level);
   const couplePrivileged = canEdit && currentUserIsCouple;
@@ -146,12 +148,16 @@ export function MemberOverridesBlock({
     startTransition(async () => { await clearPermission(fd); });
   }
 
-  function clearAll(userId: string, name: string, count: number) {
+  async function clearAll(userId: string, name: string, count: number) {
     if (count === 0) {
       notify("info", "No overrides to clear");
       return;
     }
-    if (!confirm(`Clear all ${count} per-user override${count === 1 ? "" : "s"} for ${name}?\n\nThey'll inherit from their groups instead.`)) return;
+    if (!(await confirm({
+      title: `Clear all ${count} per-user override${count === 1 ? "" : "s"} for ${name}?`,
+      body: "They'll inherit from their groups instead.",
+      confirmLabel: "Clear all",
+    }))) return;
     startTransition(async () => {
       const res = await clearAllUserOverrides(userId);
       if (res.ok) notify("success", res.cleared > 0 ? `Cleared ${res.cleared} override${res.cleared === 1 ? "" : "s"}` : "Already had none");
@@ -159,8 +165,12 @@ export function MemberOverridesBlock({
     });
   }
 
-  function toggleCouple(userId: string, isCouple: boolean) {
-    if (!confirm(`${isCouple ? "Grant" : "Revoke"} couple-tier access?`)) return;
+  async function toggleCouple(userId: string, isCouple: boolean) {
+    if (!(await confirm({
+      title: `${isCouple ? "Grant" : "Revoke"} couple-tier access?`,
+      confirmLabel: isCouple ? "Grant" : "Revoke",
+      tone: isCouple ? "default" : "danger",
+    }))) return;
     startTransition(async () => { await setUserCouple(userId, isCouple); });
   }
 
@@ -175,12 +185,22 @@ export function MemberOverridesBlock({
     });
   }
 
-  function remove(u: UserRow) {
+  async function remove(u: UserRow) {
     const label = u.name ?? u.email;
-    const consequence = u.isCouple
-      ? `\n\nThey have couple-tier access. If they were the only signed-in admin, the next person to sign in will be auto-promoted to replace them.`
-      : "";
-    if (!confirm(`Remove ${label} from the members list?\n\nThis deletes their account row, sessions, and per-section permissions. They can still sign in again if their email is in AUTH_ALLOWED_EMAILS.${consequence}`)) return;
+    const bodyParts: string[] = [
+      "This deletes their account row, sessions, and per-section permissions. They can still sign in again if their email is in AUTH_ALLOWED_EMAILS.",
+    ];
+    if (u.isCouple) {
+      bodyParts.push(
+        "They have couple-tier access. If they were the only signed-in admin, the next person to sign in will be auto-promoted to replace them.",
+      );
+    }
+    if (!(await confirm({
+      title: `Remove ${label} from the members list?`,
+      body: bodyParts.join("\n\n"),
+      confirmLabel: "Remove",
+      tone: "danger",
+    }))) return;
     startTransition(async () => { await removeUser(u.id); });
   }
 

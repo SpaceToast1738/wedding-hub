@@ -8,6 +8,7 @@ import { StatusPill } from "@/components/ui/StatusPill";
 import { Tag } from "@/components/ui/Tag";
 import { formatRelativeDue, isoForInput } from "@/lib/format";
 import { notify } from "@/lib/notify";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { deleteTask, updateTask } from "@/app/(app)/tasks/actions";
 import { TaskForm, type UserOpt as TaskFormUserOpt } from "@/app/(app)/tasks/TaskForm";
 import { AnswerForm } from "./AnswerForm";
@@ -164,6 +165,7 @@ function Row({
 }) {
   const [editing, setEditing] = useState(false);
   const [pending, startTransition] = useTransition();
+  const confirm = useConfirm();
 
   const a = q.assigneeId ? usersById.get(q.assigneeId) : null;
   const priorityBucket =
@@ -173,8 +175,8 @@ function Row({
         ? "LOW"
         : "MED";
 
-  function onDelete() {
-    if (!confirm(`Delete "${q.title}"?`)) return;
+  async function onDelete() {
+    if (!(await confirm({ title: `Delete "${q.title}"?`, confirmLabel: "Delete", tone: "danger" }))) return;
     startTransition(async () => {
       try {
         await deleteTask(q.id);

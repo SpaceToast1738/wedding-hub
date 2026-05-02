@@ -9,6 +9,7 @@ import { GuestForm } from "./GuestForm";
 import { GuestGroupsControl, type GuestGroupSummary } from "@/components/ui/GuestGroupsControl";
 import { createGuest, deleteGuest, deleteHousehold, setGuestRsvp, updateGuest, updateHousehold } from "./actions";
 import { notify } from "@/lib/notify";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 import type { RsvpStatus, Side } from "@prisma/client";
 
 type Guest = {
@@ -98,6 +99,7 @@ export function HouseholdBlock({
   const [adding, setAdding] = useState(false);
   const [editingHh, setEditingHh] = useState(false);
   const [pending, startTransition] = useTransition();
+  const confirm = useConfirm();
 
   const summary = household.guests.reduce(
     (acc, g) => {
@@ -120,12 +122,20 @@ export function HouseholdBlock({
     ),
   );
 
-  function onDeleteHousehold() {
-    if (household.guests.length > 0) {
-      if (!confirm(`Household "${household.name}" has ${household.guests.length} guests. Delete everything?`)) return;
-    } else {
-      if (!confirm(`Delete household "${household.name}"?`)) return;
-    }
+  async function onDeleteHousehold() {
+    const ok = household.guests.length > 0
+      ? await confirm({
+          title: `Delete household "${household.name}"?`,
+          body: `This household has ${household.guests.length} guest${household.guests.length === 1 ? "" : "s"}. Deleting will remove the household and every guest in it.`,
+          confirmLabel: "Delete everything",
+          tone: "danger",
+        })
+      : await confirm({
+          title: `Delete household "${household.name}"?`,
+          confirmLabel: "Delete",
+          tone: "danger",
+        });
+    if (!ok) return;
     startTransition(async () => {
       // v1.53.0 (C1): result-shape — show real toast on failure.
       const res = await deleteHousehold(household.id);
@@ -219,21 +229,31 @@ export function HouseholdBlock({
   }) {
     const [editing, setEditing] = useState(false);
     const [pending, startTransition] = useTransition();
+    const rowConfirm = useConfirm();
     const isPlusOne = !!guest.parentGuestId;
 
     function changeRsvp(next: RsvpStatus) {
       startTransition(async () => { await setGuestRsvp(guest.id, next); });
     }
 
-    function onDelete() {
-      if (isPlusOne) {
+    async function onDelete() {
+      const ok = isPlusOne
         // Deleting a +1 directly is unusual — the host should normally
         // own the +1's lifecycle (toggle plusOneAllowed off on the host
         // to archive). But we allow it as an escape hatch.
-        if (!confirm(`Archive +1 "${guest.firstName} ${guest.lastName}"? Their host's plusOneAllowed will stay on — toggling it off there is the cleaner path.`)) return;
-      } else {
-        if (!confirm(`Archive ${guest.firstName} ${guest.lastName}? Any +1 will be archived too.`)) return;
-      }
+        ? await rowConfirm({
+            title: `Archive +1 "${guest.firstName} ${guest.lastName}"?`,
+            body: "Their host's plusOneAllowed will stay on — toggling it off there is the cleaner path.",
+            confirmLabel: "Archive",
+            tone: "danger",
+          })
+        : await rowConfirm({
+            title: `Archive ${guest.firstName} ${guest.lastName}?`,
+            body: "Any +1 will be archived too.",
+            confirmLabel: "Archive",
+            tone: "danger",
+          });
+      if (!ok) return;
       startTransition(async () => {
         // v1.53.0 (C1): result-shape.
         const res = await deleteGuest(guest.id);

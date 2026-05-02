@@ -8,6 +8,7 @@ import { SupplierForm } from "./SupplierForm";
 import { deleteSupplier, setSupplierStatus, updateSupplier } from "./actions";
 import { formatMoneyDecimal } from "@/lib/format";
 import { notify } from "@/lib/notify";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 
 // Local mirror of `formatRelativeDate` from SupplierDetailClient — keep
 // in sync if the contract changes (would centralise in @/lib/format if
@@ -53,6 +54,7 @@ const STATUS_OPTIONS: SupplierStatus[] = [
 export function SupplierCard({ supplier, canEdit }: { supplier: Supplier; canEdit: boolean }) {
   const [editing, setEditing] = useState(false);
   const [pending, startTransition] = useTransition();
+  const confirm = useConfirm();
 
   function changeStatus(next: SupplierStatus) {
     startTransition(async () => {
@@ -60,28 +62,43 @@ export function SupplierCard({ supplier, canEdit }: { supplier: Supplier; canEdi
     });
   }
 
-  function onDelete() {
+  async function onDelete() {
     // v1.60.0 (P2): enrich the confirm dialog with the snapshot fields
     // we already have on the card — status, agreed amount, last
-    // contact. Pre-fix the dialog was just `Delete "X"?` with no
-    // context, and FK-blocked deletes silently failed (now they
-    // toast — but the couple can also see the consequences before
-    // confirming).
-    const lines: string[] = [];
-    lines.push(`Delete supplier "${supplier.name}"?`);
-    lines.push("");
-    lines.push(`Category: ${supplier.category}`);
-    lines.push(`Status: ${supplier.status}`);
-    if (supplier.amountAgreed) {
-      lines.push(`Agreed: £${formatMoneyDecimal(supplier.amountAgreed)}`);
-    }
+    // contact. v1.62.0: now rendered via the shared ConfirmDialog
+    // component (custom UI), so the snapshot fields appear as a
+    // structured node instead of `\n`-joined plaintext.
     const lastComm = supplier.communications[0];
-    if (lastComm) {
-      lines.push(`Last contact: ${formatRelativeDate(lastComm.createdAt)} (${lastComm.channel.toLowerCase()})`);
-    }
-    lines.push("");
-    lines.push("If this supplier has linked tasks, payments, or contracts, the delete will fail and you'll be told what's blocking it.");
-    if (!confirm(lines.join("\n"))) return;
+    if (!(await confirm({
+      title: `Delete supplier "${supplier.name}"?`,
+      body: (
+        <>
+          <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs mb-3">
+            <dt className="text-ink-tertiary">Category</dt>
+            <dd className="text-ink-secondary">{supplier.category}</dd>
+            <dt className="text-ink-tertiary">Status</dt>
+            <dd className="text-ink-secondary">{supplier.status}</dd>
+            {supplier.amountAgreed && (
+              <>
+                <dt className="text-ink-tertiary">Agreed</dt>
+                <dd className="text-ink-secondary">£{formatMoneyDecimal(supplier.amountAgreed)}</dd>
+              </>
+            )}
+            {lastComm && (
+              <>
+                <dt className="text-ink-tertiary">Last contact</dt>
+                <dd className="text-ink-secondary">{formatRelativeDate(lastComm.createdAt)} ({lastComm.channel.toLowerCase()})</dd>
+              </>
+            )}
+          </dl>
+          <p className="text-xs text-ink-tertiary">
+            If this supplier has linked tasks, payments, or contracts, the delete will fail and you&apos;ll be told what&apos;s blocking it.
+          </p>
+        </>
+      ),
+      confirmLabel: "Delete",
+      tone: "danger",
+    }))) return;
     startTransition(async () => {
       // v1.53.0 (C1): result-shape — show a real toast on FK-blocked
       // delete instead of relying on Next prod redaction (silent

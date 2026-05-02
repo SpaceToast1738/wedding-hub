@@ -10,6 +10,7 @@ import {
   inferTaskMapping,
   parseCsv,
 } from "@/lib/csv";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 import {
   commitTaskImport,
   previewTaskImport,
@@ -35,6 +36,7 @@ export function TaskImportClient() {
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [committing, startCommit] = useTransition();
   const [previewing, startPreview] = useTransition();
+  const confirm = useConfirm();
   const [committed, setCommitted] = useState<{ created: number; skipped: number; byType: { task: number; question: number; decision: number } } | null>(null);
 
   useEffect(() => {
@@ -69,18 +71,21 @@ export function TaskImportClient() {
     });
   }
 
-  function commit() {
+  async function commit() {
     if (!preview || preview.validRows === 0) return;
     const parts: string[] = [];
     if (preview.byType.task > 0) parts.push(`${preview.byType.task} task${preview.byType.task === 1 ? "" : "s"}`);
     if (preview.byType.question > 0) parts.push(`${preview.byType.question} question${preview.byType.question === 1 ? "" : "s"}`);
     if (preview.byType.decision > 0) parts.push(`${preview.byType.decision} decision${preview.byType.decision === 1 ? "" : "s"}`);
-    let msg = `Create ${parts.join(" + ")}.`;
+    const bodyParts: string[] = [`Will create ${parts.join(" + ")}.`];
     if (preview.rowErrors > 0) {
-      msg += `\n\n${preview.rowErrors} row${preview.rowErrors === 1 ? "" : "s"} with errors will be skipped.`;
+      bodyParts.push(`${preview.rowErrors} row${preview.rowErrors === 1 ? "" : "s"} with errors will be skipped.`);
     }
-    msg += "\n\nProceed?";
-    if (!confirm(msg)) return;
+    if (!(await confirm({
+      title: "Run task import?",
+      body: bodyParts.join("\n\n"),
+      confirmLabel: "Import",
+    }))) return;
     startCommit(async () => {
       try {
         const result = await commitTaskImport({ text, mapping });

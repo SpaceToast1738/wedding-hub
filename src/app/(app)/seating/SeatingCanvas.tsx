@@ -4,6 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, use
 import type { TableShape } from "@prisma/client";
 import { Button } from "@/components/ui/Button";
 import { notify } from "@/lib/notify";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { assignGuestToSeat, deleteTable, updateTableCapacity, updateTablePosition } from "./actions";
 import { CollapsiblePanel } from "./CollapsiblePanel";
 import { GuestDetailPanel } from "./GuestDetailPanel";
@@ -1374,6 +1375,7 @@ function FocusPanelBody({
   onClose: () => void;
 }) {
   const [pending, startTransition] = useTransition();
+  const confirm = useConfirm();
   const filled = table.seats.filter((s) => s.guest).length;
 
   function onAssign(seatId: string, guestId: string) {
@@ -1389,8 +1391,8 @@ function FocusPanelBody({
     });
   }
 
-  function onDeleteTable() {
-    if (!confirm(`Delete table "${table.name}"?`)) return;
+  async function onDeleteTable() {
+    if (!(await confirm({ title: `Delete table "${table.name}"?`, confirmLabel: "Delete", tone: "danger" }))) return;
     startTransition(async () => {
       await deleteTable(table.id);
       onClose();

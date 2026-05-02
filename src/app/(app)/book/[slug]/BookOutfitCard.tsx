@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState, useTransition } from "react";
 import { Button } from "@/components/ui/Button";
 import { notify } from "@/lib/notify";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 import {
   attachFileToOutfitCard,
   detachFileFromOutfitCard,
@@ -110,6 +111,7 @@ export function BookOutfitCardEditor({
 }: OutfitCardEditorProps) {
   const [pending, startTransition] = useTransition();
   const [editing, setEditing] = useState(false);
+  const confirm = useConfirm();
   const [draft, setDraft] = useState(() => buildDraft(card));
   useEffect(() => {
     setDraft(buildDraft(card));
@@ -172,8 +174,12 @@ export function BookOutfitCardEditor({
       else notify("error", res.error);
     });
   }
-  function detach(fileId: string) {
-    if (!confirm("Detach this photo from the card? The file stays on /files.")) return;
+  async function detach(fileId: string) {
+    if (!(await confirm({
+      title: "Detach this photo from the card?",
+      body: "The file stays on /files.",
+      confirmLabel: "Detach",
+    }))) return;
     startTransition(async () => {
       const res = await detachFileFromOutfitCard(subsectionId, fileId);
       if (res.ok) notify("success", "Photo detached");

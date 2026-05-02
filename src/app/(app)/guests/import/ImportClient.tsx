@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/Button";
 import { GUEST_FIELD_LABELS, MULTI_VALUE_FIELDS, type GuestField, inferMapping, parseCsv } from "@/lib/csv";
 import type { MergeableField } from "@/lib/csv-merge";
 import { commitImport, previewImport, type ImportPreview } from "./actions";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 
 const SAMPLE = `First Name,Last Name,Email,Household,Side,RSVP,Plus One Allowed,Dietary
 Robert,Spencer,robert@example.com,The Spencer Family,Groom,Yes,No,
@@ -31,6 +32,7 @@ export function ImportClient() {
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [committing, startCommit] = useTransition();
   const [previewing, startPreview] = useTransition();
+  const confirm = useConfirm();
   const [committed, setCommitted] = useState<{ created: number; updated: number; skipped: number; songs: number; tables: number; optOuts: number } | null>(null);
   // B1: per-row, per-field opt-out from the merge UI. Keyed on
   // ImportRowPreview.rowIndex (1-based). Empty set = apply all diffs;
@@ -71,7 +73,7 @@ export function ImportClient() {
     });
   }
 
-  function commit() {
+  async function commit() {
     if (!preview || preview.validGuests === 0) return;
     const parts: string[] = [];
     if (preview.newGuests > 0) {
@@ -86,18 +88,21 @@ export function ImportClient() {
     if (preview.newTables.length > 0) {
       parts.push(`+ ${preview.newTables.length} new table${preview.newTables.length === 1 ? "" : "s"}`);
     }
-    let msg = parts.join("\n");
+    const bodyParts: string[] = [parts.join("\n")];
     if (preview.updatedGuests > 0) {
-      msg += `\n\nMerge means: existing rows are updated in place. Empty fields get filled from the import; non-empty fields are preserved. Confirmed RSVPs are never reset to pending. Songs and dietary requirements are unioned (no duplicates).`;
+      bodyParts.push(`Merge means: existing rows are updated in place. Empty fields get filled from the import; non-empty fields are preserved. Confirmed RSVPs are never reset to pending. Songs and dietary requirements are unioned (no duplicates).`);
     }
     if (preview.rowErrors > 0) {
-      msg += `\n\n${preview.rowErrors} row${preview.rowErrors === 1 ? "" : "s"} with errors will be skipped.`;
+      bodyParts.push(`${preview.rowErrors} row${preview.rowErrors === 1 ? "" : "s"} with errors will be skipped.`);
     }
     if (preview.duplicateEmails > 0) {
-      msg += `\n\n${preview.duplicateEmails} row${preview.duplicateEmails === 1 ? "" : "s"} share an email with another Guest row but don't match by name — those will create a second guest row. (User sign-in accounts are stored separately and aren't checked here.)`;
+      bodyParts.push(`${preview.duplicateEmails} row${preview.duplicateEmails === 1 ? "" : "s"} share an email with another Guest row but don't match by name — those will create a second guest row. (User sign-in accounts are stored separately and aren't checked here.)`);
     }
-    msg += `\n\nProceed?`;
-    if (!confirm(msg)) return;
+    if (!(await confirm({
+      title: "Run guest import?",
+      body: bodyParts.join("\n\n"),
+      confirmLabel: "Import",
+    }))) return;
     // Serialise opt-out: only include rows that have at least one
     // un-ticked field.
     const optOutPayload: Record<string, string[]> = {};

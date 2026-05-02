@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { Button } from "@/components/ui/Button";
 import { notify } from "@/lib/notify";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 import {
   createGuestGroup,
   deleteGuestGroup,
@@ -59,6 +60,7 @@ export function GuestGroupsBlock({
   const [adding, setAdding] = useState(false);
   const [openGroupId, setOpenGroupId] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const confirm = useConfirm();
 
   function onAdd(fd: FormData) {
     startTransition(async () => {
@@ -84,12 +86,15 @@ export function GuestGroupsBlock({
     });
   }
 
-  function onDelete(id: string, name: string, count: number) {
-    const msg =
-      count > 0
-        ? `Delete "${name}"? ${count} guest link${count === 1 ? "" : "s"} will be removed (the guests themselves stay).`
-        : `Delete "${name}"?`;
-    if (!confirm(msg)) return;
+  async function onDelete(id: string, name: string, count: number) {
+    if (!(await confirm({
+      title: `Delete "${name}"?`,
+      body: count > 0
+        ? `${count} guest link${count === 1 ? "" : "s"} will be removed. The guests themselves stay.`
+        : undefined,
+      confirmLabel: "Delete",
+      tone: "danger",
+    }))) return;
     startTransition(async () => {
       const res = await deleteGuestGroup(id);
       if (res.ok) notify("success", "Deleted");

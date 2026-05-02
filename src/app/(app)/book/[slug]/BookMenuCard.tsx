@@ -3,6 +3,7 @@
 import { useEffect, useState, useTransition } from "react";
 import { Button } from "@/components/ui/Button";
 import { notify } from "@/lib/notify";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { saveMenuCard, type MenuSavePayload } from "../actions";
 import { CardChrome } from "./CardChrome";
 import {
@@ -531,6 +532,7 @@ function CourseEditCard({
   onAddOption: () => void;
   onRemoveOption: (optIdx: number) => void;
 }) {
+  const confirm = useConfirm();
   return (
     <div className="border border-border-soft rounded-md overflow-hidden">
       <div className="flex items-center gap-2 px-3 py-2 bg-canvas/40 border-b border-border-soft">
@@ -561,8 +563,13 @@ function CourseEditCard({
         </button>
         <button
           type="button"
-          onClick={() => {
-            if (confirm(`Delete course "${course.courseLabel || "(untitled)"}" and its options?`)) onRemove();
+          onClick={async () => {
+            const ok = await confirm({
+              title: `Delete course "${course.courseLabel || "(untitled)"}" and its options?`,
+              confirmLabel: "Delete",
+              tone: "danger",
+            });
+            if (ok) onRemove();
           }}
           disabled={pending}
           className="text-[10px] text-ink-tertiary hover:text-danger px-1"

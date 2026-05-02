@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { createSong, deletePlaylist, deleteSong, moveSong, setPlaylistSpotifyUrl, syncPlaylistFromSpotify } from "./actions";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 
 type Song = { id: string; title: string; artist: string | null; source: string | null; spotifyUri: string | null };
 type Playlist = {
@@ -57,16 +58,22 @@ export function PlaylistCard({
   const [editingSpotify, setEditingSpotify] = useState(false);
   const [spotifyError, setSpotifyError] = useState<string | null>(playlist.lastSyncError);
   const [pending, startTransition] = useTransition();
+  const confirm = useConfirm();
 
-  function onDeletePlaylist() {
-    if (!confirm(`Delete playlist "${playlist.name}" and all its songs?`)) return;
+  async function onDeletePlaylist() {
+    if (!(await confirm({
+      title: `Delete playlist "${playlist.name}"?`,
+      body: "All songs in this playlist will be removed too.",
+      confirmLabel: "Delete",
+      tone: "danger",
+    }))) return;
     startTransition(async () => {
       await deletePlaylist(playlist.id);
     });
   }
 
-  function onDeleteSong(id: string, title: string) {
-    if (!confirm(`Remove "${title}"?`)) return;
+  async function onDeleteSong(id: string, title: string) {
+    if (!(await confirm({ title: `Remove "${title}"?`, confirmLabel: "Remove", tone: "danger" }))) return;
     startTransition(async () => {
       await deleteSong(id);
     });
@@ -78,18 +85,21 @@ export function PlaylistCard({
     });
   }
 
-  function onSync() {
+  async function onSync() {
     const syncedCount = playlist.songs.filter((s) => s.spotifyUri).length;
     const otherCount = playlist.songs.filter((s) => !s.spotifyUri).length;
-    let msg = `Pull tracks from Spotify into "${playlist.name}"?`;
+    const bodyParts: string[] = [];
     if (syncedCount > 0) {
-      msg += `\n\n${syncedCount} previously synced song${syncedCount === 1 ? "" : "s"} will be replaced with the current Spotify list.`;
+      bodyParts.push(`${syncedCount} previously synced song${syncedCount === 1 ? "" : "s"} will be replaced with the current Spotify list.`);
     }
     if (otherCount > 0) {
-      msg += `\n\n${otherCount} manually-added song${otherCount === 1 ? "" : "s"} (no Spotify URI) will be kept.`;
+      bodyParts.push(`${otherCount} manually-added song${otherCount === 1 ? "" : "s"} (no Spotify URI) will be kept.`);
     }
-    msg += `\n\nProceed?`;
-    if (!confirm(msg)) return;
+    if (!(await confirm({
+      title: `Pull tracks from Spotify into "${playlist.name}"?`,
+      body: bodyParts.length > 0 ? bodyParts.join("\n\n") : undefined,
+      confirmLabel: "Sync",
+    }))) return;
     setSpotifyError(null);
     startTransition(async () => {
       const result = await syncPlaylistFromSpotify(playlist.id);

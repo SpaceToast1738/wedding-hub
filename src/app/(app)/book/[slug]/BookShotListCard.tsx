@@ -3,6 +3,7 @@
 import { useMemo, useState, useTransition } from "react";
 import { Button } from "@/components/ui/Button";
 import { notify } from "@/lib/notify";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 import {
   addBookShot,
   deleteBookShot,
@@ -171,6 +172,7 @@ function ShotRow({
 }) {
   const [editing, setEditing] = useState(false);
   const [pending, startTransition] = useTransition();
+  const confirm = useConfirm();
 
   const guestById = new Map(guests.map((g) => [g.id, g]));
   const linkedGuestNames = shot.guestIds
@@ -184,8 +186,8 @@ function ShotRow({
     });
   }
 
-  function onDelete() {
-    if (!confirm(`Delete shot "${shot.title}"?`)) return;
+  async function onDelete() {
+    if (!(await confirm({ title: `Delete shot "${shot.title}"?`, confirmLabel: "Delete", tone: "danger" }))) return;
     startTransition(async () => {
       const res = await deleteBookShot(shot.id);
       if (!res.ok) notify("error", res.error);

@@ -3,6 +3,7 @@
 import { useMemo, useState, useTransition } from "react";
 import { Button } from "@/components/ui/Button";
 import { notify } from "@/lib/notify";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { formatBookFieldValue, type BookFieldDefShape } from "@/lib/book-cards";
 import { addBookFieldDef, deleteBookFieldDef, setBookFieldValue } from "../actions";
 import { CardChrome } from "./CardChrome";
@@ -188,6 +189,7 @@ function FieldRow({
     value === null || value === undefined ? "" : String(value),
   );
   const [pending, startTransition] = useTransition();
+  const confirm = useConfirm();
 
   const defShape: BookFieldDefShape = {
     id: def.id,
@@ -215,8 +217,8 @@ function FieldRow({
     });
   }
 
-  function onDelete() {
-    if (!confirm(`Delete field "${def.label}"?`)) return;
+  async function onDelete() {
+    if (!(await confirm({ title: `Delete field "${def.label}"?`, confirmLabel: "Delete", tone: "danger" }))) return;
     startTransition(async () => {
       const res = await deleteBookFieldDef(def.id);
       if (!res.ok) notify("error", res.error);

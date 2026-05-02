@@ -7,6 +7,7 @@ import { PaymentForm } from "./PaymentForm";
 import { deletePayment, setPaymentStatus, updatePayment } from "./actions";
 import { formatDate, formatMoneyDecimal, isoForInput } from "@/lib/format";
 import type { PaymentStatus } from "@prisma/client";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 
 type Payment = {
   id: string;
@@ -34,6 +35,7 @@ export function PaymentRow({ payment, suppliers, canEdit }: { payment: Payment; 
   const [editing, setEditing] = useState(false);
   const [pending, startTransition] = useTransition();
   const supplierName = payment.supplierId ? suppliers.find((s) => s.id === payment.supplierId)?.name : null;
+  const confirm = useConfirm();
 
   function markPaid() {
     startTransition(async () => { await setPaymentStatus(payment.id, "PAID"); });
@@ -41,8 +43,8 @@ export function PaymentRow({ payment, suppliers, canEdit }: { payment: Payment; 
   function unmarkPaid() {
     startTransition(async () => { await setPaymentStatus(payment.id, "DUE"); });
   }
-  function onDelete() {
-    if (!confirm(`Delete "${payment.description}"?`)) return;
+  async function onDelete() {
+    if (!(await confirm({ title: `Delete "${payment.description}"?`, confirmLabel: "Delete", tone: "danger" }))) return;
     startTransition(async () => { await deletePayment(payment.id); });
   }
 

@@ -3,6 +3,7 @@ import { Sidebar } from "@/components/shell/Sidebar";
 import { MobileTabBar } from "@/components/shell/MobileTabBar";
 import { QuickCapture } from "@/components/shell/QuickCapture";
 import { Toaster } from "@/components/ui/Toaster";
+import { ConfirmProvider } from "@/components/ui/ConfirmDialog";
 import { signOut } from "@/auth";
 import type { Counts } from "@/components/shell/nav-config";
 
@@ -45,14 +46,20 @@ export async function AppShell({
   const counts = await getCounts(user);
 
   return (
-    <div className="flex h-screen bg-canvas overflow-hidden">
-      <Sidebar user={user} counts={counts} signOutAction={signOutAction} />
-      <main className="flex-1 flex flex-col overflow-hidden min-w-0">
-        {children}
-      </main>
-      <MobileTabBar isCouple={user.isCouple} signOutAction={signOutAction} />
-      <QuickCapture />
-      <Toaster />
-    </div>
+    // v1.62.0: ConfirmProvider wraps the whole shell so any descendant
+    // can call useConfirm() without per-page wiring. The provider
+    // mounts a single shared dialog at z-[500] that's reused across
+    // every confirm call. Replaces the ~40 native confirm() calls.
+    <ConfirmProvider>
+      <div className="flex h-screen bg-canvas overflow-hidden">
+        <Sidebar user={user} counts={counts} signOutAction={signOutAction} />
+        <main className="flex-1 flex flex-col overflow-hidden min-w-0">
+          {children}
+        </main>
+        <MobileTabBar isCouple={user.isCouple} signOutAction={signOutAction} />
+        <QuickCapture />
+        <Toaster />
+      </div>
+    </ConfirmProvider>
   );
 }

@@ -12,6 +12,7 @@ import {
   deleteSupplierCommunication,
   deleteSupplierContract,
 } from "../actions";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 
 type Contact = {
   id: string;
@@ -101,9 +102,10 @@ function ContactsSection({
 }) {
   const [adding, setAdding] = useState(false);
   const [pending, startTransition] = useTransition();
+  const confirm = useConfirm();
 
-  function onDelete(id: string, name: string) {
-    if (!confirm(`Delete contact ${name}?`)) return;
+  async function onDelete(id: string, name: string) {
+    if (!(await confirm({ title: `Delete contact ${name}?`, confirmLabel: "Delete", tone: "danger" }))) return;
     startTransition(async () => {
       await deleteSupplierContact(id, supplierId);
     });
@@ -246,9 +248,10 @@ function ContractsSection({
 }) {
   const [adding, setAdding] = useState(false);
   const [pending, startTransition] = useTransition();
+  const confirm = useConfirm();
 
-  function onDelete(id: string) {
-    if (!confirm("Delete this contract entry?")) return;
+  async function onDelete(id: string) {
+    if (!(await confirm({ title: "Delete this contract entry?", confirmLabel: "Delete", tone: "danger" }))) return;
     startTransition(async () => {
       await deleteSupplierContract(id, supplierId);
     });
@@ -374,9 +377,10 @@ function CommunicationsSection({
 }) {
   const [adding, setAdding] = useState(false);
   const [pending, startTransition] = useTransition();
+  const confirm = useConfirm();
 
-  function onDelete(id: string) {
-    if (!confirm("Delete this log entry?")) return;
+  async function onDelete(id: string) {
+    if (!(await confirm({ title: "Delete this log entry?", confirmLabel: "Delete", tone: "danger" }))) return;
     startTransition(async () => {
       await deleteSupplierCommunication(id, supplierId);
     });

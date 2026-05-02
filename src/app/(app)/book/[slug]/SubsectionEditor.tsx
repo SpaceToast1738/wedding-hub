@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { RichTextEditor, RichTextRead } from "@/components/ui/RichTextEditor";
 import { notify } from "@/lib/notify";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { legacyBodyToHtml } from "@/lib/sanitize-book-html";
 import { deleteBookSubsection, setBookSubsectionVisibility, updateBookSubsection } from "../actions";
 
@@ -55,6 +56,7 @@ export function SubsectionEditor({
   const [bodyHtml, setBodyHtml] = useState(initialHtml);
   const [visibility, setVisibility] = useState(sub.visibility);
   const [pending, startTransition] = useTransition();
+  const confirm = useConfirm();
   const dirty = title !== sub.title || bodyHtml !== initialHtml;
 
   // Re-sync draft when the underlying sub prop changes (e.g. after a
@@ -103,8 +105,8 @@ export function SubsectionEditor({
     });
   }
 
-  function onDelete() {
-    if (!confirm(`Delete page "${sub.title}"?`)) return;
+  async function onDelete() {
+    if (!(await confirm({ title: `Delete page "${sub.title}"?`, confirmLabel: "Delete", tone: "danger" }))) return;
     startTransition(async () => {
       await deleteBookSubsection(sub.id);
     });

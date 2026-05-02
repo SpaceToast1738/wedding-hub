@@ -6,6 +6,7 @@ import { EventForm, type GroupOpt, type UserOpt } from "./EventForm";
 import { deleteScheduleEvent, updateScheduleEvent } from "./actions";
 import { splitDateTime } from "@/lib/format";
 import { EventMotifIcon, classifyEventMotif } from "@/components/ui/EventMotifIcon";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 
 type Event = {
   id: string;
@@ -97,9 +98,10 @@ function Row({
 }) {
   const [editing, setEditing] = useState(false);
   const [pending, startTransition] = useTransition();
+  const confirm = useConfirm();
 
-  function onDelete() {
-    if (!confirm(`Delete "${event.title}"?`)) return;
+  async function onDelete() {
+    if (!(await confirm({ title: `Delete "${event.title}"?`, confirmLabel: "Delete", tone: "danger" }))) return;
     startTransition(async () => {
       await deleteScheduleEvent(event.id);
     });

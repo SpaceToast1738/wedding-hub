@@ -4,6 +4,7 @@ import { useState, useTransition, type ReactNode } from "react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { notify } from "@/lib/notify";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 import {
   deleteBookSubsection,
   setBookSubsectionVisibility,
@@ -45,6 +46,7 @@ export function CardChrome({
   const [savedTitle, setSavedTitle] = useState(initialTitle);
   const [vis, setVis] = useState(visibility);
   const [pending, startTransition] = useTransition();
+  const confirm = useConfirm();
 
   function saveTitle() {
     if (!title.trim()) {
@@ -81,8 +83,8 @@ export function CardChrome({
     });
   }
 
-  function onDelete() {
-    if (!confirm(`Delete card "${savedTitle}"?`)) return;
+  async function onDelete() {
+    if (!(await confirm({ title: `Delete card "${savedTitle}"?`, confirmLabel: "Delete", tone: "danger" }))) return;
     startTransition(async () => {
       try {
         await deleteBookSubsection(subsectionId);

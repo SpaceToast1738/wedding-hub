@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { Button } from "@/components/ui/Button";
 import { notify } from "@/lib/notify";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 import {
   createPermissionGroup,
   deletePermissionGroup,
@@ -80,6 +81,7 @@ export function PermissionGroupsBlock({
   const [openGroupId, setOpenGroupId] = useState<string | null>(null);
   const [openPermsKey, setOpenPermsKey] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const confirm = useConfirm();
 
   function onAdd(fd: FormData) {
     startTransition(async () => {
@@ -105,12 +107,13 @@ export function PermissionGroupsBlock({
     });
   }
 
-  function onDelete(id: string, name: string, count: number) {
-    const msg =
-      count > 0
-        ? `Delete "${name}"? ${count} member link${count === 1 ? "" : "s"} will be removed (the users themselves stay).`
-        : `Delete "${name}"?`;
-    if (!confirm(msg)) return;
+  async function onDelete(id: string, name: string, count: number) {
+    if (!(await confirm({
+      title: `Delete "${name}"?`,
+      body: count > 0 ? `${count} member link${count === 1 ? "" : "s"} will be removed. The users themselves stay.` : undefined,
+      confirmLabel: "Delete",
+      tone: "danger",
+    }))) return;
     startTransition(async () => {
       const res = await deletePermissionGroup(id);
       if (res.ok) notify("success", "Deleted");

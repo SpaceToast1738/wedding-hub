@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { GuestForm } from "../GuestForm";
 import { deleteGuest, setGuestRsvp, updateGuest } from "../actions";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 import type { RsvpStatus, Side } from "@prisma/client";
 
 type GuestSnapshot = {
@@ -35,6 +36,7 @@ export function GuestDetailClient({
   const router = useRouter();
   const [editing, setEditing] = useState(false);
   const [pending, startTransition] = useTransition();
+  const confirm = useConfirm();
 
   function changeRsvp(next: RsvpStatus) {
     startTransition(async () => {
@@ -42,8 +44,13 @@ export function GuestDetailClient({
     });
   }
 
-  function onDelete() {
-    if (!confirm(`Delete ${guest.firstName} ${guest.lastName}? Their song requests and seat assignment will also be removed.`)) return;
+  async function onDelete() {
+    if (!(await confirm({
+      title: `Delete ${guest.firstName} ${guest.lastName}?`,
+      body: "Their song requests and seat assignment will also be removed.",
+      confirmLabel: "Delete",
+      tone: "danger",
+    }))) return;
     startTransition(async () => {
       await deleteGuest(guest.id);
       router.push("/guests");

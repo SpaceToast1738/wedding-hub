@@ -8,6 +8,7 @@ import { isoForInput } from "@/lib/format";
 import { deleteTask, updateTask } from "./actions";
 import type { UserOpt, SupplierOpt, BookSectionOpt, NavTagOpt, GuestGroupOpt } from "./TaskForm";
 import { TopicPicker, type BookSubsectionOpt } from "./TopicPicker";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 
 type Task = {
   id: string;
@@ -111,6 +112,7 @@ export function TaskDrawer({
   const [navTagIds, setNavTagIds] = useState<string[]>(initialNavTagIds);
   const [guestGroupIds, setGuestGroupIds] = useState<string[]>(initialGuestGroupIds);
   const [pending, startTransition] = useTransition();
+  const confirm = useConfirm();
 
   // ESC key dismisses the drawer.
   useEffect(() => {
@@ -178,8 +180,8 @@ export function TaskDrawer({
     });
   }
 
-  function onDelete() {
-    if (!confirm(`Delete "${task.title}"?`)) return;
+  async function onDelete() {
+    if (!(await confirm({ title: `Delete "${task.title}"?`, confirmLabel: "Delete", tone: "danger" }))) return;
     startTransition(async () => {
       try {
         await deleteTask(task.id);

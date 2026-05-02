@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/Input";
 import { Tag } from "@/components/ui/Tag";
 import { deleteFile, updateFile, uploadFile } from "./actions";
 import { formatDate } from "@/lib/format";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 
 type FileRow = {
   id: string;
@@ -192,9 +193,10 @@ function FileItem({
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const isCoupleOnly = file.visibility === FileVisibility.COUPLE_ONLY;
+  const confirm = useConfirm();
 
-  function onDelete() {
-    if (!confirm(`Delete "${file.name}"?`)) return;
+  async function onDelete() {
+    if (!(await confirm({ title: `Delete "${file.name}"?`, confirmLabel: "Delete", tone: "danger" }))) return;
     startTransition(async () => {
       try {
         await deleteFile(file.id);

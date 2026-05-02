@@ -7,6 +7,7 @@ import { formatMoneyDecimal } from "@/lib/format";
 import { computeActual, isManualOverride, sumOfPayments } from "@/lib/budget";
 import { createCategory, createLine, deleteCategory, deleteLine, updateLine } from "./actions";
 import { notify } from "@/lib/notify";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 
 type Supplier = { id: string; name: string };
 
@@ -147,8 +148,9 @@ function CategoryBlock({
   const [adding, setAdding] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [pending, startTransition] = useTransition();
+  const confirm = useConfirm();
 
-  function onDeleteCat() {
+  async function onDeleteCat() {
     // v1.53.0: server action validates the empty-category constraint
     // and returns a friendly message. Pre-fix used raw alert() — now
     // we just attempt + show the toast on rejection. (Belt-and-braces
@@ -161,7 +163,7 @@ function CategoryBlock({
       );
       return;
     }
-    if (!confirm(`Delete category "${category.name}"?`)) return;
+    if (!(await confirm({ title: `Delete category "${category.name}"?`, confirmLabel: "Delete", tone: "danger" }))) return;
     startTransition(async () => {
       const res = await deleteCategory(category.id);
       if (res.ok) notify("success", "Category deleted");
@@ -259,9 +261,10 @@ function LineRow({
   const [editing, setEditing] = useState(false);
   const [pending, startTransition] = useTransition();
   const supplierName = line.supplierId ? suppliers.find((s) => s.id === line.supplierId)?.name : null;
+  const confirm = useConfirm();
 
-  function onDelete() {
-    if (!confirm(`Delete "${line.description}"?`)) return;
+  async function onDelete() {
+    if (!(await confirm({ title: `Delete "${line.description}"?`, confirmLabel: "Delete", tone: "danger" }))) return;
     startTransition(async () => {
       const res = await deleteLine(line.id);
       if (res.ok) notify("success", "Line deleted");

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState, useTransition } from "react";
 import { Button } from "@/components/ui/Button";
 import { notify } from "@/lib/notify";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 import {
   attachFileToLegalItem,
   detachFileFromLegalItem,
@@ -76,6 +77,7 @@ export function BookLegalCard({
   files,
 }: LegalCardProps) {
   const [pending, startTransition] = useTransition();
+  const confirm = useConfirm();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(() => buildDraft(card));
   useEffect(() => {
@@ -137,8 +139,12 @@ export function BookLegalCard({
       else notify("error", res.error);
     });
   }
-  function detach(itemId: string) {
-    if (!confirm("Detach the file from this item? The file stays on /files.")) return;
+  async function detach(itemId: string) {
+    if (!(await confirm({
+      title: "Detach the file from this item?",
+      body: "The file stays on /files.",
+      confirmLabel: "Detach",
+    }))) return;
     startTransition(async () => {
       const res = await detachFileFromLegalItem(itemId);
       if (res.ok) notify("success", "File detached");

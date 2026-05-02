@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.61.1** | 2026-05-02 | [Two bugs caught by the daily Claude bug-check session — (1) clearing every chip in the TaskDrawer / TaskForm Topics picker was a silent no-op (zero `topicKeys` entries → `formData.has("topicKeys")` false → server skipped the m2m `set:` ops → existing relations stayed intact). Fixed via a `__touched__` sentinel hidden input always emitted by TopicPicker (when editable) and always appended by TaskDrawer.save(). (2) `parseTopicKeys` had no test coverage despite v1.61.0 adding the `guestGroup:` prefix branch. Extracted to `@/lib/task-topics` (pure module) and covered with 10 new unit tests — total 552 (was 542).](#2026-05-02--v1611--task-topics-parser-bug--coverage) |
+| **v1.62.0** | 2026-05-02 | [`<ConfirmDialog>` component sweep — replaces all 40 native browser `confirm()` calls across 29 files with a single shared in-app dialog. New `<ConfirmProvider>` mounts at the AppShell level; new `useConfirm()` hook returns a Promise<boolean>. Body accepts `ReactNode` so callers can render structured content (SupplierCard's snapshot fields now render as a definition list instead of `\n`-joined plaintext). Tone supports `default` / `danger`. Esc + backdrop click cancel; cancel button focused on open (safer default for destructive actions). Critical pre-design-pass cleanup — designer redesigns one dialog instead of 40.](#2026-05-02--v1620--confirm-dialog-sweep) |
+| v1.61.1 | 2026-05-02 | [Two bugs caught by the daily Claude bug-check session — (1) clearing every chip in the TaskDrawer / TaskForm Topics picker was a silent no-op (zero `topicKeys` entries → `formData.has("topicKeys")` false → server skipped the m2m `set:` ops → existing relations stayed intact). Fixed via a `__touched__` sentinel hidden input always emitted by TopicPicker (when editable) and always appended by TaskDrawer.save(). (2) `parseTopicKeys` had no test coverage despite v1.61.0 adding the `guestGroup:` prefix branch. Extracted to `@/lib/task-topics` (pure module) and covered with 10 new unit tests — total 552 (was 542).](#2026-05-02--v1611--task-topics-parser-bug--coverage) |
 | v1.61.0 | 2026-05-02 | [XL1 — tasks-via-guest-groups (closes the last open punch-list item). New Task ↔ GuestGroup m2m mirroring Task ↔ BookSection / BookSubsection / NavTag. TopicPicker gains a fourth "Guest groups" section with colour swatches + member counts; tagged tasks surface on every member's `/guests/[id]` page in a "Tasks via groups" panel with done-bucket-to-bottom ordering and per-row chips showing which group(s) link the task. Read-time query — no auto-sync (v1.30.5 standing rule). Additive migration `_GuestGroupToTask`.](#2026-05-02--v1610--xl1-tasks-via-guest-groups) |
 | v1.60.0 | 2026-05-01 | [Polish sweep (P1, P2, P3, P4, P5, P7, P8) — empty-state verb unified ("Create one above" → "Add one above"); supplier-delete confirm enriched with status / agreed amount / last contact; dirty-check on SupplierForm / GuestForm / EventForm (no more double-save mash); Today snapshot strip restructured (label + bits as siblings) so 1280px wraps cleanly; `:target` flash animation on book cards (one-shot, respects prefers-reduced-motion); BookSubsectionKind cast replaced with Zod-validated default; stale `removeUser` cleanup comment fixed. P6 already cleared in v1.53.0.](#2026-05-01--v1600--polish-sweep) |
 | v1.59.0 | 2026-05-01 | [Inline "add to group" UX (C2) — each group toggle on the per-user editor card now shows the group's permissions inline ("EDIT: tasks, songs · VIEW: schedule") so the couple can see what ticking the box will grant without bouncing up to the Permission groups panel. Built-in chip row gets the same treatment.](#2026-05-01--v1590--inline-add-to-group-ux) |
@@ -238,7 +239,41 @@ magic links sent to invitees, etc.). If a feature drifts toward giving
 guests access, defer to "out of scope" rather than building behind a
 feature flag.
 
-### Review punch list — captured 1 May 2026
+### Pre-2.0 plan — captured 2 May 2026
+
+**Direction.** User picked **(1) visual refresh** for the design pass + **(3) day-of readiness** for the v2.x arc to wedding day. Public-facing surfaces (option 2) deferred until after the wedding.
+
+**Phase A — design-pass readiness (v1.62.0 → v1.69.x).** Cleanup work that makes the design pass a single coherent task instead of 40 fiddly redesigns. Anything visual that has split implementations gets unified to ONE pattern before the designer sees it. Then the design pass redesigns that one pattern and every caller inherits.
+
+| Status | ID | Item | Sizing |
+|---|---|---|---|
+| ✅ v1.62.0 | DP-1 | `<ConfirmDialog>` sweep — 40 native confirms → one shared component. | shipped |
+| open | DP-2 | **Component inventory doc** — short markdown listing every reusable UI primitive (`Button`, `Input`, `Tag`, `StatusPill`, `AddNewModal`, `ConfirmDialog`, `Toaster`, `Avatar`, `EventMotifIcon`, `Illustrations`, etc.) and every page that uses them. Designer's required input. | ~1 hr |
+| open | DP-3 | **Empty-state convention** — survey existing patterns (`Illustrations.tsx` on some pages, bare `<p>No items yet.</p>` on others). Pick one. Convert holdouts. | ~2 hrs |
+| open | DP-4 | **Form patterns audit** — 3-4 form patterns coexist (TaskDrawer's controlled-state-everywhere, SupplierForm's onChange-dirty-flag, EventForm's hybrid). Designer needs to know which to optimise for; we should pick before they start. | ~30 min audit, then size depends on pick |
+| open | DP-5 | **Audit-log enrichment final sweep** — grep for bare `audit({entity, entityId})` calls without metadata. Per-feature enrichment from v1.30.5+ caught most; this is the leftover sweep. | ~1-2 hrs |
+| open | DP-6 | **Seed cleanup pass** — `prisma/seed.ts` is ~3000 lines; some legacy section slugs still seeded. Audit + consolidate. | ~2 hrs |
+| open | DP-7 | **Production promotion** of v1.60.0 → v1.62.0 (currently 4 ships ahead of `claude/main`). Always promote before structural work. | ~10 min |
+
+**Phase B — design pass (v2.0.0).** External Claude design pass. Receives DP-2 (component inventory) and DP-3/4 (resolved patterns) as input. Outputs a redesigned design language that re-skins the existing components without changing their API contracts. Ship as **v2.0.0** when complete.
+
+**Phase C — day-of readiness (v2.1.x → v2.x.0).** Pre-wedding hardening, sequenced backwards from 26 Sep 2026.
+
+| ID | Item | Sizing | Target |
+|---|---|---|---|
+| DR-1 | **Mobile pass on `/today/day-of` and ceremony seating** — real-conditions test on a real phone, find friction. Print fallbacks where they make sense (catering brief, seating, run-of-day). | ~3 hrs | v2.1.0 (Jun 2026) |
+| DR-2 | **Backup + restore drill** — has the backup script ever been restored? Test on a copy of prod. | ~2 hrs | v2.1.0 (Jun 2026) |
+| DR-3 | **Day-of-mode rehearsal** — sit down with the actual day-of-mode page and use it for a fictional wedding morning. Document what's missing. | ~1 hr + sized fixes | Jun-Jul 2026 |
+| DR-4 | **Print stylesheets review** — every printable surface (catering brief, seating, run-of-day, lodging guide). Test on real paper. | ~2 hrs | Jul 2026 |
+| DR-5 | **Offline mode / service worker** — defer until after design pass since it's heavy. Decision needed by mid-Aug. | ~6-10 hrs | Aug 2026 |
+| DR-6 | **Wedding-day freeze procedure** — document what NOT to deploy in the last 7 days. Standing rule but worth writing down. | ~30 min | Sep 2026 |
+| DR-7 | **DMARC follow-ups** — operational items already logged below; clear before Aug. | ~1 hr | Aug 2026 |
+
+**Phase D — post-wedding (v2.x+).** Public-facing surfaces if revisited (RSVP form, guest portal, song requests by guest), permission-group framework refinements, ceremony-allocator tuning based on actual headcount.
+
+### Review punch list — captured 1 May 2026 (closed)
+
+**Status: 40/40 cleared** as of v1.61.0 (XL1) + v1.62.0 (P2 substantively replaced by ConfirmDialog sweep). Kept below for history.
 
 After clearing the original backlog (#1–#8 shipped across v1.39.0 →
 v1.52.0), three parallel review agents — security/auth, server-side
@@ -858,6 +893,63 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-05-02 · v1.62.0 — confirm dialog sweep
+
+User: "And do the confirm dialog sweeps". Replaces all 40 native `confirm()` calls across 29 files with a single shared in-app dialog. The single biggest pre-design-pass cleanup — designer now redesigns one dialog instead of 40 individual native ones. Originally tracked as P2 in the v1.52.1 review punch list (partially addressed in v1.60.0 for SupplierCard); now done properly across the codebase.
+
+**The component.** New `src/components/ui/ConfirmDialog.tsx` exports a `<ConfirmProvider>` (mounted at AppShell level) and a `useConfirm()` hook. The hook returns a function with the shape `confirm(opts) => Promise<boolean>` — mirrors the native call shape so the sweep was mechanical:
+
+```ts
+// Old:
+function onDelete() {
+  if (!confirm(`Delete "${x}"?`)) return;
+  startTransition(...);
+}
+
+// New:
+const confirm = useConfirm();
+async function onDelete() {
+  if (!(await confirm({ title: `Delete "${x}"?`, confirmLabel: "Delete", tone: "danger" }))) return;
+  startTransition(...);
+}
+```
+
+**Options.**
+- `title` (required) — heading.
+- `body` — optional `ReactNode`. Callers can render structured content (SupplierCard's snapshot fields now render as a `<dl>` definition list instead of `\n`-joined plaintext; the guest-import preview renders multi-paragraph context).
+- `confirmLabel` / `cancelLabel` — defaults "Confirm" / "Cancel".
+- `tone` — `"default"` (moss) or `"danger"` (red). Most deletes use `tone: "danger"`.
+
+**A11y / safety details.**
+- `role="alertdialog" aria-modal="true"` on the panel.
+- Esc cancels (listener mounted only while dialog is open).
+- Backdrop click cancels.
+- Cancel button focused on open — safer default for destructive actions; a stray Enter shouldn't trigger Confirm.
+- z-index 500 (above modal content at 400).
+
+**Dialog state.** The provider holds an `opts | null` state; the pending resolver lives in a ref so it doesn't trigger re-renders. If a previous dialog is still open when a new `confirm()` call comes in (shouldn't happen in normal flow but defensive), the previous resolver gets called with `false` before the new dialog shows.
+
+**The sweep — 40 calls across 29 files.** Every native `confirm()` converted to use the hook. Notable conversions:
+
+- **SupplierCard** — v1.60.0's `lines.join("\n")` snapshot turned into a proper `<dl>` definition list rendered in the body.
+- **HouseholdBlock** — two confirm paths (with/without guests) collapsed into a single confirm with conditional body.
+- **MemberOverridesBlock** — three dialogs (clearAll / toggleCouple / remove) all converted; remove dialog with conditional last-couple consequence in the body.
+- **PlaylistCard** — three dialogs (delete playlist, remove song, sync from Spotify) — sync dialog gets per-section body construction.
+- **TaskImportClient / guests/import/ImportClient** — the multi-paragraph "what will happen" preview.
+- **CourseEditCard** in BookMenuCard — was the only `if (confirm(...)) {...}` (positive form) — converted to `await` + then-branch.
+
+All sites use `tone: "danger"` for destructive actions; non-destructive flows (sync, attach, detach, mark-couple-grant) use `tone: "default"`.
+
+**Verification.** typecheck ✅, lint ✅, 552 tests ✅, build ✅.
+
+**No new tests.** The hook + provider is exercised in real-world use across 40 sites; a unit test would mock the entire provider machinery without testing real behaviour. Worth a Playwright pass post-design-pass when the visual is finalised.
+
+**Punch-list status post-v1.62.0:** unchanged — already 40/40 closed at v1.61.0. P2 (the punch-list item that flagged native confirm inconsistency) is now substantively retired by virtue of the entire pattern being replaced.
+
+Files: `src/components/ui/ConfirmDialog.tsx` (new), `src/components/shell/AppShell.tsx` (mount provider), and conversions in 29 files: `src/app/(app)/files/FilesClient.tsx`, `src/app/(app)/budget/BudgetClient.tsx`, `src/app/(app)/questions/QuestionsClient.tsx`, `src/app/(app)/payments/PaymentRow.tsx`, `src/app/(app)/schedule/EventNode.tsx`, `src/app/(app)/schedule/ScheduleTable.tsx`, `src/app/(app)/book/[slug]/BookBuildCard.tsx`, `src/app/(app)/book/[slug]/BookMenuCard.tsx`, `src/app/(app)/book/[slug]/BookOutfitCard.tsx`, `src/app/(app)/book/[slug]/BookShotListCard.tsx`, `src/app/(app)/book/[slug]/BookFieldsCard.tsx`, `src/app/(app)/book/[slug]/BookLegalCard.tsx`, `src/app/(app)/book/[slug]/CardChrome.tsx`, `src/app/(app)/book/[slug]/SubsectionEditor.tsx`, `src/app/(app)/guests/HouseholdBlock.tsx`, `src/app/(app)/guests/[id]/GuestDetailClient.tsx`, `src/app/(app)/guests/import/ImportClient.tsx`, `src/app/(app)/songs/PlaylistCard.tsx`, `src/app/(app)/seating/SeatingCanvas.tsx`, `src/app/(app)/seating/TableCard.tsx`, `src/app/(app)/settings/CustomFieldsPanel.tsx`, `src/app/(app)/settings/GuestGroupsBlock.tsx`, `src/app/(app)/settings/MemberOverridesBlock.tsx`, `src/app/(app)/settings/NavTagsBlock.tsx`, `src/app/(app)/settings/PermissionGroupsBlock.tsx`, `src/app/(app)/suppliers/SupplierCard.tsx`, `src/app/(app)/suppliers/[id]/SupplierDetailClient.tsx`, `src/app/(app)/tasks/TaskDrawer.tsx`, `src/app/(app)/tasks/import/TaskImportClient.tsx`, `package.json` → `1.62.0`.
+
+---
 
 ### 2026-05-02 · v1.61.1 — task-topics parser bug + coverage
 

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { notify } from "@/lib/notify";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 import {
   copyBuildMaterialsToBudget,
   createBuildSession,
@@ -138,6 +139,7 @@ export function BookBuildCard({
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [editing, setEditing] = useState(false);
+  const confirm = useConfirm();
 
   // ── Draft state — only relevant in edit mode. Reset whenever
   // the underlying card prop changes (after a save/revalidate).
@@ -207,8 +209,12 @@ export function BookBuildCard({
     });
   }
 
-  function unlinkBudget() {
-    if (!confirm("Unlink this card from the Budget line? The line itself stays on /budget.")) return;
+  async function unlinkBudget() {
+    if (!(await confirm({
+      title: "Unlink this card from the Budget line?",
+      body: "The line itself stays on /budget.",
+      confirmLabel: "Unlink",
+    }))) return;
     startTransition(async () => {
       const res = await unlinkBuildBudgetLine(card.id);
       if (res.ok) notify("success", "Unlinked");
@@ -960,8 +966,9 @@ function SessionRow({
   onMutate: (fn: () => void) => void;
 }) {
   const [editing, setEditing] = useState(false);
-  function remove() {
-    if (!confirm("Delete this session?")) return;
+  const confirm = useConfirm();
+  async function remove() {
+    if (!(await confirm({ title: "Delete this session?", confirmLabel: "Delete", tone: "danger" }))) return;
     onMutate(async () => {
       const res = await deleteBuildSession(session.id);
       if (!res.ok) notify("error", res.error);

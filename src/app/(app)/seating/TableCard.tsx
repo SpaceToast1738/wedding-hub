@@ -3,6 +3,7 @@
 import { useTransition } from "react";
 import { Button } from "@/components/ui/Button";
 import { notify } from "@/lib/notify";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { assignGuestToSeat, deleteTable, updateTableCapacity } from "./actions";
 
 type Seat = {
@@ -54,10 +55,11 @@ export function TableCard({
   canEdit: boolean;
 }) {
   const [pending, startTransition] = useTransition();
+  const confirm = useConfirm();
   const assigned = table.seats.filter((s) => s.guest).length;
 
-  function onDelete() {
-    if (!confirm(`Delete table "${table.name}"?`)) return;
+  async function onDelete() {
+    if (!(await confirm({ title: `Delete table "${table.name}"?`, confirmLabel: "Delete", tone: "danger" }))) return;
     startTransition(async () => {
       try {
         await deleteTable(table.id);

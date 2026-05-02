@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { notify } from "@/lib/notify";
 import { createCustomField, deleteCustomField } from "./custom-fields-actions";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 
 // C10 (v1.15.0): couple-only Settings panel for defining custom fields
 // per entity. v1 supports Guest only; the entity dropdown is fixed
@@ -34,11 +35,15 @@ export function CustomFieldsPanel({
 }) {
   const [adding, setAdding] = useState(false);
   const [pending, startTransition] = useTransition();
+  const confirm = useConfirm();
 
-  function onDelete(id: string, name: string) {
-    if (!confirm(`Delete custom field "${name}"? Existing values on guests are kept but become invisible (re-creating with the same name does NOT restore them).`)) {
-      return;
-    }
+  async function onDelete(id: string, name: string) {
+    if (!(await confirm({
+      title: `Delete custom field "${name}"?`,
+      body: "Existing values on guests are kept but become invisible. Re-creating with the same name does NOT restore them.",
+      confirmLabel: "Delete",
+      tone: "danger",
+    }))) return;
     startTransition(async () => {
       try {
         await deleteCustomField(id);

@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { Button } from "@/components/ui/Button";
 import { notify } from "@/lib/notify";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { createNavTag, deleteNavTag, reorderNavTag, updateNavTag } from "./nav-tag-actions";
 
 // v1.30.5: NavTag admin block. Couple-only — Settings page already
@@ -23,6 +24,7 @@ export function NavTagsBlock({ tags }: { tags: NavTagRow[] }) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [pending, startTransition] = useTransition();
+  const confirm = useConfirm();
 
   function onAdd(fd: FormData) {
     startTransition(async () => {
@@ -48,11 +50,13 @@ export function NavTagsBlock({ tags }: { tags: NavTagRow[] }) {
     });
   }
 
-  function onDelete(id: string, name: string, count: number) {
-    const msg = count > 0
-      ? `Delete "${name}"? ${count} task${count === 1 ? "" : "s"} will lose this tag (rows survive).`
-      : `Delete "${name}"?`;
-    if (!confirm(msg)) return;
+  async function onDelete(id: string, name: string, count: number) {
+    if (!(await confirm({
+      title: `Delete "${name}"?`,
+      body: count > 0 ? `${count} task${count === 1 ? "" : "s"} will lose this tag. The task rows themselves stay.` : undefined,
+      confirmLabel: "Delete",
+      tone: "danger",
+    }))) return;
     startTransition(async () => {
       try {
         await deleteNavTag(id);
