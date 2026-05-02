@@ -7,6 +7,7 @@ import { canEdit, canView } from "@/lib/permissions";
 import { requireUser } from "@/lib/actions";
 import { findMealChoiceLinks, findShotsForGuest, findStaysForGuest } from "@/lib/guest-cross-refs";
 import { GuestDetailClient } from "./GuestDetailClient";
+import { GuestPhotoUpload } from "./GuestPhotoUpload";
 import { AddSongRequestInline } from "./AddSongRequestInline";
 import { CustomFieldsBlock } from "./CustomFieldsBlock";
 import { GuestGroupsControl } from "@/components/ui/GuestGroupsControl";
@@ -37,7 +38,14 @@ export default async function GuestDetailPage({
           guests: {
             where: { archived: false },
             orderBy: [{ isChild: "asc" }, { firstName: "asc" }],
-            select: { id: true, firstName: true, lastName: true, rsvp: true },
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              rsvp: true,
+              // v1.67.0: needed for the sibling-guest mini-list avatars.
+              profilePictureFileId: true,
+            },
           },
         },
       },
@@ -315,12 +323,23 @@ export default async function GuestDetailPage({
       />
       <div className="flex-1 overflow-auto">
         <div className="max-w-3xl mx-auto p-4 sm:p-6 space-y-5">
-          {/* Status row */}
-          <div className="flex items-center gap-3 flex-wrap">
-            <StatusPill status={RSVP_PILL[guest.rsvp] ?? "PENDING"} />
-            <span className="text-xs text-ink-tertiary capitalize">
-              RSVP: {guest.rsvp.toLowerCase()}
-            </span>
+          {/* v1.67.0: photo upload + status row. The avatar-as-trigger
+              gives a strong visual identity to the page; the RSVP
+              pill and label sit alongside so the row reads
+              "<face> · ATTENDING · RSVP: attending". */}
+          <div className="flex items-center gap-4 flex-wrap">
+            <GuestPhotoUpload
+              guestId={guest.id}
+              guestName={`${guest.firstName} ${guest.lastName}`}
+              pictureFileId={guest.profilePictureFileId}
+              canEdit={editable}
+            />
+            <div className="flex items-center gap-3 flex-wrap">
+              <StatusPill status={RSVP_PILL[guest.rsvp] ?? "PENDING"} />
+              <span className="text-xs text-ink-tertiary capitalize">
+                RSVP: {guest.rsvp.toLowerCase()}
+              </span>
+            </div>
           </div>
 
           {/* Editable form (toggled by the client) */}

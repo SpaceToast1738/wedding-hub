@@ -14,6 +14,15 @@ import {
   type CustomFieldType,
   type CustomFieldValues,
 } from "@/lib/custom-fields";
+import { unlink, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { FileVisibility } from "@prisma/client";
+import {
+  UPLOADS_DIR,
+  ensureUploadsDir,
+  generateStoredName,
+  validateUpload,
+} from "@/lib/uploads";
 
 const householdSchema = z.object({
   name: z.string().min(1).max(200),
@@ -594,4 +603,181 @@ export async function setGuestCustomField(
     metadata: { customField: def.name, fieldId },
   });
   revalidatePath(`/guests/${guestId}`);
+}
+
+// ─── v1.67.0: guest profile picture ─────────────────────────────────
+//
+// Same shape as the v1.63.0 image-gallery actions for Wedding Book
+// cards: one-step upload+attach for the camera-roll workflow, link
+// existing File for the picker workflow, and a clear action that
+// unlinks (the file row stays on /files so the user can re-link
+// later or use it elsewhere).
+//
+// All three: requireEdit("guests") gate, result-shape return,
+// enriched audit metadata.
+
+type ResultShape = { ok: true } | { ok: false; error: string };
+
+async function uploadFileForGuestProfile(
+  user: { id: string },
+  formFile: File,
+): Promise<{ id: string; name: string; mimeType: string }> {
+  const validation = validateUpload(formFile);
+  if (!validation.ok) throw new Error(`${formFile.name}: ${validation.error}`);
+  // v1.67.0 (UX guard): only image MIMEs make sense for a profile
+  // picture. validateUpload already enforces the global allowlist;
+  // this narrows further for this specific call site.
+  if (!validation.mime.startsWith("image/")) {
+    throw new Error(`${formFile.name}: must be an image (got ${validation.mime}).`);
+  }
+
+  await ensureUploadsDir();
+  const storedName = generateStoredName(validation.mime, formFile.name);
+  const fullPath = path.join(UPLOADS_DIR, storedName);
+  const bytes = Buffer.from(await formFile.arrayBuffer());
+  await writeFile(fullPath, bytes, { mode: 0o640 });
+
+  let created;
+  try {
+    created = await db.file.create({
+      data: {
+        name: formFile.name.slice(0, 200),
+        storedPath: storedName,
+        folder: "Guest photos",
+        visibility: FileVisibility.EVERYONE,
+        mimeType: validation.mime,
+        sizeBytes: formFile.size,
+        uploadedById: user.id,
+      },
+    });
+  } catch (err) {
+    await unlink(fullPath).catch(() => undefined);
+    throw err;
+  }
+  return created;
+}
+
+export async function uploadGuestProfilePicture(
+  guestId: string,
+  formData: FormData,
+): Promise<ResultShape> {
+  const user = await requireEdit("guests");
+  try {
+    const guest = await db.guest.findUnique({
+      where: { id: guestId },
+      select: { id: true, firstName: true, lastName: true, profilePictureFileId: true },
+    });
+    if (!guest) return { ok: false, error: "Guest not found" };
+    const formFile = formData.get("file");
+    if (!(formFile instanceof File) || formFile.size === 0) {
+      return { ok: false, error: "No file received." };
+    }
+    const previousFileId = guest.profilePictureFileId;
+    const file = await uploadFileForGuestProfile(user, formFile);
+    await db.guest.update({
+      where: { id: guestId },
+      data: { profilePictureFileId: file.id },
+    });
+    await audit(user, {
+      action: "guest-photo-upload",
+      entity: "Guest",
+      entityId: guestId,
+      metadata: {
+        guestName: `${guest.firstName} ${guest.lastName}`,
+        fileId: file.id,
+        fileName: file.name,
+        mimeType: file.mimeType,
+        replacedFileId: previousFileId,
+      },
+    });
+    revalidatePath("/guests");
+    revalidatePath(`/guests/${guestId}`);
+    revalidatePath("/seating");
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Couldn't upload" };
+  }
+}
+
+export async function setGuestProfilePicture(
+  guestId: string,
+  fileId: string,
+): Promise<ResultShape> {
+  const user = await requireEdit("guests");
+  try {
+    const guest = await db.guest.findUnique({
+      where: { id: guestId },
+      select: { id: true, firstName: true, lastName: true, profilePictureFileId: true },
+    });
+    if (!guest) return { ok: false, error: "Guest not found" };
+    const file = await db.file.findUnique({ where: { id: fileId } });
+    if (!file) return { ok: false, error: "File not found" };
+    if (!file.mimeType.startsWith("image/")) {
+      return { ok: false, error: "Profile picture must be an image file." };
+    }
+    if (guest.profilePictureFileId === fileId) return { ok: true };
+    await db.guest.update({
+      where: { id: guestId },
+      data: { profilePictureFileId: fileId },
+    });
+    await audit(user, {
+      action: "guest-photo-link",
+      entity: "Guest",
+      entityId: guestId,
+      metadata: {
+        guestName: `${guest.firstName} ${guest.lastName}`,
+        fileId,
+        fileName: file.name,
+        replacedFileId: guest.profilePictureFileId,
+      },
+    });
+    revalidatePath("/guests");
+    revalidatePath(`/guests/${guestId}`);
+    revalidatePath("/seating");
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Couldn't link" };
+  }
+}
+
+export async function clearGuestProfilePicture(
+  guestId: string,
+): Promise<ResultShape> {
+  const user = await requireEdit("guests");
+  try {
+    const guest = await db.guest.findUnique({
+      where: { id: guestId },
+      select: { id: true, firstName: true, lastName: true, profilePictureFileId: true },
+    });
+    if (!guest) return { ok: false, error: "Guest not found" };
+    if (!guest.profilePictureFileId) return { ok: true };
+    const previousFileId = guest.profilePictureFileId;
+    await db.guest.update({
+      where: { id: guestId },
+      data: { profilePictureFileId: null },
+    });
+    // Snapshot the file name for the audit log before the FK is
+    // gone — the row itself stays on /files (SetNull cascade keeps
+    // it alive; we only unlink).
+    const file = await db.file.findUnique({
+      where: { id: previousFileId },
+      select: { name: true },
+    });
+    await audit(user, {
+      action: "guest-photo-clear",
+      entity: "Guest",
+      entityId: guestId,
+      metadata: {
+        guestName: `${guest.firstName} ${guest.lastName}`,
+        fileId: previousFileId,
+        fileName: file?.name ?? null,
+      },
+    });
+    revalidatePath("/guests");
+    revalidatePath(`/guests/${guestId}`);
+    revalidatePath("/seating");
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Couldn't clear" };
+  }
 }

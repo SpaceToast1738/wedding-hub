@@ -38,7 +38,13 @@ export function GuestDetailPanel({
     <>
       <div className="px-4 pt-3 pb-2 border-b border-border-soft">
         <div className="flex items-center gap-2.5">
-          <Avatar name={fullName} size={32} />
+          {/* v1.67.0: render the guest's photo if uploaded; falls
+              through to the initials placeholder otherwise. */}
+          <Avatar
+            name={fullName}
+            size={40}
+            pictureFileId={guest.profilePictureFileId ?? null}
+          />
           <div className="min-w-0 flex-1">
             <div className="text-sm font-semibold text-ink-primary truncate">
               {fullName}

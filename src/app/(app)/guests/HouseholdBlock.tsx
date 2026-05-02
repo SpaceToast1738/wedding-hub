@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/Input";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { GuestForm } from "./GuestForm";
 import { GuestGroupsControl, type GuestGroupSummary } from "@/components/ui/GuestGroupsControl";
+import { Avatar } from "@/components/ui/Avatar";
 import { createGuest, deleteGuest, deleteHousehold, setGuestRsvp, updateGuest, updateHousehold } from "./actions";
 import { notify } from "@/lib/notify";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
@@ -44,6 +45,9 @@ type Guest = {
   // GuestGroupsControl can render chips + the manage popover
   // without an extra round-trip.
   groups?: { id: string }[];
+  // v1.67.0: optional profile picture FileId. Threaded from the
+  // page query; renders via <Avatar pictureFileId> on the guest row.
+  profilePictureFileId?: string | null;
 };
 
 // Reorder guests so each host is immediately followed by its +1 rows.
@@ -293,6 +297,16 @@ export function HouseholdBlock({
 
     return (
       <li className={`flex items-center gap-3 px-4 py-2.5 group ${isPlusOne ? "pl-10 bg-canvas/40" : ""}`}>
+        {/* v1.67.0: avatar (photo or initials fallback). Hidden in
+            the +1-indented case since the row already sits offset
+            and another circle would clutter the hierarchy. */}
+        {!isPlusOne && (
+          <Avatar
+            name={`${guest.firstName} ${guest.lastName}`}
+            size={32}
+            pictureFileId={guest.profilePictureFileId ?? null}
+          />
+        )}
         <div className="flex-1 min-w-0">
           <div className="flex items-baseline gap-2 flex-wrap">
             <Link

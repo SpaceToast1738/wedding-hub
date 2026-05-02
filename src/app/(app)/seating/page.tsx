@@ -54,6 +54,8 @@ export default async function SeatingPage() {
         // v1.49.0: guest-group memberships for the read-only chip
         // strip on the GuestDetailPanel.
         groups: { select: { id: true } },
+        // v1.67.0: profile picture for the GuestDetailPanel Avatar.
+        profilePictureFileId: true,
       },
       orderBy: [{ firstName: "asc" }, { lastName: "asc" }],
     }),
@@ -82,6 +84,8 @@ export default async function SeatingPage() {
     householdName: g.household?.name ?? null,
     // v1.49.0: chip strip on the detail panel.
     groupIds: g.groups.map((x) => x.id),
+    // v1.67.0: profile picture for the detail panel's Avatar.
+    profilePictureFileId: g.profilePictureFileId,
   }));
   const seatedCount = tables.reduce((n, t) => n + t.seats.filter((s) => s.guest).length, 0);
   const totalCapacity = tables.reduce((n, t) => n + t.capacity, 0);

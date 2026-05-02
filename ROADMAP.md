@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.66.0** | 2026-05-02 | [DR-1 mobile compatibility pass — first phase of pre-wedding hardening. Added `docs/MOBILE.md` codifying breakpoint / fixed-bottom / touch-target / table / modal / drawer conventions. Fixed five real bugs: Toaster sat behind the MobileTabBar (z-bumped + padding); QuickCapture success toast same; three tables (BookBuildCard materials, /guests/catering breakdown + dietary + meal-choice) lacked `overflow-x-auto`; SeatingCanvas was unusable on touch (now defaults to list view on first-visit mobile). Bumped touch targets on ConfirmDialog buttons (28px → 40px), AddNewModal close × (16px → 36px), ImageGallery detach × (24px → 32px, always-visible on touch). Page-level `p-6` paddings converted to `p-4 sm:p-6` across 18 pages so phones get more breathing room.](#2026-05-02--v1660--mobile-compatibility-pass-dr-1) |
+| **v1.67.0** | 2026-05-02 | [Guest profile pictures — manual upload per guest, replaces the initials placeholder. New `Guest.profilePictureFileId` column (additive migration), three new server actions (`uploadGuestProfilePicture` / `setGuestProfilePicture` / `clearGuestProfilePicture`), `<Avatar>` extended with `pictureFileId` prop. Upload UI on `/guests/[id]` (avatar-as-trigger pattern: tap the photo to upload), photos render on the guest list (HouseholdBlock rows) and the seating side panel. Skipped seating canvas seat-dots (too small to help) and catering-brief print (low marginal value). Originated from "is it possible to link guests with Facebook profile pictures?" — Facebook OAuth blocked by admin-only standing rule + Meta API restrictions; manual upload is the cleanest path.](#2026-05-02--v1670--guest-profile-pictures) |
+| v1.66.0 | 2026-05-02 | [DR-1 mobile compatibility pass — first phase of pre-wedding hardening. Added `docs/MOBILE.md` codifying breakpoint / fixed-bottom / touch-target / table / modal / drawer conventions. Fixed five real bugs: Toaster sat behind the MobileTabBar (z-bumped + padding); QuickCapture success toast same; three tables (BookBuildCard materials, /guests/catering breakdown + dietary + meal-choice) lacked `overflow-x-auto`; SeatingCanvas was unusable on touch (now defaults to list view on first-visit mobile). Bumped touch targets on ConfirmDialog buttons (28px → 40px), AddNewModal close × (16px → 36px), ImageGallery detach × (24px → 32px, always-visible on touch). Page-level `p-6` paddings converted to `p-4 sm:p-6` across 18 pages so phones get more breathing room.](#2026-05-02--v1660--mobile-compatibility-pass-dr-1) |
 | v1.65.0 | 2026-05-02 | [DP-4 form-pattern audit + DP-6 seed cleanup. New `docs/FORM-PATTERNS.md` codifies three legitimate form patterns (uncontrolled+action / controlled-per-field / single-draft-state) with a decision tree; flags the EventForm hybrid as deprecated for next-touch migration. `prisma/seed.ts` drops 6 legacy section slug seeds (wedding-party / venue / legal-admin / ceremony / reception / logistics) and the orphaned `seedWeddingPartySubsections` function — fresh DBs no longer get cluttered deprecated sections; existing prod data preserved via the `LEGACY_SLUGS` filter on /book. Seed file shrinks 2718 → 2681 lines.](#2026-05-02--v1650--dp-4-form-patterns--dp-6-seed-cleanup) |
 | v1.64.0 | 2026-05-02 | [Pre-2.0 design-pass prep batch (DP-2 + DP-3 + DP-5). New `docs/COMPONENT-INVENTORY.md` documents every reusable UI primitive + which pages use what — the design pass's required input. Empty-state convention codified in `Illustrations.tsx` (top-level pages get illustrated `<EmptyState>`; nested-section empties get a single italic paragraph; "Add" verb everywhere). Audit-log final sweep — 9 bare `audit({entity, entityId})` calls enriched with snapshot fields per the v1.30.5 standing rule (`field-delete`, `field-set`, `recipe-update`, `shot-toggle`, `shot-delete`, `outfit-add`, `outfit-update`, `outfit-delete`, wedding-settings update with `changedFields` diff).](#2026-05-02--v1640--design-pass-prep-batch) |
 | v1.63.0 | 2026-05-02 | [Image galleries on Wedding Book cards (user request: "centerpieces and clothing"). New reusable `<ImageGallery>` component with thumbnails for image MIMEs, click-to-zoom lightbox (← / → keyboard nav, Esc closes), three add paths (direct upload from camera roll / pick from existing /files / detach), and chip-text fallback for non-image attachments. Wired into BUILD (centerpieces, place cards, signage), OUTFIT (per-person reference photos — replaces v1.35.0's chip-only display), SETUP (space layouts), and STAY (bridal suite, property exterior). Schema gains `fileIds: String[]` on `BookBuildCard` / `BookSetupCard` / `BookStayCard` (additive). New server actions `uploadAndAttach<Kind>File` upload+attach in one step from a phone's camera roll.](#2026-05-02--v1630--image-galleries-on-book-cards) |
@@ -897,6 +898,78 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-05-02 · v1.67.0 — guest profile pictures
+
+User: "Is it possible to link guests with facebook profile pictures?" → "Lets try it" (after the explanation of why Facebook auto-link doesn't work and manual upload is the better path).
+
+**Why not Facebook.** Meta's Graph API locked down profile-picture access post-2018: requires OAuth from the guest themselves (we'd need each guest to "Continue with Facebook" — violates the admin-only standing rule), Meta app review for any read permission, GDPR friction for storing identifying photos pulled without consent, and Facebook profile-picture URLs aren't stable over time. The clean path is manual upload, curated by the couple.
+
+**The feature.** Each guest can have one profile picture. Falls back to the existing initials-in-coloured-circle Avatar when not set. Photos appear on:
+
+- **Guest list** — 32px avatar on each row in HouseholdBlock.
+- **Guest detail page** — 96px avatar at the top, doubles as the upload trigger (tap-the-photo pattern, same as every social-network profile editor). Camera-icon overlay cues interactivity; always visible on touch, hover-only on desktop.
+- **Seating side panel** — 40px avatar (was 32px initials) when the planner clicks a seat dot.
+
+**Skipped surfaces** (with rationale):
+- **Seating canvas seat dots** — at the canvas's typical zoom level dots are 8-16px tall; rendering thumbnails there is illegible noise. Better signal lives in colour-coded RSVP and group-tinted rows.
+- **Catering brief print** — printed photos at small sizes don't help the venue coordinator more than names. Rejected on cost-benefit.
+- **Day-of contacts** — those are *suppliers*, not guests. Different model.
+- **Schedule attendees** — too dense; the avatars would crowd the timeline.
+
+**Schema.**
+
+```prisma
+model Guest {
+  …
+  profilePictureFileId String?
+  profilePicture       File?   @relation("GuestProfilePicture", fields: [profilePictureFileId], references: [id], onDelete: SetNull)
+
+  @@index([profilePictureFileId])
+}
+model File {
+  …
+  guestProfileFor Guest[] @relation("GuestProfilePicture")
+}
+```
+
+`SetNull` on file delete so a `/files` cleanup doesn't cascade-delete the guest; the guest just falls back to the initials placeholder. Named relation (`GuestProfilePicture`) leaves room for future File→Guest links (attached scans for ID verification, etc.) without ambiguity.
+
+**Migration** `prisma/migrations/20260508000000_guest_profile_picture/migration.sql`. Single `ALTER TABLE ADD COLUMN` + FK + index. Purely additive.
+
+**Server actions** in `src/app/(app)/guests/actions.ts`:
+
+- `uploadGuestProfilePicture(guestId, formData)` — one-step camera-roll upload + link. Reuses the disk-write + DB-insert pattern from `/files/actions.ts` via a local helper. Roll-back on DB failure (unlinks the disk write). Validates that the MIME is `image/*` (in addition to the global allowlist).
+- `setGuestProfilePicture(guestId, fileId)` — link a pre-uploaded File. Validates the file is image MIME. Idempotent (returns ok if already linked).
+- `clearGuestProfilePicture(guestId)` — unlink. The File row stays on `/files`; only the FK is cleared. Idempotent.
+
+All three: `requireEdit("guests")` gate, result-shape `{ ok, error }` returns, enriched audit metadata (`guestName`, `fileId`, `fileName`, `replacedFileId` when overwriting an existing photo).
+
+**`<Avatar>` extension.** The component gains an optional `pictureFileId` prop. When set, renders `<img src="/api/files/<id>" loading="lazy" object-cover>` at the same size as the initials fallback. When null/undefined, renders the v1.0 initials-in-coloured-circle. No detection of failed loads — broken-image state is rare (SetNull cascade keeps it from happening at all in normal flow).
+
+**Upload UI** (`src/app/(app)/guests/[id]/GuestPhotoUpload.tsx`):
+
+- The avatar IS the primary upload trigger. Click / tap → hidden `<input type="file" accept="image/*">`. Camera-icon overlay (📷) cues interactivity at the bottom-right corner.
+- Secondary text button "+ Upload photo" / "Change photo" for keyboard users + discoverability.
+- "Remove photo" link clears with a ConfirmDialog (the file row stays on /files; the body of the confirm explains this).
+- Read-only when `canEdit` is false — no upload affordance, just the avatar.
+
+**Wiring details.**
+- `/guests/[id]/page.tsx` — added `<GuestPhotoUpload>` next to the RSVP pill in the status row.
+- `HouseholdBlock.tsx` — `Avatar` rendered on each guest row (skipped on +1 indented rows to avoid double-circle clutter). New `profilePictureFileId` field on the local `Guest` type.
+- `GuestDetailPanel.tsx` (seating side panel) — bumped Avatar from 32 → 40px and added the picture prop.
+- `seating/page.tsx` — added `profilePictureFileId: true` to the `db.guest.findMany` select; threaded through `allGuestsForClient`.
+- `SeatingClient.tsx` — `AllGuest` type gains the optional field.
+
+**Verification.** typecheck ✅, lint ✅, 557 tests ✅, build ✅. (Render-driven UI; no new tests. Real-conditions verification is the user uploading a guest's photo and confirming it appears across the three render sites.)
+
+**Pre-2.0 plan progress post-v1.67.0:**
+- Phase A complete.
+- Phase C: ✅ DR-1 (v1.66.0); the profile-pictures feature is a Phase-C-adjacent quality-of-life win (not on the original DR list but contributes to day-of usability).
+
+Files: `prisma/schema.prisma`, `prisma/migrations/20260508000000_guest_profile_picture/migration.sql` (new), `src/components/ui/Avatar.tsx` (extended), `src/app/(app)/guests/actions.ts` (3 new actions + helper), `src/app/(app)/guests/[id]/GuestPhotoUpload.tsx` (new), `src/app/(app)/guests/[id]/page.tsx` (wiring + sibling-guest select extension), `src/app/(app)/guests/HouseholdBlock.tsx` (Avatar render on rows), `src/app/(app)/seating/GuestDetailPanel.tsx` (avatar size + photo), `src/app/(app)/seating/page.tsx` (select extension), `src/app/(app)/seating/SeatingClient.tsx` (type extension), `package.json` → `1.67.0`.
+
+---
 
 ### 2026-05-02 · v1.66.0 — mobile compatibility pass (DR-1)
 

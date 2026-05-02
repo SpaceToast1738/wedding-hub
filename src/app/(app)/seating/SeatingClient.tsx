@@ -64,6 +64,9 @@ export type AllGuest = {
   // GuestDetailPanel that opens when the planner clicks a seated
   // guest. Editing is on /guests/[id] via the "Open record" link.
   groupIds?: string[];
+  // v1.67.0: optional profile-picture File id. Threaded from the
+  // /seating page query through to GuestDetailPanel's Avatar.
+  profilePictureFileId?: string | null;
 };
 
 // v1.22.6: dropdown options now carry RSVP so the picker can prefix

@@ -173,12 +173,20 @@ model Guest {
   // string from `options`). Validation happens at write time in the
   // server action. Null when no custom fields are populated.
   customFieldValues Json?
+  /// v1.67.0: optional profile picture for the guest. Reuses the
+  /// existing File model so we get the 25 MB cap, MIME allowlist,
+  /// and signed-download flow for free. SetNull cascade so deleting
+  /// the file row doesn't cascade-delete the guest — the guest
+  /// just loses their photo and falls back to initials.
+  profilePictureFileId String?
+  profilePicture       File?     @relation("GuestProfilePicture", fields: [profilePictureFileId], references: [id], onDelete: SetNull)
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
 
   @@index([householdId])
   @@index([rsvp])
   @@index([parentGuestId])
+  @@index([profilePictureFileId])
 }
 
 enum RsvpStatus {
@@ -1181,6 +1189,10 @@ model File {
   // marriage cert PDF, witness ID copies). SetNull on delete — files
   // outlive their item link.
   bookLegalItems BookLegalItem[]
+  /// v1.67.0: back-relation to Guest profile picture. Named relation
+  /// so Prisma can disambiguate this from any future File→Guest
+  /// links (e.g. attached scans).
+  guestProfileFor Guest[] @relation("GuestProfilePicture")
   createdAt    DateTime           @default(now())
 }
 
