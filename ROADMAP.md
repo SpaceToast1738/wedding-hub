@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.60.0** | 2026-05-01 | [Polish sweep (P1, P2, P3, P4, P5, P7, P8) — empty-state verb unified ("Create one above" → "Add one above"); supplier-delete confirm enriched with status / agreed amount / last contact; dirty-check on SupplierForm / GuestForm / EventForm (no more double-save mash); Today snapshot strip restructured (label + bits as siblings) so 1280px wraps cleanly; `:target` flash animation on book cards (one-shot, respects prefers-reduced-motion); BookSubsectionKind cast replaced with Zod-validated default; stale `removeUser` cleanup comment fixed. P6 already cleared in v1.53.0.](#2026-05-01--v1600--polish-sweep) |
+| **v1.61.0** | 2026-05-02 | [XL1 — tasks-via-guest-groups (closes the last open punch-list item). New Task ↔ GuestGroup m2m mirroring Task ↔ BookSection / BookSubsection / NavTag. TopicPicker gains a fourth "Guest groups" section with colour swatches + member counts; tagged tasks surface on every member's `/guests/[id]` page in a "Tasks via groups" panel with done-bucket-to-bottom ordering and per-row chips showing which group(s) link the task. Read-time query — no auto-sync (v1.30.5 standing rule). Additive migration `_GuestGroupToTask`.](#2026-05-02--v1610--xl1-tasks-via-guest-groups) |
+| v1.60.0 | 2026-05-01 | [Polish sweep (P1, P2, P3, P4, P5, P7, P8) — empty-state verb unified ("Create one above" → "Add one above"); supplier-delete confirm enriched with status / agreed amount / last contact; dirty-check on SupplierForm / GuestForm / EventForm (no more double-save mash); Today snapshot strip restructured (label + bits as siblings) so 1280px wraps cleanly; `:target` flash animation on book cards (one-shot, respects prefers-reduced-motion); BookSubsectionKind cast replaced with Zod-validated default; stale `removeUser` cleanup comment fixed. P6 already cleared in v1.53.0.](#2026-05-01--v1600--polish-sweep) |
 | v1.59.0 | 2026-05-01 | [Inline "add to group" UX (C2) — each group toggle on the per-user editor card now shows the group's permissions inline ("EDIT: tasks, songs · VIEW: schedule") so the couple can see what ticking the box will grant without bouncing up to the Permission groups panel. Built-in chip row gets the same treatment.](#2026-05-01--v1590--inline-add-to-group-ux) |
 | v1.58.0 | 2026-05-01 | [Cross-link sweep round 2 (XL4, XL7) — supplier detail page surfaces BUILD-card backlinks via `BookBuildCard.budgetLine.supplierId`. TaskDrawer chips deep-link to the entity (sections → /book/<slug>; subsections → /book/<sectionSlug>#<slug>; nav-tags → tag.route). XL2 + XL6 audited and confirmed substantially complete from v1.37.5 / per-card-kind shipping; XL1 deferred (needs Task↔GuestGroup schema design).](#2026-05-01--v1580--cross-link-sweep-round-2) |
 | v1.57.0 | 2026-05-01 | [Cross-link sweep (XL3, XL5, XL8, XL9, XL10, XL11) — household cards summarise table seating, /budget rows show BUILD-card source chips, /payments + /songs accept supplier/guest deep-link filters, Today list surfaces topic chips next to titles, /seating honours #table-<id> fragments. XL1/2/4/6/7 deferred to v1.58.0 (need schema or larger scope).](#2026-05-01--v1570--cross-link-sweep) |
@@ -287,7 +288,7 @@ All fall under the v1.30.5 read-time-query rule. No schema work — just additio
 
 | ID | Page | Surface |
 |---|---|---|
-| **XL1** | `/guests/[id]` | Tasks linked via the guest's groups (their group → that group's tasks). Already loaded; just join. |
+| ~~**XL1**~~ ✅ v1.61.0 | `/guests/[id]` | Tasks linked via the guest's groups (their group → that group's tasks). ~~Already loaded; just join.~~ Punch-list reading was wrong — the join didn't exist. v1.61.0 added the new Task ↔ GuestGroup m2m, threaded it through the TopicPicker, and surfaced linked tasks in a "Tasks via groups" panel on each member's detail page. |
 | **XL2** | `/guests/[id]` | Files / budget-lines / STAY card linkbacks (some present for suppliers, missing for guests). |
 | **XL3** | `/guests` | Household card — summarize "members at N tables (Top, Family-3)". `tableSeat.table` is already in the page query. |
 | **XL4** | `/suppliers/[id]` | Files linked to the supplier and BUILD cards whose `budgetLine.supplierId === id`. |
@@ -856,6 +857,46 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-05-02 · v1.61.0 — XL1: tasks-via-guest-groups
+
+User: "XL1". Closes the last open item from the v1.52.1 review punch list. Originally deferred because the punch-list reading lagged the schema — the audit thought the join already existed; it didn't. Three design options were on the table:
+
+- **(a)** `Task ↔ Guest` direct relation (single-guest assignment).
+- **(b)** Surface tasks tagged with a built-in "Guests" nav tag (already on `/guests` page strip from v1.52.0; redundant on detail).
+- **(c)** `Task ↔ GuestGroup` m2m (new) — the cleanest read of the punch-list phrasing ("tasks linked via the guest's **groups**").
+
+Picked **(c)** — mirrors the existing pattern from v1.30.5 (Task ↔ BookSection + NavTag) and v1.51.0 (Task ↔ BookSubsection). Same shape, same payload, same picker.
+
+**Use case.** "Phone the bride's parents about hen plans" → tag with the "Bride's parents" GuestGroup → surfaces on each parent's guest detail page automatically. Add a new member to the group → they see the task too. Mark the task DONE → it sinks to the bottom with a strikethrough on every member's page.
+
+**Schema.** `prisma/schema.prisma` gains `Task.guestGroups GuestGroup[]` and the back-relation `GuestGroup.tasks Task[]`. Implicit Prisma m2m → Prisma manages `_GuestGroupToTask` (alphabetical naming, A = GuestGroup.id, B = Task.id, primary key on the pair, cascade on both sides).
+
+**Migration** `prisma/migrations/20260506000000_task_guest_group_m2m/migration.sql`. Purely additive, identical shape to the v1.51.0 BookSubsection migration. Runs cleanly on production via `prisma migrate deploy` on container start.
+
+**Server actions** (`src/app/(app)/tasks/actions.ts`). `parseTopicKeys` now extracts `guestGroup:<id>` keys alongside the existing three prefixes. `createTask` connects them; `updateTask` uses `set:` to replace the relation atomically. `changedFields` audit diff includes `guestGroups`. The audit-aware-feature-design standing rule applied throughout.
+
+**TopicPicker** (`src/app/(app)/tasks/TopicPicker.tsx`). Fourth dropdown section "Guest groups" with each group's colour as a 12px swatch + member count chip. Selected guest-group chips render with a 8px swatch dot prefix (matches the seating canvas) and use a neutral `bg-canvas` border colour to distinguish them from the moss (book) and marigold (nav-tag) chip families. No `href` on the chip — there's no per-group page yet.
+
+**TaskForm + TaskDrawer + AddTaskToggle.** All three thread `guestGroups` + `defaultGuestGroupIds` / `initialGuestGroupIds`. The drawer's dirty-check now includes guest-group selection.
+
+**Page loaders** (`tasks/page.tsx`, `questions/page.tsx`). Both fetch GuestGroups with `_count.members` and flatten to `{ id, name, colour, memberCount }`. Threaded through to AddTaskToggle and TaskList.
+
+**Guest detail page** (`/guests/[id]/page.tsx`) — the payoff. New "Tasks via groups" section appears when:
+- The viewing user has `canView("tasks")` — gate re-checked at render time.
+- The guest is in ≥1 group AND ≥1 group has linked tasks.
+
+Renders open count above the list, "Manage →" deep-link to `/tasks`, then one row per task with `○`/`✓` glyph, title (line-through when DONE/ARCHIVED), one chip per linking group (with colour swatch), and due date when present and not done. Server-side ordering: status asc → priority desc → dueDate asc, so URGENT-and-overdue floats to top, DONE sinks to the bottom.
+
+**Read-time query, no auto-sync.** Per the v1.30.5 cross-module-wiring rule. Adding a member to a group instantly lights up the task on their page on next load; no denormalised cache, no rebuild step.
+
+**Verification.** typecheck ✅, lint ✅, 542 tests ✅, build ✅.
+
+**Punch-list status post-v1.61.0:** all 6 🔴 cleared (v1.53.0); all 14 🟡 cleared (v1.54.0 + v1.59.0); **all 11 🟢 cleared** (v1.57.0 + v1.58.0 + v1.61.0); all 8 ✨ cleared (v1.53.0 + v1.60.0). **Three-agent review punch list now fully closed.**
+
+Files: `prisma/schema.prisma`, `prisma/migrations/20260506000000_task_guest_group_m2m/migration.sql` (new), `src/app/(app)/tasks/actions.ts`, `src/app/(app)/tasks/TopicPicker.tsx`, `src/app/(app)/tasks/TaskForm.tsx`, `src/app/(app)/tasks/TaskDrawer.tsx`, `src/app/(app)/tasks/TaskList.tsx`, `src/app/(app)/tasks/AddTaskToggle.tsx`, `src/app/(app)/tasks/page.tsx`, `src/app/(app)/questions/page.tsx`, `src/app/(app)/guests/[id]/page.tsx`, `package.json` → `1.61.0`.
+
+---
 
 ### 2026-05-01 · v1.60.0 — Polish sweep
 

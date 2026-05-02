@@ -6,7 +6,7 @@ import { TaskRow } from "./TaskRow";
 import { TaskBoard } from "./TaskBoard";
 import { FilterTabs, type Filter, type View } from "./FilterTabs";
 import { TaskDrawer } from "./TaskDrawer";
-import type { UserOpt, SupplierOpt, BookSectionOpt, BookSubsectionOpt, NavTagOpt } from "./TaskForm";
+import type { UserOpt, SupplierOpt, BookSectionOpt, BookSubsectionOpt, NavTagOpt, GuestGroupOpt } from "./TaskForm";
 import type { CustomFieldDef } from "@/lib/custom-fields";
 
 const VIEW_KEY = "wh_tasks_view";
@@ -34,6 +34,9 @@ type Task = {
   // to an empty list.
   bookSubsections?: Array<{ id: string; title: string; sectionTitle: string }>;
   navTags: Array<{ id: string; name: string }>;
+  // v1.61.0 (XL1): guest-group memberships of this task. Optional so
+  // older callers that don't load this still typecheck.
+  guestGroups?: Array<{ id: string; name: string; colour?: string | null }>;
 };
 
 type SortKey = "smart" | "due" | "priority" | "title" | "assignee" | "created";
@@ -99,6 +102,7 @@ export function TaskList({
   bookSections = [],
   bookSubsections = [],
   navTags = [],
+  guestGroups = [],
   currentUserId,
   canEdit,
   customFieldDefs = [],
@@ -110,9 +114,11 @@ export function TaskList({
   suppliers?: SupplierOpt[];
   // v1.30.5: lists for the Topics multi-select on the drawer.
   // v1.51.0: + bookSubsections (cards).
+  // v1.61.0 (XL1): + guestGroups.
   bookSections?: BookSectionOpt[];
   bookSubsections?: BookSubsectionOpt[];
   navTags?: NavTagOpt[];
+  guestGroups?: GuestGroupOpt[];
   currentUserId: string;
   canEdit: boolean;
   customFieldDefs?: CustomFieldDef[];
@@ -531,6 +537,7 @@ export function TaskList({
           bookSections={bookSections}
           bookSubsections={bookSubsections}
           navTags={navTags}
+          guestGroups={guestGroups}
           canEdit={canEdit}
           onClose={() => setOpenTaskId(null)}
         />

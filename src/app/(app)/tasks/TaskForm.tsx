@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/Input";
 import { CustomFieldsBlock } from "@/components/ui/CustomFieldsBlock";
 import type { CustomFieldDef } from "@/lib/custom-fields";
 import { setTaskCustomField } from "./actions";
-import { TopicPicker, type BookSectionOpt, type BookSubsectionOpt, type NavTagOpt } from "./TopicPicker";
+import { TopicPicker, type BookSectionOpt, type BookSubsectionOpt, type NavTagOpt, type GuestGroupOpt } from "./TopicPicker";
 
 const TYPES = ["TASK", "QUESTION", "DECISION"] as const;
 const PRIORITIES = ["LOW", "MEDIUM", "HIGH", "URGENT"] as const;
@@ -34,6 +34,9 @@ export type Initial = {
   // v1.51.0: parallel m2m at the card level — drives the inline
   // tasks panel below each card on /book/[slug].
   bookSubsectionIds?: string[];
+  // v1.61.0 (XL1): GuestGroup ids; tagged tasks surface on each
+  // member's /guests/[id] page.
+  guestGroupIds?: string[];
 };
 
 export type UserOpt = { id: string; name: string | null; email: string };
@@ -43,7 +46,8 @@ export type SupplierOpt = { id: string; name: string; category: string };
 // (page.tsx, AddTaskToggle, TaskList) so callers don't have to import
 // from two files. Replaces v1.30.0's BookSubsectionOpt.
 // v1.51.0: BookSubsectionOpt re-introduced (for the parallel m2m).
-export type { BookSectionOpt, BookSubsectionOpt, NavTagOpt };
+// v1.61.0 (XL1): + GuestGroupOpt.
+export type { BookSectionOpt, BookSubsectionOpt, NavTagOpt, GuestGroupOpt };
 
 type Props = {
   initial?: Initial;
@@ -54,9 +58,11 @@ type Props = {
   suppliers?: SupplierOpt[];
   // v1.30.5: lists for the unified Topics multi-select. All empty
   // hides the picker entirely.
+  // v1.61.0 (XL1): + guestGroups.
   bookSections?: BookSectionOpt[];
   bookSubsections?: BookSubsectionOpt[];
   navTags?: NavTagOpt[];
+  guestGroups?: GuestGroupOpt[];
   submitLabel?: string;
   onSubmit: (formData: FormData) => Promise<void>;
   onCancel?: () => void;
@@ -78,6 +84,7 @@ export function TaskForm({
   bookSections = [],
   bookSubsections = [],
   navTags = [],
+  guestGroups = [],
   submitLabel = "Create",
   onSubmit,
   onCancel,
@@ -169,17 +176,20 @@ export function TaskForm({
         </div>
       )}
       {/* v1.30.5: combined Topics multi-select (Book sections + Nav
-          tags). v1.51.0: + Book subsections (cards). */}
-      {(bookSections.length > 0 || bookSubsections.length > 0 || navTags.length > 0) && (
+          tags). v1.51.0: + Book subsections (cards).
+          v1.61.0 (XL1): + Guest groups. */}
+      {(bookSections.length > 0 || bookSubsections.length > 0 || navTags.length > 0 || guestGroups.length > 0) && (
         <div>
           <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">Topics</label>
           <TopicPicker
             bookSections={bookSections}
             bookSubsections={bookSubsections}
             navTags={navTags}
+            guestGroups={guestGroups}
             initialBookSectionIds={initial?.bookSectionIds ?? []}
             initialBookSubsectionIds={initial?.bookSubsectionIds ?? []}
             initialNavTagIds={initial?.navTagIds ?? []}
+            initialGuestGroupIds={initial?.guestGroupIds ?? []}
           />
         </div>
       )}

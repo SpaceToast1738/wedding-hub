@@ -263,6 +263,11 @@ model Task {
   // inline tasks panel rendered below each card on /book/[slug].
   // Implicit m2m → Prisma manages the _BookSubsectionToTask junction.
   bookSubsections BookSubsection[]
+  // v1.61.0 (XL1): m2m to GuestGroup so a task tagged "Bride's parents"
+  // surfaces on every member of that group's detail page (read-time
+  // query in /guests/[id]). Same pattern as bookSections / navTags —
+  // implicit m2m, Prisma manages _GuestGroupToTask.
+  guestGroups  GuestGroup[]
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
 
@@ -1085,6 +1090,10 @@ model GuestGroup {
   side          Side           @default(BOTH)
   order         Int            @default(0)
   members       Guest[]        @relation("GuestGroupMembers")
+  /// v1.61.0 (XL1): m2m back-relation to Task. A task tagged with this
+  /// group surfaces on every member's /guests/[id] page via a
+  /// read-time query.
+  tasks         Task[]
   /// v1.46.0: legacy per-row pinning. Deprecated in v1.48.0 in
   /// favour of `side` + `order` driving auto-fill. Rows are no
   /// longer rendered; the table is preserved for one release as a

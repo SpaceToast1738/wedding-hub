@@ -23,7 +23,7 @@ export default async function TasksPage({
   const sp = await searchParams;
   const supplierFilter = typeof sp.supplier === "string" ? sp.supplier : null;
 
-  const [tasks, users, customFieldDefs, suppliers, bookSections, bookSubsectionsRaw, navTags] = await Promise.all([
+  const [tasks, users, customFieldDefs, suppliers, bookSections, bookSubsectionsRaw, navTags, guestGroupsRaw] = await Promise.all([
     db.task.findMany({
       where: {
         type: "TASK",
@@ -33,12 +33,14 @@ export default async function TasksPage({
       // v1.30.5: include the m2m relations for the chip-row render.
       // v1.51.0: + bookSubsections so the drawer's TopicPicker shows
       // current card-level memberships.
+      // v1.61.0 (XL1): + guestGroups so the drawer surfaces them too.
       include: {
         bookSections: { select: { id: true, title: true } },
         bookSubsections: {
           select: { id: true, title: true, section: { select: { title: true } } },
         },
         navTags: { select: { id: true, name: true } },
+        guestGroups: { select: { id: true, name: true, colour: true } },
       },
     }),
     db.user.findMany({ orderBy: [{ isCouple: "desc" }, { name: "asc" }] }),
@@ -75,7 +77,25 @@ export default async function TasksPage({
       orderBy: { order: "asc" },
       select: { id: true, name: true, route: true },
     }),
+    // v1.61.0 (XL1): guest groups for the Topics multi-select. Surface
+    // member count so the picker can disambiguate near-empty groups
+    // ("Bride's parents · 2 members" vs. "After-party · 12 members").
+    db.guestGroup.findMany({
+      orderBy: [{ order: "asc" }, { name: "asc" }],
+      select: {
+        id: true,
+        name: true,
+        colour: true,
+        _count: { select: { members: true } },
+      },
+    }),
   ]);
+  const guestGroups = guestGroupsRaw.map((g) => ({
+    id: g.id,
+    name: g.name,
+    colour: g.colour,
+    memberCount: g._count.members,
+  }));
   // Flatten subsection.section.title to subsection.sectionTitle for
   // the picker shape. v1.58.0 (XL7): also flatten slug + sectionSlug
   // so the chip can deep-link.
@@ -133,6 +153,7 @@ export default async function TasksPage({
                 bookSections={bookSections}
                 bookSubsections={bookSubsections}
                 navTags={navTags}
+                guestGroups={guestGroups}
               />
             </>
           ) : undefined
@@ -164,6 +185,7 @@ export default async function TasksPage({
         bookSections={bookSections}
         bookSubsections={bookSubsections}
         navTags={navTags}
+        guestGroups={guestGroups}
         currentUserId={user.id}
         canEdit={editable}
         customFieldDefs={customFieldDefsTyped}

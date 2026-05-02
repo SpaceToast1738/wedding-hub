@@ -12,7 +12,7 @@ export default async function QuestionsPage() {
   if (!(await canView(user, "questions"))) redirect("/");
   const editable = await canEdit(user, "questions");
 
-  const [questions, users, customFieldDefs, suppliers, bookSections, bookSubsectionsRaw, navTags] = await Promise.all([
+  const [questions, users, customFieldDefs, suppliers, bookSections, bookSubsectionsRaw, navTags, guestGroupsRaw] = await Promise.all([
     db.task.findMany({
       where: { type: { in: ["QUESTION", "DECISION"] } },
       orderBy: [{ status: "asc" }, { priority: "desc" }, { createdAt: "desc" }],
@@ -49,7 +49,24 @@ export default async function QuestionsPage() {
       orderBy: { order: "asc" },
       select: { id: true, name: true, route: true },
     }),
+    // v1.61.0 (XL1): guest groups for the Topics multi-select on
+    // questions / decisions. Same shape as /tasks page loader.
+    db.guestGroup.findMany({
+      orderBy: [{ order: "asc" }, { name: "asc" }],
+      select: {
+        id: true,
+        name: true,
+        colour: true,
+        _count: { select: { members: true } },
+      },
+    }),
   ]);
+  const guestGroups = guestGroupsRaw.map((g) => ({
+    id: g.id,
+    name: g.name,
+    colour: g.colour,
+    memberCount: g._count.members,
+  }));
   const bookSubsections = bookSubsectionsRaw.map((s) => ({
     id: s.id,
     title: s.title,
@@ -84,6 +101,7 @@ export default async function QuestionsPage() {
               bookSections={bookSections}
               bookSubsections={bookSubsections}
               navTags={navTags}
+              guestGroups={guestGroups}
               defaultType="QUESTION"
               showType={true}
               buttonLabel="+ New"

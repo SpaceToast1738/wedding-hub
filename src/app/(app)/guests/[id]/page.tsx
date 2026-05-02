@@ -252,6 +252,43 @@ export default async function GuestDetailPage({
   );
   const mealLinkByCourse = new Map(mealLinks.map((m) => [m.course, m]));
 
+  // v1.61.0 (XL1): tasks linked via this guest's groups. Read-time
+  // query — no auto-sync. A task tagged with the "Bride's parents"
+  // GuestGroup surfaces on every member's detail page automatically;
+  // when the task's status flips to DONE it sinks to the bottom with a
+  // strikethrough. Hidden entirely when the guest is in zero groups
+  // OR no group has any linked tasks.
+  // Only `tasks` permission holders see the panel — gates re-checked
+  // each render so removing `tasks` permission hides immediately
+  // without needing to re-publish the page.
+  const canViewTasks = await canView(user, "tasks");
+  const groupTasksRaw = canViewTasks && guest.groups.length > 0
+    ? await db.task.findMany({
+        where: {
+          guestGroups: { some: { id: { in: guest.groups.map((g) => g.id) } } },
+        },
+        orderBy: [
+          // Done tasks bucket to the bottom; within each bucket,
+          // sort URGENT > HIGH > MEDIUM > LOW then by due date.
+          { status: "asc" },
+          { priority: "desc" },
+          { dueDate: "asc" },
+        ],
+        select: {
+          id: true,
+          title: true,
+          type: true,
+          status: true,
+          priority: true,
+          dueDate: true,
+          guestGroups: {
+            where: { id: { in: guest.groups.map((g) => g.id) } },
+            select: { id: true, name: true, colour: true },
+          },
+        },
+      })
+    : [];
+
   function shortDateRange(ci: Date | null, co: Date | null): string {
     if (!ci && !co) return "";
     const fmt = (d: Date) =>
@@ -460,6 +497,74 @@ export default async function GuestDetailPage({
               </ul>
             </section>
           )}
+
+          {/* v1.61.0 (XL1): tasks linked via this guest's groups.
+              Hidden when zero matches or guest in zero groups.
+              Done tasks sink to the bottom (server orders by status
+              first; here we render in that order). The chip beside
+              each row shows which of the guest's groups this task is
+              linked to — useful when a guest is in multiple groups. */}
+          {groupTasksRaw.length > 0 && (() => {
+            const open = groupTasksRaw.filter((t) => t.status !== "DONE" && t.status !== "ARCHIVED").length;
+            return (
+              <section className="bg-surface border border-border-soft rounded-md shadow-sm">
+                <header className="px-4 py-3 border-b border-border-soft flex items-baseline justify-between gap-3">
+                  <h2 className="text-sm font-semibold text-ink-primary">
+                    Tasks via groups
+                    <span className="ml-2 text-[11px] font-normal text-ink-tertiary">
+                      {open} open of {groupTasksRaw.length}
+                    </span>
+                  </h2>
+                  <Link
+                    href="/tasks"
+                    className="text-[11px] text-info hover:underline"
+                  >
+                    Manage →
+                  </Link>
+                </header>
+                <ul className="divide-y divide-border-soft text-sm">
+                  {groupTasksRaw.map((t) => {
+                    const isDone = t.status === "DONE" || t.status === "ARCHIVED";
+                    return (
+                      <li key={t.id} className="px-4 py-2 flex items-baseline gap-2">
+                        <span className="flex-shrink-0">{isDone ? "✓" : "○"}</span>
+                        <span
+                          className={[
+                            "truncate flex-1",
+                            isDone ? "line-through text-ink-tertiary" : "text-ink-primary",
+                          ].join(" ")}
+                          title={t.title}
+                        >
+                          {t.title}
+                        </span>
+                        {t.guestGroups.map((g) => (
+                          <span
+                            key={g.id}
+                            className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-md border border-border-soft bg-canvas text-ink-secondary flex-shrink-0"
+                            title={`Linked via ${g.name}`}
+                          >
+                            {g.colour && (
+                              <span
+                                aria-hidden
+                                className="inline-block w-1.5 h-1.5 rounded-full"
+                                style={{ background: g.colour }}
+                              />
+                            )}
+                            {g.name}
+                          </span>
+                        ))}
+                        {t.dueDate && !isDone && (
+                          <span className="text-[10px] text-ink-tertiary tabular-nums flex-shrink-0">
+                            {new Date(t.dueDate).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
+                          </span>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </section>
+            );
+          })()}
 
           {/* Notes */}
           {guest.notes && (

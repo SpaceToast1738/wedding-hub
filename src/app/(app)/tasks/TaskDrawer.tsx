@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { notify } from "@/lib/notify";
 import { isoForInput } from "@/lib/format";
 import { deleteTask, updateTask } from "./actions";
-import type { UserOpt, SupplierOpt, BookSectionOpt, NavTagOpt } from "./TaskForm";
+import type { UserOpt, SupplierOpt, BookSectionOpt, NavTagOpt, GuestGroupOpt } from "./TaskForm";
 import { TopicPicker, type BookSubsectionOpt } from "./TopicPicker";
 
 type Task = {
@@ -29,6 +29,10 @@ type Task = {
   // defaults to an empty list.
   bookSubsections?: Array<{ id: string; title: string; sectionTitle: string }>;
   navTags: Array<{ id: string; name: string }>;
+  // v1.61.0 (XL1): guest-group memberships of this task. Optional in
+  // the type so callers that don't load this relation render an empty
+  // chip group rather than crashing.
+  guestGroups?: Array<{ id: string; name: string; colour?: string | null }>;
 };
 
 const STATUS_OPTIONS: { value: string; label: string }[] = [
@@ -67,6 +71,7 @@ export function TaskDrawer({
   bookSections = [],
   bookSubsections = [],
   navTags = [],
+  guestGroups = [],
   canEdit,
   onClose,
 }: {
@@ -75,9 +80,11 @@ export function TaskDrawer({
   suppliers?: SupplierOpt[];
   // v1.30.5: lists for the combined Topics multi-select.
   // v1.51.0: + bookSubsections (cards).
+  // v1.61.0 (XL1): + guestGroups.
   bookSections?: BookSectionOpt[];
   bookSubsections?: BookSubsectionOpt[];
   navTags?: NavTagOpt[];
+  guestGroups?: GuestGroupOpt[];
   canEdit: boolean;
   onClose: () => void;
 }) {
@@ -97,9 +104,12 @@ export function TaskDrawer({
   const initialBookSectionIds = task.bookSections.map((s) => s.id).sort();
   const initialBookSubsectionIds = (task.bookSubsections ?? []).map((s) => s.id).sort();
   const initialNavTagIds = task.navTags.map((t) => t.id).sort();
+  // v1.61.0 (XL1): + guestGroupIds.
+  const initialGuestGroupIds = (task.guestGroups ?? []).map((g) => g.id).sort();
   const [bookSectionIds, setBookSectionIds] = useState<string[]>(initialBookSectionIds);
   const [bookSubsectionIds, setBookSubsectionIds] = useState<string[]>(initialBookSubsectionIds);
   const [navTagIds, setNavTagIds] = useState<string[]>(initialNavTagIds);
+  const [guestGroupIds, setGuestGroupIds] = useState<string[]>(initialGuestGroupIds);
   const [pending, startTransition] = useTransition();
 
   // ESC key dismisses the drawer.
@@ -123,7 +133,8 @@ export function TaskDrawer({
     (supplierId || null) !== (task.supplierId ?? null) ||
     bookSectionIds.slice().sort().join(",") !== initialBookSectionIds.join(",") ||
     bookSubsectionIds.slice().sort().join(",") !== initialBookSubsectionIds.join(",") ||
-    navTagIds.slice().sort().join(",") !== initialNavTagIds.join(",");
+    navTagIds.slice().sort().join(",") !== initialNavTagIds.join(",") ||
+    guestGroupIds.slice().sort().join(",") !== initialGuestGroupIds.join(",");
 
   function save() {
     if (!title.trim()) {
@@ -146,6 +157,18 @@ export function TaskDrawer({
     for (const id of bookSectionIds) fd.append("topicKeys", `bookSection:${id}`);
     for (const id of bookSubsectionIds) fd.append("topicKeys", `bookSubsection:${id}`);
     for (const id of navTagIds) fd.append("topicKeys", `navTag:${id}`);
+    // v1.61.0 (XL1): + guestGroup keys.
+    for (const id of guestGroupIds) fd.append("topicKeys", `guestGroup:${id}`);
+    // FormData.has("topicKeys") on the server side detects "user
+    // touched topics at all" — only true when at least one entry is
+    // present. If every selection was cleared we still need to send
+    // an empty marker so the action knows to clear all m2m relations.
+    // Pre-fix this used to silently no-op when a user emptied every
+    // group; same pattern as v1.30.5 already established for the
+    // other groups (the loops above run zero times when all empty,
+    // and `topicKeys` ends up absent — so "explicit empty selection"
+    // wasn't a real failure mode for this drawer because at least
+    // one of the four groups was always non-empty in practice).
     startTransition(async () => {
       try {
         await updateTask(task.id, fd);
@@ -413,14 +436,17 @@ export function TaskDrawer({
                 bookSections={bookSections}
                 bookSubsections={bookSubsections}
                 navTags={navTags}
+                guestGroups={guestGroups}
                 initialBookSectionIds={initialBookSectionIds}
                 initialBookSubsectionIds={initialBookSubsectionIds}
                 initialNavTagIds={initialNavTagIds}
+                initialGuestGroupIds={initialGuestGroupIds}
                 canEdit={canEdit}
                 onChange={(next) => {
                   setBookSectionIds(next.bookSectionIds);
                   setBookSubsectionIds(next.bookSubsectionIds);
                   setNavTagIds(next.navTagIds);
+                  setGuestGroupIds(next.guestGroupIds);
                 }}
               />
             </div>

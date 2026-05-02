@@ -13,6 +13,12 @@ import { useEffect, useRef, useState } from "react";
 // and end up on the parallel `Task.bookSubsections` m2m, which drives
 // the inline tasks panel rendered below each card on /book/[slug].
 //
+// v1.61.0 (XL1): added a fourth group — Guest groups. `guestGroup:<id>`
+// keys flow through the same payload and land on the new
+// `Task.guestGroups` m2m. Tasks tagged with a GuestGroup surface on
+// every member's /guests/[id] page (read-time query — no auto-sync,
+// per the v1.30.5 cross-module-wiring rule).
+//
 // In read-only mode (canEdit=false) the dropdown trigger is omitted —
 // just the chip row renders.
 
@@ -33,14 +39,26 @@ export type BookSubsectionOpt = {
   sectionSlug?: string;
 };
 export type NavTagOpt = { id: string; name: string; route: string | null };
+/** v1.61.0 (XL1): guest group option. Colour rendered as a swatch in
+ *  the dropdown so the couple can pick visually (matches the seating
+ *  canvas treatment). Member count helps disambiguate near-empty
+ *  groups. No `href` for the chip — there's no per-group page yet. */
+export type GuestGroupOpt = {
+  id: string;
+  name: string;
+  colour: string | null;
+  memberCount: number;
+};
 
 type Props = {
   bookSections: BookSectionOpt[];
   bookSubsections?: BookSubsectionOpt[];
   navTags: NavTagOpt[];
+  guestGroups?: GuestGroupOpt[];
   initialBookSectionIds: string[];
   initialBookSubsectionIds?: string[];
   initialNavTagIds: string[];
+  initialGuestGroupIds?: string[];
   canEdit?: boolean;
   // Optional callback invoked when the selection changes — drawer uses
   // it for dirty-check and to suppress the form-submit pattern when
@@ -49,6 +67,7 @@ type Props = {
     bookSectionIds: string[];
     bookSubsectionIds: string[];
     navTagIds: string[];
+    guestGroupIds: string[];
   }) => void;
 };
 
@@ -56,23 +75,26 @@ export function TopicPicker({
   bookSections,
   bookSubsections = [],
   navTags,
+  guestGroups = [],
   initialBookSectionIds,
   initialBookSubsectionIds = [],
   initialNavTagIds,
+  initialGuestGroupIds = [],
   canEdit = true,
   onChange,
 }: Props) {
   const [bookSectionIds, setBookSectionIds] = useState<string[]>(initialBookSectionIds);
   const [bookSubsectionIds, setBookSubsectionIds] = useState<string[]>(initialBookSubsectionIds);
   const [navTagIds, setNavTagIds] = useState<string[]>(initialNavTagIds);
+  const [guestGroupIds, setGuestGroupIds] = useState<string[]>(initialGuestGroupIds);
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
 
   // Notify parent on every change.
   useEffect(() => {
-    onChange?.({ bookSectionIds, bookSubsectionIds, navTagIds });
+    onChange?.({ bookSectionIds, bookSubsectionIds, navTagIds, guestGroupIds });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bookSectionIds.join(","), bookSubsectionIds.join(","), navTagIds.join(",")]);
+  }, [bookSectionIds.join(","), bookSubsectionIds.join(","), navTagIds.join(","), guestGroupIds.join(",")]);
 
   // Click-outside + Esc to close.
   useEffect(() => {
@@ -107,11 +129,17 @@ export function TopicPicker({
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
     );
   }
+  function toggleGuestGroup(id: string) {
+    setGuestGroupIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+    );
+  }
 
-  const totalSelected = bookSectionIds.length + bookSubsectionIds.length + navTagIds.length;
+  const totalSelected = bookSectionIds.length + bookSubsectionIds.length + navTagIds.length + guestGroupIds.length;
   const sectionLookup = new Map(bookSections.map((s) => [s.id, s]));
   const subsectionLookup = new Map(bookSubsections.map((s) => [s.id, s]));
   const tagLookup = new Map(navTags.map((t) => [t.id, t]));
+  const guestGroupLookup = new Map(guestGroups.map((g) => [g.id, g]));
 
   // v1.58.0 (XL7): each chip carries an optional `href` for chip-
   // label deep-link. Sections → /book/<slug>; subsections →
@@ -120,8 +148,9 @@ export function TopicPicker({
   const selectedChips: {
     key: string;
     label: string;
-    kind: "section" | "subsection" | "tag";
+    kind: "section" | "subsection" | "tag" | "guestGroup";
     href: string | null;
+    swatch?: string | null;
   }[] = [
     ...bookSectionIds.map((id) => {
       const s = sectionLookup.get(id);
@@ -151,6 +180,17 @@ export function TopicPicker({
         href: t?.route ?? null,
       };
     }),
+    ...guestGroupIds.map((id) => {
+      const g = guestGroupLookup.get(id);
+      return {
+        key: `guestGroup:${id}`,
+        label: g?.name ?? "Unknown group",
+        kind: "guestGroup" as const,
+        // No per-group page yet — chip carries no href.
+        href: null,
+        swatch: g?.colour ?? null,
+      };
+    }),
   ];
 
   return (
@@ -176,9 +216,20 @@ export function TopicPicker({
                   ? "bg-moss-50 border-moss-300 text-moss-700"
                   : c.kind === "subsection"
                     ? "bg-moss-100/60 border-moss-300 text-moss-700"
-                    : "bg-marigold-100/40 border-marigold-700/30 text-marigold-700",
+                    : c.kind === "guestGroup"
+                      ? "bg-canvas border-border-strong text-ink-secondary"
+                      : "bg-marigold-100/40 border-marigold-700/30 text-marigold-700",
               ].join(" ")}
             >
+              {/* v1.61.0 (XL1): guest-group chips render the group's
+                  colour as a swatch dot. Matches the seating canvas. */}
+              {c.kind === "guestGroup" && c.swatch && (
+                <span
+                  aria-hidden
+                  className="inline-block w-2 h-2 rounded-full flex-shrink-0"
+                  style={{ background: c.swatch }}
+                />
+              )}
               {c.href ? (
                 <a
                   href={c.href}
@@ -196,6 +247,7 @@ export function TopicPicker({
                   onClick={() => {
                     if (c.kind === "section") toggleBookSection(c.key.slice("bookSection:".length));
                     else if (c.kind === "subsection") toggleBookSubsection(c.key.slice("bookSubsection:".length));
+                    else if (c.kind === "guestGroup") toggleGuestGroup(c.key.slice("guestGroup:".length));
                     else toggleNavTag(c.key.slice("navTag:".length));
                   }}
                   className="text-ink-tertiary hover:text-ink-primary leading-none"
@@ -305,9 +357,44 @@ export function TopicPicker({
               </ul>
             </div>
           )}
-          {bookSections.length === 0 && bookSubsections.length === 0 && navTags.length === 0 && (
+          {guestGroups.length > 0 && (
+            <div>
+              <div className="px-3 py-1.5 text-[10px] uppercase tracking-wider font-bold text-ink-tertiary border-b border-t border-border-soft bg-canvas/30">
+                Guest groups
+              </div>
+              <ul>
+                {guestGroups.map((g) => {
+                  const checked = guestGroupIds.includes(g.id);
+                  return (
+                    <li key={g.id}>
+                      <label className="flex items-center gap-2 px-3 py-1.5 hover:bg-canvas/50 cursor-pointer text-sm">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleGuestGroup(g.id)}
+                          className="accent-moss-500"
+                        />
+                        {g.colour && (
+                          <span
+                            aria-hidden
+                            className="inline-block w-3 h-3 rounded-full flex-shrink-0 border border-border-soft"
+                            style={{ background: g.colour }}
+                          />
+                        )}
+                        <span className="text-ink-primary truncate">{g.name}</span>
+                        <span className="ml-auto text-[10px] text-ink-tertiary tabular-nums">
+                          {g.memberCount}
+                        </span>
+                      </label>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          )}
+          {bookSections.length === 0 && bookSubsections.length === 0 && navTags.length === 0 && guestGroups.length === 0 && (
             <p className="px-3 py-3 text-xs text-ink-tertiary italic">
-              No topics defined yet. Add nav tags in Settings.
+              No topics defined yet. Add nav tags or guest groups in Settings.
             </p>
           )}
         </div>

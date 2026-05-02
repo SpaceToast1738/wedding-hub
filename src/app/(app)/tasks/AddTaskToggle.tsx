@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { AddNewModal } from "@/components/ui/AddNewModal";
-import { TaskForm, type UserOpt, type SupplierOpt, type BookSectionOpt, type BookSubsectionOpt, type NavTagOpt } from "./TaskForm";
+import { TaskForm, type UserOpt, type SupplierOpt, type BookSectionOpt, type BookSubsectionOpt, type NavTagOpt, type GuestGroupOpt } from "./TaskForm";
 import { createTask } from "./actions";
 
 // v1.27.0: opens a fixed-position popover with backdrop instead of
@@ -18,11 +18,13 @@ export function AddTaskToggle({
   bookSections = [],
   bookSubsections = [],
   navTags = [],
+  guestGroups = [],
   defaultType = "TASK",
   defaultSupplierId,
   defaultBookSectionIds,
   defaultBookSubsectionIds,
   defaultNavTagIds,
+  defaultGuestGroupIds,
   showType = true,
   buttonLabel = "+ New task",
 }: {
@@ -33,14 +35,17 @@ export function AddTaskToggle({
   suppliers?: SupplierOpt[];
   // v1.30.5: lists for the combined Topics multi-select.
   // v1.51.0: + bookSubsections (cards).
+  // v1.61.0 (XL1): + guestGroups.
   bookSections?: BookSectionOpt[];
   bookSubsections?: BookSubsectionOpt[];
   navTags?: NavTagOpt[];
+  guestGroups?: GuestGroupOpt[];
   defaultType?: string;
   defaultSupplierId?: string;
   defaultBookSectionIds?: string[];
   defaultBookSubsectionIds?: string[];
   defaultNavTagIds?: string[];
+  defaultGuestGroupIds?: string[];
   showType?: boolean;
   buttonLabel?: string;
 }) {
@@ -58,6 +63,7 @@ export function AddTaskToggle({
           bookSections={bookSections}
           bookSubsections={bookSubsections}
           navTags={navTags}
+          guestGroups={guestGroups}
           showType={showType}
           initial={{
             type: defaultType,
@@ -65,6 +71,7 @@ export function AddTaskToggle({
             bookSectionIds: defaultBookSectionIds ?? [],
             bookSubsectionIds: defaultBookSubsectionIds ?? [],
             navTagIds: defaultNavTagIds ?? [],
+            guestGroupIds: defaultGuestGroupIds ?? [],
           }}
           submitLabel="Create"
           onSubmit={async (fd) => {

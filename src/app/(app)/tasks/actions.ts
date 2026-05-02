@@ -39,10 +39,14 @@ function parseDue(v: FormDataEntryValue | null): Date | null {
 // values like `bookSection:<id>` or `navTag:<id>`.
 // v1.51.0: parses `bookSubsection:<id>` keys too — a parallel m2m
 // at the card level, drives the inline tasks panel on /book/[slug].
+// v1.61.0 (XL1): + `guestGroup:<id>` keys. Tasks linked to a
+// GuestGroup surface on every member's /guests/[id] page via a
+// read-time query.
 function parseTopicKeys(formData: FormData): {
   bookSectionIds: string[];
   bookSubsectionIds: string[];
   navTagIds: string[];
+  guestGroupIds: string[];
   hasTopicKeys: boolean;
 } {
   // Detect "no topicKeys field at all" vs. "explicitly empty selection"
@@ -52,12 +56,14 @@ function parseTopicKeys(formData: FormData): {
   const bookSectionIds: string[] = [];
   const bookSubsectionIds: string[] = [];
   const navTagIds: string[] = [];
+  const guestGroupIds: string[] = [];
   for (const k of keys) {
     if (k.startsWith("bookSection:")) bookSectionIds.push(k.slice("bookSection:".length));
     else if (k.startsWith("bookSubsection:")) bookSubsectionIds.push(k.slice("bookSubsection:".length));
     else if (k.startsWith("navTag:")) navTagIds.push(k.slice("navTag:".length));
+    else if (k.startsWith("guestGroup:")) guestGroupIds.push(k.slice("guestGroup:".length));
   }
-  return { bookSectionIds, bookSubsectionIds, navTagIds, hasTopicKeys };
+  return { bookSectionIds, bookSubsectionIds, navTagIds, guestGroupIds, hasTopicKeys };
 }
 
 export async function createTask(formData: FormData) {
@@ -73,7 +79,7 @@ export async function createTask(formData: FormData) {
     notes: formData.get("notes") || null,
     supplierId: formData.get("supplierId") || null,
   });
-  const { bookSectionIds, bookSubsectionIds, navTagIds } = parseTopicKeys(formData);
+  const { bookSectionIds, bookSubsectionIds, navTagIds, guestGroupIds } = parseTopicKeys(formData);
   const tags = parsed.category ? [parsed.category] : [];
   const created = await db.task.create({
     data: {
@@ -99,6 +105,11 @@ export async function createTask(formData: FormData) {
       navTags: navTagIds.length
         ? { connect: navTagIds.map((id) => ({ id })) }
         : undefined,
+      // v1.61.0 (XL1): m2m to GuestGroup so tagged tasks surface on
+      // every member's /guests/[id] page.
+      guestGroups: guestGroupIds.length
+        ? { connect: guestGroupIds.map((id) => ({ id })) }
+        : undefined,
     },
   });
   // v1.30.5: enriched audit metadata per the audit-aware-feature-design
@@ -115,6 +126,7 @@ export async function createTask(formData: FormData) {
       bookSectionIds,
       bookSubsectionIds,
       navTagIds,
+      guestGroupIds,
     },
   });
   revalidatePath("/tasks");
@@ -136,7 +148,7 @@ export async function updateTask(id: string, formData: FormData) {
     notes: formData.get("notes") ?? undefined,
     supplierId: formData.get("supplierId") ?? undefined,
   });
-  const { bookSectionIds, bookSubsectionIds, navTagIds, hasTopicKeys } = parseTopicKeys(formData);
+  const { bookSectionIds, bookSubsectionIds, navTagIds, guestGroupIds, hasTopicKeys } = parseTopicKeys(formData);
 
   const data: Record<string, unknown> = {};
   if (parsed.title !== undefined) data.title = parsed.title;
@@ -153,10 +165,12 @@ export async function updateTask(id: string, formData: FormData) {
   // topicKeys at all (`hasTopicKeys`); otherwise this is a partial
   // update that didn't touch topics.
   // v1.51.0: bookSubsections joins the same single `topicKeys` payload.
+  // v1.61.0 (XL1): + guestGroups.
   if (hasTopicKeys) {
     data.bookSections = { set: bookSectionIds.map((id) => ({ id })) };
     data.bookSubsections = { set: bookSubsectionIds.map((id) => ({ id })) };
     data.navTags = { set: navTagIds.map((id) => ({ id })) };
+    data.guestGroups = { set: guestGroupIds.map((id) => ({ id })) };
   }
 
   // v1.30.5: read pre-update for the changedFields diff in the audit.
@@ -175,6 +189,7 @@ export async function updateTask(id: string, formData: FormData) {
       bookSections: { select: { id: true } },
       bookSubsections: { select: { id: true } },
       navTags: { select: { id: true } },
+      guestGroups: { select: { id: true } },
     },
   });
 
@@ -209,6 +224,10 @@ export async function updateTask(id: string, formData: FormData) {
       const oldNt = before.navTags.map((t) => t.id).sort().join(",");
       const newNt = navTagIds.slice().sort().join(",");
       if (oldNt !== newNt) changedFields.push("navTags");
+      // v1.61.0 (XL1): + guestGroups.
+      const oldGg = before.guestGroups.map((g) => g.id).sort().join(",");
+      const newGg = guestGroupIds.slice().sort().join(",");
+      if (oldGg !== newGg) changedFields.push("guestGroups");
     }
   }
 
