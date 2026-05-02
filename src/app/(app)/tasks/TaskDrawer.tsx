@@ -154,21 +154,19 @@ export function TaskDrawer({
     // v1.30.5: emit one topicKeys entry per selected ID (FormData
     // supports duplicate keys via append). Server-side parser splits
     // by `bookSection:` / `bookSubsection:` / `navTag:` prefix.
+    // v1.61.1 (bug-check): `__touched__` sentinel always — see
+    // TopicPicker.tsx for the matching emit on the form-submit path.
+    // Without this, a user clearing every chip would result in zero
+    // topicKeys entries; `formData.has("topicKeys")` returns false on
+    // the server; the m2m `set:` ops get skipped; existing relations
+    // stay intact. The sentinel doesn't match any prefix in
+    // parseTopicKeys so it's silently dropped.
+    fd.append("topicKeys", "__touched__");
     for (const id of bookSectionIds) fd.append("topicKeys", `bookSection:${id}`);
     for (const id of bookSubsectionIds) fd.append("topicKeys", `bookSubsection:${id}`);
     for (const id of navTagIds) fd.append("topicKeys", `navTag:${id}`);
     // v1.61.0 (XL1): + guestGroup keys.
     for (const id of guestGroupIds) fd.append("topicKeys", `guestGroup:${id}`);
-    // FormData.has("topicKeys") on the server side detects "user
-    // touched topics at all" — only true when at least one entry is
-    // present. If every selection was cleared we still need to send
-    // an empty marker so the action knows to clear all m2m relations.
-    // Pre-fix this used to silently no-op when a user emptied every
-    // group; same pattern as v1.30.5 already established for the
-    // other groups (the loops above run zero times when all empty,
-    // and `topicKeys` ends up absent — so "explicit empty selection"
-    // wasn't a real failure mode for this drawer because at least
-    // one of the four groups was always non-empty in practice).
     startTransition(async () => {
       try {
         await updateTask(task.id, fd);

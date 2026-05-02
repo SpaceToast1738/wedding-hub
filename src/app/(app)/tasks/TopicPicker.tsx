@@ -195,7 +195,18 @@ export function TopicPicker({
 
   return (
     <div ref={rootRef} className="relative">
-      {/* Hidden inputs — one per selected key. Submitted with the form. */}
+      {/* Hidden inputs — one per selected key. Submitted with the form.
+          v1.61.1: + a `__touched__` sentinel emitted whenever the picker
+          renders in editable mode, so `formData.has("topicKeys")` on
+          the server returns true even when the user has cleared every
+          chip. Pre-fix, an empty selection looked identical to a
+          partial update that didn't include the picker — so removing
+          the last chip was a silent no-op (existing relations stayed
+          intact). The sentinel doesn't match any prefix in
+          parseTopicKeys, so it doesn't pollute the four ID arrays. */}
+      {canEdit && (
+        <input type="hidden" name="topicKeys" value="__touched__" />
+      )}
       {selectedChips.map((c) => (
         <input key={c.key} type="hidden" name="topicKeys" value={c.key} />
       ))}

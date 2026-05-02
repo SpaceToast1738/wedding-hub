@@ -12,6 +12,7 @@ import {
   type CustomFieldType,
   type CustomFieldValues,
 } from "@/lib/custom-fields";
+import { parseTopicKeys } from "@/lib/task-topics";
 
 const baseSchema = z.object({
   title: z.string().min(1).max(200),
@@ -34,37 +35,10 @@ function parseDue(v: FormDataEntryValue | null): Date | null {
   return isNaN(d.getTime()) ? null : d;
 }
 
-// v1.30.5: split the Topics multi-select payload into the two relation
-// arrays. The form posts one `topicKeys` entry per selected topic with
-// values like `bookSection:<id>` or `navTag:<id>`.
-// v1.51.0: parses `bookSubsection:<id>` keys too — a parallel m2m
-// at the card level, drives the inline tasks panel on /book/[slug].
-// v1.61.0 (XL1): + `guestGroup:<id>` keys. Tasks linked to a
-// GuestGroup surface on every member's /guests/[id] page via a
-// read-time query.
-function parseTopicKeys(formData: FormData): {
-  bookSectionIds: string[];
-  bookSubsectionIds: string[];
-  navTagIds: string[];
-  guestGroupIds: string[];
-  hasTopicKeys: boolean;
-} {
-  // Detect "no topicKeys field at all" vs. "explicitly empty selection"
-  // — different semantics for the partial-update path on updateTask.
-  const hasTopicKeys = formData.has("topicKeys");
-  const keys = formData.getAll("topicKeys").map(String);
-  const bookSectionIds: string[] = [];
-  const bookSubsectionIds: string[] = [];
-  const navTagIds: string[] = [];
-  const guestGroupIds: string[] = [];
-  for (const k of keys) {
-    if (k.startsWith("bookSection:")) bookSectionIds.push(k.slice("bookSection:".length));
-    else if (k.startsWith("bookSubsection:")) bookSubsectionIds.push(k.slice("bookSubsection:".length));
-    else if (k.startsWith("navTag:")) navTagIds.push(k.slice("navTag:".length));
-    else if (k.startsWith("guestGroup:")) guestGroupIds.push(k.slice("guestGroup:".length));
-  }
-  return { bookSectionIds, bookSubsectionIds, navTagIds, guestGroupIds, hasTopicKeys };
-}
+// v1.30.5 + v1.51.0 + v1.61.0: parses the Topics multi-select payload
+// into four relation arrays (bookSection / bookSubsection / navTag /
+// guestGroup). v1.61.1: extracted to `@/lib/task-topics` so the
+// parser is unit-testable; see imports above.
 
 export async function createTask(formData: FormData) {
   const user = await requireEdit("tasks");

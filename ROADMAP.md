@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.61.0** | 2026-05-02 | [XL1 — tasks-via-guest-groups (closes the last open punch-list item). New Task ↔ GuestGroup m2m mirroring Task ↔ BookSection / BookSubsection / NavTag. TopicPicker gains a fourth "Guest groups" section with colour swatches + member counts; tagged tasks surface on every member's `/guests/[id]` page in a "Tasks via groups" panel with done-bucket-to-bottom ordering and per-row chips showing which group(s) link the task. Read-time query — no auto-sync (v1.30.5 standing rule). Additive migration `_GuestGroupToTask`.](#2026-05-02--v1610--xl1-tasks-via-guest-groups) |
+| **v1.61.1** | 2026-05-02 | [Two bugs caught by the daily Claude bug-check session — (1) clearing every chip in the TaskDrawer / TaskForm Topics picker was a silent no-op (zero `topicKeys` entries → `formData.has("topicKeys")` false → server skipped the m2m `set:` ops → existing relations stayed intact). Fixed via a `__touched__` sentinel hidden input always emitted by TopicPicker (when editable) and always appended by TaskDrawer.save(). (2) `parseTopicKeys` had no test coverage despite v1.61.0 adding the `guestGroup:` prefix branch. Extracted to `@/lib/task-topics` (pure module) and covered with 10 new unit tests — total 552 (was 542).](#2026-05-02--v1611--task-topics-parser-bug--coverage) |
+| v1.61.0 | 2026-05-02 | [XL1 — tasks-via-guest-groups (closes the last open punch-list item). New Task ↔ GuestGroup m2m mirroring Task ↔ BookSection / BookSubsection / NavTag. TopicPicker gains a fourth "Guest groups" section with colour swatches + member counts; tagged tasks surface on every member's `/guests/[id]` page in a "Tasks via groups" panel with done-bucket-to-bottom ordering and per-row chips showing which group(s) link the task. Read-time query — no auto-sync (v1.30.5 standing rule). Additive migration `_GuestGroupToTask`.](#2026-05-02--v1610--xl1-tasks-via-guest-groups) |
 | v1.60.0 | 2026-05-01 | [Polish sweep (P1, P2, P3, P4, P5, P7, P8) — empty-state verb unified ("Create one above" → "Add one above"); supplier-delete confirm enriched with status / agreed amount / last contact; dirty-check on SupplierForm / GuestForm / EventForm (no more double-save mash); Today snapshot strip restructured (label + bits as siblings) so 1280px wraps cleanly; `:target` flash animation on book cards (one-shot, respects prefers-reduced-motion); BookSubsectionKind cast replaced with Zod-validated default; stale `removeUser` cleanup comment fixed. P6 already cleared in v1.53.0.](#2026-05-01--v1600--polish-sweep) |
 | v1.59.0 | 2026-05-01 | [Inline "add to group" UX (C2) — each group toggle on the per-user editor card now shows the group's permissions inline ("EDIT: tasks, songs · VIEW: schedule") so the couple can see what ticking the box will grant without bouncing up to the Permission groups panel. Built-in chip row gets the same treatment.](#2026-05-01--v1590--inline-add-to-group-ux) |
 | v1.58.0 | 2026-05-01 | [Cross-link sweep round 2 (XL4, XL7) — supplier detail page surfaces BUILD-card backlinks via `BookBuildCard.budgetLine.supplierId`. TaskDrawer chips deep-link to the entity (sections → /book/<slug>; subsections → /book/<sectionSlug>#<slug>; nav-tags → tag.route). XL2 + XL6 audited and confirmed substantially complete from v1.37.5 / per-card-kind shipping; XL1 deferred (needs Task↔GuestGroup schema design).](#2026-05-01--v1580--cross-link-sweep-round-2) |
@@ -857,6 +858,36 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-05-02 · v1.61.1 — task-topics parser bug + coverage
+
+User: "Lets fix all the bugs". This session's daily 09:17 bug-check fired and flagged two real issues from v1.61.0. Both shipped here as a 30-minute follow-up.
+
+**Bug #1 — silent no-op when clearing all topic chips.** The drawer / form Topics picker emits one `<input name="topicKeys">` per selected chip. The server uses `formData.has("topicKeys")` as the "user touched topics at all" signal — true means apply the m2m `set:` ops, false means partial update, leave existing relations alone. Pre-fix, if the user opened a task with two book-section chips, removed both, and saved, **zero `topicKeys` entries got emitted** → `hasTopicKeys === false` on the server → the `set: []` operation that should have cleared the relation got skipped → the chips reappeared on next render. Same flaw existed for sections / subsections / nav-tags pre-v1.61.0, but in practice was masked because at least one of the four groups was usually non-empty. v1.61.0 (XL1) made the four-empty case more reachable by adding a fourth group, so the bug surfaced now.
+
+**Fix.** A `__touched__` sentinel hidden input emitted by `TopicPicker` whenever it renders in editable mode, plus a matching manual `fd.append("topicKeys", "__touched__")` in `TaskDrawer.save()`. The sentinel doesn't match any of the four parser prefixes (`bookSection:` / `bookSubsection:` / `navTag:` / `guestGroup:`) so it's silently dropped — no array pollution. Documented in both files; constant exported from `@/lib/task-topics` as `TOPIC_TOUCHED_SENTINEL`.
+
+**Bug #2 — missing test coverage on `parseTopicKeys`.** v1.61.0 added the `guestGroup:` parser branch with no test. Bug-check audit flagged this as a "tests grow with code" violation.
+
+**Fix.** Extracted `parseTopicKeys` from `src/app/(app)/tasks/actions.ts` (which is `"use server"`, so non-action exports get rejected) to a new pure module `src/lib/task-topics.ts`. The action file imports the same function — no behaviour change at the call site. Added `tests/unit/task-topics.test.ts` covering:
+
+- `hasTopicKeys=false` when no field present
+- `hasTopicKeys=true` when only the sentinel is present (the v1.61.1 explicit-empty-clear path)
+- Each of the four prefixes individually
+- Mixed payload across all four
+- Unknown / stray / empty values silently dropped (forward-compat)
+- Duplicate IDs preserved (caller's job to dedupe; Prisma `set:` is idempotent)
+- Colon-in-value handling (defensive — `slice(prefix.length)` keeps everything after the first separator)
+
+10 new tests; total **552** (was 542).
+
+**Verification.** typecheck ✅, lint ✅, 552 tests ✅, build ✅.
+
+**No schema changes.** Pure client + server-action + extracted module.
+
+Files: `src/lib/task-topics.ts` (new), `src/app/(app)/tasks/actions.ts` (replaced inline parser with import), `src/app/(app)/tasks/TopicPicker.tsx` (sentinel emit), `src/app/(app)/tasks/TaskDrawer.tsx` (sentinel append in save), `tests/unit/task-topics.test.ts` (new), `package.json` → `1.61.1`.
+
+---
 
 ### 2026-05-02 · v1.61.0 — XL1: tasks-via-guest-groups
 
