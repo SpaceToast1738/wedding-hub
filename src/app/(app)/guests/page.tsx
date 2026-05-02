@@ -130,13 +130,12 @@ export default async function GuestsPage({
   const totalGuests = households.reduce((n, h) => n + h.guests.length, 0);
   const attending = households.reduce((n, h) => n + h.guests.filter((g) => g.rsvp === "ATTENDING").length, 0);
   const pending = households.reduce((n, h) => n + h.guests.filter((g) => g.rsvp === "PENDING").length, 0);
-  const declined = households.reduce((n, h) => n + h.guests.filter((g) => g.rsvp === "DECLINED").length, 0);
 
   return (
     <>
       <PageHeader
         title="Guests"
-        subtitle={`${totalGuests} invited · ${attending} attending · ${pending} pending · ${declined} declined`}
+        subtitle={`${attending} confirmed · ${pending} pending · ${totalGuests} total`}
         actions={
           <>
             {archivedCount > 0 && (
@@ -179,7 +178,7 @@ export default async function GuestsPage({
         />
       )}
       <div className="flex-1 overflow-auto">
-        <div className="max-w-5xl mx-auto p-4 sm:p-6">
+        <div className="max-w-7xl mx-auto p-4 sm:p-6">
           {households.length === 0 ? (
             <p className="text-sm text-ink-tertiary text-center py-12">
               No households yet. {editable && "Add one above."}
