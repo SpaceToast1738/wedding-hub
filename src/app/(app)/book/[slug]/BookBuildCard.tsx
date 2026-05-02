@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { notify } from "@/lib/notify";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
+import { ImageGallery } from "@/components/ui/ImageGallery";
 import {
   copyBuildMaterialsToBudget,
   createBuildSession,
@@ -13,6 +14,9 @@ import {
   saveBuildCard,
   unlinkBuildBudgetLine,
   updateBuildSession,
+  attachFileToBuildCard,
+  detachFileFromBuildCard,
+  uploadAndAttachBuildFile,
   type BuildSavePayload,
 } from "../actions";
 import { buildRollups, type BuildCardShape } from "@/lib/book-cards";
@@ -87,6 +91,8 @@ type CardData = {
   } | null;
   materials: Material[];
   sessions: Session[];
+  /** v1.63.0: photo gallery — File ids attached to this card. */
+  fileIds: string[];
 };
 
 type BuildCardProps = {
@@ -97,6 +103,10 @@ type BuildCardProps = {
   canEdit: boolean;
   isCouple: boolean;
   card: CardData;
+  /** v1.63.0: all files the user can see, threaded from the page
+   *  loader. <ImageGallery> filters this for thumbnails + the
+   *  attach-existing dropdown. */
+  files: Array<{ id: string; name: string; mimeType: string }>;
 };
 
 function formatGBPFromPence(pence: number | null | undefined): string {
@@ -135,6 +145,7 @@ export function BookBuildCard({
   canEdit,
   isCouple,
   card,
+  files,
 }: BuildCardProps) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -310,7 +321,14 @@ export function BookBuildCard({
       {editing ? (
         <EditBody draft={draft} setDraft={setDraft} pending={pending} />
       ) : (
-        <ViewBody card={card} />
+        <ViewBody
+          card={card}
+          subsectionId={subsectionId}
+          canEdit={canEdit}
+          pending={pending}
+          startTransition={startTransition}
+          files={files}
+        />
       )}
 
       {/* Sessions — view + edit modes both show; new-session form
@@ -423,7 +441,21 @@ function BudgetPill({
 
 // ── View body ────────────────────────────────────────────────────
 
-function ViewBody({ card }: { card: CardData }) {
+function ViewBody({
+  card,
+  subsectionId,
+  canEdit,
+  pending,
+  startTransition,
+  files,
+}: {
+  card: CardData;
+  subsectionId: string;
+  canEdit: boolean;
+  pending: boolean;
+  startTransition: (cb: () => void) => void;
+  files: Array<{ id: string; name: string; mimeType: string }>;
+}) {
   return (
     <>
       {/* Materials read-only */}
@@ -467,6 +499,44 @@ function ViewBody({ card }: { card: CardData }) {
           </table>
         )}
       </Section>
+
+      {/* v1.63.0: photo gallery — centerpieces, place cards, etc.
+          Renders thumbnails with a click-to-zoom lightbox; the
+          + Upload button on the gallery shortcuts straight from a
+          phone's camera roll. Hidden entirely if the card has no
+          photos AND the user can't add any. */}
+      {(card.fileIds.length > 0 || canEdit) && (
+        <Section title="Photos" count={card.fileIds.length}>
+          <ImageGallery
+            fileIds={card.fileIds}
+            files={files}
+            canEdit={canEdit}
+            pending={pending}
+            onUpload={async (file) => {
+              const fd = new FormData();
+              fd.set("file", file);
+              const res = await uploadAndAttachBuildFile(subsectionId, fd);
+              if (res.ok) notify("success", "Photo uploaded");
+              else notify("error", res.error);
+            }}
+            onAttach={(fileId) => {
+              startTransition(async () => {
+                const res = await attachFileToBuildCard(subsectionId, fileId);
+                if (res.ok) notify("success", "Photo attached");
+                else notify("error", res.error);
+              });
+            }}
+            onDetach={(fileId) => {
+              startTransition(async () => {
+                const res = await detachFileFromBuildCard(subsectionId, fileId);
+                if (res.ok) notify("success", "Photo detached");
+                else notify("error", res.error);
+              });
+            }}
+            emptyHint="No photos yet — upload some so everyone can see what these should look like."
+          />
+        </Section>
+      )}
 
       {(card.notes || card.prototypeNotes) && (
         <Section title="Notes">

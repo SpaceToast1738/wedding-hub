@@ -1,13 +1,14 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useState, useTransition } from "react";
 import { Button } from "@/components/ui/Button";
 import { notify } from "@/lib/notify";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
+import { ImageGallery } from "@/components/ui/ImageGallery";
 import {
   attachFileToOutfitCard,
   detachFileFromOutfitCard,
+  uploadAndAttachOutfitFile,
   saveOutfitCard,
   type OutfitSavePayload,
 } from "../actions";
@@ -268,7 +269,7 @@ export function BookOutfitCardEditor({
       {editing ? (
         <EditBody draft={draft} setDraft={setDraft} pending={pending} />
       ) : (
-        <ViewBody card={card} files={files} canEdit={canEdit} pending={pending} onAttach={attach} onDetach={detach} />
+        <ViewBody card={card} subsectionId={subsectionId} files={files} canEdit={canEdit} pending={pending} onAttach={attach} onDetach={detach} />
       )}
 
       {canEdit && (
@@ -342,6 +343,7 @@ function TimelineStep({
 
 function ViewBody({
   card,
+  subsectionId,
   files,
   canEdit,
   pending,
@@ -349,16 +351,14 @@ function ViewBody({
   onDetach,
 }: {
   card: CardData;
+  /** v1.63.0: needed for the upload-and-attach action. */
+  subsectionId: string;
   files: Array<{ id: string; name: string; mimeType: string }>;
   canEdit: boolean;
   pending: boolean;
   onAttach: (fileId: string) => void;
   onDetach: (fileId: string) => void;
 }) {
-  const filesById = new Map(files.map((f) => [f.id, f]));
-  const attached = card.fileIds.map((id) => filesById.get(id)).filter((f): f is { id: string; name: string; mimeType: string } => Boolean(f));
-  const [picking, setPicking] = useState(false);
-  const availableForAttach = files.filter((f) => !card.fileIds.includes(f.id));
   return (
     <div className="space-y-4">
       {/* Items */}
@@ -396,83 +396,30 @@ function ViewBody({
         )}
       </div>
 
-      {/* Photos */}
+      {/* Photos — v1.63.0: replaced the bespoke chip rendering with
+          the shared <ImageGallery> component. Now actually shows the
+          photos as photos (thumbnails) instead of "📎 dress-fitting.jpg"
+          text links. + Upload button uploads-and-attaches in one
+          step from a phone's camera roll. */}
       <div>
-        <div className="flex items-baseline justify-between mb-1.5">
-          <strong className="text-[11px] uppercase tracking-wider text-ink-tertiary font-bold">
-            Photos ({attached.length})
-          </strong>
-          {canEdit && !picking && availableForAttach.length > 0 && (
-            <button
-              type="button"
-              onClick={() => setPicking(true)}
-              className="text-[11px] text-info hover:underline"
-            >
-              + Attach photo
-            </button>
-          )}
-        </div>
-        {picking && (
-          <div className="flex items-center gap-1.5 mb-1.5">
-            <select
-              defaultValue=""
-              disabled={pending}
-              onChange={(e) => {
-                if (e.target.value) {
-                  onAttach(e.target.value);
-                  setPicking(false);
-                }
-              }}
-              className="text-xs bg-surface border border-border-soft rounded-sm px-2 py-1 text-ink-primary outline-none focus:border-moss-500 max-w-[260px]"
-            >
-              <option value="">— pick a file —</option>
-              {availableForAttach.map((f) => (
-                <option key={f.id} value={f.id}>
-                  {f.name}
-                </option>
-              ))}
-            </select>
-            <button
-              type="button"
-              onClick={() => setPicking(false)}
-              disabled={pending}
-              className="text-[10px] text-ink-tertiary hover:text-ink-primary px-1"
-            >
-              cancel
-            </button>
-          </div>
-        )}
-        {attached.length === 0 ? (
-          <p className="text-xs text-ink-tertiary italic">No photos attached.</p>
-        ) : (
-          <ul className="flex flex-wrap gap-1.5">
-            {attached.map((f) => (
-              <li
-                key={f.id}
-                className="inline-flex items-center gap-1 text-[11px] bg-canvas border border-border-soft rounded-full px-2 py-0.5"
-              >
-                <Link
-                  href={`/api/files/${f.id}`}
-                  className="text-info hover:underline truncate max-w-[160px]"
-                  title={f.name}
-                >
-                  📎 {f.name}
-                </Link>
-                {canEdit && (
-                  <button
-                    type="button"
-                    onClick={() => onDetach(f.id)}
-                    disabled={pending}
-                    className="text-ink-tertiary hover:text-danger px-1"
-                    aria-label="Detach photo"
-                  >
-                    ×
-                  </button>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
+        <strong className="block text-[11px] uppercase tracking-wider text-ink-tertiary font-bold mb-1.5">
+          Photos ({card.fileIds.length})
+        </strong>
+        <ImageGallery
+          fileIds={card.fileIds}
+          files={files}
+          canEdit={canEdit}
+          pending={pending}
+          onUpload={async (file) => {
+            const fd = new FormData();
+            fd.set("file", file);
+            const res = await uploadAndAttachOutfitFile(subsectionId, fd);
+            if (res.ok) notify("success", "Photo uploaded");
+            else notify("error", res.error);
+          }}
+          onAttach={onAttach}
+          onDetach={onDetach}
+        />
       </div>
 
       {card.notes && (

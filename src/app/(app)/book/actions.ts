@@ -17,6 +17,15 @@ import {
   type BookShotShape,
 } from "@/lib/book-cards";
 import { sanitizeBookHtml } from "@/lib/sanitize-book-html";
+import { unlink, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { FileVisibility } from "@prisma/client";
+import {
+  UPLOADS_DIR,
+  ensureUploadsDir,
+  generateStoredName,
+  validateUpload,
+} from "@/lib/uploads";
 
 // v1.26.0: shared result shape — every new action returns this rather
 // than throwing, so Next production redaction can't swallow the
@@ -2658,5 +2667,446 @@ export async function saveLodgingCard(
     return { ok: true };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "Couldn't save lodging card" };
+  }
+}
+
+// ── v1.63.0: image-gallery actions for BUILD / SETUP / STAY ────────────
+//
+// Three card kinds gain a `fileIds: String[]` photo gallery in v1.63.0
+// (BUILD = centerpieces, SETUP = space layouts, STAY = bridal suite).
+// Same shape as the v1.35.0 BookOutfitCard.fileIds — forward-only
+// references to File ids; the rendering layer joins at read time.
+//
+// Each kind gets:
+//   • `uploadAndAttach<Kind>File(subsectionId, formData)` — one-step
+//     upload + attach for the "I just took a photo" use case. Wraps
+//     the same file-write logic /files/actions.ts uses.
+//   • `attach<Kind>File(subsectionId, fileId)` — attach a pre-uploaded
+//     File row.
+//   • `detach<Kind>File(subsectionId, fileId)` — opposite.
+//
+// All three respect the existing `book` permission gate and emit
+// enriched audit metadata per the v1.30.5 standing rule.
+
+/** Internal: write the uploaded File to disk, insert the DB row, and
+ *  return the File. Mirrors uploadFile in files/actions.ts but
+ *  returns the row instead of revalidating /files (we revalidate
+ *  /book on the calling action). */
+async function uploadFileForBookCard(
+  user: { id: string },
+  formFile: File,
+): Promise<{ id: string; name: string; mimeType: string }> {
+  const validation = validateUpload(formFile);
+  if (!validation.ok) throw new Error(`${formFile.name}: ${validation.error}`);
+
+  await ensureUploadsDir();
+  const storedName = generateStoredName(validation.mime, formFile.name);
+  const fullPath = path.join(UPLOADS_DIR, storedName);
+  const bytes = Buffer.from(await formFile.arrayBuffer());
+  await writeFile(fullPath, bytes, { mode: 0o640 });
+
+  let created;
+  try {
+    created = await db.file.create({
+      data: {
+        name: formFile.name.slice(0, 200),
+        storedPath: storedName,
+        // Book-card photos default to EVERYONE — couple-only photos
+        // would need to be uploaded via /files first.
+        folder: "Book photos",
+        visibility: FileVisibility.EVERYONE,
+        mimeType: validation.mime,
+        sizeBytes: formFile.size,
+        uploadedById: user.id,
+      },
+    });
+  } catch (err) {
+    // Roll back the disk write if the DB insert fails — otherwise
+    // we accumulate orphan files on disk.
+    await unlink(fullPath).catch(() => undefined);
+    throw err;
+  }
+  return created;
+}
+
+// ─── BUILD card ─────────────────────────────────────────────────────
+
+export async function uploadAndAttachBuildFile(
+  subsectionId: string,
+  formData: FormData,
+): Promise<BookActionResult> {
+  const user = await requireEdit("book");
+  try {
+    const card = await db.bookBuildCard.findUnique({
+      where: { subsectionId },
+      include: { subsection: true },
+    });
+    if (!card) return { ok: false, error: "Build card not found" };
+    const formFile = formData.get("file");
+    if (!(formFile instanceof File) || formFile.size === 0) {
+      return { ok: false, error: "No file received." };
+    }
+    const file = await uploadFileForBookCard(user, formFile);
+    const next = [...card.fileIds, file.id];
+    await db.bookBuildCard.update({
+      where: { subsectionId },
+      data: { fileIds: next },
+    });
+    await audit(user, {
+      action: "build-file-upload",
+      entity: "BookSubsection",
+      entityId: subsectionId,
+      metadata: {
+        cardTitle: card.subsection.title,
+        fileId: file.id,
+        fileName: file.name,
+        mimeType: file.mimeType,
+      },
+    });
+    await revalidateBookSubsection(subsectionId);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Couldn't upload" };
+  }
+}
+
+export async function attachFileToBuildCard(
+  subsectionId: string,
+  fileId: string,
+): Promise<BookActionResult> {
+  const user = await requireEdit("book");
+  try {
+    const card = await db.bookBuildCard.findUnique({
+      where: { subsectionId },
+      include: { subsection: true },
+    });
+    if (!card) return { ok: false, error: "Build card not found" };
+    const file = await db.file.findUnique({ where: { id: fileId } });
+    if (!file) return { ok: false, error: "File not found" };
+    if (card.fileIds.includes(fileId)) return { ok: true };
+    const next = [...card.fileIds, fileId];
+    await db.bookBuildCard.update({
+      where: { subsectionId },
+      data: { fileIds: next },
+    });
+    await audit(user, {
+      action: "build-file-attach",
+      entity: "BookSubsection",
+      entityId: subsectionId,
+      metadata: {
+        cardTitle: card.subsection.title,
+        fileId,
+        fileName: file.name,
+      },
+    });
+    await revalidateBookSubsection(subsectionId);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Couldn't attach" };
+  }
+}
+
+export async function detachFileFromBuildCard(
+  subsectionId: string,
+  fileId: string,
+): Promise<BookActionResult> {
+  const user = await requireEdit("book");
+  try {
+    const card = await db.bookBuildCard.findUnique({
+      where: { subsectionId },
+      include: { subsection: true },
+    });
+    if (!card) return { ok: false, error: "Build card not found" };
+    if (!card.fileIds.includes(fileId)) return { ok: true };
+    const file = await db.file.findUnique({ where: { id: fileId } });
+    const next = card.fileIds.filter((id) => id !== fileId);
+    await db.bookBuildCard.update({
+      where: { subsectionId },
+      data: { fileIds: next },
+    });
+    await audit(user, {
+      action: "build-file-detach",
+      entity: "BookSubsection",
+      entityId: subsectionId,
+      metadata: {
+        cardTitle: card.subsection.title,
+        fileId,
+        fileName: file?.name ?? null,
+      },
+    });
+    await revalidateBookSubsection(subsectionId);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Couldn't detach" };
+  }
+}
+
+// ─── SETUP card ─────────────────────────────────────────────────────
+
+export async function uploadAndAttachSetupFile(
+  subsectionId: string,
+  formData: FormData,
+): Promise<BookActionResult> {
+  const user = await requireEdit("book");
+  try {
+    const card = await db.bookSetupCard.findUnique({
+      where: { subsectionId },
+      include: { subsection: true },
+    });
+    if (!card) return { ok: false, error: "Setup card not found" };
+    const formFile = formData.get("file");
+    if (!(formFile instanceof File) || formFile.size === 0) {
+      return { ok: false, error: "No file received." };
+    }
+    const file = await uploadFileForBookCard(user, formFile);
+    const next = [...card.fileIds, file.id];
+    await db.bookSetupCard.update({
+      where: { subsectionId },
+      data: { fileIds: next },
+    });
+    await audit(user, {
+      action: "setup-file-upload",
+      entity: "BookSubsection",
+      entityId: subsectionId,
+      metadata: {
+        cardTitle: card.subsection.title,
+        space: card.space ?? null,
+        fileId: file.id,
+        fileName: file.name,
+      },
+    });
+    await revalidateBookSubsection(subsectionId);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Couldn't upload" };
+  }
+}
+
+export async function attachFileToSetupCard(
+  subsectionId: string,
+  fileId: string,
+): Promise<BookActionResult> {
+  const user = await requireEdit("book");
+  try {
+    const card = await db.bookSetupCard.findUnique({
+      where: { subsectionId },
+      include: { subsection: true },
+    });
+    if (!card) return { ok: false, error: "Setup card not found" };
+    const file = await db.file.findUnique({ where: { id: fileId } });
+    if (!file) return { ok: false, error: "File not found" };
+    if (card.fileIds.includes(fileId)) return { ok: true };
+    const next = [...card.fileIds, fileId];
+    await db.bookSetupCard.update({
+      where: { subsectionId },
+      data: { fileIds: next },
+    });
+    await audit(user, {
+      action: "setup-file-attach",
+      entity: "BookSubsection",
+      entityId: subsectionId,
+      metadata: {
+        cardTitle: card.subsection.title,
+        fileId,
+        fileName: file.name,
+      },
+    });
+    await revalidateBookSubsection(subsectionId);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Couldn't attach" };
+  }
+}
+
+export async function detachFileFromSetupCard(
+  subsectionId: string,
+  fileId: string,
+): Promise<BookActionResult> {
+  const user = await requireEdit("book");
+  try {
+    const card = await db.bookSetupCard.findUnique({
+      where: { subsectionId },
+      include: { subsection: true },
+    });
+    if (!card) return { ok: false, error: "Setup card not found" };
+    if (!card.fileIds.includes(fileId)) return { ok: true };
+    const file = await db.file.findUnique({ where: { id: fileId } });
+    const next = card.fileIds.filter((id) => id !== fileId);
+    await db.bookSetupCard.update({
+      where: { subsectionId },
+      data: { fileIds: next },
+    });
+    await audit(user, {
+      action: "setup-file-detach",
+      entity: "BookSubsection",
+      entityId: subsectionId,
+      metadata: {
+        cardTitle: card.subsection.title,
+        fileId,
+        fileName: file?.name ?? null,
+      },
+    });
+    await revalidateBookSubsection(subsectionId);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Couldn't detach" };
+  }
+}
+
+// ─── STAY card ─────────────────────────────────────────────────────
+
+export async function uploadAndAttachStayFile(
+  subsectionId: string,
+  formData: FormData,
+): Promise<BookActionResult> {
+  const user = await requireEdit("book");
+  try {
+    const card = await db.bookStayCard.findUnique({
+      where: { subsectionId },
+      include: { subsection: true },
+    });
+    if (!card) return { ok: false, error: "Stay card not found" };
+    const formFile = formData.get("file");
+    if (!(formFile instanceof File) || formFile.size === 0) {
+      return { ok: false, error: "No file received." };
+    }
+    const file = await uploadFileForBookCard(user, formFile);
+    const next = [...card.fileIds, file.id];
+    await db.bookStayCard.update({
+      where: { subsectionId },
+      data: { fileIds: next },
+    });
+    await audit(user, {
+      action: "stay-file-upload",
+      entity: "BookSubsection",
+      entityId: subsectionId,
+      metadata: {
+        cardTitle: card.subsection.title,
+        propertyName: card.propertyName ?? null,
+        fileId: file.id,
+        fileName: file.name,
+      },
+    });
+    await revalidateBookSubsection(subsectionId);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Couldn't upload" };
+  }
+}
+
+export async function attachFileToStayCard(
+  subsectionId: string,
+  fileId: string,
+): Promise<BookActionResult> {
+  const user = await requireEdit("book");
+  try {
+    const card = await db.bookStayCard.findUnique({
+      where: { subsectionId },
+      include: { subsection: true },
+    });
+    if (!card) return { ok: false, error: "Stay card not found" };
+    const file = await db.file.findUnique({ where: { id: fileId } });
+    if (!file) return { ok: false, error: "File not found" };
+    if (card.fileIds.includes(fileId)) return { ok: true };
+    const next = [...card.fileIds, fileId];
+    await db.bookStayCard.update({
+      where: { subsectionId },
+      data: { fileIds: next },
+    });
+    await audit(user, {
+      action: "stay-file-attach",
+      entity: "BookSubsection",
+      entityId: subsectionId,
+      metadata: {
+        cardTitle: card.subsection.title,
+        fileId,
+        fileName: file.name,
+      },
+    });
+    await revalidateBookSubsection(subsectionId);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Couldn't attach" };
+  }
+}
+
+export async function detachFileFromStayCard(
+  subsectionId: string,
+  fileId: string,
+): Promise<BookActionResult> {
+  const user = await requireEdit("book");
+  try {
+    const card = await db.bookStayCard.findUnique({
+      where: { subsectionId },
+      include: { subsection: true },
+    });
+    if (!card) return { ok: false, error: "Stay card not found" };
+    if (!card.fileIds.includes(fileId)) return { ok: true };
+    const file = await db.file.findUnique({ where: { id: fileId } });
+    const next = card.fileIds.filter((id) => id !== fileId);
+    await db.bookStayCard.update({
+      where: { subsectionId },
+      data: { fileIds: next },
+    });
+    await audit(user, {
+      action: "stay-file-detach",
+      entity: "BookSubsection",
+      entityId: subsectionId,
+      metadata: {
+        cardTitle: card.subsection.title,
+        fileId,
+        fileName: file?.name ?? null,
+      },
+    });
+    await revalidateBookSubsection(subsectionId);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Couldn't detach" };
+  }
+}
+
+// ─── OUTFIT upload-and-attach ───────────────────────────────────────
+//
+// v1.35.0 added attachFileToOutfitCard / detachFileFromOutfitCard but
+// no upload-and-attach. v1.63.0 adds the missing one so the
+// <ImageGallery> component's direct-upload affordance works on
+// OUTFIT cards too.
+
+export async function uploadAndAttachOutfitFile(
+  subsectionId: string,
+  formData: FormData,
+): Promise<BookActionResult> {
+  const user = await requireEdit("book");
+  try {
+    const card = await db.bookOutfitCard.findUnique({
+      where: { subsectionId },
+      include: { subsection: true },
+    });
+    if (!card) return { ok: false, error: "Outfit card not found" };
+    const formFile = formData.get("file");
+    if (!(formFile instanceof File) || formFile.size === 0) {
+      return { ok: false, error: "No file received." };
+    }
+    const file = await uploadFileForBookCard(user, formFile);
+    const next = [...card.fileIds, file.id];
+    await db.bookOutfitCard.update({
+      where: { subsectionId },
+      data: { fileIds: next },
+    });
+    await audit(user, {
+      action: "outfit-file-upload",
+      entity: "BookSubsection",
+      entityId: subsectionId,
+      metadata: {
+        cardTitle: card.subsection.title,
+        personName: card.personName,
+        fileId: file.id,
+        fileName: file.name,
+      },
+    });
+    await revalidateBookSubsection(subsectionId);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Couldn't upload" };
   }
 }

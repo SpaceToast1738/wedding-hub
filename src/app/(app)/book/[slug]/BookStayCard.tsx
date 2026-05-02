@@ -3,9 +3,16 @@
 import { useEffect, useState, useTransition } from "react";
 import { Button } from "@/components/ui/Button";
 import { notify } from "@/lib/notify";
-import { saveStayCard, type StaySavePayload } from "../actions";
+import {
+  saveStayCard,
+  attachFileToStayCard,
+  detachFileFromStayCard,
+  uploadAndAttachStayFile,
+  type StaySavePayload,
+} from "../actions";
 import { stayRollups } from "@/lib/book-cards";
 import { CardChrome } from "./CardChrome";
+import { ImageGallery } from "@/components/ui/ImageGallery";
 import {
   FieldLabel,
   Label,
@@ -36,6 +43,8 @@ type CardData = {
   occupants: string[];
   guestIds: string[];
   notes: string | null;
+  /** v1.63.0: photo gallery — File ids attached to this card. */
+  fileIds: string[];
 };
 
 type StayCardProps = {
@@ -48,6 +57,8 @@ type StayCardProps = {
   card: CardData;
   /** All non-archived guests, surfaced in the "linked guests" picker. */
   guests: GuestOpt[];
+  /** v1.63.0: file list for the photo gallery. */
+  files: Array<{ id: string; name: string; mimeType: string }>;
 };
 
 function isoDate(d: Date | null): string {
@@ -68,6 +79,7 @@ export function BookStayCard({
   isCouple,
   card,
   guests,
+  files,
 }: StayCardProps) {
   const [pending, startTransition] = useTransition();
   const [editing, setEditing] = useState(false);
@@ -210,7 +222,35 @@ export function BookStayCard({
           guests={guests}
         />
       ) : (
-        <ViewBody card={card} linkedGuests={linkedGuests} />
+        <ViewBody
+          card={card}
+          linkedGuests={linkedGuests}
+          subsectionId={subsectionId}
+          canEdit={canEdit}
+          pending={pending}
+          files={files}
+          onUpload={async (file) => {
+            const fd = new FormData();
+            fd.set("file", file);
+            const res = await uploadAndAttachStayFile(subsectionId, fd);
+            if (res.ok) notify("success", "Photo uploaded");
+            else notify("error", res.error);
+          }}
+          onAttach={(fileId) => {
+            startTransition(async () => {
+              const res = await attachFileToStayCard(subsectionId, fileId);
+              if (res.ok) notify("success", "Photo attached");
+              else notify("error", res.error);
+            });
+          }}
+          onDetach={(fileId) => {
+            startTransition(async () => {
+              const res = await detachFileFromStayCard(subsectionId, fileId);
+              if (res.ok) notify("success", "Photo detached");
+              else notify("error", res.error);
+            });
+          }}
+        />
       )}
 
       {canEdit && (
@@ -251,10 +291,25 @@ function Stat({ label, value }: { label: string; value: string }) {
 function ViewBody({
   card,
   linkedGuests,
+  subsectionId,
+  canEdit,
+  pending,
+  files,
+  onUpload,
+  onAttach,
+  onDetach,
 }: {
   card: CardData;
   linkedGuests: GuestOpt[];
+  subsectionId: string;
+  canEdit: boolean;
+  pending: boolean;
+  files: Array<{ id: string; name: string; mimeType: string }>;
+  onUpload: (file: File) => Promise<void>;
+  onAttach: (fileId: string) => void;
+  onDetach: (fileId: string) => void;
 }) {
+  void subsectionId;
   return (
     <div className="space-y-3">
       {card.propertyContact && (
@@ -290,6 +345,23 @@ function ViewBody({
               </li>
             ))}
           </ul>
+        </div>
+      )}
+      {/* v1.63.0: photo gallery — bridal suite, property exterior, etc. */}
+      {(card.fileIds.length > 0 || canEdit) && (
+        <div>
+          <strong className="block text-[10px] uppercase tracking-wider text-ink-tertiary font-bold mb-1">
+            Photos ({card.fileIds.length})
+          </strong>
+          <ImageGallery
+            fileIds={card.fileIds}
+            files={files}
+            canEdit={canEdit}
+            pending={pending}
+            onUpload={onUpload}
+            onAttach={onAttach}
+            onDetach={onDetach}
+          />
         </div>
       )}
       {card.notes && (

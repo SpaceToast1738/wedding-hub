@@ -275,6 +275,10 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
                               : Number(sRaw.buildCard.budgetLine.estimated),
                         }
                       : null,
+                    // v1.63.0: thread the file list for the photo
+                    // gallery, mirroring the outfitCard / legalCard
+                    // pattern from v1.35.0 / v1.34.0.
+                    files: allFiles,
                   }
                 : null;
               const menuCard = sRaw.menuCard
@@ -309,7 +313,7 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
                 ? { ...sRaw.barCard, confirmedAdults }
                 : null;
               const setupCard = sRaw.setupCard
-                ? { ...sRaw.setupCard, supplierNames }
+                ? { ...sRaw.setupCard, supplierNames, files: allFiles }
                 : null;
               const legalCard = sRaw.legalCard
                 ? {
@@ -349,7 +353,7 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
               // v1.36.0: shape STAY data — thread the guest list for
               // the linked-guest picker.
               const stayCard = sRaw.stayCard
-                ? { ...sRaw.stayCard, guests: sectionGuests }
+                ? { ...sRaw.stayCard, guests: sectionGuests, files: allFiles }
                 : null;
               const lodgingCard = sRaw.lodgingCard ?? null;
               // v1.38.0: same guest list threads into SHOT_LIST cards.

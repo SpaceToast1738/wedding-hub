@@ -212,6 +212,9 @@ type Sub = {
       order: number;
     }>;
     supplierNames: string[];
+    // v1.63.0: photo gallery — File ids + the resolvable file list.
+    fileIds: string[];
+    files: Array<{ id: string; name: string; mimeType: string }>;
   } | null;
   // v1.36.0: STAY card eager-loaded data + global guest list for the
   // linked-guest picker.
@@ -229,6 +232,9 @@ type Sub = {
     guestIds: string[];
     notes: string | null;
     guests: Array<{ id: string; name: string }>;
+    // v1.63.0: photo gallery.
+    fileIds: string[];
+    files: Array<{ id: string; name: string; mimeType: string }>;
   } | null;
   // v1.36.0: LODGING_GUIDE card eager-loaded data.
   lodgingCard: {
@@ -282,6 +288,9 @@ type Sub = {
       unitsCompleted: number | null;
       notes: string | null;
     }>;
+    // v1.63.0: photo gallery.
+    fileIds: string[];
+    files: Array<{ id: string; name: string; mimeType: string }>;
   } | null;
 };
 
@@ -534,6 +543,8 @@ function renderCardBody(sub: Sub, canEdit: boolean, isCouple: boolean) {
         notes: null,
         items: [],
         supplierNames: [],
+        fileIds: [],
+        files: [],
       };
       return (
         <BookSetupCard
@@ -550,8 +561,10 @@ function renderCardBody(sub: Sub, canEdit: boolean, isCouple: boolean) {
             setupOwner: sc.setupOwner,
             notes: sc.notes,
             items: sc.items,
+            fileIds: sc.fileIds ?? [],
           }}
           supplierNames={sc.supplierNames}
+          files={sc.files ?? []}
         />
       );
     }
@@ -572,6 +585,9 @@ function renderCardBody(sub: Sub, canEdit: boolean, isCouple: boolean) {
         budgetLine: null,
         materials: [],
         sessions: [],
+        // v1.63.0: photo gallery default for legacy rows.
+        fileIds: [],
+        files: [],
       };
       return (
         <BookBuildCard
@@ -582,6 +598,7 @@ function renderCardBody(sub: Sub, canEdit: boolean, isCouple: boolean) {
           canEdit={canEdit}
           isCouple={isCouple}
           card={bc}
+          files={bc.files}
         />
       );
     }
@@ -600,6 +617,8 @@ function renderCardBody(sub: Sub, canEdit: boolean, isCouple: boolean) {
         guestIds: [],
         notes: null,
         guests: [],
+        fileIds: [],
+        files: [],
       };
       return (
         <BookStayCard
@@ -622,8 +641,10 @@ function renderCardBody(sub: Sub, canEdit: boolean, isCouple: boolean) {
             occupants: sc.occupants,
             guestIds: sc.guestIds,
             notes: sc.notes,
+            fileIds: sc.fileIds ?? [],
           }}
           guests={sc.guests}
+          files={sc.files ?? []}
         />
       );
     }

@@ -3,10 +3,17 @@
 import { useEffect, useState, useTransition } from "react";
 import { Button } from "@/components/ui/Button";
 import { notify } from "@/lib/notify";
-import { saveSetupCard, type SetupSavePayload } from "../actions";
+import {
+  saveSetupCard,
+  attachFileToSetupCard,
+  detachFileFromSetupCard,
+  uploadAndAttachSetupFile,
+  type SetupSavePayload,
+} from "../actions";
 import { setupRollups } from "@/lib/book-cards";
 import { CardChrome } from "./CardChrome";
 import { FieldLabel, Label, newRowId } from "./bookCardUi";
+import { ImageGallery } from "@/components/ui/ImageGallery";
 
 // v1.33.0: SETUP card editor — per-space spatial walkthrough.
 // View / Edit flow mirrors v1.31.1 BUILD + v1.32.0 MENU/BAR.
@@ -37,6 +44,8 @@ type CardData = {
   setupOwner: string | null;
   notes: string | null;
   items: Item[];
+  /** v1.63.0: photo gallery — File ids attached to this card. */
+  fileIds: string[];
 };
 
 type SetupCardProps = {
@@ -50,6 +59,8 @@ type SetupCardProps = {
   /** Existing Supplier.name values used as autocomplete hints on the
    *  per-item `source` field. */
   supplierNames: string[];
+  /** v1.63.0: file list for the photo gallery. */
+  files: Array<{ id: string; name: string; mimeType: string }>;
 };
 
 export function BookSetupCard({
@@ -61,6 +72,7 @@ export function BookSetupCard({
   isCouple,
   card,
   supplierNames,
+  files,
 }: SetupCardProps) {
   const [pending, startTransition] = useTransition();
   const [editing, setEditing] = useState(false);
@@ -144,7 +156,34 @@ export function BookSetupCard({
           supplierNames={supplierNames}
         />
       ) : (
-        <ViewBody card={card} />
+        <ViewBody
+          card={card}
+          subsectionId={subsectionId}
+          canEdit={canEdit}
+          pending={pending}
+          files={files}
+          onUpload={async (file) => {
+            const fd = new FormData();
+            fd.set("file", file);
+            const res = await uploadAndAttachSetupFile(subsectionId, fd);
+            if (res.ok) notify("success", "Photo uploaded");
+            else notify("error", res.error);
+          }}
+          onAttach={(fileId) => {
+            startTransition(async () => {
+              const res = await attachFileToSetupCard(subsectionId, fileId);
+              if (res.ok) notify("success", "Photo attached");
+              else notify("error", res.error);
+            });
+          }}
+          onDetach={(fileId) => {
+            startTransition(async () => {
+              const res = await detachFileFromSetupCard(subsectionId, fileId);
+              if (res.ok) notify("success", "Photo detached");
+              else notify("error", res.error);
+            });
+          }}
+        />
       )}
 
       {canEdit && (
@@ -171,7 +210,26 @@ export function BookSetupCard({
 
 // ── View body ────────────────────────────────────────────────────
 
-function ViewBody({ card }: { card: CardData }) {
+function ViewBody({
+  card,
+  subsectionId,
+  canEdit,
+  pending,
+  files,
+  onUpload,
+  onAttach,
+  onDetach,
+}: {
+  card: CardData;
+  subsectionId: string;
+  canEdit: boolean;
+  pending: boolean;
+  files: Array<{ id: string; name: string; mimeType: string }>;
+  onUpload: (file: File) => Promise<void>;
+  onAttach: (fileId: string) => void;
+  onDetach: (fileId: string) => void;
+}) {
+  void subsectionId;
   if (card.items.length === 0) {
     return <p className="text-xs text-ink-tertiary italic">No items yet.</p>;
   }
@@ -221,6 +279,23 @@ function ViewBody({ card }: { card: CardData }) {
           </tbody>
         </table>
       </div>
+      {/* v1.63.0: photo gallery — space layouts, "before" shots, etc. */}
+      {(card.fileIds.length > 0 || canEdit) && (
+        <div className="pt-2">
+          <strong className="block text-[10px] uppercase tracking-wider text-ink-tertiary font-bold mb-1">
+            Photos ({card.fileIds.length})
+          </strong>
+          <ImageGallery
+            fileIds={card.fileIds}
+            files={files}
+            canEdit={canEdit}
+            pending={pending}
+            onUpload={onUpload}
+            onAttach={onAttach}
+            onDetach={onDetach}
+          />
+        </div>
+      )}
       {card.notes && (
         <div className="pt-2">
           <strong className="block text-[10px] uppercase tracking-wider text-ink-tertiary font-bold mb-1">

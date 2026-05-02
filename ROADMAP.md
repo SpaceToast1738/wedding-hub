@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.62.0** | 2026-05-02 | [`<ConfirmDialog>` component sweep — replaces all 40 native browser `confirm()` calls across 29 files with a single shared in-app dialog. New `<ConfirmProvider>` mounts at the AppShell level; new `useConfirm()` hook returns a Promise<boolean>. Body accepts `ReactNode` so callers can render structured content (SupplierCard's snapshot fields now render as a definition list instead of `\n`-joined plaintext). Tone supports `default` / `danger`. Esc + backdrop click cancel; cancel button focused on open (safer default for destructive actions). Critical pre-design-pass cleanup — designer redesigns one dialog instead of 40.](#2026-05-02--v1620--confirm-dialog-sweep) |
+| **v1.63.0** | 2026-05-02 | [Image galleries on Wedding Book cards (user request: "centerpieces and clothing"). New reusable `<ImageGallery>` component with thumbnails for image MIMEs, click-to-zoom lightbox (← / → keyboard nav, Esc closes), three add paths (direct upload from camera roll / pick from existing /files / detach), and chip-text fallback for non-image attachments. Wired into BUILD (centerpieces, place cards, signage), OUTFIT (per-person reference photos — replaces v1.35.0's chip-only display), SETUP (space layouts), and STAY (bridal suite, property exterior). Schema gains `fileIds: String[]` on `BookBuildCard` / `BookSetupCard` / `BookStayCard` (additive). New server actions `uploadAndAttach<Kind>File` upload+attach in one step from a phone's camera roll.](#2026-05-02--v1630--image-galleries-on-book-cards) |
+| v1.62.0 | 2026-05-02 | [`<ConfirmDialog>` component sweep — replaces all 40 native browser `confirm()` calls across 29 files with a single shared in-app dialog. New `<ConfirmProvider>` mounts at the AppShell level; new `useConfirm()` hook returns a Promise<boolean>. Body accepts `ReactNode` so callers can render structured content (SupplierCard's snapshot fields now render as a definition list instead of `\n`-joined plaintext). Tone supports `default` / `danger`. Esc + backdrop click cancel; cancel button focused on open (safer default for destructive actions). Critical pre-design-pass cleanup — designer redesigns one dialog instead of 40.](#2026-05-02--v1620--confirm-dialog-sweep) |
 | v1.61.1 | 2026-05-02 | [Two bugs caught by the daily Claude bug-check session — (1) clearing every chip in the TaskDrawer / TaskForm Topics picker was a silent no-op (zero `topicKeys` entries → `formData.has("topicKeys")` false → server skipped the m2m `set:` ops → existing relations stayed intact). Fixed via a `__touched__` sentinel hidden input always emitted by TopicPicker (when editable) and always appended by TaskDrawer.save(). (2) `parseTopicKeys` had no test coverage despite v1.61.0 adding the `guestGroup:` prefix branch. Extracted to `@/lib/task-topics` (pure module) and covered with 10 new unit tests — total 552 (was 542).](#2026-05-02--v1611--task-topics-parser-bug--coverage) |
 | v1.61.0 | 2026-05-02 | [XL1 — tasks-via-guest-groups (closes the last open punch-list item). New Task ↔ GuestGroup m2m mirroring Task ↔ BookSection / BookSubsection / NavTag. TopicPicker gains a fourth "Guest groups" section with colour swatches + member counts; tagged tasks surface on every member's `/guests/[id]` page in a "Tasks via groups" panel with done-bucket-to-bottom ordering and per-row chips showing which group(s) link the task. Read-time query — no auto-sync (v1.30.5 standing rule). Additive migration `_GuestGroupToTask`.](#2026-05-02--v1610--xl1-tasks-via-guest-groups) |
 | v1.60.0 | 2026-05-01 | [Polish sweep (P1, P2, P3, P4, P5, P7, P8) — empty-state verb unified ("Create one above" → "Add one above"); supplier-delete confirm enriched with status / agreed amount / last contact; dirty-check on SupplierForm / GuestForm / EventForm (no more double-save mash); Today snapshot strip restructured (label + bits as siblings) so 1280px wraps cleanly; `:target` flash animation on book cards (one-shot, respects prefers-reduced-motion); BookSubsectionKind cast replaced with Zod-validated default; stale `removeUser` cleanup comment fixed. P6 already cleared in v1.53.0.](#2026-05-01--v1600--polish-sweep) |
@@ -893,6 +894,79 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-05-02 · v1.63.0 — image galleries on Book cards
+
+User: "add the ability for me to be able to add and display images for certain things, the centerpieces and clothing would be a good start but consider where else images could benefit from user upload". The single biggest user-visible feature in the pre-2.0 arc.
+
+**Why now.** OUTFIT cards have had `fileIds: String[]` since v1.35.0, but the rendering was chip-text only — `📎 dress-fitting.jpg` next to a download link, which loses the entire point of attaching a photo. v1.63.0 fixes that and extends the same pattern to BUILD (centerpieces, signage), SETUP (space layouts), and STAY (bridal suite, property shots).
+
+**The component.** New `src/components/ui/ImageGallery.tsx` exports `<ImageGallery>` and a pure `isImageMime()` helper. Renders:
+
+- **Image MIMEs** → square thumbnail in a 2 / 3 / 4-column grid (`<img loading="lazy">` for browser-native lazy loading + caching).
+- **Non-image MIMEs** → a paperclip-glyph chip with the filename (PDFs, etc., still attach for completeness).
+- **Click thumbnail** → fullscreen lightbox with the image at natural size (capped to viewport). Navigation: ← / → moves between attached images; Esc closes; backdrop click closes; the bottom caption shows "name · n of N · ← → to navigate".
+- **Hover thumbnail** → × button appears in the top-right corner for detach (only when `canEdit`).
+
+**Three add paths.** Per the user's "I just took a photo" use case:
+
+1. **Direct upload** (file input wired to a hidden `<input accept="image/*">`). The button "+ Upload photo" triggers the file picker; on select, the parent's `onUpload` is called with the `File` — the parent's server action handles upload + attach + audit in one round-trip.
+2. **Attach existing** (dropdown of `/files` rows that aren't already on this card, filtered to image MIMEs by default).
+3. **Detach** (× per thumbnail).
+
+**A11y / safety.** `role="dialog"` + `aria-modal` on the lightbox; aria-labels on every action button; cancel button focused on lightbox open; keyboard-only navigation works end-to-end.
+
+**Schema additions.**
+
+```prisma
+model BookBuildCard {
+  …
+  fileIds                  String[]       @default([])
+}
+model BookSetupCard {
+  …
+  fileIds                  String[]       @default([])
+}
+model BookStayCard {
+  …
+  fileIds                  String[]       @default([])
+}
+```
+
+Forward-only references (no FK array — same convention as `BookOutfitCard.fileIds` from v1.35.0). The rendering layer joins File rows at read time. File rows survive even when detached, so users can re-attach later from `/files`.
+
+**Migration** `prisma/migrations/20260507000000_book_card_image_galleries/migration.sql`. Three additive `ALTER TABLE` statements adding `fileIds TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[]`. No data movement.
+
+**Server actions.** Three new triplets per kind:
+- `uploadAndAttach<Kind>File(subsectionId, formData)` — one-step upload + attach. Wraps the same disk-write + DB-insert logic from `/files/actions.ts` via a new internal helper `uploadFileForBookCard()`. Files default to `folder: "Book photos"`, `visibility: EVERYONE`. Roll-back on DB failure (unlinks the disk write).
+- `attachFileTo<Kind>Card(subsectionId, fileId)` — attach a pre-uploaded File row. Idempotent.
+- `detachFileFrom<Kind>Card(subsectionId, fileId)` — opposite. Idempotent.
+
+`uploadAndAttachOutfitFile` added too — v1.35.0 had attach/detach but no upload-and-attach for OUTFIT, so the new gallery's direct-upload affordance now works there as well.
+
+All actions: `requireEdit("book")` gate, result-shape `{ ok, error }` returns, enriched audit metadata per the v1.30.5 standing rule (`cardTitle`, `personName` / `space` / `propertyName`, `fileId`, `fileName`, `mimeType`).
+
+**Card wiring.**
+- **BUILD** — gallery renders below materials/sessions, before notes. Empty state copy: "No photos yet — upload some so everyone can see what these should look like."
+- **OUTFIT** — replaces the v1.35.0 chip-only photo display entirely. The bespoke "+ Attach photo" + select dropdown collapsed into one `<ImageGallery>` call.
+- **SETUP** — gallery renders below the items table, before notes.
+- **STAY** — gallery renders after the linked-guests block, before notes.
+
+**Page loader / CardRouter.** `[slug]/page.tsx` now threads `allFiles` through to `buildCard` / `setupCard` / `stayCard` (already did for `outfitCard` / `legalCard`). CardRouter's `Sub` type extended with `fileIds` + `files` on the three new card kinds. Defensive defaults updated for the legacy-row-without-card path.
+
+**Tests.** New `tests/unit/image-gallery.test.ts` covers the pure `isImageMime` decision: common image MIMEs, non-images, prefix-matching for unknown image subtypes, case-sensitivity, empty / falsy edge cases. 5 new tests; total **557** (was 552, matches the v1.53.0 baseline before the ceremony-fill removal). Render-driven gallery behaviour would need a Playwright pass, deferred to post-design-pass.
+
+**Verification.** typecheck ✅, lint ✅, 557 tests ✅, build ✅.
+
+**Where else might benefit (deferred)**:
+- **LODGING_GUIDE** items — hotel reference photos. Schema would need `fileIds` per item; deferred until requested.
+- **Suppliers** — sample-work portfolio. Useful but adds visual weight to a list view; deferred.
+- **MENU / RECIPE / BAR** — dish / cocktail / bar setup photos. Nice-to-have; deferred.
+- **Tasks** — inspiration photos for "what should this look like". Could be valuable but the Wedding Book card surfaces are the primary intended visual surfaces.
+
+Files: `src/components/ui/ImageGallery.tsx` (new), `prisma/schema.prisma` (3 fields added), `prisma/migrations/20260507000000_book_card_image_galleries/migration.sql` (new), `src/app/(app)/book/actions.ts` (10 new server actions + helper), `src/app/(app)/book/[slug]/BookBuildCard.tsx`, `src/app/(app)/book/[slug]/BookOutfitCard.tsx`, `src/app/(app)/book/[slug]/BookSetupCard.tsx`, `src/app/(app)/book/[slug]/BookStayCard.tsx`, `src/app/(app)/book/[slug]/CardRouter.tsx`, `src/app/(app)/book/[slug]/page.tsx`, `tests/unit/image-gallery.test.ts` (new), `package.json` → `1.63.0`.
+
+---
 
 ### 2026-05-02 · v1.62.0 — confirm dialog sweep
 
