@@ -44,21 +44,21 @@ export function PageLinkedTasksStrip({
   const done = tasks.filter((t) => t.status === "DONE" || t.status === "ARCHIVED");
 
   return (
-    <section className="bg-surface border-l-2 border-l-moss-300 border border-border-soft rounded-md shadow-sm mx-auto max-w-5xl mt-3">
-      <header className="px-4 py-2 border-b border-border-soft flex items-center gap-2 flex-wrap">
-        <span aria-hidden className="text-moss-700">📋</span>
+    <section className="bg-surface border-b border-border-soft">
+      <header className="px-4 sm:px-6 py-2 flex items-center gap-2 flex-wrap">
+        <span aria-hidden className="text-moss-700 text-xs">📋</span>
         <h2 className="text-xs font-semibold text-ink-primary">
           Linked tasks · {navTagName}
         </h2>
-        {tasks.length > 0 && (
+        {tasks.length > 0 ? (
           <span className="text-[11px] text-ink-tertiary tabular-nums">
             {open.length} open
-            {done.length > 0 && (
-              <span className="text-ink-tertiary"> · {done.length} done</span>
-            )}
+            {done.length > 0 && <span> · {done.length} done</span>}
           </span>
+        ) : (
+          <span className="text-[11px] text-ink-tertiary italic">No linked tasks yet.</span>
         )}
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex items-center gap-3">
           {canEdit && navTagId && (
             <AddTaskToggle
               users={users}
@@ -75,10 +75,10 @@ export function PageLinkedTasksStrip({
           </Link>
         </div>
       </header>
-      {tasks.length === 0 ? (
-        <p className="px-4 py-2 text-xs text-ink-tertiary italic">No linked tasks yet.</p>
-      ) : (
-        <PageLinkedTasksRows tasks={[...open, ...done]} canEdit={canEdit} />
+      {tasks.length > 0 && (
+        <div className="border-t border-border-soft">
+          <PageLinkedTasksRows tasks={[...open, ...done]} canEdit={canEdit} />
+        </div>
       )}
     </section>
   );

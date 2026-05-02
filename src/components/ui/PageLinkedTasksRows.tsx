@@ -45,7 +45,7 @@ function StripRow({ task, canEdit }: { task: StripTaskRow; canEdit: boolean }) {
   }
 
   return (
-    <li className="px-4 py-1.5 flex items-center gap-2">
+    <li className="px-4 sm:px-6 py-1.5 flex items-center gap-2">
       {canEdit ? (
         <button
           type="button"

@@ -178,7 +178,7 @@ export default async function GuestsPage({
         />
       )}
       <div className="flex-1 overflow-auto">
-        <div className="max-w-7xl mx-auto p-4 sm:p-6">
+        <div className="p-4 sm:p-6">
           {households.length === 0 ? (
             <p className="text-sm text-ink-tertiary text-center py-12">
               No households yet. {editable && "Add one above."}
