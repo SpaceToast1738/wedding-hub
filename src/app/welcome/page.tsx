@@ -1,7 +1,12 @@
 import { redirect } from "next/navigation";
-import { auth } from "@/auth";
+import { auth, signOut } from "@/auth";
 import { db } from "@/lib/db";
 import { WelcomeForm } from "./WelcomeForm";
+
+async function signOutAction() {
+  "use server";
+  await signOut({ redirectTo: "/signin" });
+}
 
 export default async function WelcomePage() {
   const session = await auth();
@@ -32,6 +37,7 @@ export default async function WelcomePage() {
       email={dbUser?.email ?? session.user.email}
       initialFirstName={initialFirstName}
       initialLastName={initialLastName}
+      signOutAction={signOutAction}
     />
   );
 }

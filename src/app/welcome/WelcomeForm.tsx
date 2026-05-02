@@ -9,10 +9,12 @@ export function WelcomeForm({
   email,
   initialFirstName,
   initialLastName,
+  signOutAction,
 }: {
   email: string;
   initialFirstName: string;
   initialLastName: string;
+  signOutAction: () => Promise<void>;
 }) {
   const [firstName, setFirstName] = useState(initialFirstName);
   const [lastName, setLastName] = useState(initialLastName);
@@ -36,10 +38,7 @@ export function WelcomeForm({
 
   return (
     <div className="min-h-screen flex items-center justify-center px-4 bg-canvas">
-      <form
-        onSubmit={onSubmit}
-        className="w-full max-w-sm bg-surface border border-border-soft rounded-lg shadow-md p-7"
-      >
+      <div className="w-full max-w-sm bg-surface border border-border-soft rounded-lg shadow-md p-7">
         <h1 className="font-display text-3xl font-semibold text-moss-700 mb-1">
           Welcome to Wedding Hub
         </h1>
@@ -49,46 +48,56 @@ export function WelcomeForm({
         <p className="text-sm text-ink-secondary mb-5">
           Tell us your name so the rest of the wedding party knows who they&apos;re working with. You can change this any time from Settings.
         </p>
-        <div className="space-y-3 mb-3">
-          <div>
-            <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">
-              First name
-            </label>
-            <Input
-              name="firstName"
-              required
-              autoFocus
-              value={firstName}
-              onChange={(e) => setFirstName(e.target.value)}
-              placeholder="Jamie"
-              disabled={pending}
-            />
+        <form onSubmit={onSubmit}>
+          <div className="space-y-3 mb-3">
+            <div>
+              <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">
+                First name
+              </label>
+              <Input
+                name="firstName"
+                required
+                autoFocus
+                value={firstName}
+                onChange={(e) => setFirstName(e.target.value)}
+                placeholder="Jamie"
+                disabled={pending}
+              />
+            </div>
+            <div>
+              <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">
+                Last name
+              </label>
+              <Input
+                name="lastName"
+                required
+                value={lastName}
+                onChange={(e) => setLastName(e.target.value)}
+                placeholder="Spencer"
+                disabled={pending}
+              />
+            </div>
           </div>
-          <div>
-            <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">
-              Last name
-            </label>
-            <Input
-              name="lastName"
-              required
-              value={lastName}
-              onChange={(e) => setLastName(e.target.value)}
-              placeholder="Spencer"
-              disabled={pending}
-            />
-          </div>
-        </div>
-        {error && <p className="text-xs text-danger mb-2">{error}</p>}
-        <Button
-          type="submit"
-          variant="primary"
-          size="md"
-          disabled={pending || !firstName.trim() || !lastName.trim()}
-          className="w-full justify-center mt-2"
-        >
-          {pending ? "Saving…" : "Continue →"}
-        </Button>
-      </form>
+          {error && <p className="text-xs text-danger mb-2">{error}</p>}
+          <Button
+            type="submit"
+            variant="primary"
+            size="md"
+            disabled={pending || !firstName.trim() || !lastName.trim()}
+            className="w-full justify-center mt-2"
+          >
+            {pending ? "Saving…" : "Continue →"}
+          </Button>
+        </form>
+        <form action={signOutAction} className="mt-4 text-center">
+          <button
+            type="submit"
+            className="text-xs text-ink-tertiary hover:text-ink-secondary underline"
+          >
+            Sign out
+          </button>
+        </form>
+      </div>
     </div>
   );
 }
