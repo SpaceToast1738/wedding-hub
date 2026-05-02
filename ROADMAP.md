@@ -34,7 +34,8 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
-| **v1.67.0** | 2026-05-02 | [Guest profile pictures — manual upload per guest, replaces the initials placeholder. New `Guest.profilePictureFileId` column (additive migration), three new server actions (`uploadGuestProfilePicture` / `setGuestProfilePicture` / `clearGuestProfilePicture`), `<Avatar>` extended with `pictureFileId` prop. Upload UI on `/guests/[id]` (avatar-as-trigger pattern: tap the photo to upload), photos render on the guest list (HouseholdBlock rows) and the seating side panel. Skipped seating canvas seat-dots (too small to help) and catering-brief print (low marginal value). Originated from "is it possible to link guests with Facebook profile pictures?" — Facebook OAuth blocked by admin-only standing rule + Meta API restrictions; manual upload is the cleanest path.](#2026-05-02--v1670--guest-profile-pictures) |
+| **v1.68.0** | 2026-05-02 | [Design-pass brief — final piece of pre-2.0 prep documentation. New `docs/DESIGN-PASS-BRIEF.md` captures the goal (visual refresh shipping as v2.0.0), constraints (admin-only, no API changes, accessibility floor, dark-mode parity, print fidelity), and the user's explicit direction: **two themes** (Base + Whimsical Forest) × **two modes** (light + dark) = four combinations. Theme picker via new `User.theme` enum (the only schema change v2.0 is allowed). Designer entry point linking the four reference docs (component inventory, form patterns, mobile, brief).](#2026-05-02--v1680--design-pass-brief) |
+| v1.67.0 | 2026-05-02 | [Guest profile pictures — manual upload per guest, replaces the initials placeholder. New `Guest.profilePictureFileId` column (additive migration), three new server actions (`uploadGuestProfilePicture` / `setGuestProfilePicture` / `clearGuestProfilePicture`), `<Avatar>` extended with `pictureFileId` prop. Upload UI on `/guests/[id]` (avatar-as-trigger pattern: tap the photo to upload), photos render on the guest list (HouseholdBlock rows) and the seating side panel. Skipped seating canvas seat-dots (too small to help) and catering-brief print (low marginal value). Originated from "is it possible to link guests with Facebook profile pictures?" — Facebook OAuth blocked by admin-only standing rule + Meta API restrictions; manual upload is the cleanest path.](#2026-05-02--v1670--guest-profile-pictures) |
 | v1.66.0 | 2026-05-02 | [DR-1 mobile compatibility pass — first phase of pre-wedding hardening. Added `docs/MOBILE.md` codifying breakpoint / fixed-bottom / touch-target / table / modal / drawer conventions. Fixed five real bugs: Toaster sat behind the MobileTabBar (z-bumped + padding); QuickCapture success toast same; three tables (BookBuildCard materials, /guests/catering breakdown + dietary + meal-choice) lacked `overflow-x-auto`; SeatingCanvas was unusable on touch (now defaults to list view on first-visit mobile). Bumped touch targets on ConfirmDialog buttons (28px → 40px), AddNewModal close × (16px → 36px), ImageGallery detach × (24px → 32px, always-visible on touch). Page-level `p-6` paddings converted to `p-4 sm:p-6` across 18 pages so phones get more breathing room.](#2026-05-02--v1660--mobile-compatibility-pass-dr-1) |
 | v1.65.0 | 2026-05-02 | [DP-4 form-pattern audit + DP-6 seed cleanup. New `docs/FORM-PATTERNS.md` codifies three legitimate form patterns (uncontrolled+action / controlled-per-field / single-draft-state) with a decision tree; flags the EventForm hybrid as deprecated for next-touch migration. `prisma/seed.ts` drops 6 legacy section slug seeds (wedding-party / venue / legal-admin / ceremony / reception / logistics) and the orphaned `seedWeddingPartySubsections` function — fresh DBs no longer get cluttered deprecated sections; existing prod data preserved via the `LEGACY_SLUGS` filter on /book. Seed file shrinks 2718 → 2681 lines.](#2026-05-02--v1650--dp-4-form-patterns--dp-6-seed-cleanup) |
 | v1.64.0 | 2026-05-02 | [Pre-2.0 design-pass prep batch (DP-2 + DP-3 + DP-5). New `docs/COMPONENT-INVENTORY.md` documents every reusable UI primitive + which pages use what — the design pass's required input. Empty-state convention codified in `Illustrations.tsx` (top-level pages get illustrated `<EmptyState>`; nested-section empties get a single italic paragraph; "Add" verb everywhere). Audit-log final sweep — 9 bare `audit({entity, entityId})` calls enriched with snapshot fields per the v1.30.5 standing rule (`field-delete`, `field-set`, `recipe-update`, `shot-toggle`, `shot-delete`, `outfit-add`, `outfit-update`, `outfit-delete`, wedding-settings update with `changedFields` diff).](#2026-05-02--v1640--design-pass-prep-batch) |
@@ -898,6 +899,37 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-05-02 · v1.68.0 — design-pass brief
+
+User: "promote then prep for claude design pass" → "I want whimsical forest" → "A base theme and a whimsical forest theme, both should have light and dark modes". Final piece of pre-2.0 prep work. Docs-only ship.
+
+**The brief.** New `docs/DESIGN-PASS-BRIEF.md` is the entry point for whoever does the design pass (Claude, in this case, in a separate session). Captures:
+
+- **Audience** — five admin users, admin-only standing rule, no public surfaces.
+- **The two themes.** This is the central direction-setter — user has explicitly asked for **Base** (the current moss/marigold/canvas polished, editorial / restrained) and **Whimsical Forest** (deeper greens, mossy browns, soft golds, hand-drawn / woodcut illustration personality, fairy-tale not gothic). Each with light + dark modes = four combinations. Themes share component contracts (Button / Input / Modal / etc.); they reskin via tokens + illustration. A user toggling between them should feel like "walking from a study into a glade".
+- **Theme architecture** — recommended `data-theme="base|forest"` attribute on `<html>` cascading CSS variables, paired with the existing `html.dark` mechanism. New `User.theme` enum column for persistence (the single schema change v2.0 is allowed). Theme picker in Settings next to the existing dark-mode toggle. Day-of-mode allowed as a one-page override (Forest even when user has Base selected — it's the "magical bit" surface).
+- **Goals** — cohesive design language, mobile refinement, density review (Base stays dense for planning surfaces, Forest relaxes), dark-mode parity, print fidelity (print pins to clean black-on-white regardless of theme).
+- **Non-goals** — no feature changes, no server-action changes, no third theme (resist scope creep), no public-facing surfaces.
+- **Constraints** — WCAG AA contrast, focus rings everywhere, prefers-reduced-motion gate on animations, 40px minimum touch targets on destructive confirms, dark mode parity for every new token, print stylesheet still works.
+- **Materials** — links to `COMPONENT-INVENTORY.md`, `FORM-PATTERNS.md`, `MOBILE.md`, `ROADMAP.md`, `CLAUDE.md`. The brief is the entry point; the others are reference.
+- **Token reference** — current Base tokens listed in detail (palette, type, radius, shadow). Both themes share structural tokens (radius tiers, shadow tiers, font fallback chain); palette + type-scale tweaks differ.
+- **Page list** — all 23 pages with one-line description + density rating, so the designer can plan coverage.
+- **Pain points** — settings page density, visual-identity flatness (the central reason for the Forest theme), today-page snapshot strip, empty-state convention validation, illustration richness, day-of mode visual identity.
+- **What "done" looks like** — green gate, both themes × both modes × all 23 pages × 320/768/1280 viewports = 276 visual states verified, all 11 reusable primitives touched, theme picker works, ROADMAP entry, no schema changes beyond `User.theme`.
+- **Practical handoff** — running the dev server, the gate, branching, what the user expects to do.
+- **Out of scope** for v2.0; revisit post-wedding (public RSVP form, guest portal, multi-tenant, i18n, native app, major architectural rewrites).
+- **After the design pass** — Phase C continues (DR-2 backup drill, DR-3 day-of rehearsal, DR-4 print review, DR-5 offline mode, DR-6 wedding-day freeze, DR-7 DMARC).
+
+The doc is ~280 lines; comprehensive enough to brief a fresh-context designer without further conversation, sparse enough not to over-prescribe.
+
+**Next ship is v2.0.0** — the design pass itself. v1.68.0 is the last v1.x release. Future v1.6x patches are possible if the design pass takes multiple iterations or surfaces issues that need to land in the current Base before the Forest theme arrives, but the next major direction is the visual refresh.
+
+**Verification.** typecheck ✅, lint ✅, 557 tests ✅, build ✅. (No code changes, but ran the gate as a hygiene check.)
+
+Files: `docs/DESIGN-PASS-BRIEF.md` (new), `package.json` → `1.68.0`.
+
+---
 
 ### 2026-05-02 · v1.67.0 — guest profile pictures
 
