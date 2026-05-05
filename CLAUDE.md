@@ -2,7 +2,10 @@
 
 A small private Next.js app for Jamie & Bryony's wedding (26 September 2026, Alveston Manor). Five users total: the couple, two wedding-party members, one planner. Hosted on Jamie's Unraid box.
 
-This file gives you (Claude Code) the context you need to work productively on this repo. **Read it before making changes.** [ROADMAP.md](ROADMAP.md) is the living plan + changelog — read that for current state and to understand what's shipped vs deferred.
+This file gives you (Claude Code) the context you need to work productively on this repo. **Read it before making changes.** Two siblings to read alongside:
+
+- [HANDOVER.md](HANDOVER.md) — snapshot of the current state, what's recently shipped, and "watch out for" notes for whoever's resuming work. Refreshed at the end of major sessions.
+- [ROADMAP.md](ROADMAP.md) — living plan + full per-version changelog. Read the most recent entry to understand what's just shipped.
 
 ## Stack
 
@@ -44,12 +47,17 @@ docker compose --env-file .env exec web node prisma/seed.js
 ```
 The transpiled `prisma/seed.js` ships in the image — the production container does NOT have `tsx` available, so use `node prisma/seed.js`, not `tsx`.
 
-### Auth allowlist + bootstrap admin
-`AUTH_ALLOWED_EMAILS` (CSV) gates sign-in. Set in `.env` on the deploy host. Anyone not on the list bounces at the Auth.js callback layer with a friendly redirect to `/signin/error`.
+### Auth: DB invites + bootstrap admin (v1.69.0+)
+Sign-in is gated by the **`Invite` table** (DB-backed) — adding new users now happens through the in-app Settings page (Send invite → Resend / Revoke). Server actions: `createInvite` / `resendInvite` / `revokeInvite`. The invite carries the role + `isCouple` flag; on first sign-in `events.signIn` applies them and marks the invite ACCEPTED.
 
-**First-sign-in bootstrap:** while no couple-tier user has actually authenticated yet (`count(User where isCouple=true AND emailVerified IS NOT NULL) === 0`), the next user to come through the `signIn` callback gets promoted to COUPLE automatically. After that, new sign-ins default to VIEWER and the existing admin promotes them via the Settings matrix. No env-var or SQL surgery needed for the initial admin.
+`isAllowed()` in `src/auth.ts` is async and admits anyone with: (a) an existing User row whose `emailVerified` is set, OR (b) a PENDING invite. `AUTH_ALLOWED_EMAILS` is now only the **bootstrap-only** fallback for the very first sign-in before any DB users exist.
+
+**First-sign-in bootstrap:** while no couple-tier user has actually authenticated yet (`count(User where isCouple=true AND emailVerified IS NOT NULL) === 0`), the next user to come through the `signIn` callback gets promoted to COUPLE automatically. After that, new sign-ins go through the invite system. No env-var or SQL surgery needed for the initial admin.
 
 The seed creates `jamie@example.com` etc. as couple-tier rows with `emailVerified=null`, so they don't satisfy the bootstrap predicate — those rows are placeholders, not real signed-in users. Safe to delete from production once a real admin has bootstrapped.
+
+### Design source-of-truth lives in `prototype/`
+The `prototype/` directory contains JSX mockups — one per page (`GuestsPage.jsx`, `TasksPage.jsx`, etc.) — that are the visual target for the v2.0 design pass. When the user says "this page doesn't look like the design," they mean it diverges from the matching `prototype/<Page>.jsx`. The full design-pass intent is in [docs/DESIGN-PASS-BRIEF.md](docs/DESIGN-PASS-BRIEF.md). Pages are being brought up to prototype parity incrementally; v1.72.0 brought `/guests` over.
 
 ### File uploads land in /app/uploads
 Multipart server action at `src/app/(app)/files/actions.ts` writes physical bytes under `UPLOADS_DIR` (defaults to `/app/uploads` in production, `./uploads` in dev). The Dockerfile creates this directory with `node:node` ownership before the named volume mount; downloads go through `src/app/api/files/[id]/route.ts` with a session + `canView("files")` gate. Body-size budget: Caddy `request_body max_size 26MB` → Next `serverActions.bodySizeLimit: "26mb"` → app-level `MAX_UPLOAD_BYTES = 25 MB`. MIME allowlist in `src/lib/uploads.ts` — extending it requires updating `MIME_EXTENSIONS` there.
@@ -127,7 +135,10 @@ Image is private. The Unraid host has cached credentials in `/root/.docker/confi
 │   └── seed.ts                       # transpiled to seed.js at build time
 ├── public/.gitkeep                   # required so the Dockerfile COPY succeeds (no static assets yet)
 ├── src/                              # Next.js app
+├── HANDOVER.md                       # current-state snapshot for resuming work
 ├── ROADMAP.md                        # living plan + changelog (read this!)
+├── prototype/                        # JSX mockups — design source-of-truth for v2.0
+├── docs/                             # DESIGN-PASS-BRIEF, COMPONENT-INVENTORY, FORM-PATTERNS, MOBILE
 ├── README.md                         # user-facing docs
 └── .env.production.example
 ```
@@ -140,7 +151,7 @@ Image is private. The Unraid host has cached credentials in `/root/.docker/confi
 | `AUTH_SECRET` | Auth.js JWT signing | Random; in 1Password |
 | `AUTH_URL` | Public URL (computed) | `https://${DOMAIN}` |
 | `AUTH_TRUST_HOST` | Required behind proxies | Hardcoded `"true"` |
-| `AUTH_ALLOWED_EMAILS` | CSV allowlist | Currently just Jamie; Bryony / Josh / Aimee / planner pending |
+| `AUTH_ALLOWED_EMAILS` | Bootstrap-only fallback (v1.69.0+: invites in DB) | Currently just Jamie; new users now invited from Settings |
 | `POSTGRES_PASSWORD` | DB password | Random; in 1Password |
 | `DATABASE_URL` | Prisma connection (computed) | Built from `POSTGRES_PASSWORD` |
 | `EMAIL_SERVER_*` | SMTP config | Resend (host=`smtp.resend.com`, user=`resend`, password=API key) |
@@ -150,7 +161,9 @@ Image is private. The Unraid host has cached credentials in `/root/.docker/confi
 ## Common tasks
 
 ### Add a new allowed user
-Edit `.env` (via Compose Manager Plus → Edit Stack → .ENV tab), append email to `AUTH_ALLOWED_EMAILS=...`, save, click `Pull & Up` (or just **Up**) to recreate `web` with the new env.
+**v1.69.0+:** sign in to production as a couple-tier user, go to **Settings → Invite a member**, enter the email, pick the role, send. The invitee gets a magic-link sign-in email and lands as the role you picked.
+
+(Pre-v1.69.0 path was editing `AUTH_ALLOWED_EMAILS` in `.env` and recreating the stack — still works as the bootstrap fallback if no couple-tier user exists yet, but otherwise superseded.)
 
 ### Push a new build
 ```bash
