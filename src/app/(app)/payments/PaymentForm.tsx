@@ -23,12 +23,22 @@ export function PaymentForm({
   submitLabel = "Create",
   onSubmit,
   onCancel,
+  // v1.75.0: hidden field passthrough — preserves the linked book row
+  // + existing receipts across edit-form saves so updatePayment doesn't
+  // clobber them. The PaymentRow edit panel manages those values via
+  // their own UI; the form just relays them.
+  hiddenFields,
 }: {
   initial?: Initial;
   suppliers: { id: string; name: string }[];
   submitLabel?: string;
   onSubmit: (formData: FormData) => Promise<void>;
   onCancel?: () => void;
+  hiddenFields?: {
+    bookBuildMaterialId?: string | null;
+    bookOutfitId?: string | null;
+    fileIds?: string[];
+  };
 }) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -46,6 +56,15 @@ export function PaymentForm({
 
   return (
     <form action={handle} className="space-y-3">
+      {hiddenFields?.bookBuildMaterialId && (
+        <input type="hidden" name="bookBuildMaterialId" value={hiddenFields.bookBuildMaterialId} />
+      )}
+      {hiddenFields?.bookOutfitId && (
+        <input type="hidden" name="bookOutfitId" value={hiddenFields.bookOutfitId} />
+      )}
+      {hiddenFields?.fileIds?.map((fid) => (
+        <input key={fid} type="hidden" name="fileIds" value={fid} />
+      ))}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <div className="sm:col-span-2">
           <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">Description</label>

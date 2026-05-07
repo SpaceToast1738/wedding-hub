@@ -4,9 +4,8 @@ A snapshot for whoever picks this up next. Pairs with [CLAUDE.md](CLAUDE.md) (du
 
 ## Where we are right now
 
-- **Latest version:** v1.72.3 (on `dev`)
-- **Production:** running v1.59.0 (`claude/main`), promoted 1 May 2026 — `dev` is many releases ahead and ready to be cut over once GHA goes green
-- **Branch state:** `dev` is **13 commits ahead** of `claude/main`. No local uncommitted work.
+- **Latest version:** v1.75.0 (on `dev`, pending push)
+- **Production / `claude/main`:** at v1.74.0 (promoted 7 May 2026). The fast-forward from v1.68.0 → v1.74.0 covered v1.69 (DB invites), v1.70 (seating), v1.71 (inline tasks + website fields), v1.72 (/guests redesign), v1.73 (/songs redesign), v1.74 (inline payment add).
 - **Standing rule:** never tag a SHA that hasn't gone green on GHA. Push to `dev` → wait for green → fast-forward `claude/main` → only then tag.
 
 ## What's recently shipped
@@ -15,6 +14,9 @@ These are the changes from this session, newest first. Worth understanding befor
 
 | Version | Touch | One-line |
 |---|---|---|
+| **v1.75.0** | `/payments` overhaul | **Excel-style multi-row inline grid + receipt attach + link a payment to a BUILD material or outfit-item.** Linking a BUILD material auto-marks it `ordered: true` (side effect of `createPayment`). Schema: `Payment.fileIds`, `bookBuildMaterialId`, `bookOutfitId` (additive migration). |
+| **v1.74.0** | `/payments` | Inline payment add (single row) + inline supplier-quick-create — superseded by v1.75.0's grid but `createSupplierQuick` action is still used. |
+| **v1.73.0** | `/songs` redesign | Summary card grid + Spotify connection banner + runtime estimate in subtitle |
 | **v1.72.3** | `/guests` polish | Drop the table-wrapper border so rows sit flush like `/tasks` |
 | **v1.72.2** | `/guests` polish | Always render the household subheader — solo-household guests no longer look nested under the previous household |
 | **v1.72.1** | `/guests` polish | Drop `max-w-7xl`; reshape `PageLinkedTasksStrip` into a flush full-width banner (was a centered floating card) |
@@ -24,6 +26,16 @@ These are the changes from this session, newest first. Worth understanding befor
 | **v1.69.0** | Auth | **DB-backed invite system replaces the `AUTH_ALLOWED_EMAILS` env CSV.** Settings page has Send / Resend / Revoke. CLAUDE.md still mentions the env path in places — superseded. |
 
 ## Things to watch out for
+
+### v1.75.0 has a side-effect on BUILD materials
+
+Creating a payment with `bookBuildMaterialId` set will **auto-flip that material's `ordered` flag to true** (only when it was previously false — preserves any pre-existing ordering history). This is intentional and matches the user's "log the receipt → mark it ordered" mental model. If a user accidentally links the wrong material, detaching the link does NOT un-set `ordered` — the user has to manually un-tick the material on the BUILD card. Audit log entry: `build-material-ordered-by-payment`.
+
+### v1.75.0 receipt-on-create is partial
+
+Queued File uploads (selected from device in the inline grid before pressing Enter) currently can't auto-attach because `createPayment` is a form-action returning `void` — we don't have the new payment id at that point. The grid surfaces a `notify("warn", …)` if any queued files were lost. **The user re-attaches via PaymentRow's edit-mode receipt panel.** Already-uploaded files (selected via "Pick existing") work fine — they go through as `fileIds` in FormData.
+
+Cleanest fix when this becomes annoying: promote `createPayment` to return the new payment id, then use `uploadAndAttachReceipt` from the inline grid post-commit. Out of scope for v1.75.0 to keep the change scope contained.
 
 ### v1.72.0 dropped functionality on /guests
 

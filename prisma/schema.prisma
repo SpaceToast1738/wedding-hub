@@ -482,6 +482,16 @@ model Payment {
   supplier     Supplier?     @relation(fields: [supplierId], references: [id])
   budgetLineId String?
   budgetLine   BudgetLine?   @relation(fields: [budgetLineId], references: [id])
+  // v1.75.0: receipts + optional link to a BookBuildMaterial (e.g.
+  // Hobbycraft → centerpiece foam) or BookOutfit per-item (e.g.
+  // Converse → Jamie's shoes). Linking a BUILD material auto-marks
+  // it as ordered. Both FKs are SetNull on delete so the payment
+  // record survives if the linked book row is removed.
+  fileIds              String[]            @default([])
+  bookBuildMaterialId  String?
+  bookBuildMaterial    BookBuildMaterial?  @relation(fields: [bookBuildMaterialId], references: [id], onDelete: SetNull)
+  bookOutfitId         String?
+  bookOutfitItem       BookOutfit?         @relation(fields: [bookOutfitId], references: [id], onDelete: SetNull)
   notes        String?
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
@@ -759,6 +769,8 @@ model BookOutfit {
   status      String?        // "Designed" | "Ordered" | "Fitted" | "Collected"
   notes       String?        @db.Text
   order       Int            @default(0)
+  // v1.75.0: payments that paid for this outfit item.
+  payments    Payment[]
 }
 
 // v1.31.0: BUILD card — DIY production tracker. One card per project
@@ -812,6 +824,9 @@ model BookBuildMaterial {
   arrived     Boolean        @default(false)
   notes       String?
   order       Int            @default(0)
+  // v1.75.0: payments that paid for this material. Linking a
+  // payment auto-marks `ordered = true`.
+  payments    Payment[]
 
   @@index([cardId])
 }

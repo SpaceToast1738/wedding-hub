@@ -34,6 +34,7 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
+| **v1.75.0** | 2026-05-07 | [Excel-style payment grid + receipts + book-row linking — `Payment` gains `fileIds: String[]`, `bookBuildMaterialId`, `bookOutfitId` (additive migration `20260512000000_payment_receipts_and_book_links`). New `InlinePaymentGrid.tsx` replaces `InlineAddPaymentRow.tsx`: 5 visible blank rows, **Enter** commits the current row and advances focus, description input has datalist autofill from past payment descriptions, supplier dropdown keeps the v1.74.0 `+ New supplier…` flow, new `🔗` button per row opens a cascading picker (BUILD card → material OR outfit-item), new `📎` button opens a receipt popover. **Linking a BUILD material auto-marks it `ordered: true`** as a side-effect of `createPayment`. New server actions `attachReceiptToPayment` / `detachReceiptFromPayment` / `uploadAndAttachReceipt` mirror the v1.63.0 BUILD card pattern. `PaymentRow` gains a "Linked / Receipts" column with chips that deep-link to the relevant book section, and a receipt-management panel in edit mode. Page query loads BUILD cards + outfit items + files for the pickers; `recentDescriptions` derived from the existing payments query (no extra round-trip). `InlineAddPaymentRow.tsx` deleted.](#2026-05-07--v1750--excel-payment-grid--receipts--book-linking) |
 | **v1.74.0** | 2026-05-07 | [Inline payment add + create-supplier-from-payments — replaces the v1.56.0 `AddPaymentToggle` modal with `InlineAddPaymentRow` sitting above the payments table. Description + amount + optional supplier; **Enter submits**; on success fields reset and focus returns to description for fast bulk entry. Supplier select gains a `+ New supplier…` option that expands an inline sub-form (name + category, defaults to "Other"); creating the supplier prepends it to the dropdown and auto-selects it for the in-progress payment. New `createSupplierQuick({name, category})` server action returns the new supplier id (the standard form-action returns void). `AddPaymentToggle.tsx` deleted.](#2026-05-07--v1740--inline-payment-add--inline-supplier-create) |
 | **v1.73.0** | 2026-05-07 | [Songs page redesign — match `prototype/SongsPage.jsx`. New `SongsSummaryCards` grid renders one card per playlist (name · count · description, with category-coloured left bar) anchor-linking to that playlist's section. New `SpotifyConnectionBanner` — green gradient strip showing connection state + chips per playlist, visible only when Spotify is configured. Subtitle reformatted from `"X playlists · Y curated songs"` to `"X on the playlist · Y blocked · ~Hh Mm runtime"` with the prototype's 3.5 min/track heuristic. PlaylistCard sections now carry `id="playlist-<id>"` + `scroll-mt-4` so the new anchors land cleanly. Container drops `max-w-4xl` to go edge-to-edge.](#2026-05-07--v1730--songs-page-redesign) |
 | **v1.72.3** | 2026-05-02 | [Drop the table-wrapper border on /guests so it matches the borderless row treatment used on /tasks. Remove `border border-border-soft rounded-sm bg-surface` from the table container; the row dividers + household subheader bands carry the visual structure on their own.](#2026-05-02--v1723--drop-guests-table-border) |
@@ -908,6 +909,47 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-05-07 · v1.75.0 — Excel payment grid + receipts + book linking
+
+User feedback: bulk-entering payments (a stack of receipts from Hobbycraft / Amazon / Converse) was too slow with the v1.74.0 single-row inline add. Plus, micropurchases had nowhere to go in the data model — a £15 foam purchase couldn't claim the BUILD material it bought, and Converse shoes couldn't tie back to anyone's outfit. v1.75.0 closes both gaps.
+
+**Schema migration `20260512000000_payment_receipts_and_book_links` (additive).** Three columns on `Payment`:
+
+```sql
+ALTER TABLE "Payment" ADD COLUMN "fileIds" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[];
+ALTER TABLE "Payment" ADD COLUMN "bookBuildMaterialId" TEXT;
+ALTER TABLE "Payment" ADD COLUMN "bookOutfitId" TEXT;
+```
+
+Two FKs (both `ON DELETE SET NULL` — payment record survives if the linked book row is removed) plus indexes. `BookBuildMaterial` and `BookOutfit` (per-item) gain `payments Payment[]` back-relations.
+
+**`InlinePaymentGrid.tsx` (new, replaces `InlineAddPaymentRow.tsx`).** Five visible blank rows in a panel above the payments table. Each row carries its own draft state (`description` / `amount` / `supplierId` / `link` / `attachedFileIds` / `queuedFiles`). **Enter** on description or amount commits that row → calls `createPayment`, blanks the row in-place, advances focus to the next empty row's description input. Description input is `<input list="payment-descriptions">` with a sibling `<datalist>` populated from `recentDescriptions: string[]` (deduped + alphabetised, top 50, derived from the existing payments query — no extra round-trip).
+
+**Inline supplier create** preserved verbatim from v1.74.0 — `+ New supplier…` opens a sub-form taking name + category, calls `createSupplierQuick`, prepends the new supplier locally, auto-selects it for the row.
+
+**🔗 Link picker.** New per-row button opens a popover with two tabs:
+- **BUILD material** — cascading select: pick a `BookBuildCard` (by subsection title), then click a material from its list. Already-ordered materials show a `●` prefix; un-ordered show `○`.
+- **Outfit item** — flat select of all `BookOutfit` items, labelled like `"Jamie Spencer (Groom) — Shoes"` (joined through to the parent `BookOutfitCard.personName` + `role`).
+
+Selection is stored as `{ kind, id, label }` in row state. On Enter, `bookBuildMaterialId` or `bookOutfitId` gets sent in `FormData`.
+
+**Side effect: `createPayment` auto-marks the linked BUILD material as ordered.** New helper `maybeMarkMaterialOrdered(user, materialId, paymentId)` is called after the payment insert. Skipped if the material is already ordered (so we don't lose pre-payment ordering history). Audit log captures `action: "build-material-ordered-by-payment"` with `paymentId` + `materialName` metadata. `revalidatePath("/book", "layout")` fires so the BUILD card UI refreshes. Detaching a link doesn't undo the `ordered` flag — the user may have actually ordered it; clearing silently would lose information.
+
+**📎 Receipt picker.** New per-row button opens a popover with two paths:
+- **Pick existing** — list of all `File` rows; click attaches its id to the row's `attachedFileIds` (sent as repeated `fileIds` entries on commit).
+- **Upload from device** — file input queues a local `File` object. Receipt-on-create for queued uploads is **partial**: `createPayment` is a form-action returning `void`, so we can't resolve the new payment id back to attach the upload. v1.75.0 surfaces a `notify("warn", …)` if any queued files were lost; the user re-attaches via PaymentRow's edit-mode receipt panel. Promoting `createPayment` to return the id is a small follow-up.
+
+**`PaymentRow` updates.**
+- New "Linked / Receipts" column in read mode: shows a `🔨 <material name>` chip (deep-link to the BUILD card) or `👔 <person> — <item>` chip (deep-link to the outfit page) if linked, plus a `📎 N` chip if receipts are attached. Both wrap on small screens.
+- Edit mode preserves link + receipts via hidden FormData passthrough on `PaymentForm` (so `updatePayment` doesn't clobber them when the user edits unrelated fields).
+- Edit mode adds a receipts panel below the form with attach-existing-file and detach-with-confirm. Upload-from-edit deferred — receipts uploaded via `/files` first, then attached.
+
+**Receipt server actions.** `uploadAndAttachReceipt(paymentId, FormData)` mirrors `uploadAndAttachBuildFile` from v1.63.0 — calls `validateUpload` + writes to `UPLOADS_DIR` + creates a `File` row (folder=`Payment receipts`, visibility=`COUPLE_ONLY` — money-sensitive). `attachReceiptToPayment(paymentId, fileId)` and `detachReceiptFromPayment(paymentId, fileId)` push/pop the `fileIds` array, deduped. All audit-logged with `payment-receipt-upload` / `-attach` / `-detach` actions and rich metadata (description, fileName, mimeType).
+
+**Workflow answer (Hobbycraft / Converse / Amazon):** every retailer becomes a `Supplier` row — created once via `+ New supplier…` from the inline grid (name="Hobbycraft", category="Craft retailer" or default "Other"), then available in every future payment's dropdown. `Supplier.status` (SHORTLIST/QUOTED/BOOKED/PAID) doesn't apply to retail; harmless to leave at default. The new piece is the link chip — that's how a £15 Hobbycraft payment claims the centerpiece-foam material it actually paid for. Linked BUILD materials auto-tick `ordered`.
+
+**Out of scope (separate plan if wanted later):** multi-target linking (one payment splits across multiple materials/outfits), `Supplier.amountAgreed` vs payment-actual reconciliation, BookOutfitItem-level granularity beyond what's already there, reverse-link UI on BUILD/outfit cards showing "paid £X of £Y estimated", queued upload flow at create-time (requires `createPayment` to return the id).
 
 ### 2026-05-07 · v1.74.0 — Inline payment add + inline supplier create
 

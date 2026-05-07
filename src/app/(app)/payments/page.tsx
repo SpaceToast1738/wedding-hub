@@ -7,12 +7,17 @@ import { requireUser } from "@/lib/actions";
 import { formatMoneyDecimal } from "@/lib/format";
 import { formatWeddingDate, getWeddingSettings } from "@/lib/wedding-settings";
 import { EmptyPayments, EmptyState } from "@/components/ui/Illustrations";
-import { InlineAddPaymentRow } from "./InlineAddPaymentRow";
+import { InlinePaymentGrid } from "./InlinePaymentGrid";
 import { PaymentRow } from "./PaymentRow";
 
 // v1.57.0 (XL8): accepts `?supplier=<id>` filter — supplier-detail
 // "Manage on Payments →" deep-link now lands at the filtered list
 // instead of the unfiltered firehose. Pattern mirrors `/tasks`.
+//
+// v1.75.0: page also loads BookBuildCard + BookOutfit data so the
+// inline grid (and PaymentRow edit mode) can offer per-row links to
+// the specific BUILD material or outfit-item that a payment paid for.
+// Plus the global file list, for receipt picking.
 export default async function PaymentsPage({
   searchParams,
 }: {
@@ -24,12 +29,66 @@ export default async function PaymentsPage({
   const sp = await searchParams;
   const supplierFilter = typeof sp.supplier === "string" ? sp.supplier : null;
 
-  const [payments, suppliers] = await Promise.all([
+  const [payments, suppliers, buildCardsRaw, outfitCardsRaw, allFiles] = await Promise.all([
     db.payment.findMany({
       where: supplierFilter ? { supplierId: supplierFilter } : undefined,
       orderBy: [{ status: "asc" }, { dueDate: "asc" }, { createdAt: "desc" }],
+      // v1.75.0: surface receipt count + linked book-row identity for
+      // PaymentRow's chip rendering. Materials surface their parent
+      // card's title via the cascading include; outfit items surface
+      // their card's personName + role.
+      include: {
+        bookBuildMaterial: {
+          select: {
+            id: true,
+            name: true,
+            card: { select: { subsection: { select: { title: true, slug: true } } } },
+          },
+        },
+        bookOutfitItem: {
+          select: {
+            id: true,
+            itemLabel: true,
+            card: {
+              select: {
+                personName: true,
+                subsection: { select: { title: true, slug: true } },
+              },
+            },
+          },
+        },
+      },
     }),
     db.supplier.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
+    // v1.75.0: BUILD cards for the link picker. We surface the
+    // subsection title (the user's mental model is "the centerpieces
+    // page", not "the BUILD card on the centerpieces page") and the
+    // material list with current ordered state so the picker can grey
+    // out already-ordered rows.
+    db.bookBuildCard.findMany({
+      include: {
+        subsection: { select: { id: true, title: true, slug: true } },
+        materials: {
+          orderBy: { order: "asc" },
+          select: { id: true, name: true, ordered: true },
+        },
+      },
+    }),
+    // v1.75.0: BookOutfit (per-item) cards for the link picker. We
+    // join through to the parent card for the personName.
+    db.bookOutfit.findMany({
+      orderBy: [{ order: "asc" }],
+      select: {
+        id: true,
+        itemLabel: true,
+        card: { select: { personName: true, role: true } },
+      },
+    }),
+    // v1.75.0: file list for the "pick existing receipt" path.
+    db.file.findMany({
+      orderBy: { name: "asc" },
+      select: { id: true, name: true, mimeType: true },
+    }),
   ]);
 
   const total = payments.reduce((sum, p) => sum + Number(p.amount.toString()), 0);
@@ -38,6 +97,46 @@ export default async function PaymentsPage({
   const filteredSupplier = supplierFilter
     ? suppliers.find((s) => s.id === supplierFilter)
     : null;
+
+  // v1.75.0: derive the autofill datalist for the description input
+  // from the existing payments query (no extra round-trip). Dedupe,
+  // alphabetise, cap at 50.
+  const recentDescriptions = Array.from(
+    new Set(
+      payments
+        .map((p) => p.description.trim())
+        .filter((d) => d.length > 0),
+    ),
+  )
+    .sort((a, b) => a.localeCompare(b))
+    .slice(0, 50);
+
+  // v1.75.0: shape BUILD options for the link picker — flattened to
+  // {cardTitle, materials} so the cascading select renders without
+  // the consumer having to dig into Prisma's nested shape.
+  const buildOptions = buildCardsRaw
+    .filter((c) => c.materials.length > 0)
+    .map((c) => ({
+      cardId: c.id,
+      cardTitle: c.subsection.title,
+      cardSlug: c.subsection.slug,
+      materials: c.materials.map((m) => ({
+        id: m.id,
+        name: m.name,
+        ordered: m.ordered,
+      })),
+    }));
+
+  const outfitOptions = outfitCardsRaw.map((o) => ({
+    id: o.id,
+    label: [
+      o.card.personName ?? "Outfit",
+      o.card.role ? `(${o.card.role})` : null,
+      o.itemLabel ? `— ${o.itemLabel}` : null,
+    ]
+      .filter(Boolean)
+      .join(" "),
+  }));
 
   return (
     <>
@@ -70,12 +169,19 @@ export default async function PaymentsPage({
           </div>
         </div>
         <div className="max-w-6xl mx-auto p-4 sm:p-6">
-          {/* v1.74.0: inline quick-add replaces the AddPaymentToggle modal.
-              Description + amount + optional supplier; Enter submits and
-              focus returns to the description input for fast bulk entry.
-              "+ New supplier…" in the dropdown opens an inline sub-form. */}
+          {/* v1.75.0: Excel-style multi-row inline grid replaces the
+              v1.74.0 single-row InlineAddPaymentRow. Per-row Enter
+              commits; description has datalist autofill from past
+              payments; supplier picker keeps the inline-create flow;
+              new 🔗 link + 📎 receipt chips per row. */}
           <div className="no-print">
-            <InlineAddPaymentRow suppliers={suppliers} />
+            <InlinePaymentGrid
+              suppliers={suppliers}
+              recentDescriptions={recentDescriptions}
+              buildOptions={buildOptions}
+              outfitOptions={outfitOptions}
+              files={allFiles}
+            />
           </div>
           {payments.length === 0 ? (
             <EmptyState
@@ -94,12 +200,19 @@ export default async function PaymentsPage({
                     <th className="px-4 py-2 text-left">Due</th>
                     <th className="px-4 py-2 text-left">Status</th>
                     <th className="px-4 py-2 text-left">Method</th>
+                    <th className="px-4 py-2 text-left">Linked / Receipts</th>
                     <th className="px-4 py-2"></th>
                   </tr>
                 </thead>
                 <tbody>
                   {payments.map((p) => (
-                    <PaymentRow key={p.id} payment={p} suppliers={suppliers} canEdit={true} />
+                    <PaymentRow
+                      key={p.id}
+                      payment={p}
+                      suppliers={suppliers}
+                      files={allFiles}
+                      canEdit={true}
+                    />
                   ))}
                 </tbody>
               </table>

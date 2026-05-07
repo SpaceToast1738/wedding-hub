@@ -4,10 +4,24 @@ import { useState, useTransition } from "react";
 import { Button } from "@/components/ui/Button";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { PaymentForm } from "./PaymentForm";
-import { deletePayment, setPaymentStatus, updatePayment } from "./actions";
+import {
+  deletePayment,
+  setPaymentStatus,
+  updatePayment,
+  attachReceiptToPayment,
+  detachReceiptFromPayment,
+} from "./actions";
 import { formatDate, formatMoneyDecimal, isoForInput } from "@/lib/format";
 import type { PaymentStatus } from "@prisma/client";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
+import Link from "next/link";
+import { notify } from "@/lib/notify";
+
+// v1.75.0: PaymentRow extended with link chip (BUILD material / outfit)
+// + receipt count chip in read mode, plus minimal edit-mode receipt
+// management (attach existing / detach). Editing the link target from
+// PaymentRow is preserved as a hidden FormData passthrough — to *change*
+// the link, delete and re-add via the inline grid for now.
 
 type Payment = {
   id: string;
@@ -19,10 +33,27 @@ type Payment = {
   method: string | null;
   supplierId: string | null;
   notes: string | null;
+  // v1.75.0
+  fileIds: string[];
+  bookBuildMaterialId: string | null;
+  bookOutfitId: string | null;
+  bookBuildMaterial: {
+    id: string;
+    name: string;
+    card: { subsection: { title: string; slug: string } };
+  } | null;
+  bookOutfitItem: {
+    id: string;
+    itemLabel: string | null;
+    card: {
+      personName: string | null;
+      subsection: { title: string; slug: string };
+    };
+  } | null;
 };
 
 type Supplier = { id: string; name: string };
-
+type FileSummary = { id: string; name: string; mimeType: string };
 const STATUS_PILL: Record<string, "PAID" | "SCHEDULED" | "OVERDUE" | "PENDING" | "DECLINED"> = {
   PAID: "PAID",
   SCHEDULED: "SCHEDULED",
@@ -31,7 +62,17 @@ const STATUS_PILL: Record<string, "PAID" | "SCHEDULED" | "OVERDUE" | "PENDING" |
   CANCELLED: "DECLINED",
 };
 
-export function PaymentRow({ payment, suppliers, canEdit }: { payment: Payment; suppliers: Supplier[]; canEdit: boolean }) {
+export function PaymentRow({
+  payment,
+  suppliers,
+  files,
+  canEdit,
+}: {
+  payment: Payment;
+  suppliers: Supplier[];
+  files: FileSummary[];
+  canEdit: boolean;
+}) {
   const [editing, setEditing] = useState(false);
   const [pending, startTransition] = useTransition();
   const supplierName = payment.supplierId ? suppliers.find((s) => s.id === payment.supplierId)?.name : null;
@@ -48,9 +89,26 @@ export function PaymentRow({ payment, suppliers, canEdit }: { payment: Payment; 
     startTransition(async () => { await deletePayment(payment.id); });
   }
 
+  // v1.75.0: receipt attach / detach in edit mode.
+  function attachExisting(fileId: string) {
+    startTransition(async () => {
+      const r = await attachReceiptToPayment(payment.id, fileId);
+      if (r.ok) notify("success", "Receipt attached");
+      else notify("error", r.error);
+    });
+  }
+  async function detach(fileId: string, fileName: string | null) {
+    if (!(await confirm({ title: `Detach receipt${fileName ? ` "${fileName}"` : ""}?`, confirmLabel: "Detach", tone: "danger" }))) return;
+    startTransition(async () => {
+      const r = await detachReceiptFromPayment(payment.id, fileId);
+      if (r.ok) notify("success", "Receipt detached");
+      else notify("error", r.error);
+    });
+  }
+
   if (editing) {
     return (
-      <tr><td colSpan={7} className="p-3 bg-moss-50/30">
+      <tr><td colSpan={8} className="p-3 bg-moss-50/30">
         <PaymentForm
           submitLabel="Save"
           suppliers={suppliers}
@@ -64,14 +122,111 @@ export function PaymentRow({ payment, suppliers, canEdit }: { payment: Payment; 
             supplierId: payment.supplierId,
             notes: payment.notes ?? "",
           }}
+          // v1.75.0: preserve the existing link + receipt list across
+          // saves — PaymentForm appends these as hidden inputs.
+          hiddenFields={{
+            bookBuildMaterialId: payment.bookBuildMaterialId,
+            bookOutfitId: payment.bookOutfitId,
+            fileIds: payment.fileIds,
+          }}
           onSubmit={async (fd) => { await updatePayment(payment.id, fd); setEditing(false); }}
           onCancel={() => setEditing(false)}
         />
+        {/* Receipts panel — independent of the form, uses
+            attach/detach actions directly so the user can manage
+            receipts without re-saving the form. */}
+        <div className="mt-3 p-2.5 border border-border-soft bg-canvas/40 rounded-sm">
+          <div className="text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1.5">
+            Receipts ({payment.fileIds.length})
+          </div>
+          {payment.fileIds.length === 0 && (
+            <p className="text-[11px] text-ink-tertiary italic mb-1.5">No receipts attached.</p>
+          )}
+          {payment.fileIds.length > 0 && (
+            <ul className="space-y-1 mb-2">
+              {payment.fileIds.map((fid) => {
+                const f = files.find((x) => x.id === fid);
+                return (
+                  <li key={fid} className="flex items-center gap-2 text-xs">
+                    <a
+                      href={`/api/files/${fid}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-info hover:underline truncate max-w-[280px]"
+                    >
+                      {f?.name ?? fid}
+                    </a>
+                    <button
+                      type="button"
+                      onClick={() => detach(fid, f?.name ?? null)}
+                      disabled={pending}
+                      className="text-ink-tertiary hover:text-danger px-1"
+                      title="Detach"
+                    >
+                      ×
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+          {/* Pick existing only — upload-from-edit deferred to a
+              follow-up since it requires multipart wiring. Receipts
+              already in /files can be attached here. */}
+          <details className="text-[11px]">
+            <summary className="cursor-pointer text-ink-secondary hover:text-moss-700">
+              + Attach existing file
+            </summary>
+            <div className="mt-1 max-h-40 overflow-y-auto border border-border-soft rounded-sm">
+              {files.length === 0 && (
+                <p className="text-[11px] text-ink-tertiary p-2 italic">
+                  No files in /files yet. Upload via the Files page first.
+                </p>
+              )}
+              {files
+                .filter((f) => !payment.fileIds.includes(f.id))
+                .map((f) => (
+                  <button
+                    key={f.id}
+                    type="button"
+                    onClick={() => attachExisting(f.id)}
+                    disabled={pending}
+                    className="w-full text-left px-2 py-1 hover:bg-moss-50 text-ink-secondary truncate"
+                  >
+                    {f.name}
+                  </button>
+                ))}
+            </div>
+          </details>
+        </div>
       </td></tr>
     );
   }
 
   const isPaid = payment.status === "PAID";
+  // v1.75.0: link chip resolution. BUILD material wins if both happen
+  // to be set (shouldn't, but defensive).
+  const linkChip = payment.bookBuildMaterial
+    ? {
+        emoji: "🔨",
+        label: `${payment.bookBuildMaterial.name}`,
+        href: `/book/${payment.bookBuildMaterial.card.subsection.slug}`,
+        title: `${payment.bookBuildMaterial.card.subsection.title} — ${payment.bookBuildMaterial.name}`,
+      }
+    : payment.bookOutfitItem
+    ? {
+        emoji: "👔",
+        label: [
+          payment.bookOutfitItem.card.personName,
+          payment.bookOutfitItem.itemLabel,
+        ]
+          .filter(Boolean)
+          .join(" — "),
+        href: `/book/${payment.bookOutfitItem.card.subsection.slug}`,
+        title: payment.bookOutfitItem.card.subsection.title,
+      }
+    : null;
+
   return (
     <tr className="border-b border-border-soft last:border-b-0 hover:bg-muted/30">
       <td className="px-4 py-2.5">
@@ -83,6 +238,32 @@ export function PaymentRow({ payment, suppliers, canEdit }: { payment: Payment; 
       <td className="px-4 py-2.5 text-xs text-ink-secondary">{formatDate(payment.dueDate)}</td>
       <td className="px-4 py-2.5"><StatusPill status={STATUS_PILL[payment.status] ?? "PENDING"} label={payment.status.toLowerCase()} /></td>
       <td className="px-4 py-2.5 text-xs text-ink-tertiary">{payment.method ?? "—"}</td>
+      {/* v1.75.0: linked / receipts column */}
+      <td className="px-4 py-2.5">
+        <div className="flex items-center gap-1.5 flex-wrap">
+          {linkChip && (
+            <Link
+              href={linkChip.href}
+              title={linkChip.title}
+              className="inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded-sm border bg-moss-50 border-moss-100 text-moss-700 hover:border-moss-300 truncate max-w-[180px]"
+            >
+              <span aria-hidden>{linkChip.emoji}</span>
+              <span className="truncate">{linkChip.label}</span>
+            </Link>
+          )}
+          {payment.fileIds.length > 0 && (
+            <span
+              className="inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded-sm border bg-canvas border-border-soft text-ink-tertiary"
+              title={`${payment.fileIds.length} receipt${payment.fileIds.length === 1 ? "" : "s"}`}
+            >
+              📎 {payment.fileIds.length}
+            </span>
+          )}
+          {!linkChip && payment.fileIds.length === 0 && (
+            <span className="text-[11px] text-ink-tertiary">—</span>
+          )}
+        </div>
+      </td>
       {canEdit && (
         <td className="px-4 py-2.5">
           <div className="flex gap-1 justify-end">
