@@ -34,6 +34,7 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
+| **v1.74.0** | 2026-05-07 | [Inline payment add + create-supplier-from-payments — replaces the v1.56.0 `AddPaymentToggle` modal with `InlineAddPaymentRow` sitting above the payments table. Description + amount + optional supplier; **Enter submits**; on success fields reset and focus returns to description for fast bulk entry. Supplier select gains a `+ New supplier…` option that expands an inline sub-form (name + category, defaults to "Other"); creating the supplier prepends it to the dropdown and auto-selects it for the in-progress payment. New `createSupplierQuick({name, category})` server action returns the new supplier id (the standard form-action returns void). `AddPaymentToggle.tsx` deleted.](#2026-05-07--v1740--inline-payment-add--inline-supplier-create) |
 | **v1.73.0** | 2026-05-07 | [Songs page redesign — match `prototype/SongsPage.jsx`. New `SongsSummaryCards` grid renders one card per playlist (name · count · description, with category-coloured left bar) anchor-linking to that playlist's section. New `SpotifyConnectionBanner` — green gradient strip showing connection state + chips per playlist, visible only when Spotify is configured. Subtitle reformatted from `"X playlists · Y curated songs"` to `"X on the playlist · Y blocked · ~Hh Mm runtime"` with the prototype's 3.5 min/track heuristic. PlaylistCard sections now carry `id="playlist-<id>"` + `scroll-mt-4` so the new anchors land cleanly. Container drops `max-w-4xl` to go edge-to-edge.](#2026-05-07--v1730--songs-page-redesign) |
 | **v1.72.3** | 2026-05-02 | [Drop the table-wrapper border on /guests so it matches the borderless row treatment used on /tasks. Remove `border border-border-soft rounded-sm bg-surface` from the table container; the row dividers + household subheader bands carry the visual structure on their own.](#2026-05-02--v1723--drop-guests-table-border) |
 | **v1.72.2** | 2026-05-02 | [Always show household subheader on /guests — solo-household guests (e.g. Barry Scott, Gianmarco Schiaffonati) appeared visually nested under the previous household's subheader, since the v1.72.0 logic only rendered the household label when `guests.length > 1`. Now every household gets the muted `bg-muted` rule row with the household name, making boundaries unambiguous regardless of size. Indentation (`pl-7`) still only applies inside multi-member households so single-guest rows don't sit awkwardly indented under their own header.](#2026-05-02--v1722--always-show-household-subheader) |
@@ -907,6 +908,16 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-05-07 · v1.74.0 — Inline payment add + inline supplier create
+
+User feedback: opening a modal for every payment was too slow when entering a stack of receipts.
+
+**Inline quick-add (`InlineAddPaymentRow.tsx`).** Three fields visible above the payments table at all times: description, amount, optional supplier. Pressing **Enter** in any of them submits — on success the inputs clear and focus returns to the description so the next payment can be typed immediately. Defaults: status=DUE, no due date, no method, no notes. Filling in those secondary fields happens via PaymentRow's existing edit mode.
+
+**Inline supplier create.** The supplier `<select>` now ends with a `+ New supplier…` option. Choosing it expands a sub-form (name + category, category defaults to "Other"). Pressing Enter on either field calls a new `createSupplierQuick({ name, category })` server action that returns the created id; the dropdown gets the new supplier prepended locally so the user can finish the payment-add operation without waiting for revalidation. Auth + audit + Zod validation match the existing `createSupplier`. The existing `/suppliers` page-level modal is unaffected — it still uses `createSupplier` (form-action, returns void).
+
+**Removed.** `AddPaymentToggle.tsx` deleted; `AddNewModal` no longer mounts on `/payments`.
 
 ### 2026-05-07 · v1.73.0 — Songs page redesign
 

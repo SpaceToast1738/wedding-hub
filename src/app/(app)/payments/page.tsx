@@ -7,7 +7,7 @@ import { requireUser } from "@/lib/actions";
 import { formatMoneyDecimal } from "@/lib/format";
 import { formatWeddingDate, getWeddingSettings } from "@/lib/wedding-settings";
 import { EmptyPayments, EmptyState } from "@/components/ui/Illustrations";
-import { AddPaymentToggle } from "./AddPaymentToggle";
+import { InlineAddPaymentRow } from "./InlineAddPaymentRow";
 import { PaymentRow } from "./PaymentRow";
 
 // v1.57.0 (XL8): accepts `?supplier=<id>` filter — supplier-detail
@@ -47,7 +47,6 @@ export default async function PaymentsPage({
         actions={
           <div className="flex items-center gap-2">
             <PrintButton />
-            <AddPaymentToggle suppliers={suppliers} />
           </div>
         }
       />
@@ -71,6 +70,13 @@ export default async function PaymentsPage({
           </div>
         </div>
         <div className="max-w-6xl mx-auto p-4 sm:p-6">
+          {/* v1.74.0: inline quick-add replaces the AddPaymentToggle modal.
+              Description + amount + optional supplier; Enter submits and
+              focus returns to the description input for fast bulk entry.
+              "+ New supplier…" in the dropdown opens an inline sub-form. */}
+          <div className="no-print">
+            <InlineAddPaymentRow suppliers={suppliers} />
+          </div>
           {payments.length === 0 ? (
             <EmptyState
               illustration={EmptyPayments}

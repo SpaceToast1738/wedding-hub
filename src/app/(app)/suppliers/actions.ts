@@ -62,6 +62,54 @@ export async function createSupplier(formData: FormData) {
   revalidatePath("/suppliers");
 }
 
+// v1.74.0: minimal supplier create that returns the new id, used by
+// the inline-add-payment flow on /payments. The standard
+// `createPayment` form-action returns void; callers that need the id
+// (so they can immediately link a freshly-created supplier to a
+// freshly-created payment) use this instead. Same auth + audit + Zod
+// validation as `createSupplier`.
+export async function createSupplierQuick({
+  name,
+  category,
+}: {
+  name: string;
+  category: string;
+}): Promise<{ id: string; name: string }> {
+  const user = await requireEdit("suppliers");
+  const parsed = supplierSchema.parse({
+    name,
+    category,
+    status: SupplierStatus.SHORTLIST,
+    website: null,
+    notes: null,
+    amountAgreed: null,
+  });
+  const created = await db.supplier.create({
+    data: {
+      name: parsed.name,
+      category: parsed.category,
+      status: parsed.status,
+      website: null,
+      notes: null,
+      amountAgreed: null,
+    },
+  });
+  await audit(user, {
+    action: "create",
+    entity: "Supplier",
+    entityId: created.id,
+    metadata: {
+      name: created.name,
+      category: created.category,
+      status: created.status,
+      origin: "payments-inline-add",
+    },
+  });
+  revalidatePath("/suppliers");
+  revalidatePath("/payments");
+  return { id: created.id, name: created.name };
+}
+
 export async function updateSupplier(id: string, formData: FormData) {
   const user = await requireEdit("suppliers");
   const parsed = supplierSchema.parse({
