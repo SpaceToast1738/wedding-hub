@@ -54,6 +54,9 @@ type StayCardProps = {
   visibility: "EVERYONE" | "COUPLE_ONLY";
   canEdit: boolean;
   isCouple: boolean;
+  /** v1.76.0: gates Cost stat + cost input in edit mode. Hidden
+   *  values preserved via draft state. */
+  showMoney?: boolean;
   card: CardData;
   /** All non-archived guests, surfaced in the "linked guests" picker. */
   guests: GuestOpt[];
@@ -77,6 +80,7 @@ export function BookStayCard({
   visibility,
   canEdit,
   isCouple,
+  showMoney = true,
   card,
   guests,
   files,
@@ -165,7 +169,7 @@ export function BookStayCard({
       </div>
 
       {/* Stats strip */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
+      <div className={`grid grid-cols-2 ${showMoney ? "sm:grid-cols-4" : "sm:grid-cols-3"} gap-2 mb-4`}>
         <Stat
           label="Check-in"
           value={
@@ -182,7 +186,7 @@ export function BookStayCard({
           label="Check-out"
           value={card.checkOutDate ? shortDate(card.checkOutDate) : "—"}
         />
-        <Stat label="Cost" value={formatGBPFromPence(card.costPence)} />
+        {showMoney && <Stat label="Cost" value={formatGBPFromPence(card.costPence)} />}
         <Stat
           label="Paid"
           value={
@@ -220,6 +224,7 @@ export function BookStayCard({
           setDraft={setDraft}
           pending={pending}
           guests={guests}
+          showMoney={showMoney}
         />
       ) : (
         <ViewBody
@@ -413,11 +418,13 @@ function EditBody({
   setDraft,
   pending,
   guests,
+  showMoney,
 }: {
   draft: Draft;
   setDraft: (d: Draft) => void;
   pending: boolean;
   guests: GuestOpt[];
+  showMoney: boolean;
 }) {
   function patch(p: Partial<Draft>) {
     setDraft({ ...draft, ...p });
@@ -496,22 +503,24 @@ function EditBody({
 
       {/* Cost / paidBy / paid */}
       <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-start">
-        <FieldLabel className="sm:col-span-4">
-          <Label>Cost</Label>
-          <div className="relative">
-            <span className="absolute left-2 top-1/2 -translate-y-1/2 text-ink-tertiary text-sm pointer-events-none">£</span>
-            <input
-              type="text"
-              inputMode="decimal"
-              value={costStr}
-              onChange={(e) => setCostStr(e.target.value)}
-              onBlur={() => commitCost(costStr)}
-              disabled={pending}
-              placeholder="0.00"
-              className="w-full text-sm bg-surface border border-border-soft rounded-sm pl-5 pr-2 py-1.5 text-ink-primary outline-none focus:border-moss-500 tabular-nums text-right"
-            />
-          </div>
-        </FieldLabel>
+        {showMoney && (
+          <FieldLabel className="sm:col-span-4">
+            <Label>Cost</Label>
+            <div className="relative">
+              <span className="absolute left-2 top-1/2 -translate-y-1/2 text-ink-tertiary text-sm pointer-events-none">£</span>
+              <input
+                type="text"
+                inputMode="decimal"
+                value={costStr}
+                onChange={(e) => setCostStr(e.target.value)}
+                onBlur={() => commitCost(costStr)}
+                disabled={pending}
+                placeholder="0.00"
+                className="w-full text-sm bg-surface border border-border-soft rounded-sm pl-5 pr-2 py-1.5 text-ink-primary outline-none focus:border-moss-500 tabular-nums text-right"
+              />
+            </div>
+          </FieldLabel>
+        )}
         <FieldLabel className="sm:col-span-4">
           <Label>Paid by</Label>
           <select

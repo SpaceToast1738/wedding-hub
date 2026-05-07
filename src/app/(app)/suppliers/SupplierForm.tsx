@@ -25,9 +25,14 @@ type Props = {
   submitLabel?: string;
   onSubmit: (formData: FormData) => Promise<void>;
   onCancel?: () => void;
+  /** v1.76.0: when false, the Amount agreed field is hidden in the UI
+   *  but its existing value is preserved via a hidden input so a
+   *  non-money editor can change name/category/notes without
+   *  clobbering the agreed price. Defaults to true. */
+  showMoney?: boolean;
 };
 
-export function SupplierForm({ initial, submitLabel = "Create", onSubmit, onCancel }: Props) {
+export function SupplierForm({ initial, submitLabel = "Create", onSubmit, onCancel, showMoney = true }: Props) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   // v1.60.0 (P3): dirty-check so the Save button disables when no
@@ -70,17 +75,24 @@ export function SupplierForm({ initial, submitLabel = "Create", onSubmit, onCanc
           </datalist>
         </div>
       </div>
-      <div className="grid grid-cols-2 gap-3">
+      <div className={showMoney ? "grid grid-cols-2 gap-3" : ""}>
         <div>
           <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">Status</label>
           <select name="status" defaultValue={initial?.status ?? "SHORTLIST"} className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2 py-1.5 text-ink-primary outline-none">
             {STATUSES.map((s) => <option key={s} value={s}>{s.charAt(0) + s.slice(1).toLowerCase()}</option>)}
           </select>
         </div>
-        <div>
-          <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">Amount agreed (£)</label>
-          <Input name="amountAgreed" type="number" min="0" step="0.01" defaultValue={initial?.amountAgreed ?? ""} placeholder="0.00" />
-        </div>
+        {showMoney ? (
+          <div>
+            <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">Amount agreed (£)</label>
+            <Input name="amountAgreed" type="number" min="0" step="0.01" defaultValue={initial?.amountAgreed ?? ""} placeholder="0.00" />
+          </div>
+        ) : (
+          // v1.76.0: hide the input but pass the current value through
+          // as a hidden field so non-money editors can save changes to
+          // name/category/notes without clobbering amountAgreed.
+          <input type="hidden" name="amountAgreed" value={initial?.amountAgreed ?? ""} />
+        )}
       </div>
       <div>
         <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">Website</label>

@@ -25,9 +25,12 @@ type Supplier = {
 export function SuppliersClient({
   suppliers,
   canEdit,
+  showMoney,
 }: {
   suppliers: Supplier[];
   canEdit: boolean;
+  /** v1.76.0: gates Agreed amount + edit-form amount input on each card. */
+  showMoney: boolean;
 }) {
   const [query, setQuery] = useState("");
   const trimmed = query.trim().toLowerCase();
@@ -93,7 +96,7 @@ export function SuppliersClient({
               </h2>
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 {list.map((s) => (
-                  <SupplierCard key={s.id} supplier={s} canEdit={canEdit} />
+                  <SupplierCard key={s.id} supplier={s} canEdit={canEdit} showMoney={showMoney} />
                 ))}
               </div>
             </section>

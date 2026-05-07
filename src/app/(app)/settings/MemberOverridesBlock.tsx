@@ -54,6 +54,7 @@ const SECTION_LABELS: Record<Section, string> = {
   book: "Wedding Book",
   budget: "Budget",
   payments: "Payments",
+  money: "Money values",
   settings: "Settings",
 };
 

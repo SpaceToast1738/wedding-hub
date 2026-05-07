@@ -103,6 +103,10 @@ type BuildCardProps = {
   visibility: "EVERYONE" | "COUPLE_ONLY";
   canEdit: boolean;
   isCouple: boolean;
+  /** v1.76.0: when false, hide costPence values + the Materials
+   *  spend stat. Edit-mode cost input also hidden but the existing
+   *  value is preserved via a hidden input on the row's draft. */
+  showMoney?: boolean;
   card: CardData;
   /** v1.63.0: all files the user can see, threaded from the page
    *  loader. <ImageGallery> filters this for thumbnails + the
@@ -145,6 +149,7 @@ export function BookBuildCard({
   visibility,
   canEdit,
   isCouple,
+  showMoney = true,
   card,
   files,
 }: BuildCardProps) {
@@ -287,7 +292,7 @@ export function BookBuildCard({
       )}
 
       {/* Top stat strip — always visible, always read-only display */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
+      <div className={`grid grid-cols-2 ${showMoney ? "sm:grid-cols-4" : "sm:grid-cols-3"} gap-2 mb-4`}>
         <Stat
           label="Units"
           value={`${r.unitsDone}${r.unitsDone || (editing ? draft.quantityNeeded : card.quantityNeeded) ? ` / ${(editing ? draft.quantityNeeded : card.quantityNeeded) ?? "?"}` : ""}`}
@@ -296,7 +301,9 @@ export function BookBuildCard({
           label="Hours"
           value={`${r.hoursLogged}${r.hoursEstimated != null ? ` / ${r.hoursEstimated}` : ""}`}
         />
-        <Stat label="Materials" value={formatGBPFromPence(r.materialsTotalPence)} />
+        {showMoney && (
+          <Stat label="Materials" value={formatGBPFromPence(r.materialsTotalPence)} />
+        )}
         <Stat
           label="Target"
           value={
@@ -321,7 +328,7 @@ export function BookBuildCard({
 
       {/* Body — switches between view + edit */}
       {editing ? (
-        <EditBody draft={draft} setDraft={setDraft} pending={pending} />
+        <EditBody draft={draft} setDraft={setDraft} pending={pending} showMoney={showMoney} />
       ) : (
         <ViewBody
           card={card}
@@ -329,6 +336,7 @@ export function BookBuildCard({
           canEdit={canEdit}
           pending={pending}
           startTransition={startTransition}
+          showMoney={showMoney}
           files={files}
         />
       )}
@@ -449,6 +457,7 @@ function ViewBody({
   canEdit,
   pending,
   startTransition,
+  showMoney,
   files,
 }: {
   card: CardData;
@@ -456,6 +465,7 @@ function ViewBody({
   canEdit: boolean;
   pending: boolean;
   startTransition: (cb: () => void) => void;
+  showMoney: boolean;
   files: Array<{ id: string; name: string; mimeType: string }>;
 }) {
   return (
@@ -475,7 +485,7 @@ function ViewBody({
                 <Th align="right">Qty</Th>
                 <Th align="left">Unit</Th>
                 <Th align="left">Supplier</Th>
-                <Th align="right">Cost</Th>
+                {showMoney && <Th align="right">Cost</Th>}
                 <Th align="center">Ord</Th>
                 <Th align="center">Arr</Th>
               </tr>
@@ -494,9 +504,11 @@ function ViewBody({
                       <a href={m.website} target="_blank" rel="noopener noreferrer" className="text-[10px] text-moss-700 hover:underline ml-1">Link ↗</a>
                     )}
                   </td>
-                  <td className="py-1.5 px-2 text-ink-secondary tabular-nums text-right">
-                    {formatGBPFromPence(m.costPence)}
-                  </td>
+                  {showMoney && (
+                    <td className="py-1.5 px-2 text-ink-secondary tabular-nums text-right">
+                      {formatGBPFromPence(m.costPence)}
+                    </td>
+                  )}
                   <td className="py-1.5 px-2 text-center">
                     {m.ordered ? <span className="text-moss-700" aria-label="ordered">●</span> : <span className="text-ink-tertiary/40">○</span>}
                   </td>
@@ -636,10 +648,12 @@ function EditBody({
   draft,
   setDraft,
   pending,
+  showMoney,
 }: {
   draft: Draft;
   setDraft: (d: Draft) => void;
   pending: boolean;
+  showMoney: boolean;
 }) {
   function patch(p: Partial<Draft>) {
     setDraft({ ...draft, ...p });
@@ -765,6 +779,7 @@ function EditBody({
                 isFirst={idx === 0}
                 isLast={idx === draft.materials.length - 1}
                 pending={pending}
+                showMoney={showMoney}
                 onChange={(p) => patchMaterial(idx, p)}
                 onRemove={() => removeMaterial(idx)}
                 onMoveUp={() => moveMaterial(idx, -1)}
@@ -827,11 +842,13 @@ function MaterialEditRow({
   isFirst,
   isLast,
   pending,
+  showMoney,
   onChange,
   onRemove,
   onMoveUp,
   onMoveDown,
 }: {
+  showMoney: boolean;
   material: Material;
   isFirst: boolean;
   isLast: boolean;
@@ -908,22 +925,24 @@ function MaterialEditRow({
             className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2 py-1.5 text-ink-primary outline-none focus:border-moss-500"
           />
         </FieldLabel>
-        <FieldLabel className="sm:col-span-4">
-          <Label>Total cost</Label>
-          <div className="relative">
-            <span className="absolute left-2 top-1/2 -translate-y-1/2 text-ink-tertiary text-sm pointer-events-none">£</span>
-            <input
-              type="text"
-              inputMode="decimal"
-              value={costStr}
-              onChange={(e) => setCostStr(e.target.value)}
-              onBlur={() => commitCost(costStr)}
-              disabled={pending}
-              placeholder="0.00"
-              className="w-full text-sm bg-surface border border-border-soft rounded-sm pl-5 pr-2 py-1.5 text-ink-primary outline-none focus:border-moss-500 tabular-nums text-right"
-            />
-          </div>
-        </FieldLabel>
+        {showMoney && (
+          <FieldLabel className="sm:col-span-4">
+            <Label>Total cost</Label>
+            <div className="relative">
+              <span className="absolute left-2 top-1/2 -translate-y-1/2 text-ink-tertiary text-sm pointer-events-none">£</span>
+              <input
+                type="text"
+                inputMode="decimal"
+                value={costStr}
+                onChange={(e) => setCostStr(e.target.value)}
+                onBlur={() => commitCost(costStr)}
+                disabled={pending}
+                placeholder="0.00"
+                className="w-full text-sm bg-surface border border-border-soft rounded-sm pl-5 pr-2 py-1.5 text-ink-primary outline-none focus:border-moss-500 tabular-nums text-right"
+              />
+            </div>
+          </FieldLabel>
+        )}
       </div>
       {/* Row 3 — website */}
       <FieldLabel>

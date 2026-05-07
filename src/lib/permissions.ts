@@ -10,11 +10,20 @@ import {
 export const SECTIONS = [
   "tasks", "questions", "schedule", "suppliers",
   "guests", "seating", "songs", "files", "book",
-  "budget", "payments", "settings",
+  "budget", "payments", "money", "settings",
 ] as const;
 
 export type Section = (typeof SECTIONS)[number];
 
+// v1.76.0 (money permission). `budget` + `payments` stay couple-only
+// hardwall sections — page-level redirects, not just hidden links.
+// `money` is a softer gate: it controls whether monetary values
+// (costPence, pricePerHeadPence, amountAgreed, payment totals) are
+// rendered inside *other* sections that aren't financial-first
+// (BUILD/MENU/BAR/OUTFIT/STAY cards in /book, supplier detail).
+// Default for non-couple is NONE → money values hidden. Couple can
+// promote a specific user (e.g. the planner) to VIEW via the
+// Settings matrix without unlocking /budget or /payments.
 export const COUPLE_ONLY_SECTIONS: Section[] = ["budget", "payments"];
 
 // ─── Pure-decision helpers (unit-testable) ───────────────────────────
@@ -172,4 +181,12 @@ export async function canEdit(user: SessionUser, section: Section): Promise<bool
   if (COUPLE_ONLY_SECTIONS.includes(section)) return false;
   const perms = await loadEffectivePermissions(user.id);
   return perms.get(section) === PermissionLevel.EDIT;
+}
+
+// v1.76.0: shorthand. Surfaces that need to hide monetary values
+// (BUILD costPence, MENU pricePerHead, supplier amountAgreed, etc.)
+// gate render with this. NONE → hidden; VIEW or EDIT → shown.
+// Couple short-circuits to true via canView's bypass.
+export async function canViewMoney(user: SessionUser): Promise<boolean> {
+  return canView(user, "money");
 }

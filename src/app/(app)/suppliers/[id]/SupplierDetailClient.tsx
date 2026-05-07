@@ -70,12 +70,15 @@ function formatGBP(amount: number | null): string {
 export function SupplierDetailClient({
   supplierId,
   canEdit,
+  showMoney,
   contacts,
   contracts,
   communications,
 }: {
   supplierId: string;
   canEdit: boolean;
+  /** v1.76.0: gates contract-amount display + the contract-add form. */
+  showMoney: boolean;
   contacts: Contact[];
   contracts: Contract[];
   communications: Communication[];
@@ -83,7 +86,9 @@ export function SupplierDetailClient({
   return (
     <>
       <ContactsSection supplierId={supplierId} canEdit={canEdit} contacts={contacts} />
-      <ContractsSection supplierId={supplierId} canEdit={canEdit} contracts={contracts} />
+      {showMoney && (
+        <ContractsSection supplierId={supplierId} canEdit={canEdit} contracts={contracts} />
+      )}
       <CommunicationsSection supplierId={supplierId} canEdit={canEdit} log={communications} />
     </>
   );

@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { StatusPill } from "@/components/ui/StatusPill";
-import { canEdit, canView } from "@/lib/permissions";
+import { canEdit, canView, canViewMoney } from "@/lib/permissions";
 import { requireUser } from "@/lib/actions";
 import type { CustomFieldDef } from "@/lib/custom-fields";
 import { SupplierDetailClient } from "./SupplierDetailClient";
@@ -39,6 +39,10 @@ export default async function SupplierDetailPage({
   const user = await requireUser();
   if (!(await canView(user, "suppliers"))) notFound();
   const editable = await canEdit(user, "suppliers");
+  // v1.76.0: gate the Agreed / Paid / Outstanding rollup. Non-money
+  // users see the supplier's status + contact info but not the £
+  // contract value or running total.
+  const showMoney = await canViewMoney(user);
 
   const supplier = await db.supplier.findUnique({
     where: { id },
@@ -176,9 +180,13 @@ export default async function SupplierDetailPage({
               )}
             </div>
             <dl className="divide-y divide-border-soft text-sm">
-              <Row label="Agreed" value={formatGBP(supplier.amountAgreed)} />
-              <Row label="Paid to date" value={formatGBP(totalPaid)} />
-              <Row label="Outstanding" value={formatGBP(totalDue)} />
+              {showMoney && (
+                <>
+                  <Row label="Agreed" value={formatGBP(supplier.amountAgreed)} />
+                  <Row label="Paid to date" value={formatGBP(totalPaid)} />
+                  <Row label="Outstanding" value={formatGBP(totalDue)} />
+                </>
+              )}
               {supplier.notes && (
                 <div className="grid grid-cols-3 gap-3 px-4 py-2.5">
                   <dt className="text-[11px] font-bold text-ink-tertiary uppercase tracking-wider self-start">
@@ -193,6 +201,7 @@ export default async function SupplierDetailPage({
           <SupplierDetailClient
             supplierId={supplier.id}
             canEdit={editable}
+            showMoney={showMoney}
             contacts={supplier.contacts.map((c) => ({
               id: c.id,
               name: c.name,

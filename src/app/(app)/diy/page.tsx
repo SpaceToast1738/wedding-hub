@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { requireUser } from "@/lib/actions";
 import { buildRollups } from "@/lib/book-cards";
+import { canViewMoney } from "@/lib/permissions";
 
 // v1.31.1: DIY overview page. Lists every BUILD card across the
 // Wedding Book in one place — useful when the couple wants to see
@@ -29,6 +30,10 @@ function formatGBP(pence: number): string {
 
 export default async function DiyOverviewPage() {
   const user = await requireUser();
+  // v1.76.0: gate the materials-spend totals + per-card £ chip.
+  // Non-money users still see project state (units / hours / status)
+  // — just not the money values.
+  const showMoney = await canViewMoney(user);
 
   const cards = await db.bookBuildCard.findMany({
     include: {
@@ -103,14 +108,14 @@ export default async function DiyOverviewPage() {
           ) : (
             <>
               {/* Top-line totals */}
-              <section className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              <section className={`grid grid-cols-2 ${showMoney ? "sm:grid-cols-4" : "sm:grid-cols-3"} gap-2`}>
                 <Stat label="Projects" value={`${enriched.length}`} />
                 <Stat
                   label="Units"
                   value={`${totalUnitsDone}${totalUnitsNeeded > 0 ? ` / ${totalUnitsNeeded}` : ""}`}
                 />
                 <Stat label="Hours logged" value={`${Math.round(totalHours * 10) / 10}`} />
-                <Stat label="Materials spend" value={formatGBP(totalSpend)} />
+                {showMoney && <Stat label="Materials spend" value={formatGBP(totalSpend)} />}
               </section>
 
               {/* Cards list */}
@@ -172,8 +177,10 @@ export default async function DiyOverviewPage() {
                               {card.quantityNeeded ? ` / ${card.quantityNeeded}` : ""} units
                             </div>
                             <div className="text-[11px] text-ink-tertiary tabular-nums">
-                              {Math.round(rollups.hoursLogged * 10) / 10}h ·{" "}
-                              {formatGBP(rollups.materialsTotalPence)}
+                              {Math.round(rollups.hoursLogged * 10) / 10}h
+                              {showMoney && (
+                                <> · {formatGBP(rollups.materialsTotalPence)}</>
+                              )}
                             </div>
                             <div className="flex items-center gap-1 text-[10px] text-ink-tertiary">
                               <span title={`${rollups.percentMaterialsOrdered}% of materials ordered`}>

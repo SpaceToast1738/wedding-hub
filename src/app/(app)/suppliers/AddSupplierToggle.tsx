@@ -7,7 +7,9 @@ import { SupplierForm } from "./SupplierForm";
 import { createSupplier } from "./actions";
 
 // v1.56.0: shared AddNewModal popout — was inline-expand previously.
-export function AddSupplierToggle() {
+// v1.76.0: optional showMoney prop hides the Amount agreed field for
+// editors without money permission.
+export function AddSupplierToggle({ showMoney = true }: { showMoney?: boolean }) {
   const [open, setOpen] = useState(false);
 
   return (
@@ -18,6 +20,7 @@ export function AddSupplierToggle() {
       <AddNewModal open={open} onClose={() => setOpen(false)} title="New supplier" width="md">
         <SupplierForm
           submitLabel="Create"
+          showMoney={showMoney}
           onSubmit={async (fd) => {
             await createSupplier(fd);
             setOpen(false);

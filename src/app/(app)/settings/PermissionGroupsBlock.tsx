@@ -43,6 +43,10 @@ const SECTION_LABELS: Record<Section, string> = {
   book: "Wedding Book",
   budget: "Budget",
   payments: "Payments",
+  // v1.76.0: cross-cuts the other sections — controls visibility of
+  // money values (£) inside BUILD/MENU/BAR/OUTFIT/STAY cards and on
+  // the supplier detail page. Default NONE for non-couple.
+  money: "Money values",
   settings: "Settings",
 };
 

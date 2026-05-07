@@ -87,6 +87,9 @@ type OutfitCardEditorProps = {
   visibility: "EVERYONE" | "COUPLE_ONLY";
   canEdit: boolean;
   isCouple: boolean;
+  /** v1.76.0: gates the card-level cost display + cost input in
+   *  edit mode. Hidden values preserved via draft state. */
+  showMoney?: boolean;
   card: CardData;
   /** All Files in the system, surfaced in the card-level photos picker. */
   files: Array<{ id: string; name: string; mimeType: string }>;
@@ -108,6 +111,7 @@ export function BookOutfitCardEditor({
   visibility,
   canEdit,
   isCouple,
+  showMoney = true,
   card,
   files,
 }: OutfitCardEditorProps) {
@@ -213,7 +217,7 @@ export function BookOutfitCardEditor({
       </div>
 
       {/* Stats strip */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
+      <div className={`grid grid-cols-2 ${showMoney ? "sm:grid-cols-4" : "sm:grid-cols-3"} gap-2 mb-4`}>
         <Stat
           label={r.nextMilestone ? r.nextMilestone.label : "Next milestone"}
           value={
@@ -228,7 +232,7 @@ export function BookOutfitCardEditor({
               : "—"
           }
         />
-        <Stat label="Cost" value={formatGBPFromPence(card.costPence)} />
+        {showMoney && <Stat label="Cost" value={formatGBPFromPence(card.costPence)} />}
         <Stat
           label="Paid"
           value={
@@ -269,7 +273,7 @@ export function BookOutfitCardEditor({
       </div>
 
       {editing ? (
-        <EditBody draft={draft} setDraft={setDraft} pending={pending} />
+        <EditBody draft={draft} setDraft={setDraft} pending={pending} showMoney={showMoney} />
       ) : (
         <ViewBody card={card} subsectionId={subsectionId} files={files} canEdit={canEdit} pending={pending} onAttach={attach} onDetach={detach} />
       )}
@@ -480,10 +484,12 @@ function EditBody({
   draft,
   setDraft,
   pending,
+  showMoney,
 }: {
   draft: Draft;
   setDraft: (d: Draft) => void;
   pending: boolean;
+  showMoney: boolean;
 }) {
   function patch(p: Partial<Draft>) {
     setDraft({ ...draft, ...p });
@@ -593,22 +599,24 @@ function EditBody({
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-start">
-        <FieldLabel className="sm:col-span-4">
-          <Label>Cost</Label>
-          <div className="relative">
-            <span className="absolute left-2 top-1/2 -translate-y-1/2 text-ink-tertiary text-sm pointer-events-none">£</span>
-            <input
-              type="text"
-              inputMode="decimal"
-              value={costStr}
-              onChange={(e) => setCostStr(e.target.value)}
-              onBlur={() => commitCost(costStr)}
-              disabled={pending}
-              placeholder="0.00"
-              className="w-full text-sm bg-surface border border-border-soft rounded-sm pl-5 pr-2 py-1.5 text-ink-primary outline-none focus:border-moss-500 tabular-nums text-right"
-            />
-          </div>
-        </FieldLabel>
+        {showMoney && (
+          <FieldLabel className="sm:col-span-4">
+            <Label>Cost</Label>
+            <div className="relative">
+              <span className="absolute left-2 top-1/2 -translate-y-1/2 text-ink-tertiary text-sm pointer-events-none">£</span>
+              <input
+                type="text"
+                inputMode="decimal"
+                value={costStr}
+                onChange={(e) => setCostStr(e.target.value)}
+                onBlur={() => commitCost(costStr)}
+                disabled={pending}
+                placeholder="0.00"
+                className="w-full text-sm bg-surface border border-border-soft rounded-sm pl-5 pr-2 py-1.5 text-ink-primary outline-none focus:border-moss-500 tabular-nums text-right"
+              />
+            </div>
+          </FieldLabel>
+        )}
         <FieldLabel className="sm:col-span-4">
           <Label>Paid by</Label>
           <select

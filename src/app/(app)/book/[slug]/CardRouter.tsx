@@ -318,16 +318,22 @@ export function CardRouter({
   sub,
   canEdit,
   isCouple,
+  showMoney = true,
   linkedTasks = [],
   users = [],
 }: {
   sub: Sub;
   canEdit: boolean;
   isCouple: boolean;
+  /** v1.76.0: gates monetary fields on BUILD / MENU / BAR / OUTFIT /
+   *  STAY card bodies. When false, costs / per-head prices / totals
+   *  hide in view mode and inputs hide (with passthrough hidden) in
+   *  edit mode. Defaults to true for callers that don't pass it. */
+  showMoney?: boolean;
   linkedTasks?: LinkedTaskRow[];
   users?: UserOpt[];
 }) {
-  const body = renderCardBody(sub, canEdit, isCouple);
+  const body = renderCardBody(sub, canEdit, isCouple, showMoney);
   // v1.51.0: inline panel renders directly below every kind's body.
   // v1.71.0: always shown when canEdit (so "Add task" is available).
   return (
@@ -345,7 +351,7 @@ export function CardRouter({
   );
 }
 
-function renderCardBody(sub: Sub, canEdit: boolean, isCouple: boolean) {
+function renderCardBody(sub: Sub, canEdit: boolean, isCouple: boolean, showMoney: boolean) {
   switch (sub.kind) {
     case "TEXT":
       return (
@@ -432,6 +438,7 @@ function renderCardBody(sub: Sub, canEdit: boolean, isCouple: boolean) {
           visibility={sub.visibility}
           canEdit={canEdit}
           isCouple={isCouple}
+          showMoney={showMoney}
           card={{
             id: oc.id,
             personName: oc.personName,
@@ -471,6 +478,7 @@ function renderCardBody(sub: Sub, canEdit: boolean, isCouple: boolean) {
           visibility={sub.visibility}
           canEdit={canEdit}
           isCouple={isCouple}
+          showMoney={showMoney}
           card={{
             id: mc.id,
             serviceType: mc.serviceType,
@@ -505,6 +513,7 @@ function renderCardBody(sub: Sub, canEdit: boolean, isCouple: boolean) {
           visibility={sub.visibility}
           canEdit={canEdit}
           isCouple={isCouple}
+          showMoney={showMoney}
           card={{
             id: bc.id,
             barType: bc.barType,
@@ -613,6 +622,7 @@ function renderCardBody(sub: Sub, canEdit: boolean, isCouple: boolean) {
           visibility={sub.visibility}
           canEdit={canEdit}
           isCouple={isCouple}
+          showMoney={showMoney}
           card={bc}
           files={bc.files}
         />
@@ -644,6 +654,7 @@ function renderCardBody(sub: Sub, canEdit: boolean, isCouple: boolean) {
           visibility={sub.visibility}
           canEdit={canEdit}
           isCouple={isCouple}
+          showMoney={showMoney}
           card={{
             id: sc.id,
             propertyName: sc.propertyName,

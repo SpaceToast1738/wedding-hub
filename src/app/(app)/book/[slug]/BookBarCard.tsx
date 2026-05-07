@@ -58,6 +58,10 @@ type BarCardProps = {
   visibility: "EVERYONE" | "COUPLE_ONLY";
   canEdit: boolean;
   isCouple: boolean;
+  /** v1.76.0: gates the tab/corkage/per-item money fields and totals
+   *  in both view and edit modes. Hidden values are preserved via the
+   *  draft state so non-money editors don't clobber them. */
+  showMoney?: boolean;
   card: CardData;
   /** Confirmed adult count from /guests — null if not available. */
   confirmedAdults: number | null;
@@ -70,6 +74,7 @@ export function BookBarCard({
   visibility,
   canEdit,
   isCouple,
+  showMoney = true,
   card,
   confirmedAdults,
 }: BarCardProps) {
@@ -156,19 +161,23 @@ export function BookBarCard({
       kindBadge="Bar"
     >
       {/* Header stats */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
+      <div className={`grid grid-cols-2 ${showMoney ? "sm:grid-cols-4" : "sm:grid-cols-2"} gap-2 mb-4`}>
         <Stat label="Bar type" value={card.barType ?? "—"} />
-        <Stat
-          label="Tab / corkage"
-          value={
-            card.tabLimitPence != null
-              ? formatGBPFromPence(card.tabLimitPence)
-              : card.corkagePence != null
-                ? `${formatGBPFromPence(card.corkagePence)} corkage`
-                : "—"
-          }
-        />
-        <Stat label="Total cost" value={formatGBPFromPence(r.totalCostPence)} />
+        {showMoney && (
+          <Stat
+            label="Tab / corkage"
+            value={
+              card.tabLimitPence != null
+                ? formatGBPFromPence(card.tabLimitPence)
+                : card.corkagePence != null
+                  ? `${formatGBPFromPence(card.corkagePence)} corkage`
+                  : "—"
+            }
+          />
+        )}
+        {showMoney && (
+          <Stat label="Total cost" value={formatGBPFromPence(r.totalCostPence)} />
+        )}
         <Stat
           label="Bottles / adult"
           value={
@@ -192,13 +201,14 @@ export function BookBarCard({
       )}
 
       {editing ? (
-        <EditBody draft={draft} setDraft={setDraft} pending={pending} />
+        <EditBody draft={draft} setDraft={setDraft} pending={pending} showMoney={showMoney} />
       ) : (
         <ViewBody
           card={card}
           orderedCategories={orderedCategories}
           rollups={r}
           confirmedAdults={confirmedAdults}
+          showMoney={showMoney}
         />
       )}
 
@@ -231,11 +241,13 @@ function ViewBody({
   orderedCategories,
   rollups,
   confirmedAdults,
+  showMoney,
 }: {
   card: CardData;
   orderedCategories: string[];
   rollups: BarRollups;
   confirmedAdults: number | null;
+  showMoney: boolean;
 }) {
   if (card.items.length === 0) {
     return <p className="text-xs text-ink-tertiary italic">No items yet.</p>;
@@ -269,7 +281,8 @@ function ViewBody({
               <div className="flex items-baseline gap-2 mb-1.5">
                 <strong className="text-sm font-semibold text-ink-primary">{timing}</strong>
                 <span className="text-[10px] text-ink-tertiary tabular-nums">
-                  {items.length} item{items.length === 1 ? "" : "s"} · {formatGBPFromPence(groupTotal)}
+                  {items.length} item{items.length === 1 ? "" : "s"}
+                  {showMoney && <> · {formatGBPFromPence(groupTotal)}</>}
                 </span>
               </div>
               <ul className="divide-y divide-border-soft border border-border-soft rounded-md text-sm">
@@ -278,6 +291,7 @@ function ViewBody({
                     key={item.id}
                     item={item}
                     confirmedAdults={confirmedAdults}
+                    showMoney={showMoney}
                   />
                 ))}
               </ul>
@@ -308,13 +322,14 @@ function ViewBody({
               <strong className="text-sm font-semibold text-ink-primary">{cat}</strong>
               {stats && (
                 <span className="text-[10px] text-ink-tertiary tabular-nums">
-                  {items.length} item{items.length === 1 ? "" : "s"} · {formatGBPFromPence(stats.totalCostPence)}
+                  {items.length} item{items.length === 1 ? "" : "s"}
+                  {showMoney && <> · {formatGBPFromPence(stats.totalCostPence)}</>}
                 </span>
               )}
             </div>
             <ul className="divide-y divide-border-soft border border-border-soft rounded-md text-sm">
               {items.map((item) => (
-                <ItemViewRow key={item.id} item={item} confirmedAdults={confirmedAdults} />
+                <ItemViewRow key={item.id} item={item} confirmedAdults={confirmedAdults} showMoney={showMoney} />
               ))}
             </ul>
           </div>
@@ -335,9 +350,11 @@ function ViewBody({
 function ItemViewRow({
   item,
   confirmedAdults,
+  showMoney,
 }: {
   item: Item;
   confirmedAdults: number | null;
+  showMoney: boolean;
 }) {
   const isPerHead = item.pricePerHeadPence != null;
   const lineTotal = barItemTotalPence(item, confirmedAdults);
@@ -345,7 +362,7 @@ function ItemViewRow({
     <li className="px-3 py-1.5 flex items-baseline gap-2">
       <span className="flex-1 text-ink-primary">
         {item.name}
-        {isPerHead ? (
+        {isPerHead && showMoney ? (
           <>
             {" · "}
             <span className="text-ink-secondary">
@@ -371,13 +388,15 @@ function ItemViewRow({
           <a href={item.website} target="_blank" rel="noopener noreferrer" className="text-[10px] text-moss-700 hover:underline ml-1">Link ↗</a>
         )}
       </span>
-      <span className="text-ink-secondary tabular-nums w-24 text-right">
-        {isPerHead && (!confirmedAdults || confirmedAdults <= 0) ? (
-          <span className="text-[11px] text-ink-tertiary italic">need RSVP count</span>
-        ) : (
-          formatGBPFromPence(lineTotal)
-        )}
-      </span>
+      {showMoney && (
+        <span className="text-ink-secondary tabular-nums w-24 text-right">
+          {isPerHead && (!confirmedAdults || confirmedAdults <= 0) ? (
+            <span className="text-[11px] text-ink-tertiary italic">need RSVP count</span>
+          ) : (
+            formatGBPFromPence(lineTotal)
+          )}
+        </span>
+      )}
     </li>
   );
 }
@@ -408,10 +427,12 @@ function EditBody({
   draft,
   setDraft,
   pending,
+  showMoney,
 }: {
   draft: Draft;
   setDraft: (d: Draft) => void;
   pending: boolean;
+  showMoney: boolean;
 }) {
   function patch(p: Partial<Draft>) {
     setDraft({ ...draft, ...p });
@@ -460,7 +481,7 @@ function EditBody({
   return (
     <div className="space-y-4">
       {/* Header fields */}
-      <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+      <div className={`grid grid-cols-1 ${showMoney ? "sm:grid-cols-4" : "sm:grid-cols-2"} gap-3`}>
         <Field label="Bar type" hint="Open bar, drinks tab, cash bar, wine + toast only…">
           <select
             value={draft.barType}
@@ -474,15 +495,17 @@ function EditBody({
             ))}
           </select>
         </Field>
-        <Field label="Tab limit" hint="Cap on a drinks tab (if any).">
-          <PoundsInput
-            value={tabStr}
-            onChange={setTabStr}
-            onCommit={() => patch({ tabLimitPence: poundsStringToPence(tabStr) })}
-            placeholder="0.00"
-            disabled={pending}
-          />
-        </Field>
+        {showMoney && (
+          <Field label="Tab limit" hint="Cap on a drinks tab (if any).">
+            <PoundsInput
+              value={tabStr}
+              onChange={setTabStr}
+              onCommit={() => patch({ tabLimitPence: poundsStringToPence(tabStr) })}
+              placeholder="0.00"
+              disabled={pending}
+            />
+          </Field>
+        )}
         <Field label="Toast drink" hint="What gets handed out for the speeches.">
           <input
             type="text"
@@ -493,15 +516,17 @@ function EditBody({
             className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2 py-1.5 text-ink-primary outline-none focus:border-moss-500"
           />
         </Field>
-        <Field label="Corkage" hint="Per-bottle fee if you're bringing wine in.">
-          <PoundsInput
-            value={corkStr}
-            onChange={setCorkStr}
-            onCommit={() => patch({ corkagePence: poundsStringToPence(corkStr) })}
-            placeholder="0.00"
-            disabled={pending}
-          />
-        </Field>
+        {showMoney && (
+          <Field label="Corkage" hint="Per-bottle fee if you're bringing wine in.">
+            <PoundsInput
+              value={corkStr}
+              onChange={setCorkStr}
+              onCommit={() => patch({ corkagePence: poundsStringToPence(corkStr) })}
+              placeholder="0.00"
+              disabled={pending}
+            />
+          </Field>
+        )}
       </div>
 
       {/* Items */}
@@ -527,6 +552,7 @@ function EditBody({
                 isFirst={idx === 0}
                 isLast={idx === draft.items.length - 1}
                 pending={pending}
+                showMoney={showMoney}
                 onChange={(p) => patchItem(idx, p)}
                 onRemove={() => removeItem(idx)}
                 onMoveUp={() => moveItem(idx, -1)}
@@ -556,6 +582,7 @@ function ItemEditRow({
   isFirst,
   isLast,
   pending,
+  showMoney,
   onChange,
   onRemove,
   onMoveUp,
@@ -565,6 +592,7 @@ function ItemEditRow({
   isFirst: boolean;
   isLast: boolean;
   pending: boolean;
+  showMoney: boolean;
   onChange: (p: Partial<Item>) => void;
   onRemove: () => void;
   onMoveUp: () => void;
@@ -686,43 +714,45 @@ function ItemEditRow({
             className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2 py-1.5 text-ink-primary outline-none focus:border-moss-500"
           />
         </FieldLabel>
-        <FieldLabel className="sm:col-span-4">
-          <span className="text-[10px] uppercase tracking-wider text-ink-tertiary font-bold">
-            {isPerHead ? "Price / head" : "Total cost"}
-          </span>
-          {isPerHead ? (
-            <div className="relative">
-              <span className="absolute left-2 top-1/2 -translate-y-1/2 text-ink-tertiary text-sm pointer-events-none">£</span>
-              <input
-                type="text"
-                inputMode="decimal"
-                value={perHeadStr}
-                onChange={(e) => setPerHeadStr(e.target.value)}
-                onBlur={() =>
-                  onChange({ pricePerHeadPence: poundsStringToPence(perHeadStr) ?? 0 })
-                }
-                disabled={pending}
-                placeholder="0.00"
-                className="w-full text-sm bg-surface border border-border-soft rounded-sm pl-5 pr-10 py-1.5 text-ink-primary outline-none focus:border-moss-500 tabular-nums text-right"
-              />
-              <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-ink-tertiary pointer-events-none">/hd</span>
-            </div>
-          ) : (
-            <div className="relative">
-              <span className="absolute left-2 top-1/2 -translate-y-1/2 text-ink-tertiary text-sm pointer-events-none">£</span>
-              <input
-                type="text"
-                inputMode="decimal"
-                value={costStr}
-                onChange={(e) => setCostStr(e.target.value)}
-                onBlur={() => onChange({ costPence: poundsStringToPence(costStr) })}
-                disabled={pending}
-                placeholder="0.00"
-                className="w-full text-sm bg-surface border border-border-soft rounded-sm pl-5 pr-2 py-1.5 text-ink-primary outline-none focus:border-moss-500 tabular-nums text-right"
-              />
-            </div>
-          )}
-        </FieldLabel>
+        {showMoney && (
+          <FieldLabel className="sm:col-span-4">
+            <span className="text-[10px] uppercase tracking-wider text-ink-tertiary font-bold">
+              {isPerHead ? "Price / head" : "Total cost"}
+            </span>
+            {isPerHead ? (
+              <div className="relative">
+                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-ink-tertiary text-sm pointer-events-none">£</span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={perHeadStr}
+                  onChange={(e) => setPerHeadStr(e.target.value)}
+                  onBlur={() =>
+                    onChange({ pricePerHeadPence: poundsStringToPence(perHeadStr) ?? 0 })
+                  }
+                  disabled={pending}
+                  placeholder="0.00"
+                  className="w-full text-sm bg-surface border border-border-soft rounded-sm pl-5 pr-10 py-1.5 text-ink-primary outline-none focus:border-moss-500 tabular-nums text-right"
+                />
+                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-ink-tertiary pointer-events-none">/hd</span>
+              </div>
+            ) : (
+              <div className="relative">
+                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-ink-tertiary text-sm pointer-events-none">£</span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={costStr}
+                  onChange={(e) => setCostStr(e.target.value)}
+                  onBlur={() => onChange({ costPence: poundsStringToPence(costStr) })}
+                  disabled={pending}
+                  placeholder="0.00"
+                  className="w-full text-sm bg-surface border border-border-soft rounded-sm pl-5 pr-2 py-1.5 text-ink-primary outline-none focus:border-moss-500 tabular-nums text-right"
+                />
+              </div>
+            )}
+          </FieldLabel>
+        )}
       </div>
       {/* Row 3 — website */}
       <FieldLabel>
@@ -739,35 +769,37 @@ function ItemEditRow({
 
       {/* Row 4 — pricing toggle + reorder/remove */}
       <div className="flex items-center justify-between gap-2 pt-1">
-        <div className="flex items-center gap-1 text-[11px]">
-          <span className="text-ink-tertiary uppercase tracking-wider font-bold">Pricing</span>
-          <button
-            type="button"
-            onClick={() => setPricingMode("fixed")}
-            disabled={pending}
-            className={[
-              "px-2 py-0.5 rounded-full border",
-              !isPerHead
-                ? "bg-moss-50 border-moss-300 text-moss-700 font-semibold"
-                : "bg-canvas border-border-soft text-ink-tertiary hover:border-moss-300",
-            ].join(" ")}
-          >
-            Total
-          </button>
-          <button
-            type="button"
-            onClick={() => setPricingMode("perHead")}
-            disabled={pending}
-            className={[
-              "px-2 py-0.5 rounded-full border",
-              isPerHead
-                ? "bg-moss-50 border-moss-300 text-moss-700 font-semibold"
-                : "bg-canvas border-border-soft text-ink-tertiary hover:border-moss-300",
-            ].join(" ")}
-          >
-            Per head
-          </button>
-        </div>
+        {showMoney ? (
+          <div className="flex items-center gap-1 text-[11px]">
+            <span className="text-ink-tertiary uppercase tracking-wider font-bold">Pricing</span>
+            <button
+              type="button"
+              onClick={() => setPricingMode("fixed")}
+              disabled={pending}
+              className={[
+                "px-2 py-0.5 rounded-full border",
+                !isPerHead
+                  ? "bg-moss-50 border-moss-300 text-moss-700 font-semibold"
+                  : "bg-canvas border-border-soft text-ink-tertiary hover:border-moss-300",
+              ].join(" ")}
+            >
+              Total
+            </button>
+            <button
+              type="button"
+              onClick={() => setPricingMode("perHead")}
+              disabled={pending}
+              className={[
+                "px-2 py-0.5 rounded-full border",
+                isPerHead
+                  ? "bg-moss-50 border-moss-300 text-moss-700 font-semibold"
+                  : "bg-canvas border-border-soft text-ink-tertiary hover:border-moss-300",
+              ].join(" ")}
+            >
+              Per head
+            </button>
+          </div>
+        ) : <div />}
         <div className="flex items-center gap-1">
           <button
             type="button"

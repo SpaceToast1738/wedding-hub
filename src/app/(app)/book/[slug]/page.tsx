@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
 import { PageHeader } from "@/components/ui/PageHeader";
-import { canEdit } from "@/lib/permissions";
+import { canEdit, canViewMoney } from "@/lib/permissions";
 import { requireUser } from "@/lib/actions";
 import { AddSubsectionToggle } from "./AddSubsectionToggle";
 import { CardRouter } from "./CardRouter";
@@ -14,6 +14,9 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
   const { slug } = await params;
   const user = await requireUser();
   const editable = await canEdit(user, "book");
+  // v1.76.0: gate £ values on BUILD / MENU / BAR / OUTFIT / STAY
+  // cards. Threaded down through CardRouter to each card editor.
+  const showMoney = await canViewMoney(user);
 
   const section = await db.bookSection.findUnique({
     where: { slug },
@@ -392,6 +395,7 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
                   sub={s}
                   canEdit={editable}
                   isCouple={user.isCouple}
+                  showMoney={showMoney}
                   linkedTasks={subsectionTasksById.get(s.id) ?? []}
                   users={taskUsers}
                 />

@@ -57,6 +57,9 @@ type MenuCardProps = {
   visibility: "EVERYONE" | "COUPLE_ONLY";
   canEdit: boolean;
   isCouple: boolean;
+  /** v1.76.0: gates the Per-head + Total stats and the
+   *  pricePerHead input in edit mode. */
+  showMoney?: boolean;
   card: CardData;
   /** courseId → optionId → number of guests selected */
   optionCounts: Record<string, Record<string, number>>;
@@ -73,6 +76,7 @@ export function BookMenuCard({
   visibility,
   canEdit,
   isCouple,
+  showMoney = true,
   card,
   optionCounts,
   allergenAggregate,
@@ -151,11 +155,15 @@ export function BookMenuCard({
       kindBadge="Menu"
     >
       {/* Header stats */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
+      <div className={`grid grid-cols-2 ${showMoney ? "sm:grid-cols-4" : "sm:grid-cols-2"} gap-2 mb-4`}>
         <Stat label="Service" value={card.serviceType ?? "—"} />
         <Stat label="Confirmed" value={`${totalConfirmed}`} />
-        <Stat label="Per head" value={formatGBPFromPence(card.pricePerHeadPence)} />
-        <Stat label="Total" value={formatGBPFromPence(totalPricePence)} />
+        {showMoney && (
+          <>
+            <Stat label="Per head" value={formatGBPFromPence(card.pricePerHeadPence)} />
+            <Stat label="Total" value={formatGBPFromPence(totalPricePence)} />
+          </>
+        )}
       </div>
 
       {/* Allergens — aggregate across all options the guests have picked */}
@@ -180,7 +188,7 @@ export function BookMenuCard({
       )}
 
       {editing ? (
-        <EditBody draft={draft} setDraft={setDraft} pending={pending} />
+        <EditBody draft={draft} setDraft={setDraft} pending={pending} showMoney={showMoney} />
       ) : (
         <ViewBody card={card} optionCounts={optionCounts} />
       )}
@@ -320,10 +328,12 @@ function EditBody({
   draft,
   setDraft,
   pending,
+  showMoney,
 }: {
   draft: Draft;
   setDraft: (d: Draft) => void;
   pending: boolean;
+  showMoney: boolean;
 }) {
   function patch(p: Partial<Draft>) {
     setDraft({ ...draft, ...p });
@@ -402,7 +412,7 @@ function EditBody({
   return (
     <div className="space-y-4">
       {/* Header fields */}
-      <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+      <div className={`grid grid-cols-1 ${showMoney ? "sm:grid-cols-4" : "sm:grid-cols-3"} gap-3`}>
         <Field label="Service type" hint="Plated, buffet, family-style, canapés…">
           <select
             value={draft.serviceType}
@@ -426,21 +436,23 @@ function EditBody({
             className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2 py-1.5 text-ink-primary outline-none focus:border-moss-500"
           />
         </Field>
-        <Field label="Price per head" hint="What the caterer charges per cover.">
-          <div className="relative">
-            <span className="absolute left-2 top-1/2 -translate-y-1/2 text-ink-tertiary text-sm pointer-events-none">£</span>
-            <input
-              type="text"
-              inputMode="decimal"
-              value={pricePerHeadStr}
-              onChange={(e) => setPricePerHeadStr(e.target.value)}
-              onBlur={() => commitPrice(pricePerHeadStr)}
-              disabled={pending}
-              placeholder="0.00"
-              className="w-full text-sm bg-surface border border-border-soft rounded-sm pl-5 pr-2 py-1.5 text-ink-primary outline-none focus:border-moss-500 tabular-nums text-right"
-            />
-          </div>
-        </Field>
+        {showMoney && (
+          <Field label="Price per head" hint="What the caterer charges per cover.">
+            <div className="relative">
+              <span className="absolute left-2 top-1/2 -translate-y-1/2 text-ink-tertiary text-sm pointer-events-none">£</span>
+              <input
+                type="text"
+                inputMode="decimal"
+                value={pricePerHeadStr}
+                onChange={(e) => setPricePerHeadStr(e.target.value)}
+                onBlur={() => commitPrice(pricePerHeadStr)}
+                disabled={pending}
+                placeholder="0.00"
+                className="w-full text-sm bg-surface border border-border-soft rounded-sm pl-5 pr-2 py-1.5 text-ink-primary outline-none focus:border-moss-500 tabular-nums text-right"
+              />
+            </div>
+          </Field>
+        )}
         <Field label="Confirmed headcount" hint="Override the auto-count if you've already confirmed numbers.">
           <input
             type="number"

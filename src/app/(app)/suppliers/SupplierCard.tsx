@@ -51,7 +51,19 @@ const STATUS_OPTIONS: SupplierStatus[] = [
   "SHORTLIST", "CONTACTED", "QUOTED", "BOOKED", "PAID", "REJECTED",
 ];
 
-export function SupplierCard({ supplier, canEdit }: { supplier: Supplier; canEdit: boolean }) {
+export function SupplierCard({
+  supplier,
+  canEdit,
+  showMoney,
+}: {
+  supplier: Supplier;
+  canEdit: boolean;
+  /** v1.76.0: gates the Agreed line in read mode + the amountAgreed
+   *  input in edit mode. When false, edit submits preserve the
+   *  existing amountAgreed via a hidden input so non-money editors
+   *  don't clobber it. */
+  showMoney: boolean;
+}) {
   const [editing, setEditing] = useState(false);
   const [pending, startTransition] = useTransition();
   const confirm = useConfirm();
@@ -114,6 +126,7 @@ export function SupplierCard({ supplier, canEdit }: { supplier: Supplier; canEdi
       <div className="bg-surface border border-moss-100 rounded-md p-4 shadow-md">
         <SupplierForm
           submitLabel="Save"
+          showMoney={showMoney}
           initial={{
             name: supplier.name,
             category: supplier.category,
@@ -147,7 +160,7 @@ export function SupplierCard({ supplier, canEdit }: { supplier: Supplier; canEdi
         </div>
         <StatusPill status={STATUS_TO_PILL[supplier.status] ?? "LEAD"} label={supplier.status.toLowerCase()} />
       </div>
-      {supplier.amountAgreed && (
+      {showMoney && supplier.amountAgreed && (
         <div className="text-xs text-ink-secondary">
           Agreed · <span className="font-semibold text-ink-primary">{formatMoneyDecimal(supplier.amountAgreed)}</span>
         </div>

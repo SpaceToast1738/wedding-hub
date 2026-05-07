@@ -34,6 +34,7 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
+| **v1.76.0** | 2026-05-07 | [`money` permission gate hides £ values across non-financial surfaces (BUILD/MENU/BAR/OUTFIT/STAY cards, /diy, /suppliers list and detail) for users without it. New `Section` value `"money"`; default for non-couple is NONE so they see project state without prices. Couple promotes specific users (e.g. the planner) to VIEW or EDIT via the existing Settings matrix without unlocking /budget or /payments. Edit-mode money inputs are skipped when hidden but values are preserved via hidden inputs / draft state so non-money editors don't clobber them. Workflow loop (per-head budget rollups, paid-on-BUILD reciprocal display, over-budget warnings, /payments category filter, spend pulse) is the v1.77.0 follow-up.](#2026-05-07--v1760--money-permission-gate) |
 | **v1.75.1** | 2026-05-07 | [Inline payment grid simplified to a single row + supplier autofill input — user feedback: 5 visible rows was too many ("only really need one"), and the supplier `<select>` should be a free-text autofill field instead of a dropdown. `InlinePaymentGrid` collapsed to a single row's worth of state; supplier becomes `<input list="payment-suppliers">` with the existing supplier names as `<datalist>` options. On commit, typed supplier names are matched case-insensitively against existing suppliers; unmatched names auto-create via `createSupplierQuick` (category defaults to "Other") — no separate `+ New supplier…` sub-form needed.](#2026-05-07--v1751--single-row-grid--supplier-autofill) |
 | **v1.75.0** | 2026-05-07 | [Excel-style payment grid + receipts + book-row linking — `Payment` gains `fileIds: String[]`, `bookBuildMaterialId`, `bookOutfitId` (additive migration `20260512000000_payment_receipts_and_book_links`). New `InlinePaymentGrid.tsx` replaces `InlineAddPaymentRow.tsx`: 5 visible blank rows, **Enter** commits the current row and advances focus, description input has datalist autofill from past payment descriptions, supplier dropdown keeps the v1.74.0 `+ New supplier…` flow, new `🔗` button per row opens a cascading picker (BUILD card → material OR outfit-item), new `📎` button opens a receipt popover. **Linking a BUILD material auto-marks it `ordered: true`** as a side-effect of `createPayment`. New server actions `attachReceiptToPayment` / `detachReceiptFromPayment` / `uploadAndAttachReceipt` mirror the v1.63.0 BUILD card pattern. `PaymentRow` gains a "Linked / Receipts" column with chips that deep-link to the relevant book section, and a receipt-management panel in edit mode. Page query loads BUILD cards + outfit items + files for the pickers; `recentDescriptions` derived from the existing payments query (no extra round-trip). `InlineAddPaymentRow.tsx` deleted.](#2026-05-07--v1750--excel-payment-grid--receipts--book-linking) |
 | **v1.74.0** | 2026-05-07 | [Inline payment add + create-supplier-from-payments — replaces the v1.56.0 `AddPaymentToggle` modal with `InlineAddPaymentRow` sitting above the payments table. Description + amount + optional supplier; **Enter submits**; on success fields reset and focus returns to description for fast bulk entry. Supplier select gains a `+ New supplier…` option that expands an inline sub-form (name + category, defaults to "Other"); creating the supplier prepends it to the dropdown and auto-selects it for the in-progress payment. New `createSupplierQuick({name, category})` server action returns the new supplier id (the standard form-action returns void). `AddPaymentToggle.tsx` deleted.](#2026-05-07--v1740--inline-payment-add--inline-supplier-create) |
@@ -910,6 +911,38 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-05-07 · v1.76.0 — `money` permission gate
+
+User asked: "ensure that all financial components can be hidden from certain users under permissions". The pre-existing model had `/budget` and `/payments` couple-only via `COUPLE_ONLY_SECTIONS` (page-level `redirect`), but £ values bled through three other surfaces — BUILD/MENU/BAR/OUTFIT/STAY cards in the Wedding Book, the supplier detail page, and the /diy overview. A planner granted `book` view to help with logistics could still see every per-head price and material cost.
+
+**New section: `"money"`.** Added to `SECTIONS` in `src/lib/permissions.ts`. Not in `COUPLE_ONLY_SECTIONS` — couple can grant the planner VIEW (or EDIT) via the existing per-user override matrix without unlocking the financial-first pages. Default for non-couple is NONE → £ values hidden. Couple short-circuits to EDIT via the existing `isCouple` bypass.
+
+New helper `canViewMoney(user)` exported alongside `canView` / `canEdit` for terse call sites. Settings UI: `MemberOverridesBlock` and `PermissionGroupsBlock` both gain a "Money values" row.
+
+**Surfaces gated.**
+
+| File | What's hidden |
+|---|---|
+| `/diy/page.tsx` | "Materials spend" stat tile + the per-card `formatGBP(materialsTotalPence)` chip in the project list |
+| `/suppliers/page.tsx` + `SupplierCard.tsx` + `SupplierForm.tsx` + `AddSupplierToggle.tsx` | "Agreed" line on each card; "Amount agreed (£)" input in edit + create forms |
+| `/suppliers/[id]/page.tsx` | "Agreed / Paid to date / Outstanding" rollup section |
+| `/suppliers/[id]/SupplierDetailClient.tsx` | Contracts panel hidden wholesale (it's purely financial) |
+| `/book/[slug]` BUILD card | "Materials" total stat; per-material "Cost" column; edit-row "Total cost" input |
+| `/book/[slug]` MENU card | "Per head" + "Total" stat tiles; "Price per head" edit input |
+| `/book/[slug]` BAR card | "Tab / corkage" + "Total cost" stat tiles; per-category and per-timing total chips; per-item price/head display + line total; edit-row "Tab limit" / "Corkage" / per-item price inputs + Pricing toggle |
+| `/book/[slug]` OUTFIT card | "Cost" stat tile; cost edit input |
+| `/book/[slug]` STAY card | "Cost" stat tile; cost edit input |
+
+**Edit-mode behaviour.** When `showMoney === false`, money inputs aren't rendered at all. Existing values are preserved via:
+- Card editors: the draft state (a copy of the underlying `card.costPence` etc.) carries forward unchanged because the input that would mutate it never mounts.
+- `SupplierForm`: explicit `<input type="hidden" name="amountAgreed" value={initial?.amountAgreed ?? ""} />` so the form-action sees the same value back.
+
+Side effect: non-money editors can change non-money fields (mark a material as ordered / arrived, edit a supplier's name or notes) without touching the £ amounts.
+
+**Threading.** `showMoney` flows through `book/[slug]/page.tsx` → `CardRouter` → each card. CardRouter's `Sub` type didn't need changes — `showMoney` is a separate prop, defaulted to `true` so any non-money-aware caller gets unchanged behaviour.
+
+**Out of scope (v1.77.0):** the workflow loop the audit flagged — MENU/BAR per-head costs flowing into BudgetLine, payment-paid reciprocal chip on BUILD materials, "over budget" warnings, /payments category filter, spend pulse on /glance. Permissions land first so the audit's gaps can be closed without "now-it's-leaky-now-it's-not" interim states.
 
 ### 2026-05-07 · v1.75.1 — Single-row grid + supplier autofill
 
