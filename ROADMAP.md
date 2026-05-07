@@ -34,6 +34,7 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
+| **v1.77.0** | 2026-05-07 | [Variable / per-head budget lines + over-budget warnings + payments category filter + glance spend pulse. New `PerHeadSource` enum + `BudgetLine.{perHeadPence, headcountSource, manualHeadcount}` (additive migration `20260513000000_per_head_budget_lines`). New `src/lib/headcount.ts` resolver (single source of truth, batched count fetch). `BudgetClient`'s "Variable cost (£ × headcount)" toggle on the line edit form expands inputs for price, source (all invited / confirmed + pending / confirmed / adults / children / manual), and live count preview. View mode shows the breakdown chip ("£50 × 60 confirmed = £3,000") and a `⚠ Over` chip when actual exceeds derived estimated. Category headers carry a "⚠ N over" rollup chip and a `↗ Payments` deep-link to `/payments?category=<id>`. /payments accepts the new `?category=` filter (composable with `?supplier=`). /suppliers/[id] gains an "⚠ Over agreed" warning when committed payments exceed `amountAgreed`. /glance Budget card gets a "Recent spend" pulse strip — this week / this month totals + top 3 categories with deep-links.](#2026-05-07--v1770--variable-budget-rollups--warnings--spend-pulse) |
 | **v1.76.0** | 2026-05-07 | [`money` permission gate hides £ values across non-financial surfaces (BUILD/MENU/BAR/OUTFIT/STAY cards, /diy, /suppliers list and detail) for users without it. New `Section` value `"money"`; default for non-couple is NONE so they see project state without prices. Couple promotes specific users (e.g. the planner) to VIEW or EDIT via the existing Settings matrix without unlocking /budget or /payments. Edit-mode money inputs are skipped when hidden but values are preserved via hidden inputs / draft state so non-money editors don't clobber them. Workflow loop (per-head budget rollups, paid-on-BUILD reciprocal display, over-budget warnings, /payments category filter, spend pulse) is the v1.77.0 follow-up.](#2026-05-07--v1760--money-permission-gate) |
 | **v1.75.1** | 2026-05-07 | [Inline payment grid simplified to a single row + supplier autofill input — user feedback: 5 visible rows was too many ("only really need one"), and the supplier `<select>` should be a free-text autofill field instead of a dropdown. `InlinePaymentGrid` collapsed to a single row's worth of state; supplier becomes `<input list="payment-suppliers">` with the existing supplier names as `<datalist>` options. On commit, typed supplier names are matched case-insensitively against existing suppliers; unmatched names auto-create via `createSupplierQuick` (category defaults to "Other") — no separate `+ New supplier…` sub-form needed.](#2026-05-07--v1751--single-row-grid--supplier-autofill) |
 | **v1.75.0** | 2026-05-07 | [Excel-style payment grid + receipts + book-row linking — `Payment` gains `fileIds: String[]`, `bookBuildMaterialId`, `bookOutfitId` (additive migration `20260512000000_payment_receipts_and_book_links`). New `InlinePaymentGrid.tsx` replaces `InlineAddPaymentRow.tsx`: 5 visible blank rows, **Enter** commits the current row and advances focus, description input has datalist autofill from past payment descriptions, supplier dropdown keeps the v1.74.0 `+ New supplier…` flow, new `🔗` button per row opens a cascading picker (BUILD card → material OR outfit-item), new `📎` button opens a receipt popover. **Linking a BUILD material auto-marks it `ordered: true`** as a side-effect of `createPayment`. New server actions `attachReceiptToPayment` / `detachReceiptFromPayment` / `uploadAndAttachReceipt` mirror the v1.63.0 BUILD card pattern. `PaymentRow` gains a "Linked / Receipts" column with chips that deep-link to the relevant book section, and a receipt-management panel in edit mode. Page query loads BUILD cards + outfit items + files for the pickers; `recentDescriptions` derived from the existing payments query (no extra round-trip). `InlineAddPaymentRow.tsx` deleted.](#2026-05-07--v1750--excel-payment-grid--receipts--book-linking) |
@@ -911,6 +912,53 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-05-07 · v1.77.0 — Variable budget rollups + warnings + spend pulse
+
+The audit-driven workflow loop, scoped to the budget side. Closes four of the friction points the financial-stack audit surfaced.
+
+**Variable / per-head budget lines.** Schema migration `20260513000000_per_head_budget_lines`:
+
+```sql
+CREATE TYPE "PerHeadSource" AS ENUM (
+  'ALL_INVITED', 'CONFIRMED_PLUS_PENDING', 'ALL_CONFIRMED',
+  'ADULTS_CONFIRMED', 'CHILDREN_CONFIRMED', 'MANUAL'
+);
+ALTER TABLE "BudgetLine"
+  ADD COLUMN "perHeadPence" INTEGER,
+  ADD COLUMN "headcountSource" "PerHeadSource",
+  ADD COLUMN "manualHeadcount" INTEGER;
+```
+
+When `perHeadPence` and `headcountSource` are both set on a line, the effective estimated total derives from `perHeadPence × computeHeadcount(...)` recomputed live each render. RSVP changes propagate without anyone retyping. The flat `estimated` column is retained as a fallback for non-variable lines.
+
+**`src/lib/headcount.ts`** (new) — single source of truth. Async `computeHeadcount(source, manualCount)` queries the Guest table per source. `fetchAllHeadcounts()` batches one COUNT per source so `/budget`'s render fires five queries instead of N (one per per-head line). Pure helpers `perHeadSourceLabel` / `perHeadSourceNoun` for the breakdown display. New pure helper `computeEstimated(line, headcount)` in `src/lib/budget.ts` returns the effective estimated as a number; `isOverBudget(line, headcount)` for the warning chips.
+
+**`BudgetClient` — variable cost toggle.** `NewLineForm` (used for both create and edit) gains a "Variable cost (£ × headcount)" checkbox. When on:
+- Hides the flat "Planned £" input, sends `estimated=""` so the server clears it.
+- Shows three side-by-side fields: per-head price, headcount source dropdown (six options), and either a live count display (read-only, pre-fetched) or a manual count input (when source = MANUAL).
+- Live preview: "= £3,000 (60 × £50.00)" updates as the user types.
+
+When off: the existing flat-estimated input renders as before, and the per-head fields are passed as null hidden inputs so the server clears them.
+
+**`BudgetClient` — view-mode breakdown + over-budget warnings.** Per-line:
+- Breakdown chip below the description: "£50.00 × 60 guests (confirmed + pending) = £3,000.00"
+- Planned column shows the derived total when per-head is set, otherwise the flat estimated value.
+- ⚠ Over chip beside the description when computed actual > computed estimated.
+
+Per-category header gets a `⚠ N over` rollup chip when any line in the category is over budget, plus a new `↗ Payments` deep-link to `/payments?category=<id>` so the couple can see the payments behind a category in one click.
+
+**`/payments` — `?category=<id>` filter.** Composable with the existing `?supplier=` (Prisma `AND`-filter). Filter banner mirrors the supplier-filter pattern; the Clear link preserves the other filter if both are active.
+
+**`/suppliers/[id]` — over-agreed warning.** When `totalCommitted` (paid + due) exceeds `Supplier.amountAgreed`, a danger-toned strip on the rollup section shows the gap: "⚠ Over agreed by £350 · committed £4,850 against £4,500." Couple-only via the existing money permission gate from v1.76.0 (the warning row only renders when `showMoney` is true).
+
+**`/glance` — spend pulse.** Couple-only addition to the existing Budget card. Pulls the last 30 days of PAID payments (with their budget-line categories), reduces in app code into:
+- "£X this week" + "£Y this month"
+- Top 3 categories by amount in the period, each as a deep-link to `/payments?category=<id>`
+
+Hidden entirely on a fresh DB (no spend in 30 days = no strip), so the card stays clean for early planning.
+
+**Out of scope (v1.78.0):** MENU/BAR migration to the unified `PerHeadSource` enum; new `PER_HEAD_ITEMS` Wedding Book card kind for grouping per-head items inside the book; paid-on-BUILD reciprocal chip on materials.
 
 ### 2026-05-07 · v1.76.0 — `money` permission gate
 

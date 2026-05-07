@@ -4,6 +4,7 @@ import { PrintButton } from "@/components/ui/PrintButton";
 import { requireUser } from "@/lib/actions";
 import { redirect } from "next/navigation";
 import { formatWeddingDate, getWeddingSettings } from "@/lib/wedding-settings";
+import { fetchAllHeadcounts } from "@/lib/headcount";
 import { BudgetClient } from "./BudgetClient";
 import { BudgetDiyLinks } from "./BudgetDiyLinks";
 
@@ -16,7 +17,7 @@ export default async function BudgetPage() {
   // "Linked from DIY" panel can surface the rolled-up totals at the
   // top of the Budget page. Reads from the `BookBuildCard.budgetLineId`
   // FK established in v1.31.1 — no schema changes here.
-  const [categories, suppliers, buildCardsWithBudget] = await Promise.all([
+  const [categories, suppliers, buildCardsWithBudget, headcounts] = await Promise.all([
     db.budgetCategory.findMany({
       orderBy: { order: "asc" },
       include: {
@@ -41,6 +42,10 @@ export default async function BudgetPage() {
       },
       orderBy: { id: "asc" },
     }),
+    // v1.77.0: pre-fetch every PerHeadSource count once. Per-head
+    // BudgetLines resolve their estimated total against this map at
+    // render time so RSVP changes reflect immediately.
+    fetchAllHeadcounts(),
   ]);
 
   const diyLinks = buildCardsWithBudget
@@ -112,10 +117,16 @@ export default async function BudgetPage() {
             // Pass amounts as strings so the client never imports the
             // Prisma Decimal type (keeps the bundle slim).
             payments: l.payments.map((p) => ({ amount: p.amount.toString() })),
+            // v1.77.0: per-head config flows through to LineRow so
+            // the breakdown chip + over-budget warning render.
+            perHeadPence: l.perHeadPence,
+            headcountSource: l.headcountSource,
+            manualHeadcount: l.manualHeadcount,
           })),
         }))}
         suppliers={suppliers}
         buildCardByLineId={buildCardByLineIdObj}
+        headcounts={headcounts}
       />
       </div>
     </>

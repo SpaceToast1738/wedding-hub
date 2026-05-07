@@ -466,8 +466,31 @@ model BudgetLine {
   order       Int            @default(0)
   // v1.31.1: BUILD cards back-relation for the materials-total link.
   buildCards  BookBuildCard[]
+  // v1.77.0: variable / per-head pricing. When `perHeadPence` and
+  // `headcountSource` are both set, the line's effective estimated
+  // total is `perHeadPence × computeHeadcount(...)` — recomputed live
+  // against the guest list each render (so RSVP changes propagate
+  // without anyone needing to retype the number). The flat `estimated`
+  // column above is retained as a manual fallback.
+  perHeadPence    Int?
+  headcountSource PerHeadSource?
+  manualHeadcount Int?
   createdAt   DateTime       @default(now())
   updatedAt   DateTime       @updatedAt
+}
+
+// v1.77.0: which slice of the guest list a per-head BudgetLine
+// multiplies against. Most cases are CONFIRMED_PLUS_PENDING (realistic
+// upper-bound planning) or ALL_CONFIRMED (the safe number once RSVPs
+// settle). MANUAL is the escape hatch for things the guest list
+// doesn't model — e.g. "4 bridesmaids", "6 groomsmen".
+enum PerHeadSource {
+  ALL_INVITED
+  CONFIRMED_PLUS_PENDING
+  ALL_CONFIRMED
+  ADULTS_CONFIRMED
+  CHILDREN_CONFIRMED
+  MANUAL
 }
 
 model Payment {

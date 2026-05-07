@@ -98,6 +98,7 @@ export default async function AtAGlancePage() {
     budgetTotals,
     myOpenTasks,
     recentActivity,
+    spendPulsePayments,
   ] = await Promise.all([
     db.guest.groupBy({
       by: ["rsvp"],
@@ -152,6 +153,22 @@ export default async function AtAGlancePage() {
       take: 8,
       include: { user: { select: { name: true, email: true } } },
     }),
+    // v1.77.0: spend pulse — last 30 days of paid payments + their
+    // categories, used for "this week / this month / top categories"
+    // rollup. Couple-only.
+    isCouple
+      ? db.payment.findMany({
+          where: {
+            status: "PAID",
+            paidDate: { gte: new Date(Date.now() - 30 * 86_400_000) },
+          },
+          select: {
+            amount: true,
+            paidDate: true,
+            budgetLine: { select: { category: { select: { id: true, name: true } } } },
+          },
+        })
+      : Promise.resolve([]),
   ]);
 
   const totalInvited = guestsByRsvp.reduce((n, g) => n + g._count._all, 0);
@@ -172,6 +189,29 @@ export default async function AtAGlancePage() {
   }, 0);
   const budgetCommitted = Math.max(0, budgetActual - budgetPaid);
   const budgetRemaining = Math.max(0, budgetPlanned - budgetActual);
+
+  // v1.77.0: spend pulse aggregates. Bucketise the last 30 days of
+  // paid payments into "this week" (last 7 days) and "this month"
+  // (last 30 days, inclusive of the week), plus the top 3 categories
+  // by amount. Same source query — pure reduction here.
+  const weekAgo = Date.now() - 7 * 86_400_000;
+  let pulseThisWeek = 0;
+  let pulseThisMonth = 0;
+  const pulseByCategory = new Map<string, { id: string | null; name: string; total: number }>();
+  for (const p of spendPulsePayments) {
+    const amt = Number(p.amount.toString());
+    pulseThisMonth += amt;
+    if (p.paidDate && p.paidDate.getTime() >= weekAgo) pulseThisWeek += amt;
+    const cat = p.budgetLine?.category;
+    const key = cat?.id ?? "__uncat__";
+    const display = cat?.name ?? "Uncategorised";
+    const existing = pulseByCategory.get(key);
+    if (existing) existing.total += amt;
+    else pulseByCategory.set(key, { id: cat?.id ?? null, name: display, total: amt });
+  }
+  const pulseTopCategories = Array.from(pulseByCategory.values())
+    .sort((a, b) => b.total - a.total)
+    .slice(0, 3);
 
   return (
     <>
@@ -236,6 +276,48 @@ export default async function AtAGlancePage() {
                   <BudgetStat label="Committed" value={formatGBP(budgetCommitted)} tone="marigold" />
                   <BudgetStat label="Remaining" value={formatGBP(budgetRemaining)} />
                 </div>
+                {/* v1.77.0: spend pulse — recent paid totals + top
+                    categories. Hidden when there's been no spend in
+                    the last 30 days so the card isn't padded with a
+                    zeroed strip on a fresh DB. */}
+                {pulseThisMonth > 0 && (
+                  <div className="mt-3 pt-3 border-t border-border-soft">
+                    <div className="text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1.5">
+                      Recent spend
+                    </div>
+                    <div className="flex gap-3 flex-wrap text-xs mb-1.5">
+                      <span>
+                        <strong className="text-ink-primary tabular-nums">{formatGBP(pulseThisWeek)}</strong>
+                        <span className="text-ink-tertiary ml-1">this week</span>
+                      </span>
+                      <span>
+                        <strong className="text-ink-primary tabular-nums">{formatGBP(pulseThisMonth)}</strong>
+                        <span className="text-ink-tertiary ml-1">this month</span>
+                      </span>
+                    </div>
+                    {pulseTopCategories.length > 0 && (
+                      <ul className="space-y-0.5">
+                        {pulseTopCategories.map((c) => (
+                          <li key={c.id ?? "__uncat__"} className="flex justify-between text-[11px]">
+                            <span className="text-ink-tertiary truncate">
+                              {c.id ? (
+                                <a
+                                  href={`/payments?category=${c.id}`}
+                                  className="hover:text-moss-700 hover:underline"
+                                >
+                                  {c.name}
+                                </a>
+                              ) : (
+                                c.name
+                              )}
+                            </span>
+                            <span className="text-ink-secondary tabular-nums">{formatGBP(c.total)}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                )}
               </GlanceCard>
             ) : (
               <GlanceCard title="Wedding day">

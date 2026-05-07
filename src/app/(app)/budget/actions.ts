@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import { PerHeadSource } from "@prisma/client";
 import { db } from "@/lib/db";
 import { audit, requireEdit } from "@/lib/actions";
 
@@ -23,7 +24,27 @@ const lineSchema = z.object({
   paid: z.string().optional().nullable(),
   supplierId: z.string().optional().nullable(),
   notes: z.string().max(2000).optional().nullable(),
+  // v1.77.0: variable / per-head pricing fields. perHeadPence is sent
+  // as pounds-with-decimal text (the £ input) and parsed to integer
+  // pence; headcountSource null means the line is flat-estimated; a
+  // non-null source with a null perHeadPence is treated as not-yet-
+  // configured and falls back to flat.
+  perHeadPence: z.string().optional().nullable(),
+  headcountSource: z.nativeEnum(PerHeadSource).optional().nullable(),
+  manualHeadcount: z.string().optional().nullable(),
 });
+
+function parsePence(s: string | null | undefined): number | null {
+  if (!s) return null;
+  const n = Number(String(s).replace(/[£,\s]/g, ""));
+  if (isNaN(n)) return null;
+  return Math.round(n * 100);
+}
+function parseInteger(s: string | null | undefined): number | null {
+  if (!s) return null;
+  const n = parseInt(String(s).trim(), 10);
+  return isNaN(n) ? null : n;
+}
 
 function parseAmount(s: string | null | undefined): number | null {
   if (!s) return null;
@@ -107,6 +128,9 @@ export async function createLine(formData: FormData) {
     paid: formData.get("paid") || null,
     supplierId: formData.get("supplierId") || null,
     notes: formData.get("notes") || null,
+    perHeadPence: formData.get("perHeadPence") || null,
+    headcountSource: (formData.get("headcountSource") as string) || null,
+    manualHeadcount: formData.get("manualHeadcount") || null,
   });
   const created = await db.budgetLine.create({
     data: {
@@ -117,6 +141,9 @@ export async function createLine(formData: FormData) {
       paid: parseAmount(parsed.paid ?? null),
       supplierId: parsed.supplierId || null,
       notes: parsed.notes ?? null,
+      perHeadPence: parsePence(parsed.perHeadPence ?? null),
+      headcountSource: parsed.headcountSource ?? null,
+      manualHeadcount: parseInteger(parsed.manualHeadcount ?? null),
     },
     include: { category: { select: { name: true } } },
   });
@@ -131,6 +158,8 @@ export async function createLine(formData: FormData) {
       actual: decimalToNumber(created.actual),
       paid: decimalToNumber(created.paid),
       supplierId: created.supplierId,
+      perHeadPence: created.perHeadPence,
+      headcountSource: created.headcountSource,
     },
   });
   revalidatePath("/budget");
@@ -146,6 +175,9 @@ export async function updateLine(id: string, formData: FormData) {
     paid: formData.get("paid") || null,
     supplierId: formData.get("supplierId") || null,
     notes: formData.get("notes") || null,
+    perHeadPence: formData.get("perHeadPence") || null,
+    headcountSource: (formData.get("headcountSource") as string) || null,
+    manualHeadcount: formData.get("manualHeadcount") || null,
   });
   // Read before so the audit row can diff old vs new on the fields
   // the user actually changed.
@@ -161,6 +193,9 @@ export async function updateLine(id: string, formData: FormData) {
     paid: parseAmount(parsed.paid ?? null),
     supplierId: parsed.supplierId || null,
     notes: parsed.notes ?? null,
+    perHeadPence: parsePence(parsed.perHeadPence ?? null),
+    headcountSource: parsed.headcountSource ?? null,
+    manualHeadcount: parseInteger(parsed.manualHeadcount ?? null),
   };
   await db.budgetLine.update({ where: { id }, data: next });
 
@@ -173,6 +208,9 @@ export async function updateLine(id: string, formData: FormData) {
     if (decimalToNumber(before.paid) !== next.paid) changedFields.push("paid");
     if (before.supplierId !== next.supplierId) changedFields.push("supplierId");
     if (before.notes !== next.notes) changedFields.push("notes");
+    if (before.perHeadPence !== next.perHeadPence) changedFields.push("perHeadPence");
+    if (before.headcountSource !== next.headcountSource) changedFields.push("headcountSource");
+    if (before.manualHeadcount !== next.manualHeadcount) changedFields.push("manualHeadcount");
   }
   await audit(user, {
     action: "update",

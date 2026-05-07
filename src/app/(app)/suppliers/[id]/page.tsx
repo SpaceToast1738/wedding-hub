@@ -142,6 +142,18 @@ export default async function SupplierDetailPage({
   const totalDue = supplier.payments
     .filter((p) => p.status !== "PAID")
     .reduce((sum, p) => sum + Number(p.amount), 0);
+  // v1.77.0: over-agreed warning. When the running payment total
+  // (paid + due) exceeds amountAgreed, surface a chip on the rollup
+  // section so the couple knows the relationship has slipped beyond
+  // the contracted price.
+  const totalCommitted = totalPaid + totalDue;
+  const agreedNumber =
+    supplier.amountAgreed == null ? null : Number(supplier.amountAgreed.toString());
+  const overAgreed =
+    showMoney &&
+    agreedNumber != null &&
+    agreedNumber > 0 &&
+    totalCommitted > agreedNumber;
 
   return (
     <>
@@ -185,6 +197,14 @@ export default async function SupplierDetailPage({
                   <Row label="Agreed" value={formatGBP(supplier.amountAgreed)} />
                   <Row label="Paid to date" value={formatGBP(totalPaid)} />
                   <Row label="Outstanding" value={formatGBP(totalDue)} />
+                  {overAgreed && agreedNumber != null && (
+                    <div className="px-4 py-2.5 bg-danger-bg/50 border-t border-danger-border">
+                      <p className="text-[12px] text-danger font-medium">
+                        ⚠ Over agreed by {formatGBP(totalCommitted - agreedNumber)} ·
+                        committed {formatGBP(totalCommitted)} against {formatGBP(agreedNumber)}.
+                      </p>
+                    </div>
+                  )}
                 </>
               )}
               {supplier.notes && (

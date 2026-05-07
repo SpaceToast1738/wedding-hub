@@ -1,10 +1,12 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import type { PerHeadSource } from "@prisma/client";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { formatMoneyDecimal } from "@/lib/format";
-import { computeActual, isManualOverride, sumOfPayments } from "@/lib/budget";
+import { computeActual, computeEstimated, isManualOverride, sumOfPayments } from "@/lib/budget";
+import { perHeadSourceLabel, perHeadSourceNoun } from "@/lib/headcount";
 import { createCategory, createLine, deleteCategory, deleteLine, updateLine } from "./actions";
 import { notify } from "@/lib/notify";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
@@ -21,9 +23,35 @@ type Line = {
   notes: string | null;
   // B2: linked payments so `actual` can be recomputed when null.
   payments: { amount: string }[];
+  // v1.77.0: per-head pricing config. When perHeadPence + headcountSource
+  // are both set, the row's effective estimated is computed live.
+  perHeadPence: number | null;
+  headcountSource: PerHeadSource | null;
+  manualHeadcount: number | null;
 };
 
 type Category = { id: string; name: string; lines: Line[] };
+
+type HeadcountMap = Record<Exclude<PerHeadSource, "MANUAL">, number>;
+
+// v1.77.0: resolve a line's effective estimated against the
+// pre-fetched headcounts map.
+function resolveHeadcount(line: Line, headcounts: HeadcountMap): number | null {
+  if (line.headcountSource == null) return null;
+  if (line.headcountSource === "MANUAL") return Math.max(0, line.manualHeadcount ?? 0);
+  return headcounts[line.headcountSource];
+}
+function effectiveEstimated(line: Line, headcounts: HeadcountMap): number {
+  const count = resolveHeadcount(line, headcounts);
+  return computeEstimated(
+    {
+      estimated: line.estimated,
+      perHeadPence: line.perHeadPence,
+      headcountSource: line.headcountSource,
+    },
+    count,
+  );
+}
 
 function num(d: { toString: () => string } | null | undefined): number {
   if (!d) return 0;
@@ -39,15 +67,18 @@ export function BudgetClient({
   categories,
   suppliers,
   buildCardByLineId = {},
+  headcounts,
 }: {
   categories: Category[];
   suppliers: Supplier[];
   buildCardByLineId?: Record<string, BuildCardLink>;
+  /** v1.77.0: live per-source counts for resolving per-head lines. */
+  headcounts: HeadcountMap;
 }) {
   const totals = categories.reduce(
     (acc, c) => {
       for (const l of c.lines) {
-        acc.estimated += num(l.estimated);
+        acc.estimated += effectiveEstimated(l, headcounts);
         acc.actual += computeActual(l);
         acc.paid += num(l.paid);
       }
@@ -67,7 +98,13 @@ export function BudgetClient({
           </p>
         ) : (
           categories.map((c) => (
-            <CategoryBlock key={c.id} category={c} suppliers={suppliers} buildCardByLineId={buildCardByLineId} />
+            <CategoryBlock
+              key={c.id}
+              category={c}
+              suppliers={suppliers}
+              buildCardByLineId={buildCardByLineId}
+              headcounts={headcounts}
+            />
           ))
         )}
         <AddCategory />
@@ -140,10 +177,12 @@ function CategoryBlock({
   category,
   suppliers,
   buildCardByLineId = {},
+  headcounts,
 }: {
   category: Category;
   suppliers: Supplier[];
   buildCardByLineId?: Record<string, BuildCardLink>;
+  headcounts: HeadcountMap;
 }) {
   const [adding, setAdding] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
@@ -174,12 +213,19 @@ function CategoryBlock({
   // Subtotals so the user gets per-category numbers without having to scan rows.
   const subtotals = category.lines.reduce(
     (acc, l) => ({
-      estimated: acc.estimated + num(l.estimated),
+      estimated: acc.estimated + effectiveEstimated(l, headcounts),
       actual: acc.actual + computeActual(l),
       paid: acc.paid + num(l.paid),
     }),
     { estimated: 0, actual: 0, paid: 0 },
   );
+  // v1.77.0: any line over its effective estimated triggers a small
+  // warning chip on the category header so the user can spot
+  // problem categories at a glance.
+  const overBudgetLineCount = category.lines.filter((l) => {
+    const est = effectiveEstimated(l, headcounts);
+    return est > 0 && computeActual(l) > est;
+  }).length;
 
   return (
     <section className="bg-surface border border-border-soft rounded-md shadow-sm">
@@ -195,6 +241,14 @@ function CategoryBlock({
           <span className="text-[11px] text-ink-tertiary">
             {category.lines.length} {category.lines.length === 1 ? "line" : "lines"}
           </span>
+          {overBudgetLineCount > 0 && (
+            <span
+              className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded-sm border bg-danger-bg text-danger border-danger-border"
+              title={`${overBudgetLineCount} line${overBudgetLineCount === 1 ? "" : "s"} over budget`}
+            >
+              ⚠ {overBudgetLineCount} over
+            </span>
+          )}
           <span className="flex-1" />
           <span className="text-xs text-ink-secondary tabular-nums hidden sm:inline">
             Planned {formatMoneyDecimal(subtotals.estimated as unknown as { toString(): string })}
@@ -204,6 +258,13 @@ function CategoryBlock({
           </span>
         </button>
         <div className="flex gap-1 flex-shrink-0">
+          <a
+            href={`/payments?category=${category.id}`}
+            className="text-[11px] text-info hover:underline self-center mr-1"
+            title={`Show all payments in ${category.name}`}
+          >
+            ↗ Payments
+          </a>
           <Button variant="ghost" size="sm" onClick={() => setAdding(true)} disabled={pending}>+ Line</Button>
           <Button variant="ghost" size="sm" onClick={onDeleteCat} disabled={pending}>Delete</Button>
         </div>
@@ -223,7 +284,7 @@ function CategoryBlock({
           </thead>
           <tbody>
             {category.lines.map((l) => (
-              <LineRow key={l.id} line={l} categoryId={category.id} suppliers={suppliers} buildCard={buildCardByLineId[l.id]} />
+              <LineRow key={l.id} line={l} categoryId={category.id} suppliers={suppliers} buildCard={buildCardByLineId[l.id]} headcounts={headcounts} />
             ))}
             {category.lines.length === 0 && !adding && (
               <tr>
@@ -252,11 +313,13 @@ function LineRow({
   categoryId,
   suppliers,
   buildCard,
+  headcounts,
 }: {
   line: Line;
   categoryId: string;
   suppliers: Supplier[];
   buildCard?: BuildCardLink;
+  headcounts: HeadcountMap;
 }) {
   const [editing, setEditing] = useState(false);
   const [pending, startTransition] = useTransition();
@@ -286,12 +349,16 @@ function LineRow({
               paid: line.paid ? line.paid.toString() : "",
               supplierId: line.supplierId,
               notes: line.notes ?? "",
+              perHeadPence: line.perHeadPence,
+              headcountSource: line.headcountSource,
+              manualHeadcount: line.manualHeadcount,
             }}
             paymentsSum={sumOfPayments(line)}
             paymentsCount={line.payments.length}
             onDone={() => setEditing(false)}
             existingId={line.id}
             submitLabel="Save"
+            headcounts={headcounts}
           />
         </td>
       </tr>
@@ -304,6 +371,11 @@ function LineRow({
   const actualResolved = computeActual(line);
   const isManual = isManualOverride(line);
   const paymentsSum = sumOfPayments(line);
+  // v1.77.0: per-head breakdown chip + over-budget flag.
+  const headcount = resolveHeadcount(line, headcounts);
+  const isPerHead = line.perHeadPence != null && line.headcountSource != null;
+  const estimatedResolved = effectiveEstimated(line, headcounts);
+  const overBudget = estimatedResolved > 0 && actualResolved > estimatedResolved;
 
   return (
     <tr className="border-b border-border-soft last:border-b-0 hover:bg-muted/30">
@@ -322,10 +394,36 @@ function LineRow({
               ↗ DIY · {buildCard.title}
             </a>
           )}
+          {overBudget && (
+            <span
+              className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded-sm border bg-danger-bg text-danger border-danger-border"
+              title={`Actual exceeds planned by £${(actualResolved - estimatedResolved).toFixed(2)}`}
+            >
+              ⚠ Over
+            </span>
+          )}
         </div>
         {line.notes && <div className="text-xs text-ink-tertiary line-clamp-1">{line.notes}</div>}
+        {isPerHead && line.perHeadPence != null && (
+          <div className="text-[11px] text-ink-tertiary mt-0.5">
+            £{(line.perHeadPence / 100).toFixed(2)} ×{" "}
+            {headcount ?? 0}{" "}
+            {perHeadSourceNoun(line.headcountSource!, headcount ?? 0)}
+            {line.headcountSource !== "MANUAL" && (
+              <> ({perHeadSourceLabel(line.headcountSource!)})</>
+            )}
+            {" = "}
+            <span className="text-ink-secondary tabular-nums">
+              £{estimatedResolved.toFixed(2)}
+            </span>
+          </div>
+        )}
       </td>
-      <td className="px-4 py-2 text-right text-sm text-ink-secondary tabular-nums">{formatMoneyDecimal(line.estimated)}</td>
+      <td className="px-4 py-2 text-right text-sm text-ink-secondary tabular-nums">
+        {isPerHead
+          ? `£${estimatedResolved.toFixed(2)}`
+          : formatMoneyDecimal(line.estimated)}
+      </td>
       <td className="px-4 py-2 text-right text-sm text-ink-secondary tabular-nums">
         <span title={isManual
           ? `Manual override. Sum of ${line.payments.length} payment${line.payments.length === 1 ? "" : "s"}: ${formatMoneyDecimal(paymentsSum as unknown as { toString(): string })}`
@@ -357,6 +455,7 @@ function NewLineForm({
   submitLabel = "Add line",
   paymentsSum,
   paymentsCount,
+  headcounts,
 }: {
   categoryId: string;
   suppliers: Supplier[];
@@ -368,6 +467,10 @@ function NewLineForm({
     paid?: string;
     supplierId?: string | null;
     notes?: string;
+    // v1.77.0
+    perHeadPence?: number | null;
+    headcountSource?: PerHeadSource | null;
+    manualHeadcount?: number | null;
   };
   existingId?: string;
   submitLabel?: string;
@@ -375,11 +478,47 @@ function NewLineForm({
   // the form can show "Computed from £X" beneath the Actual field.
   paymentsSum?: number;
   paymentsCount?: number;
+  /** v1.77.0: pre-fetched counts so the form can preview "= £X" live
+   *  as the user types per-head price + picks a source. Optional —
+   *  the create-form path doesn't have it yet (would need page
+   *  threading); the edit-form path does. */
+  headcounts?: HeadcountMap;
 }) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const hasManualActual = !!initial?.actual;
   const hasPayments = (paymentsCount ?? 0) > 0;
+
+  // v1.77.0: Variable cost toggle. When on, the line's "Planned" stat
+  // is derived from `perHeadPence × headcount` and the flat
+  // `estimated` field is hidden.
+  const [variableMode, setVariableMode] = useState<boolean>(
+    initial?.perHeadPence != null || initial?.headcountSource != null,
+  );
+  const [perHeadStr, setPerHeadStr] = useState<string>(
+    initial?.perHeadPence != null ? (initial.perHeadPence / 100).toFixed(2) : "",
+  );
+  const [source, setSource] = useState<PerHeadSource | "">(
+    initial?.headcountSource ?? "",
+  );
+  const [manualStr, setManualStr] = useState<string>(
+    initial?.manualHeadcount != null ? String(initial.manualHeadcount) : "",
+  );
+  // Live preview of the computed total based on current inputs.
+  const previewCount = (() => {
+    if (source === "") return null;
+    if (source === "MANUAL") {
+      const n = parseInt(manualStr, 10);
+      return isNaN(n) ? null : Math.max(0, n);
+    }
+    if (!headcounts) return null;
+    return headcounts[source];
+  })();
+  const previewPerHead = parseFloat(perHeadStr);
+  const previewTotal =
+    !isNaN(previewPerHead) && previewCount != null
+      ? previewPerHead * previewCount
+      : null;
 
   async function handle(formData: FormData) {
     setError(null);
@@ -402,15 +541,112 @@ function NewLineForm({
     <form action={handle} className="space-y-2">
       <div className="grid grid-cols-1 md:grid-cols-6 gap-2">
         <Input name="description" defaultValue={initial?.description ?? ""} required placeholder="Item description" className="md:col-span-2" />
-        <Input name="estimated" type="number" step="0.01" defaultValue={initial?.estimated ?? ""} placeholder="Planned £" />
+        {variableMode ? (
+          // v1.77.0: hide the flat estimated input but pass null
+          // through so the server clears it when switching modes.
+          <input type="hidden" name="estimated" value="" />
+        ) : (
+          <Input name="estimated" type="number" step="0.01" defaultValue={initial?.estimated ?? ""} placeholder="Planned £" />
+        )}
         <Input name="actual" type="number" step="0.01" defaultValue={initial?.actual ?? ""}
-          placeholder={hasPayments && !hasManualActual ? `Σ £${(paymentsSum ?? 0).toFixed(2)}` : "Actual £"} />
+          placeholder={hasPayments && !hasManualActual ? `Σ £${(paymentsSum ?? 0).toFixed(2)}` : "Actual £"}
+          className={variableMode ? "md:col-start-4" : undefined} />
         <Input name="paid" type="number" step="0.01" defaultValue={initial?.paid ?? ""} placeholder="Paid £" />
         <select name="supplierId" defaultValue={initial?.supplierId ?? ""} className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2 py-1.5 text-ink-primary outline-none">
           <option value="">— supplier —</option>
           {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
         </select>
       </div>
+      {/* v1.77.0: variable / per-head pricing toggle. */}
+      <div className="flex items-center gap-2">
+        <label className="inline-flex items-center gap-1.5 text-[11px] text-ink-secondary">
+          <input
+            type="checkbox"
+            checked={variableMode}
+            onChange={(e) => setVariableMode(e.target.checked)}
+          />
+          Variable cost (£ × headcount)
+        </label>
+      </div>
+      {variableMode && (
+        <div className="bg-canvas/40 border border-border-soft rounded-sm p-2.5 space-y-2">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            <div>
+              <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">
+                Per head £
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                name="perHeadPence"
+                value={perHeadStr}
+                onChange={(e) => setPerHeadStr(e.target.value)}
+                placeholder="50.00"
+                className="w-full text-sm bg-surface text-ink-primary border border-border-soft rounded-sm px-2.5 py-1.5 outline-none focus:border-moss-500 tabular-nums"
+              />
+            </div>
+            <div>
+              <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">
+                Headcount source
+              </label>
+              <select
+                name="headcountSource"
+                value={source}
+                onChange={(e) => setSource((e.target.value as PerHeadSource) || "")}
+                className="w-full text-sm bg-surface text-ink-primary border border-border-soft rounded-sm px-2 py-1.5 outline-none"
+              >
+                <option value="">— pick —</option>
+                <option value="ALL_INVITED">All invited</option>
+                <option value="CONFIRMED_PLUS_PENDING">Confirmed + pending</option>
+                <option value="ALL_CONFIRMED">Confirmed</option>
+                <option value="ADULTS_CONFIRMED">Adults confirmed</option>
+                <option value="CHILDREN_CONFIRMED">Children confirmed</option>
+                <option value="MANUAL">Manual count</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">
+                {source === "MANUAL" ? "Manual count" : "Live count"}
+              </label>
+              {source === "MANUAL" ? (
+                <input
+                  type="number"
+                  min="0"
+                  name="manualHeadcount"
+                  value={manualStr}
+                  onChange={(e) => setManualStr(e.target.value)}
+                  placeholder="e.g. 4"
+                  className="w-full text-sm bg-surface text-ink-primary border border-border-soft rounded-sm px-2.5 py-1.5 outline-none focus:border-moss-500 tabular-nums"
+                />
+              ) : (
+                <div className="text-sm text-ink-secondary px-2.5 py-1.5 tabular-nums bg-canvas border border-dashed border-border-soft rounded-sm">
+                  {previewCount ?? "—"}
+                </div>
+              )}
+              {source !== "MANUAL" && (
+                // hidden field so the form action sees null/empty
+                <input type="hidden" name="manualHeadcount" value="" />
+              )}
+            </div>
+          </div>
+          {previewTotal != null && (
+            <p className="text-[11px] text-ink-tertiary">
+              Live preview: <strong className="text-ink-secondary tabular-nums">£{previewTotal.toFixed(2)}</strong> ({previewCount} ×{" "}
+              £{(previewPerHead || 0).toFixed(2)})
+            </p>
+          )}
+        </div>
+      )}
+      {/* When variableMode is off, still send the per-head fields as
+          null so the server clears any previously-set values. */}
+      {!variableMode && (
+        <>
+          <input type="hidden" name="perHeadPence" value="" />
+          <input type="hidden" name="headcountSource" value="" />
+          <input type="hidden" name="manualHeadcount" value="" />
+        </>
+      )}
       {existingId && hasPayments && (
         <p className="text-[11px] text-ink-tertiary">
           {hasManualActual

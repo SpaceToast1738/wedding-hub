@@ -21,17 +21,26 @@ import { PaymentRow } from "./PaymentRow";
 export default async function PaymentsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ supplier?: string }>;
+  // v1.77.0: + `?category=<id>` to scope the list to one budget
+  // category. Mirrors the v1.57.0 `?supplier=` pattern. The two are
+  // composable — `?supplier=X&category=Y` AND-filters.
+  searchParams: Promise<{ supplier?: string; category?: string }>;
 }) {
   const user = await requireUser();
   if (!user.isCouple) redirect("/");
   const wedding = await getWeddingSettings();
   const sp = await searchParams;
   const supplierFilter = typeof sp.supplier === "string" ? sp.supplier : null;
+  const categoryFilter = typeof sp.category === "string" ? sp.category : null;
 
-  const [payments, suppliers, buildCardsRaw, outfitCardsRaw, allFiles] = await Promise.all([
+  // v1.77.0: combine filters via Prisma AND so each chip stacks.
+  const paymentsWhere: Record<string, unknown> = {};
+  if (supplierFilter) paymentsWhere.supplierId = supplierFilter;
+  if (categoryFilter) paymentsWhere.budgetLine = { categoryId: categoryFilter };
+
+  const [payments, suppliers, buildCardsRaw, outfitCardsRaw, allFiles, categories] = await Promise.all([
     db.payment.findMany({
-      where: supplierFilter ? { supplierId: supplierFilter } : undefined,
+      where: Object.keys(paymentsWhere).length > 0 ? paymentsWhere : undefined,
       orderBy: [{ status: "asc" }, { dueDate: "asc" }, { createdAt: "desc" }],
       // v1.75.0: surface receipt count + linked book-row identity for
       // PaymentRow's chip rendering. Materials surface their parent
@@ -89,6 +98,11 @@ export default async function PaymentsPage({
       orderBy: { name: "asc" },
       select: { id: true, name: true, mimeType: true },
     }),
+    // v1.77.0: budget categories for the filter banner display.
+    db.budgetCategory.findMany({
+      orderBy: { order: "asc" },
+      select: { id: true, name: true },
+    }),
   ]);
 
   const total = payments.reduce((sum, p) => sum + Number(p.amount.toString()), 0);
@@ -96,6 +110,11 @@ export default async function PaymentsPage({
   const outstanding = total - paid;
   const filteredSupplier = supplierFilter
     ? suppliers.find((s) => s.id === supplierFilter)
+    : null;
+  // v1.77.0: resolve the category filter target's display name for
+  // the filter banner.
+  const filteredCategory = categoryFilter
+    ? categories.find((c) => c.id === categoryFilter)
     : null;
 
   // v1.75.0: derive the autofill datalist for the description input
@@ -155,7 +174,24 @@ export default async function PaymentsPage({
             Filtered by supplier:{" "}
             <strong className="text-ink-primary">{filteredSupplier.name}</strong>
           </span>
-          <Link href="/payments" className="text-info hover:underline ml-auto">
+          <Link
+            href={categoryFilter ? `/payments?category=${categoryFilter}` : "/payments"}
+            className="text-info hover:underline ml-auto"
+          >
+            Clear ×
+          </Link>
+        </div>
+      )}
+      {filteredCategory && (
+        <div className="bg-moss-50 border-b border-moss-300 px-4 sm:px-6 py-2 flex items-center gap-3 text-xs">
+          <span className="text-ink-secondary">
+            Filtered by category:{" "}
+            <strong className="text-ink-primary">{filteredCategory.name}</strong>
+          </span>
+          <Link
+            href={supplierFilter ? `/payments?supplier=${supplierFilter}` : "/payments"}
+            className="text-info hover:underline ml-auto"
+          >
             Clear ×
           </Link>
         </div>

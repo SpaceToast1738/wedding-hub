@@ -48,3 +48,42 @@ export function isManualOverride(line: BudgetLineForCompute): boolean {
 export function sumOfPayments(line: BudgetLineForCompute): number {
   return line.payments.reduce((sum, p) => sum + toNumber(p.amount), 0);
 }
+
+// v1.77.0: effective estimated value. When the line has a per-head
+// price + source set, we derive `perHeadPence × computed-count` and
+// return that (in pounds). Otherwise the manual `estimated` column
+// wins. Pure — caller passes in the resolved count so this stays
+// off the DB.
+export type BudgetLineForEstimate = {
+  estimated: DecimalLike;
+  perHeadPence: number | null;
+  headcountSource: string | null;
+};
+export function computeEstimated(
+  line: BudgetLineForEstimate,
+  headcount: number | null,
+): number {
+  if (
+    line.perHeadPence != null &&
+    line.headcountSource != null &&
+    headcount != null
+  ) {
+    // perHeadPence is integer pence; convert to pounds via /100.
+    return (line.perHeadPence * headcount) / 100;
+  }
+  return toNumber(line.estimated);
+}
+
+// v1.77.0: is this line over budget? Used by the warning chips on
+// /budget rows and category headers. Returns true when the actual
+// amount strictly exceeds the effective estimated. A line with no
+// estimated (estimated === 0 and not per-head) returns false even
+// if there's spend — caller should check that case separately.
+export function isOverBudget(
+  line: BudgetLineForCompute & BudgetLineForEstimate,
+  headcount: number | null,
+): boolean {
+  const estimated = computeEstimated(line, headcount);
+  if (estimated <= 0) return false;
+  return computeActual(line) > estimated;
+}
