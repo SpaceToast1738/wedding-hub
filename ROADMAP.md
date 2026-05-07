@@ -34,6 +34,7 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
+| **v1.73.0** | 2026-05-07 | [Songs page redesign — match `prototype/SongsPage.jsx`. New `SongsSummaryCards` grid renders one card per playlist (name · count · description, with category-coloured left bar) anchor-linking to that playlist's section. New `SpotifyConnectionBanner` — green gradient strip showing connection state + chips per playlist, visible only when Spotify is configured. Subtitle reformatted from `"X playlists · Y curated songs"` to `"X on the playlist · Y blocked · ~Hh Mm runtime"` with the prototype's 3.5 min/track heuristic. PlaylistCard sections now carry `id="playlist-<id>"` + `scroll-mt-4` so the new anchors land cleanly. Container drops `max-w-4xl` to go edge-to-edge.](#2026-05-07--v1730--songs-page-redesign) |
 | **v1.72.3** | 2026-05-02 | [Drop the table-wrapper border on /guests so it matches the borderless row treatment used on /tasks. Remove `border border-border-soft rounded-sm bg-surface` from the table container; the row dividers + household subheader bands carry the visual structure on their own.](#2026-05-02--v1723--drop-guests-table-border) |
 | **v1.72.2** | 2026-05-02 | [Always show household subheader on /guests — solo-household guests (e.g. Barry Scott, Gianmarco Schiaffonati) appeared visually nested under the previous household's subheader, since the v1.72.0 logic only rendered the household label when `guests.length > 1`. Now every household gets the muted `bg-muted` rule row with the household name, making boundaries unambiguous regardless of size. Indentation (`pl-7`) still only applies inside multi-member households so single-guest rows don't sit awkwardly indented under their own header.](#2026-05-02--v1722--always-show-household-subheader) |
 | **v1.72.1** | 2026-05-02 | [Guests page width + linked-tasks strip polish — drop the `max-w-7xl mx-auto` constraint on `/guests` so the table goes edge-to-edge matching `/tasks`. Reshape `PageLinkedTasksStrip` from a centered card (`mx-auto max-w-5xl rounded-md shadow-sm`) into a flush full-width banner (`bg-surface border-b border-border-soft px-4 sm:px-6`) — same treatment as the supplier-filter banner on `/tasks`. Empty state collapses into the header row instead of a separate paragraph. Affects /songs, /seating/ceremony, /guests.](#2026-05-02--v1721--guests-width--linked-tasks-strip-polish) |
@@ -906,6 +907,20 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-05-07 · v1.73.0 — Songs page redesign
+
+User flagged that `/songs` didn't match the prototype design dock. Three additive changes bring it in line without rewriting the existing playlist-edit machinery (`PlaylistCard` keeps its full functionality — sync to Spotify, add/move/delete songs, block-list styling).
+
+**Summary card grid (`SongsSummaryCards.tsx`).** Top of the page, one card per playlist showing name (uppercase, category-coloured) · song count (display font, big) · description. Cards are `<a href="#playlist-<id>">` so clicking smooth-scrolls to that playlist's section below. Category-to-accent map covers the seven seeded categories (BRIDAL_PREP / CEREMONY / DRINKS_RECEPTION / WEDDING_BREAKFAST / FIRST_DANCE / MUST_PLAY / DO_NOT_PLAY) and falls back to moss for any new category added later.
+
+**Spotify connection banner (`SpotifyConnectionBanner.tsx`).** Green gradient strip below the cards. Visible only when `isSpotifyConfigured()` is true AND at least one playlist exists. Shows "Spotify connected · N playlists", a sync timestamp computed from the most recent `lastSyncedAt` across all playlists ("last synced 2m ago"), and a chip per playlist anchor-linking to it.
+
+**Subtitle reformatted.** From `"X playlists · Y curated songs"` to the prototype's `"X on the playlist · Y blocked · ~Hh Mm runtime"`. Runtime estimate uses the prototype's 3.5 min/track heuristic. Block-list songs split out from "on the playlist" so the do-not-play count gets its own billing. Guest-request count stays as a tail bit when present.
+
+**Edge-to-edge container.** Dropped `max-w-4xl` so the cards have room to breathe — matches `/tasks` and `/guests`.
+
+**Anchor target on playlists.** `PlaylistCard` gains `id="playlist-<id>"` + `scroll-mt-4` so the summary cards / banner chips land with breathing room from the page top.
 
 ### 2026-05-02 · v1.72.3 — Drop /guests table border
 

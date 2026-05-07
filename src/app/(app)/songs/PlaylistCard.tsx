@@ -123,7 +123,7 @@ export function PlaylistCard({
   const accent = playlist.isBlockList ? "border-danger/30 bg-danger-bg/30" : "border-border-soft bg-surface";
 
   return (
-    <section className={`border ${accent} rounded-md shadow-sm`}>
+    <section id={`playlist-${playlist.id}`} className={`border ${accent} rounded-md shadow-sm scroll-mt-4`}>
       <header className="flex items-center justify-between px-4 py-3 border-b border-border-soft">
         <div>
           <h2 className="text-sm font-semibold text-ink-primary">{playlist.name}</h2>

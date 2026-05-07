@@ -8,6 +8,8 @@ import { PageLinkedTasksStrip } from "@/components/ui/PageLinkedTasksStrip";
 import { AddPlaylistToggle } from "./AddPlaylistToggle";
 import { PlaylistCard } from "./PlaylistCard";
 import { GuestRequestsSection } from "./GuestRequestsSection";
+import { SongsSummaryCards } from "./SongsSummaryCards";
+import { SpotifyConnectionBanner } from "./SpotifyConnectionBanner";
 
 // v1.57.0 (XL9): accepts `?guest=<id>` filter so a deep-link from
 // `/guests/[id]` lands at the relevant requests-by-this-guest view
@@ -87,8 +89,21 @@ export default async function SongsPage({
       })
     : [];
 
-  const totalSongs = playlists.reduce((n, p) => n + p.songs.length, 0);
-  const subtitleBits = [`${playlists.length} playlists`, `${totalSongs} curated songs`];
+  // v1.73.0: subtitle mirrors prototype — split songs into "on the
+  // playlist" vs "blocked" so the do-not-play count gets its own
+  // billing, and add a runtime estimate (~3.5 min/track, matches
+  // the prototype's heuristic).
+  const playlistSongs = playlists
+    .filter((p) => !p.isBlockList)
+    .reduce((n, p) => n + p.songs.length, 0);
+  const blockedSongs = playlists
+    .filter((p) => p.isBlockList)
+    .reduce((n, p) => n + p.songs.length, 0);
+  const runtimeMins = Math.round(playlistSongs * 3.5);
+  const runtimeLabel = `~${Math.floor(runtimeMins / 60)}h ${runtimeMins % 60}m runtime`;
+  const subtitleBits = [`${playlistSongs} on the playlist`];
+  if (blockedSongs > 0) subtitleBits.push(`${blockedSongs} blocked`);
+  if (playlistSongs > 0) subtitleBits.push(runtimeLabel);
   if (guestRequests.length > 0) {
     subtitleBits.push(`${guestRequests.length} guest request${guestRequests.length === 1 ? "" : "s"}`);
   }
@@ -145,8 +160,29 @@ export default async function SongsPage({
           users={taskUsers}
         />
       )}
+      {/* v1.73.0: prototype-aligned summary grid + Spotify banner. */}
+      <SongsSummaryCards
+        playlists={playlists.map((p) => ({
+          id: p.id,
+          name: p.name,
+          category: p.category,
+          description: p.description,
+          isBlockList: p.isBlockList,
+          songCount: p.songs.length,
+        }))}
+      />
+      <SpotifyConnectionBanner
+        spotifyEnabled={spotifyEnabled}
+        playlists={playlists.map((p) => ({
+          id: p.id,
+          name: p.name,
+          songCount: p.songs.length,
+          spotifyId: p.spotifyId,
+          lastSyncedAt: p.lastSyncedAt,
+        }))}
+      />
       <div className="flex-1 overflow-auto">
-        <div className="max-w-4xl mx-auto p-4 sm:p-6 space-y-4">
+        <div className="p-4 sm:p-6 space-y-4">
           {guestRequests.length > 0 && (
             <GuestRequestsSection requests={guestRequests} />
           )}
