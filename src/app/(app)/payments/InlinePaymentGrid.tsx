@@ -5,29 +5,23 @@ import { createPayment } from "./actions";
 import { createSupplierQuick } from "@/app/(app)/suppliers/actions";
 import { notify } from "@/lib/notify";
 
-// v1.75.0: Excel-style multi-row inline payment entry. Replaces the
-// v1.74.0 single-row InlineAddPaymentRow. N visible blank rows; each
-// has description / amount / supplier / 🔗 link / 📎 receipt; **Enter**
-// on description or amount commits the current row, clears it, and
-// advances focus to the next blank row.
+// v1.75.0 → v1.75.1: single-row inline payment entry. Earlier
+// iteration showed 5 blank rows; user feedback ("only really need
+// one") collapsed to a single row. Supplier dropdown also became a
+// free-text autofill input (previously a `<select>` with a +New
+// option). Typing a supplier name that doesn't match an existing one
+// auto-creates it on commit (category defaults to "Other").
 //
-// Description input uses a `<datalist>` populated from past payment
-// descriptions so the browser can autofill on retype.
-//
-// Supplier select keeps the v1.74.0 `+ New supplier…` expansion flow
-// — calls createSupplierQuick, prepends the new supplier to the local
-// list, auto-selects it for the in-progress row.
+// Description input still uses a `<datalist>` populated from past
+// payment descriptions for autofill on retype.
 //
 // 🔗 Link opens a popover with cascading selects for BUILD card →
-// material OR a flat select of outfit items. Selection persists in
-// row-local state and is sent to createPayment as
-// `bookBuildMaterialId` or `bookOutfitId` on Enter.
+// material OR a flat select of outfit items.
 //
-// 📎 Receipt path: receipts attach AFTER the payment is created
-// (we need a paymentId before we can upload+attach). On Enter, the
-// payment is created, then any pending File objects are uploaded and
-// attached via uploadAndAttachReceipt. The chip shows pending count
-// before commit; final count after commit.
+// 📎 Receipt: "Pick existing" works on commit; "Upload from device"
+// queues a File but can't auto-attach (createPayment is a form-action
+// returning void) — surfaces a warn toast so the user re-uploads via
+// PaymentRow's edit menu.
 
 type Supplier = { id: string; name: string };
 
@@ -47,45 +41,6 @@ type LinkSelection =
   | { kind: "outfit"; outfitId: string; label: string }
   | null;
 
-type RowDraft = {
-  key: string;
-  description: string;
-  amount: string;
-  supplierId: string;
-  link: LinkSelection;
-  // pending receipts: a mix of already-uploaded files (id set) and
-  // newly-selected File objects (queued: object set). Queued files
-  // upload after the payment is created.
-  attachedFileIds: string[];
-  queuedFiles: File[];
-};
-
-const NEW_SUPPLIER_VALUE = "__new__";
-const INITIAL_ROW_COUNT = 5;
-
-function makeBlankRow(): RowDraft {
-  return {
-    key: crypto.randomUUID(),
-    description: "",
-    amount: "",
-    supplierId: "",
-    link: null,
-    attachedFileIds: [],
-    queuedFiles: [],
-  };
-}
-
-function isRowEmpty(r: RowDraft): boolean {
-  return (
-    !r.description.trim() &&
-    !r.amount.trim() &&
-    !r.supplierId &&
-    !r.link &&
-    r.attachedFileIds.length === 0 &&
-    r.queuedFiles.length === 0
-  );
-}
-
 export function InlinePaymentGrid({
   suppliers: initialSuppliers,
   recentDescriptions,
@@ -99,366 +54,227 @@ export function InlinePaymentGrid({
   outfitOptions: OutfitOption[];
   files: FileSummary[];
 }) {
-  const [rows, setRows] = useState<RowDraft[]>(() =>
-    Array.from({ length: INITIAL_ROW_COUNT }, makeBlankRow),
-  );
+  const [description, setDescription] = useState("");
+  const [amount, setAmount] = useState("");
+  // v1.75.1: supplier is a free-text input now. Stores the typed
+  // string; we resolve it to an id at commit time (or create a new
+  // supplier on the fly if it doesn't match).
+  const [supplierName, setSupplierName] = useState("");
+  const [link, setLink] = useState<LinkSelection>(null);
+  const [attachedFileIds, setAttachedFileIds] = useState<string[]>([]);
+  const [queuedFiles, setQueuedFiles] = useState<File[]>([]);
+  const [showLinkPicker, setShowLinkPicker] = useState(false);
+
   const [pending, startTransition] = useTransition();
   const [suppliers, setSuppliers] = useState<Supplier[]>(initialSuppliers);
   const [files] = useState<FileSummary[]>(initialFiles);
-  // refs for focusing the description cell of each row
-  const descriptionRefs = useRef<(HTMLInputElement | null)[]>([]);
+  const descriptionRef = useRef<HTMLInputElement>(null);
 
-  // "+ New supplier" sub-form — global to the grid (only one open at a
-  // time; tracks which row triggered it so the new id can be wired to
-  // the right row).
-  const [supplierFormForRow, setSupplierFormForRow] = useState<string | null>(null);
-  const [supplierName, setSupplierName] = useState("");
-  const [supplierCategory, setSupplierCategory] = useState("");
-  const supplierNameRef = useRef<HTMLInputElement>(null);
-
-  // Link picker — global; tracks which row the popover is editing.
-  const [linkPickerForRow, setLinkPickerForRow] = useState<string | null>(null);
-
-  function updateRow(key: string, patch: Partial<RowDraft>) {
-    setRows((curr) => curr.map((r) => (r.key === key ? { ...r, ...patch } : r)));
+  function reset() {
+    setDescription("");
+    setAmount("");
+    setSupplierName("");
+    setLink(null);
+    setAttachedFileIds([]);
+    setQueuedFiles([]);
+    setShowLinkPicker(false);
+    setTimeout(() => descriptionRef.current?.focus(), 0);
   }
 
-  function focusDescription(index: number) {
-    setTimeout(() => descriptionRefs.current[index]?.focus(), 0);
+  // v1.75.1: resolve the typed supplier name to an id. Three paths:
+  //   1. empty → null (no supplier link)
+  //   2. matches an existing supplier (case-insensitive) → use its id
+  //   3. doesn't match → auto-create with category "Other" via
+  //      createSupplierQuick, then use the new id
+  // Returns the resolved id or null. Throws on create-failure so the
+  // caller can show an error.
+  async function resolveSupplierId(): Promise<string | null> {
+    const trimmed = supplierName.trim();
+    if (!trimmed) return null;
+    const match = suppliers.find(
+      (s) => s.name.toLowerCase() === trimmed.toLowerCase(),
+    );
+    if (match) return match.id;
+    // Auto-create — same defaults the v1.74.0/.75.0 inline sub-form
+    // used: name as typed, category "Other".
+    const created = await createSupplierQuick({
+      name: trimmed,
+      category: "Other",
+    });
+    setSuppliers((curr) => [{ id: created.id, name: created.name }, ...curr]);
+    notify("success", `Created supplier "${created.name}"`);
+    return created.id;
   }
 
-  // Find the next non-pending blank row index after `from`. Used after
-  // a row commits so the user lands on a fresh row without grabbing
-  // the mouse.
-  function advanceFocusFrom(rows: RowDraft[], fromKey: string) {
-    const fromIdx = rows.findIndex((r) => r.key === fromKey);
-    for (let i = fromIdx + 1; i < rows.length; i++) {
-      if (isRowEmpty(rows[i]!)) {
-        focusDescription(i);
-        return;
-      }
-    }
-    focusDescription(rows.length - 1);
-  }
-
-  function commitRow(key: string) {
-    const row = rows.find((r) => r.key === key);
-    if (!row) return;
-    const trimmedDesc = row.description.trim();
-    const trimmedAmt = row.amount.trim();
+  function commit() {
+    const trimmedDesc = description.trim();
+    const trimmedAmt = amount.trim();
     if (!trimmedDesc) {
       notify("error", "Description required");
+      descriptionRef.current?.focus();
       return;
     }
     if (!trimmedAmt) {
       notify("error", "Amount required");
       return;
     }
-    const fd = new FormData();
-    fd.set("description", trimmedDesc);
-    fd.set("amount", trimmedAmt);
-    fd.set("status", "DUE");
-    if (row.supplierId) fd.set("supplierId", row.supplierId);
-    if (row.link?.kind === "buildMaterial") {
-      fd.set("bookBuildMaterialId", row.link.materialId);
-    }
-    if (row.link?.kind === "outfit") {
-      fd.set("bookOutfitId", row.link.outfitId);
-    }
-    for (const fid of row.attachedFileIds) fd.append("fileIds", fid);
     startTransition(async () => {
       try {
+        const supplierId = await resolveSupplierId();
+        const fd = new FormData();
+        fd.set("description", trimmedDesc);
+        fd.set("amount", trimmedAmt);
+        fd.set("status", "DUE");
+        if (supplierId) fd.set("supplierId", supplierId);
+        if (link?.kind === "buildMaterial") {
+          fd.set("bookBuildMaterialId", link.materialId);
+        }
+        if (link?.kind === "outfit") {
+          fd.set("bookOutfitId", link.outfitId);
+        }
+        for (const fid of attachedFileIds) fd.append("fileIds", fid);
         await createPayment(fd);
-        // Side-effect: upload any queued File objects via the dedicated
-        // upload-and-attach action. We don't have the new payment id
-        // here (createPayment is a form-action returning void), so
-        // queued uploads are effectively lost — surface a warning so
-        // the user knows. A later pass could promote createPayment to
-        // return the id.
-        if (row.queuedFiles.length > 0) {
+        if (queuedFiles.length > 0) {
           notify(
             "warn",
-            `Payment added, but ${row.queuedFiles.length} pending receipt${row.queuedFiles.length === 1 ? "" : "s"} couldn't auto-attach. Upload from the row's edit menu.`,
+            `Payment added, but ${queuedFiles.length} pending receipt${queuedFiles.length === 1 ? "" : "s"} couldn't auto-attach. Upload from the row's edit menu.`,
           );
         } else {
           notify("success", `Added "${trimmedDesc}"`);
         }
-        // Replace the committed row with a fresh blank one in-place so
-        // the visible row count stays the same; advance focus.
-        setRows((curr) => {
-          const idx = curr.findIndex((r) => r.key === key);
-          if (idx === -1) return curr;
-          const next = [...curr];
-          next[idx] = makeBlankRow();
-          return next;
-        });
-        // Have to read rows fresh — use a microtask after setRows.
-        setTimeout(() => {
-          setRows((curr) => {
-            advanceFocusFrom(curr, key);
-            return curr;
-          });
-        }, 0);
+        reset();
       } catch (err) {
         notify("error", err instanceof Error ? err.message : "Failed to add payment");
       }
     });
   }
 
-  function onPaymentKey(
-    e: React.KeyboardEvent<HTMLInputElement | HTMLSelectElement>,
-    key: string,
-  ) {
+  function onPaymentKey(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === "Enter") {
       e.preventDefault();
-      commitRow(key);
+      commit();
     }
   }
 
-  // ── Supplier inline create ──────────────────────────────────────
-  function openSupplierForm(rowKey: string) {
-    setSupplierFormForRow(rowKey);
-    setSupplierName("");
-    setSupplierCategory("");
-    setTimeout(() => supplierNameRef.current?.focus(), 0);
+  function selectExistingReceipt(fileId: string) {
+    setAttachedFileIds((curr) =>
+      curr.includes(fileId) ? curr : [...curr, fileId],
+    );
   }
-  function cancelSupplierForm() {
-    setSupplierFormForRow(null);
-    setSupplierName("");
-    setSupplierCategory("");
+  function queueLocalFile(file: File) {
+    setQueuedFiles((curr) => [...curr, file]);
   }
-  function submitSupplier() {
-    const trimmedName = supplierName.trim();
-    const trimmedCategory = supplierCategory.trim() || "Other";
-    if (!trimmedName) {
-      notify("error", "Supplier name required");
-      supplierNameRef.current?.focus();
-      return;
-    }
-    const targetRow = supplierFormForRow;
-    startTransition(async () => {
-      try {
-        const created = await createSupplierQuick({
-          name: trimmedName,
-          category: trimmedCategory,
-        });
-        setSuppliers((curr) => [{ id: created.id, name: created.name }, ...curr]);
-        if (targetRow) {
-          updateRow(targetRow, { supplierId: created.id });
-        }
-        notify("success", `Created supplier "${created.name}"`);
-        cancelSupplierForm();
-      } catch (err) {
-        notify("error", err instanceof Error ? err.message : "Failed to create supplier");
-      }
-    });
-  }
-  function onSupplierKey(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      submitSupplier();
-    } else if (e.key === "Escape") {
-      e.preventDefault();
-      cancelSupplierForm();
-    }
-  }
-  function onSupplierSelectChange(rowKey: string, value: string) {
-    if (value === NEW_SUPPLIER_VALUE) {
-      openSupplierForm(rowKey);
-      return;
-    }
-    updateRow(rowKey, { supplierId: value });
+  function clearAttached() {
+    setAttachedFileIds([]);
+    setQueuedFiles([]);
   }
 
-  // ── Receipt picker ──────────────────────────────────────────────
-  function onSelectExistingReceipt(rowKey: string, fileId: string) {
-    setRows((curr) =>
-      curr.map((r) =>
-        r.key === rowKey && !r.attachedFileIds.includes(fileId)
-          ? { ...r, attachedFileIds: [...r.attachedFileIds, fileId] }
-          : r,
-      ),
-    );
-  }
-  function onQueueLocalFile(rowKey: string, file: File) {
-    setRows((curr) =>
-      curr.map((r) =>
-        r.key === rowKey ? { ...r, queuedFiles: [...r.queuedFiles, file] } : r,
-      ),
-    );
-  }
-  function clearAttached(rowKey: string) {
-    updateRow(rowKey, { attachedFileIds: [], queuedFiles: [] });
-  }
+  const receiptCount = attachedFileIds.length + queuedFiles.length;
+  const isEmpty =
+    !description.trim() &&
+    !amount.trim() &&
+    !supplierName.trim() &&
+    !link &&
+    receiptCount === 0;
 
   return (
     <div className="bg-surface border border-border-soft rounded-md shadow-sm p-3 mb-4">
       <div className="text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-2">
-        Add payments
+        Add a payment
       </div>
       <datalist id="payment-descriptions">
         {recentDescriptions.map((d) => (
           <option key={d} value={d} />
         ))}
       </datalist>
-      <div className="space-y-1.5">
-        {rows.map((row, idx) => {
-          const showSupplierSubForm = supplierFormForRow === row.key;
-          const showLinkPicker = linkPickerForRow === row.key;
-          const receiptCount = row.attachedFileIds.length + row.queuedFiles.length;
-          return (
-            <div key={row.key}>
-              <div className="flex flex-wrap items-center gap-2">
-                <input
-                  ref={(el) => {
-                    descriptionRefs.current[idx] = el;
-                  }}
-                  type="text"
-                  list="payment-descriptions"
-                  value={row.description}
-                  onChange={(e) => updateRow(row.key, { description: e.target.value })}
-                  onKeyDown={(e) => onPaymentKey(e, row.key)}
-                  disabled={pending}
-                  placeholder="Description (e.g. Hobbycraft — foam blocks)"
-                  className="flex-1 min-w-[180px] text-sm bg-canvas text-ink-primary border border-border-soft rounded-sm px-2.5 py-1.5 outline-none focus:border-moss-500"
-                />
-                <input
-                  type="number"
-                  inputMode="decimal"
-                  min="0"
-                  step="0.01"
-                  value={row.amount}
-                  onChange={(e) => updateRow(row.key, { amount: e.target.value })}
-                  onKeyDown={(e) => onPaymentKey(e, row.key)}
-                  disabled={pending}
-                  placeholder="£"
-                  className="w-24 text-sm bg-canvas text-ink-primary border border-border-soft rounded-sm px-2.5 py-1.5 outline-none focus:border-moss-500 tabular-nums text-right"
-                />
-                <select
-                  value={row.supplierId}
-                  onChange={(e) => onSupplierSelectChange(row.key, e.target.value)}
-                  onKeyDown={(e) => onPaymentKey(e, row.key)}
-                  disabled={pending || showSupplierSubForm}
-                  className="w-40 text-sm bg-canvas text-ink-primary border border-border-soft rounded-sm px-2 py-1.5 outline-none focus:border-moss-500"
-                >
-                  <option value="">Supplier…</option>
-                  {suppliers.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name}
-                    </option>
-                  ))}
-                  <option value={NEW_SUPPLIER_VALUE}>+ New supplier…</option>
-                </select>
-                <button
-                  type="button"
-                  onClick={() =>
-                    setLinkPickerForRow(showLinkPicker ? null : row.key)
-                  }
-                  disabled={pending}
-                  className={
-                    "text-[11px] px-2 py-1 rounded-sm border transition-colors " +
-                    (row.link
-                      ? "bg-moss-50 border-moss-300 text-moss-700"
-                      : "bg-canvas border-border-soft text-ink-tertiary hover:border-moss-300 hover:text-moss-700")
-                  }
-                  title={row.link ? row.link.label : "Link to a BUILD material or outfit"}
-                >
-                  🔗 {row.link ? row.link.label.slice(0, 24) : "Link"}
-                </button>
-                <ReceiptButton
-                  rowKey={row.key}
-                  count={receiptCount}
-                  files={files}
-                  attachedIds={row.attachedFileIds}
-                  pending={pending}
-                  onSelectExisting={(id) => onSelectExistingReceipt(row.key, id)}
-                  onQueueLocal={(file) => onQueueLocalFile(row.key, file)}
-                  onClear={() => clearAttached(row.key)}
-                />
-                <button
-                  type="button"
-                  onClick={() => commitRow(row.key)}
-                  disabled={pending || isRowEmpty(row)}
-                  className="text-xs font-medium px-3 py-1.5 rounded-sm border bg-moss-500 text-white border-moss-500 hover:bg-moss-700 hover:border-moss-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                >
-                  {pending ? "…" : "+ Add"}
-                </button>
-              </div>
+      <datalist id="payment-suppliers">
+        {suppliers.map((s) => (
+          <option key={s.id} value={s.name} />
+        ))}
+      </datalist>
 
-              {showSupplierSubForm && (
-                <div className="mt-2 ml-4 p-2.5 border border-moss-300 bg-moss-50/40 rounded-sm">
-                  <div className="text-[10px] font-bold text-moss-700 uppercase tracking-wider mb-1.5">
-                    New supplier
-                  </div>
-                  <div className="flex flex-wrap items-end gap-2">
-                    <div className="flex-1 min-w-[180px]">
-                      <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">
-                        Name
-                      </label>
-                      <input
-                        ref={supplierNameRef}
-                        type="text"
-                        value={supplierName}
-                        onChange={(e) => setSupplierName(e.target.value)}
-                        onKeyDown={onSupplierKey}
-                        disabled={pending}
-                        placeholder="e.g. Hobbycraft"
-                        className="w-full text-sm bg-canvas text-ink-primary border border-border-soft rounded-sm px-2.5 py-1.5 outline-none focus:border-moss-500"
-                      />
-                    </div>
-                    <div className="flex-1 min-w-[140px]">
-                      <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">
-                        Category
-                      </label>
-                      <input
-                        type="text"
-                        value={supplierCategory}
-                        onChange={(e) => setSupplierCategory(e.target.value)}
-                        onKeyDown={onSupplierKey}
-                        disabled={pending}
-                        placeholder="e.g. Craft store · defaults to Other"
-                        className="w-full text-sm bg-canvas text-ink-primary border border-border-soft rounded-sm px-2.5 py-1.5 outline-none focus:border-moss-500"
-                      />
-                    </div>
-                    <button
-                      type="button"
-                      onClick={submitSupplier}
-                      disabled={pending}
-                      className="text-xs font-medium px-3 py-1.5 rounded-sm border bg-moss-500 text-white border-moss-500 hover:bg-moss-700 hover:border-moss-700 disabled:opacity-50 transition-colors"
-                    >
-                      {pending ? "Creating…" : "Create"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={cancelSupplierForm}
-                      disabled={pending}
-                      className="text-xs px-3 py-1.5 rounded-sm border bg-canvas text-ink-secondary border-border-soft hover:border-moss-300 hover:text-moss-700 disabled:opacity-50"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {showLinkPicker && (
-                <LinkPickerPanel
-                  buildOptions={buildOptions}
-                  outfitOptions={outfitOptions}
-                  current={row.link}
-                  onPick={(link) => {
-                    updateRow(row.key, { link });
-                    setLinkPickerForRow(null);
-                  }}
-                  onCancel={() => setLinkPickerForRow(null)}
-                />
-              )}
-            </div>
-          );
-        })}
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          ref={descriptionRef}
+          type="text"
+          list="payment-descriptions"
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          onKeyDown={onPaymentKey}
+          disabled={pending}
+          placeholder="Description (e.g. Hobbycraft — foam blocks)"
+          className="flex-1 min-w-[180px] text-sm bg-canvas text-ink-primary border border-border-soft rounded-sm px-2.5 py-1.5 outline-none focus:border-moss-500"
+        />
+        <input
+          type="number"
+          inputMode="decimal"
+          min="0"
+          step="0.01"
+          value={amount}
+          onChange={(e) => setAmount(e.target.value)}
+          onKeyDown={onPaymentKey}
+          disabled={pending}
+          placeholder="£"
+          className="w-24 text-sm bg-canvas text-ink-primary border border-border-soft rounded-sm px-2.5 py-1.5 outline-none focus:border-moss-500 tabular-nums text-right"
+        />
+        <input
+          type="text"
+          list="payment-suppliers"
+          value={supplierName}
+          onChange={(e) => setSupplierName(e.target.value)}
+          onKeyDown={onPaymentKey}
+          disabled={pending}
+          placeholder="Supplier (type or pick)"
+          className="w-44 text-sm bg-canvas text-ink-primary border border-border-soft rounded-sm px-2.5 py-1.5 outline-none focus:border-moss-500"
+        />
+        <button
+          type="button"
+          onClick={() => setShowLinkPicker(!showLinkPicker)}
+          disabled={pending}
+          className={
+            "text-[11px] px-2 py-1 rounded-sm border transition-colors " +
+            (link
+              ? "bg-moss-50 border-moss-300 text-moss-700"
+              : "bg-canvas border-border-soft text-ink-tertiary hover:border-moss-300 hover:text-moss-700")
+          }
+          title={link ? link.label : "Link to a BUILD material or outfit"}
+        >
+          🔗 {link ? link.label.slice(0, 24) : "Link"}
+        </button>
+        <ReceiptButton
+          count={receiptCount}
+          files={files}
+          attachedIds={attachedFileIds}
+          pending={pending}
+          onSelectExisting={selectExistingReceipt}
+          onQueueLocal={queueLocalFile}
+          onClear={clearAttached}
+        />
+        <button
+          type="button"
+          onClick={commit}
+          disabled={pending || isEmpty}
+          className="text-xs font-medium px-3 py-1.5 rounded-sm border bg-moss-500 text-white border-moss-500 hover:bg-moss-700 hover:border-moss-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+        >
+          {pending ? "…" : "+ Add"}
+        </button>
       </div>
 
+      {showLinkPicker && (
+        <LinkPickerPanel
+          buildOptions={buildOptions}
+          outfitOptions={outfitOptions}
+          current={link}
+          onPick={(picked) => {
+            setLink(picked);
+            setShowLinkPicker(false);
+          }}
+          onCancel={() => setShowLinkPicker(false)}
+        />
+      )}
+
       <p className="text-[10px] text-ink-tertiary mt-2">
-        Press <kbd className="px-1 border border-border-soft rounded-sm bg-canvas text-ink-secondary text-[10px] font-mono">Enter</kbd> on any row to add it. Linked BUILD materials are auto-marked as ordered. Receipts you upload here attach as soon as the payment exists — for now, attach uploads from the row&apos;s edit menu after creation.
+        Press <kbd className="px-1 border border-border-soft rounded-sm bg-canvas text-ink-secondary text-[10px] font-mono">Enter</kbd> to add. Suppliers you type that don&apos;t already exist are auto-created. Linked BUILD materials are auto-marked as ordered. Receipt uploads attach after the payment exists — for now, attach uploads from the row&apos;s edit menu after creation.
       </p>
     </div>
   );
@@ -475,7 +291,6 @@ function ReceiptButton({
   onQueueLocal,
   onClear,
 }: {
-  rowKey: string;
   count: number;
   files: FileSummary[];
   attachedIds: string[];
@@ -592,7 +407,7 @@ function LinkPickerPanel({
   );
   const selectedCard = buildOptions.find((c) => c.cardId === selectedCardId);
   return (
-    <div className="mt-2 ml-4 p-2.5 border border-moss-300 bg-moss-50/40 rounded-sm">
+    <div className="mt-2 p-2.5 border border-moss-300 bg-moss-50/40 rounded-sm">
       <div className="flex items-center gap-2 mb-2">
         <button
           type="button"
@@ -692,4 +507,3 @@ function LinkPickerPanel({
     </div>
   );
 }
-

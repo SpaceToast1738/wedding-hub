@@ -34,6 +34,7 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
+| **v1.75.1** | 2026-05-07 | [Inline payment grid simplified to a single row + supplier autofill input — user feedback: 5 visible rows was too many ("only really need one"), and the supplier `<select>` should be a free-text autofill field instead of a dropdown. `InlinePaymentGrid` collapsed to a single row's worth of state; supplier becomes `<input list="payment-suppliers">` with the existing supplier names as `<datalist>` options. On commit, typed supplier names are matched case-insensitively against existing suppliers; unmatched names auto-create via `createSupplierQuick` (category defaults to "Other") — no separate `+ New supplier…` sub-form needed.](#2026-05-07--v1751--single-row-grid--supplier-autofill) |
 | **v1.75.0** | 2026-05-07 | [Excel-style payment grid + receipts + book-row linking — `Payment` gains `fileIds: String[]`, `bookBuildMaterialId`, `bookOutfitId` (additive migration `20260512000000_payment_receipts_and_book_links`). New `InlinePaymentGrid.tsx` replaces `InlineAddPaymentRow.tsx`: 5 visible blank rows, **Enter** commits the current row and advances focus, description input has datalist autofill from past payment descriptions, supplier dropdown keeps the v1.74.0 `+ New supplier…` flow, new `🔗` button per row opens a cascading picker (BUILD card → material OR outfit-item), new `📎` button opens a receipt popover. **Linking a BUILD material auto-marks it `ordered: true`** as a side-effect of `createPayment`. New server actions `attachReceiptToPayment` / `detachReceiptFromPayment` / `uploadAndAttachReceipt` mirror the v1.63.0 BUILD card pattern. `PaymentRow` gains a "Linked / Receipts" column with chips that deep-link to the relevant book section, and a receipt-management panel in edit mode. Page query loads BUILD cards + outfit items + files for the pickers; `recentDescriptions` derived from the existing payments query (no extra round-trip). `InlineAddPaymentRow.tsx` deleted.](#2026-05-07--v1750--excel-payment-grid--receipts--book-linking) |
 | **v1.74.0** | 2026-05-07 | [Inline payment add + create-supplier-from-payments — replaces the v1.56.0 `AddPaymentToggle` modal with `InlineAddPaymentRow` sitting above the payments table. Description + amount + optional supplier; **Enter submits**; on success fields reset and focus returns to description for fast bulk entry. Supplier select gains a `+ New supplier…` option that expands an inline sub-form (name + category, defaults to "Other"); creating the supplier prepends it to the dropdown and auto-selects it for the in-progress payment. New `createSupplierQuick({name, category})` server action returns the new supplier id (the standard form-action returns void). `AddPaymentToggle.tsx` deleted.](#2026-05-07--v1740--inline-payment-add--inline-supplier-create) |
 | **v1.73.0** | 2026-05-07 | [Songs page redesign — match `prototype/SongsPage.jsx`. New `SongsSummaryCards` grid renders one card per playlist (name · count · description, with category-coloured left bar) anchor-linking to that playlist's section. New `SpotifyConnectionBanner` — green gradient strip showing connection state + chips per playlist, visible only when Spotify is configured. Subtitle reformatted from `"X playlists · Y curated songs"` to `"X on the playlist · Y blocked · ~Hh Mm runtime"` with the prototype's 3.5 min/track heuristic. PlaylistCard sections now carry `id="playlist-<id>"` + `scroll-mt-4` so the new anchors land cleanly. Container drops `max-w-4xl` to go edge-to-edge.](#2026-05-07--v1730--songs-page-redesign) |
@@ -909,6 +910,23 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-05-07 · v1.75.1 — Single-row grid + supplier autofill
+
+User feedback on v1.75.0 within hours of shipping:
+- "Multiple lines, only really need one" — the 5-row grid felt cluttered for a flow that's almost always one-payment-at-a-time.
+- "Can the dropdown be a field with suggested autofill?" — the supplier `<select>` was awkward; freer text + autofill matches the description input's pattern.
+
+Two changes to `InlinePaymentGrid.tsx`:
+
+**Single row.** All the per-row state (`description`, `amount`, `supplier`, `link`, `attachedFileIds`, `queuedFiles`) collapsed to top-level `useState` calls. After commit, fields reset and focus returns to description for fast back-to-back entry. No more `RowDraft[]` array, `INITIAL_ROW_COUNT`, or advance-focus-to-next-row plumbing — keeping it open for future re-introduction if bulk paste-in ever surfaces, but the state model is much simpler now.
+
+**Supplier autofill input.** The `<select>` (with its bespoke `+ New supplier…` option opening a sub-form) is replaced by `<input type="text" list="payment-suppliers">` paired with a `<datalist>` of existing supplier names. On commit, typed text is matched case-insensitively against `suppliers[].name`:
+1. Empty → no supplier link
+2. Match → use that supplier's id
+3. No match → auto-create via `createSupplierQuick({ name, category: "Other" })`, prepend to the local list, and use the new id
+
+This replaces the v1.74.0/.75.0 inline sub-form pattern entirely — no more category prompt up-front; users can edit the category later on `/suppliers` if they care. Helper text below the row reminds: `Suppliers you type that don't already exist are auto-created.`
 
 ### 2026-05-07 · v1.75.0 — Excel payment grid + receipts + book linking
 
