@@ -65,6 +65,10 @@ type Material = {
   arrived: boolean;
   notes: string | null;
   order: number;
+  // v1.78.0: paid-on-material reciprocal chip — sum of PAID payments
+  // linked via Payment.bookBuildMaterialId. Optional so the edit-mode
+  // draft state (which doesn't carry payments) still type-checks.
+  paidPence?: number;
 };
 
 type Session = {
@@ -507,6 +511,31 @@ function ViewBody({
                   {showMoney && (
                     <td className="py-1.5 px-2 text-ink-secondary tabular-nums text-right">
                       {formatGBPFromPence(m.costPence)}
+                      {/* v1.78.0: paid-on-material reciprocal chip.
+                          Renders below the cost when the material has
+                          received payments (PAID status only). Green
+                          tick when fully covered, otherwise running
+                          total in moss. */}
+                      {m.paidPence != null && m.paidPence > 0 && (
+                        <div
+                          className={
+                            "text-[10px] mt-0.5 " +
+                            (m.costPence != null && (m.paidPence ?? 0) >= m.costPence
+                              ? "text-moss-700 font-semibold"
+                              : "text-moss-700")
+                          }
+                          title={
+                            m.costPence != null
+                              ? `Paid ${formatGBPFromPence(m.paidPence)} of ${formatGBPFromPence(m.costPence)}`
+                              : `Paid ${formatGBPFromPence(m.paidPence)}`
+                          }
+                        >
+                          📎{" "}
+                          {m.costPence != null && (m.paidPence ?? 0) >= m.costPence
+                            ? `${formatGBPFromPence(m.paidPence)} ✓`
+                            : `${formatGBPFromPence(m.paidPence)} paid`}
+                        </div>
+                      )}
                     </td>
                   )}
                   <td className="py-1.5 px-2 text-center">

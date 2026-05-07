@@ -466,6 +466,13 @@ model BudgetLine {
   order       Int            @default(0)
   // v1.31.1: BUILD cards back-relation for the materials-total link.
   buildCards  BookBuildCard[]
+  // v1.78.0: each cost-bearing card kind back-relates so a BudgetLine
+  // can be unlinked + re-linked from any of them. Setting any of these
+  // FKs to point at this line means card-saves auto-resync the line.
+  menuCards   BookMenuCard[]
+  barCards    BookBarCard[]
+  outfitCards BookOutfitCard[]
+  stayCards   BookStayCard[]
   // v1.77.0: variable / per-head pricing. When `perHeadPence` and
   // `headcountSource` are both set, the line's effective estimated
   // total is `perHeadPence × computeHeadcount(...)` — recomputed live
@@ -773,6 +780,9 @@ model BookOutfitCard {
   fileIds          String[]       @default([])
   notes            String?        @db.Text
   outfits          BookOutfit[]
+  // v1.78.0: optional auto-sync into a BudgetLine. SetNull on delete.
+  budgetLineId     String?
+  budgetLine       BudgetLine?    @relation(fields: [budgetLineId], references: [id], onDelete: SetNull)
 }
 
 model BookOutfit {
@@ -883,9 +893,21 @@ model BookMenuCard {
   serviceType         String?         // "Plated" | "Buffet" | "Family-style" | "Canapés"
   serviceTime         String?
   pricePerHeadPence   Int?
+  // v1.32.0 — manual override headcount. v1.78.0 supersedes this with
+  // headcountSource + manualHeadcount. Kept one release as a recovery
+  // buffer; drop in v1.79.
   confirmedHeadcount  Int?
+  // v1.78.0: unified PerHeadSource enum. When set, the editor uses
+  // this to resolve the live count instead of the old null-fallback
+  // path. Migration backfilled: existing confirmedHeadcount → MANUAL;
+  // null+priced rows → ALL_CONFIRMED.
+  headcountSource     PerHeadSource?
+  manualHeadcount     Int?
   notes               String?         @db.Text
   courses             BookMenuCourse[]
+  // v1.78.0: optional auto-sync into a BudgetLine.
+  budgetLineId        String?
+  budgetLine          BudgetLine?     @relation(fields: [budgetLineId], references: [id], onDelete: SetNull)
 }
 
 model BookMenuCourse {
@@ -929,6 +951,12 @@ model BookBarCard {
   corkagePence  Int?
   notes         String?       @db.Text
   items         BookBarItem[]
+  // v1.78.0: optional auto-sync into a BudgetLine. BAR is multi-item
+  // (each with its own pricePerHead) so the linked line carries a
+  // flat rolled-up `estimated`, no per-head config — the BAR card
+  // itself stays the source of truth for the breakdown.
+  budgetLineId  String?
+  budgetLine    BudgetLine?   @relation(fields: [budgetLineId], references: [id], onDelete: SetNull)
 }
 
 model BookBarItem {
@@ -954,6 +982,10 @@ model BookBarItem {
   // | "Evening" | "Late night" | free text. Used for grouping in the
   // view, also threads through the audit log summary.
   timing          String?
+  // v1.78.0: per-item headcount source for the per-head pricing path.
+  // Defaults to ADULTS_CONFIRMED on existing rows (matches the
+  // hardcoded behaviour pre-migration). NULL on flat-priced rows.
+  headcountSource PerHeadSource?
 
   @@index([cardId])
 }
@@ -1060,6 +1092,9 @@ model BookStayCard {
   /// v1.63.0: optional photo gallery — bridal suite, property
   /// exterior, room layout, etc. Same forward-only File-id array.
   fileIds          String[]       @default([])
+  // v1.78.0: optional auto-sync into a flat BudgetLine.
+  budgetLineId     String?
+  budgetLine       BudgetLine?    @relation(fields: [budgetLineId], references: [id], onDelete: SetNull)
 }
 
 // v1.36.0 (P6): LODGING_GUIDE card — recommended hotels for guests.

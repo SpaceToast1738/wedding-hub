@@ -35,29 +35,51 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
           recipe: { include: { recipeSteps: { orderBy: { order: "asc" } } } },
           shotList: { include: { shots: { orderBy: { order: "asc" } } } },
           // v1.35.0: OUTFIT rework — pull card-level fields + items.
+          // v1.78.0: + budgetLine for the linked-budget chip; + payments
+          // per outfit-item for the paid-on-card reciprocal chip.
           outfitCard: {
-            include: { outfits: { orderBy: { order: "asc" } } },
-          },
-          buildCard: {
             include: {
-              materials: { orderBy: { order: "asc" } },
-              sessions: { orderBy: { date: "desc" } },
+              outfits: {
+                orderBy: { order: "asc" },
+                include: { payments: { select: { amount: true, status: true } } },
+              },
               budgetLine: {
-                select: { id: true, description: true, estimated: true },
+                select: { id: true, description: true, category: { select: { id: true, name: true } } },
               },
             },
           },
-          // v1.32.0: MENU + BAR cards.
+          // v1.78.0: + payments per material for the paid-on-card chip.
+          buildCard: {
+            include: {
+              materials: {
+                orderBy: { order: "asc" },
+                include: { payments: { select: { amount: true, status: true } } },
+              },
+              sessions: { orderBy: { date: "desc" } },
+              budgetLine: {
+                select: { id: true, description: true, estimated: true, category: { select: { id: true, name: true } } },
+              },
+            },
+          },
+          // v1.32.0: MENU + BAR cards. v1.78.0: + budgetLine.
           menuCard: {
             include: {
               courses: {
                 orderBy: { order: "asc" },
                 include: { options: { orderBy: { order: "asc" } } },
               },
+              budgetLine: {
+                select: { id: true, description: true, category: { select: { id: true, name: true } } },
+              },
             },
           },
           barCard: {
-            include: { items: { orderBy: { order: "asc" } } },
+            include: {
+              items: { orderBy: { order: "asc" } },
+              budgetLine: {
+                select: { id: true, description: true, category: { select: { id: true, name: true } } },
+              },
+            },
           },
           // v1.33.0: SETUP card.
           setupCard: {
@@ -72,8 +94,14 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
               },
             },
           },
-          // v1.36.0: STAY + LODGING_GUIDE cards.
-          stayCard: true,
+          // v1.36.0: STAY + LODGING_GUIDE cards. v1.78.0: + budgetLine.
+          stayCard: {
+            include: {
+              budgetLine: {
+                select: { id: true, description: true, category: { select: { id: true, name: true } } },
+              },
+            },
+          },
           lodgingCard: {
             include: { items: { orderBy: { order: "asc" } } },
           },
@@ -93,6 +121,15 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
     ? await db.user.findMany({
         orderBy: [{ isCouple: "desc" }, { name: "asc" }],
         select: { id: true, name: true, email: true },
+      })
+    : [];
+
+  // v1.78.0: budget categories for the per-card "Link to budget"
+  // picker. Couple-only — the picker is hidden for non-money users.
+  const budgetCategories = user.isCouple
+    ? await db.budgetCategory.findMany({
+        orderBy: { order: "asc" },
+        select: { id: true, name: true },
       })
     : [];
 
@@ -291,6 +328,21 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
                               : Number(sRaw.buildCard.budgetLine.estimated),
                         }
                       : null,
+                    // v1.78.0: roll up paid-per-material from linked
+                    // payments (PAID status only) for the
+                    // reciprocal "📎 paid £X" chip.
+                    materials: sRaw.buildCard.materials.map((m) => ({
+                      ...m,
+                      paidPence: Math.round(
+                        m.payments.reduce(
+                          (sum, p) =>
+                            p.status === "PAID"
+                              ? sum + Number(p.amount.toString()) * 100
+                              : sum,
+                          0,
+                        ),
+                      ),
+                    })),
                     // v1.63.0: thread the file list for the photo
                     // gallery, mirroring the outfitCard / legalCard
                     // pattern from v1.35.0 / v1.34.0.
@@ -322,11 +374,14 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
                       optionCounts: r.perCourseCounts,
                       allergenAggregate: r.allergenAggregate,
                       totalConfirmed: r.totalConfirmed,
+                      // v1.78.0: budgetLine already on sRaw.menuCard
+                      // via spread; re-listed here for type clarity.
+                      budgetLine: sRaw.menuCard.budgetLine,
                     };
                   })()
                 : null;
               const barCard = sRaw.barCard
-                ? { ...sRaw.barCard, confirmedAdults }
+                ? { ...sRaw.barCard, confirmedAdults, budgetLine: sRaw.barCard.budgetLine }
                 : null;
               const setupCard = sRaw.setupCard
                 ? { ...sRaw.setupCard, supplierNames, files: allFiles }
@@ -341,6 +396,7 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
               // v1.35.0: shape OUTFIT data — flatten outfits → items
               // (renaming the relation), and thread the file list
               // for the per-card photo picker.
+              // v1.78.0: + paidPence per item (sum of linked payments).
               const outfitCard = sRaw.outfitCard
                 ? {
                     id: sRaw.outfitCard.id,
@@ -363,14 +419,29 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
                       status: o.status,
                       notes: o.notes,
                       order: o.order,
+                      paidPence: Math.round(
+                        o.payments.reduce(
+                          (sum, p) =>
+                            p.status === "PAID"
+                              ? sum + Number(p.amount.toString()) * 100
+                              : sum,
+                          0,
+                        ),
+                      ),
                     })),
                     files: allFiles,
+                    budgetLine: sRaw.outfitCard.budgetLine,
                   }
                 : null;
               // v1.36.0: shape STAY data — thread the guest list for
               // the linked-guest picker.
               const stayCard = sRaw.stayCard
-                ? { ...sRaw.stayCard, guests: sectionGuests, files: allFiles }
+                ? {
+                    ...sRaw.stayCard,
+                    guests: sectionGuests,
+                    files: allFiles,
+                    budgetLine: sRaw.stayCard.budgetLine,
+                  }
                 : null;
               const lodgingCard = sRaw.lodgingCard ?? null;
               // v1.38.0: same guest list threads into SHOT_LIST cards.
@@ -396,6 +467,7 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
                   canEdit={editable}
                   isCouple={user.isCouple}
                   showMoney={showMoney}
+                  budgetCategories={budgetCategories}
                   linkedTasks={subsectionTasksById.get(s.id) ?? []}
                   users={taskUsers}
                 />

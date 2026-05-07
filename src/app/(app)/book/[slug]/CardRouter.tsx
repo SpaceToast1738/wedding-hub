@@ -117,8 +117,13 @@ type Sub = {
       status: string | null;
       notes: string | null;
       order: number;
+      // v1.78.0: paid-on-card reciprocal — payments linked to this
+      // outfit-item, summed for the chip render.
+      paidPence: number;
     }>;
     files: Array<{ id: string; name: string; mimeType: string }>;
+    // v1.78.0: linked BudgetLine for the auto-sync chip.
+    budgetLine: { id: string; description: string; category: { id: string; name: string } } | null;
   } | null;
   // v1.32.0: MENU card eager-loaded data + server-computed live counts.
   menuCard: {
@@ -146,6 +151,8 @@ type Sub = {
     optionCounts: Record<string, Record<string, number>>;
     allergenAggregate: Record<string, number>;
     totalConfirmed: number;
+    // v1.78.0: linked BudgetLine.
+    budgetLine: { id: string; description: string; category: { id: string; name: string } } | null;
   } | null;
   // v1.32.0: BAR card eager-loaded data.
   barCard: {
@@ -172,6 +179,8 @@ type Sub = {
     }>;
     /** Server-supplied confirmed-adult count (from /guests RSVPs). */
     confirmedAdults: number | null;
+    // v1.78.0: linked BudgetLine.
+    budgetLine: { id: string; description: string; category: { id: string; name: string } } | null;
   } | null;
   // v1.34.0: LEGAL card eager-loaded data + wedding date for the
   // expiry-before-wedding flag + file list for the per-item picker.
@@ -241,6 +250,8 @@ type Sub = {
     // v1.63.0: photo gallery.
     fileIds: string[];
     files: Array<{ id: string; name: string; mimeType: string }>;
+    // v1.78.0: linked BudgetLine.
+    budgetLine: { id: string; description: string; category: { id: string; name: string } } | null;
   } | null;
   // v1.36.0: LODGING_GUIDE card eager-loaded data.
   lodgingCard: {
@@ -260,6 +271,7 @@ type Sub = {
   } | null;
   // v1.31.0: BUILD card eager-loaded data.
   // v1.31.1: + budgetLineId + budgetLine snapshot.
+  // v1.78.0: + paidPence per material (sum of linked Payment.amount).
   buildCard: {
     id: string;
     quantityNeeded: number | null;
@@ -287,6 +299,9 @@ type Sub = {
       arrived: boolean;
       notes: string | null;
       order: number;
+      // v1.78.0: paid-on-card reciprocal — sum of Payment.amount values
+      // linked to this material via Payment.bookBuildMaterialId.
+      paidPence: number;
     }>;
     sessions: Array<{
       id: string;
@@ -319,6 +334,7 @@ export function CardRouter({
   canEdit,
   isCouple,
   showMoney = true,
+  budgetCategories = [],
   linkedTasks = [],
   users = [],
 }: {
@@ -330,10 +346,13 @@ export function CardRouter({
    *  hide in view mode and inputs hide (with passthrough hidden) in
    *  edit mode. Defaults to true for callers that don't pass it. */
   showMoney?: boolean;
+  /** v1.78.0: budget categories for the Link-to-budget picker on
+   *  cost-bearing cards. Empty array (default) means no picker. */
+  budgetCategories?: Array<{ id: string; name: string }>;
   linkedTasks?: LinkedTaskRow[];
   users?: UserOpt[];
 }) {
-  const body = renderCardBody(sub, canEdit, isCouple, showMoney);
+  const body = renderCardBody(sub, canEdit, isCouple, showMoney, budgetCategories);
   // v1.51.0: inline panel renders directly below every kind's body.
   // v1.71.0: always shown when canEdit (so "Add task" is available).
   return (
@@ -351,7 +370,19 @@ export function CardRouter({
   );
 }
 
-function renderCardBody(sub: Sub, canEdit: boolean, isCouple: boolean, showMoney: boolean) {
+function renderCardBody(
+  sub: Sub,
+  canEdit: boolean,
+  isCouple: boolean,
+  showMoney: boolean,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  budgetCategories: Array<{ id: string; name: string }>,
+) {
+  // v1.78.0: budgetCategories is loaded by the page and passed
+  // through here for the per-card "Link to budget" pickers (MENU /
+  // BAR / OUTFIT / STAY). The UI for those pickers ships in v1.78.1
+  // — the data layer + auto-resync server actions are in this
+  // release so existing links keep updating.
   switch (sub.kind) {
     case "TEXT":
       return (

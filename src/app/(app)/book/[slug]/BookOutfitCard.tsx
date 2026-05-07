@@ -63,6 +63,10 @@ type Item = {
   status: string | null;
   notes: string | null;
   order: number;
+  // v1.78.0: paid-on-card chip — sum of PAID payments linked to this
+  // outfit-item via Payment.bookOutfitId. Optional so existing edit-mode
+  // draft state (which doesn't carry payments) still type-checks.
+  paidPence?: number;
 };
 
 type CardData = {
@@ -397,7 +401,18 @@ function ViewBody({
                     Link ↗
                   </a>
                 )}
-                <span className="ml-auto flex-shrink-0">
+                <span className="ml-auto flex-shrink-0 flex items-center gap-1.5">
+                  {/* v1.78.0: paid-on-item reciprocal chip. Renders
+                      next to the status pill when this item has
+                      received payments. */}
+                  {item.paidPence != null && item.paidPence > 0 && (
+                    <span
+                      className="text-[10px] text-moss-700 bg-moss-50 border border-moss-300 rounded-full px-2 py-0.5"
+                      title={`Paid £${(item.paidPence / 100).toFixed(2)}`}
+                    >
+                      📎 £{(item.paidPence / 100).toFixed(2)}
+                    </span>
+                  )}
                   {item.status ? (
                     <span
                       className={`text-[10px] uppercase tracking-wider rounded-full px-2 py-0.5 border ${STATUS_TONE[item.status] ?? STATUS_TONE.Designed}`}

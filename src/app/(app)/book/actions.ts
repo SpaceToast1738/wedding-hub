@@ -1490,6 +1490,405 @@ export async function unlinkBuildBudgetLine(
   }
 }
 
+// v1.78.0: shared helper to update a BudgetLine in-place from a card
+// save. Mirrors the v1.31.1 BUILD pattern but in helper form so the
+// MENU/BAR/OUTFIT/STAY save actions can call it on every save without
+// duplicating the upsert logic.
+//
+// `perHeadConfig`: when present, the BudgetLine adopts per-head
+// pricing (perHeadPence + headcountSource + manualHeadcount). When
+// null, the line clears those fields and uses a flat `estimated`.
+async function syncBudgetLine(
+  budgetLineId: string,
+  args: {
+    description: string;
+    flatEstimatedPounds: number | null;
+    perHead: {
+      perHeadPence: number;
+      headcountSource: import("@prisma/client").PerHeadSource;
+      manualHeadcount: number | null;
+    } | null;
+  },
+): Promise<void> {
+  const data: import("@prisma/client").Prisma.BudgetLineUpdateInput = {
+    description: args.description,
+  };
+  if (args.perHead) {
+    // Per-head mode: clear the manual `estimated` (the budget UI
+    // computes the effective total live), set the per-head fields.
+    data.estimated = null;
+    data.perHeadPence = args.perHead.perHeadPence;
+    data.headcountSource = args.perHead.headcountSource;
+    data.manualHeadcount = args.perHead.manualHeadcount;
+  } else {
+    // Flat mode: clear per-head fields, set a manual estimated.
+    data.estimated = args.flatEstimatedPounds == null ? null : args.flatEstimatedPounds.toFixed(2);
+    data.perHeadPence = null;
+    data.headcountSource = null;
+    data.manualHeadcount = null;
+  }
+  await db.budgetLine.update({ where: { id: budgetLineId }, data });
+}
+
+// v1.78.0: card-budget link factory. Each card kind (MENU/BAR/OUTFIT/
+// STAY) gets a `link<X>CardToBudget` and `unlink<X>CardFromBudget`
+// pair below. This shared helper does the find-or-create-line +
+// set-FK + audit-log dance so the four pairs stay consistent.
+//
+// Differences from v1.31.1's BUILD pattern: link is the user-driven
+// step (pick a category once); after linking, *every save* re-syncs
+// via `syncBudgetLine` (no manual button needed).
+
+// ── MENU card ↔ BudgetLine ─────────────────────────────────────────
+export async function linkMenuCardToBudget(args: {
+  subsectionId: string;
+  categoryId: string;
+  description?: string;
+}): Promise<BookActionResult & { budgetLineId?: string }> {
+  const user = await requireEdit("book");
+  try {
+    const card = await db.bookMenuCard.findUnique({
+      where: { subsectionId: args.subsectionId },
+      include: { subsection: true },
+    });
+    if (!card) return { ok: false, error: "Menu card not found" };
+    const description = args.description?.trim() || card.subsection.title;
+    const last = await db.budgetLine.findFirst({
+      where: { categoryId: args.categoryId },
+      orderBy: { order: "desc" },
+    });
+    // Compute initial line state from the card's current per-head
+    // config. headcountSource defaults to ALL_CONFIRMED if the card
+    // has a price but no source yet (legacy data).
+    const source =
+      card.headcountSource ??
+      (card.pricePerHeadPence != null ? ("ALL_CONFIRMED" as const) : null);
+    const created = await db.budgetLine.create({
+      data: {
+        categoryId: args.categoryId,
+        description,
+        estimated: null,
+        order: (last?.order ?? -1) + 1,
+        notes: `Synced from MENU card · ${card.subsection.title}`,
+        ...(card.pricePerHeadPence != null && source
+          ? {
+              perHeadPence: card.pricePerHeadPence,
+              headcountSource: source,
+              manualHeadcount: card.manualHeadcount ?? card.confirmedHeadcount ?? null,
+            }
+          : {}),
+      },
+    });
+    await db.bookMenuCard.update({
+      where: { subsectionId: args.subsectionId },
+      data: { budgetLineId: created.id },
+    });
+    await audit(user, {
+      action: "menu-budget-link",
+      entity: "BookSubsection",
+      entityId: args.subsectionId,
+      metadata: {
+        cardTitle: card.subsection.title,
+        categoryId: args.categoryId,
+        budgetLineId: created.id,
+        pricePerHeadPence: card.pricePerHeadPence,
+        headcountSource: source,
+      },
+    });
+    revalidatePath("/budget");
+    await revalidateBookSubsection(args.subsectionId);
+    return { ok: true, budgetLineId: created.id };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Couldn't link" };
+  }
+}
+
+export async function unlinkMenuCardFromBudget(
+  subsectionId: string,
+): Promise<BookActionResult> {
+  const user = await requireEdit("book");
+  try {
+    const card = await db.bookMenuCard.findUnique({
+      where: { subsectionId },
+      include: { subsection: true },
+    });
+    if (!card) return { ok: false, error: "Menu card not found" };
+    if (!card.budgetLineId) return { ok: true };
+    const previousLineId = card.budgetLineId;
+    await db.bookMenuCard.update({
+      where: { subsectionId },
+      data: { budgetLineId: null },
+    });
+    await audit(user, {
+      action: "menu-budget-unlink",
+      entity: "BookSubsection",
+      entityId: subsectionId,
+      metadata: { cardTitle: card.subsection.title, previousBudgetLineId: previousLineId },
+    });
+    revalidatePath("/budget");
+    await revalidateBookSubsection(subsectionId);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Couldn't unlink" };
+  }
+}
+
+// ── BAR card ↔ BudgetLine ─────────────────────────────────────────
+// BAR is multi-item with mixed pricing modes (fixed + per-head). The
+// linked BudgetLine carries a flat rolled-up `estimated` since
+// multiple per-head items at different rates can't squash into a
+// single perHeadPence. The BAR card stays the source of truth for
+// the per-item breakdown; budget shows the rolled total.
+export async function linkBarCardToBudget(args: {
+  subsectionId: string;
+  categoryId: string;
+  description?: string;
+}): Promise<BookActionResult & { budgetLineId?: string }> {
+  const user = await requireEdit("book");
+  try {
+    const card = await db.bookBarCard.findUnique({
+      where: { subsectionId: args.subsectionId },
+      include: { subsection: true, items: true },
+    });
+    if (!card) return { ok: false, error: "Bar card not found" };
+    // Compute initial estimated from the items list. We can't pull
+    // confirmedAdults here without a Guest query; defer the
+    // per-head-driven part to the next saveBarCard tick. For the
+    // initial line, sum the flat costPence values only.
+    const flatTotalPence = card.items.reduce(
+      (sum, i) => sum + (i.pricePerHeadPence == null ? (i.costPence ?? 0) : 0),
+      0,
+    );
+    const description = args.description?.trim() || card.subsection.title;
+    const last = await db.budgetLine.findFirst({
+      where: { categoryId: args.categoryId },
+      orderBy: { order: "desc" },
+    });
+    const created = await db.budgetLine.create({
+      data: {
+        categoryId: args.categoryId,
+        description,
+        estimated: (flatTotalPence / 100).toFixed(2),
+        order: (last?.order ?? -1) + 1,
+        notes: `Synced from BAR card · ${card.subsection.title}`,
+      },
+    });
+    await db.bookBarCard.update({
+      where: { subsectionId: args.subsectionId },
+      data: { budgetLineId: created.id },
+    });
+    await audit(user, {
+      action: "bar-budget-link",
+      entity: "BookSubsection",
+      entityId: args.subsectionId,
+      metadata: {
+        cardTitle: card.subsection.title,
+        categoryId: args.categoryId,
+        budgetLineId: created.id,
+        itemCount: card.items.length,
+      },
+    });
+    revalidatePath("/budget");
+    await revalidateBookSubsection(args.subsectionId);
+    return { ok: true, budgetLineId: created.id };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Couldn't link" };
+  }
+}
+
+export async function unlinkBarCardFromBudget(
+  subsectionId: string,
+): Promise<BookActionResult> {
+  const user = await requireEdit("book");
+  try {
+    const card = await db.bookBarCard.findUnique({
+      where: { subsectionId },
+      include: { subsection: true },
+    });
+    if (!card) return { ok: false, error: "Bar card not found" };
+    if (!card.budgetLineId) return { ok: true };
+    const previousLineId = card.budgetLineId;
+    await db.bookBarCard.update({
+      where: { subsectionId },
+      data: { budgetLineId: null },
+    });
+    await audit(user, {
+      action: "bar-budget-unlink",
+      entity: "BookSubsection",
+      entityId: subsectionId,
+      metadata: { cardTitle: card.subsection.title, previousBudgetLineId: previousLineId },
+    });
+    revalidatePath("/budget");
+    await revalidateBookSubsection(subsectionId);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Couldn't unlink" };
+  }
+}
+
+// ── OUTFIT card ↔ BudgetLine ─────────────────────────────────────
+// Flat-cost. Linked line gets `estimated = costPence/100`, no
+// per-head config.
+export async function linkOutfitCardToBudget(args: {
+  subsectionId: string;
+  categoryId: string;
+  description?: string;
+}): Promise<BookActionResult & { budgetLineId?: string }> {
+  const user = await requireEdit("book");
+  try {
+    const card = await db.bookOutfitCard.findUnique({
+      where: { subsectionId: args.subsectionId },
+      include: { subsection: true },
+    });
+    if (!card) return { ok: false, error: "Outfit card not found" };
+    const description = args.description?.trim() || card.subsection.title;
+    const last = await db.budgetLine.findFirst({
+      where: { categoryId: args.categoryId },
+      orderBy: { order: "desc" },
+    });
+    const created = await db.budgetLine.create({
+      data: {
+        categoryId: args.categoryId,
+        description,
+        estimated: card.costPence == null ? null : (card.costPence / 100).toFixed(2),
+        order: (last?.order ?? -1) + 1,
+        notes: `Synced from OUTFIT card · ${card.subsection.title}`,
+      },
+    });
+    await db.bookOutfitCard.update({
+      where: { subsectionId: args.subsectionId },
+      data: { budgetLineId: created.id },
+    });
+    await audit(user, {
+      action: "outfit-budget-link",
+      entity: "BookSubsection",
+      entityId: args.subsectionId,
+      metadata: {
+        cardTitle: card.subsection.title,
+        categoryId: args.categoryId,
+        budgetLineId: created.id,
+        costPence: card.costPence,
+      },
+    });
+    revalidatePath("/budget");
+    await revalidateBookSubsection(args.subsectionId);
+    return { ok: true, budgetLineId: created.id };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Couldn't link" };
+  }
+}
+
+export async function unlinkOutfitCardFromBudget(
+  subsectionId: string,
+): Promise<BookActionResult> {
+  const user = await requireEdit("book");
+  try {
+    const card = await db.bookOutfitCard.findUnique({
+      where: { subsectionId },
+      include: { subsection: true },
+    });
+    if (!card) return { ok: false, error: "Outfit card not found" };
+    if (!card.budgetLineId) return { ok: true };
+    const previousLineId = card.budgetLineId;
+    await db.bookOutfitCard.update({
+      where: { subsectionId },
+      data: { budgetLineId: null },
+    });
+    await audit(user, {
+      action: "outfit-budget-unlink",
+      entity: "BookSubsection",
+      entityId: subsectionId,
+      metadata: { cardTitle: card.subsection.title, previousBudgetLineId: previousLineId },
+    });
+    revalidatePath("/budget");
+    await revalidateBookSubsection(subsectionId);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Couldn't unlink" };
+  }
+}
+
+// ── STAY card ↔ BudgetLine ───────────────────────────────────────
+// Same shape as OUTFIT — flat-cost.
+export async function linkStayCardToBudget(args: {
+  subsectionId: string;
+  categoryId: string;
+  description?: string;
+}): Promise<BookActionResult & { budgetLineId?: string }> {
+  const user = await requireEdit("book");
+  try {
+    const card = await db.bookStayCard.findUnique({
+      where: { subsectionId: args.subsectionId },
+      include: { subsection: true },
+    });
+    if (!card) return { ok: false, error: "Stay card not found" };
+    const description = args.description?.trim() || card.subsection.title;
+    const last = await db.budgetLine.findFirst({
+      where: { categoryId: args.categoryId },
+      orderBy: { order: "desc" },
+    });
+    const created = await db.budgetLine.create({
+      data: {
+        categoryId: args.categoryId,
+        description,
+        estimated: card.costPence == null ? null : (card.costPence / 100).toFixed(2),
+        order: (last?.order ?? -1) + 1,
+        notes: `Synced from STAY card · ${card.subsection.title}`,
+      },
+    });
+    await db.bookStayCard.update({
+      where: { subsectionId: args.subsectionId },
+      data: { budgetLineId: created.id },
+    });
+    await audit(user, {
+      action: "stay-budget-link",
+      entity: "BookSubsection",
+      entityId: args.subsectionId,
+      metadata: {
+        cardTitle: card.subsection.title,
+        categoryId: args.categoryId,
+        budgetLineId: created.id,
+        costPence: card.costPence,
+      },
+    });
+    revalidatePath("/budget");
+    await revalidateBookSubsection(args.subsectionId);
+    return { ok: true, budgetLineId: created.id };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Couldn't link" };
+  }
+}
+
+export async function unlinkStayCardFromBudget(
+  subsectionId: string,
+): Promise<BookActionResult> {
+  const user = await requireEdit("book");
+  try {
+    const card = await db.bookStayCard.findUnique({
+      where: { subsectionId },
+      include: { subsection: true },
+    });
+    if (!card) return { ok: false, error: "Stay card not found" };
+    if (!card.budgetLineId) return { ok: true };
+    const previousLineId = card.budgetLineId;
+    await db.bookStayCard.update({
+      where: { subsectionId },
+      data: { budgetLineId: null },
+    });
+    await audit(user, {
+      action: "stay-budget-unlink",
+      entity: "BookSubsection",
+      entityId: subsectionId,
+      metadata: { cardTitle: card.subsection.title, previousBudgetLineId: previousLineId },
+    });
+    revalidatePath("/budget");
+    await revalidateBookSubsection(subsectionId);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Couldn't unlink" };
+  }
+}
+
 // v1.31.1: single bulk save for the BUILD card editor. Replaces the
 // per-row create/update/delete actions with one round-trip on Save —
 // the editor builds a payload of the entire card state (header +
@@ -1685,7 +2084,20 @@ const menuSavePayloadSchema = z.object({
   serviceType: z.string().max(60).nullable(),
   serviceTime: z.string().max(60).nullable(),
   pricePerHeadPence: z.number().int().min(0).nullable(),
+  // v1.32.0 manual override (deprecated, drop in v1.79). v1.78.0
+  // editor sends both this and the new headcountSource fields so the
+  // legacy code path keeps working until v1.79.
   confirmedHeadcount: z.number().int().min(0).nullable(),
+  // v1.78.0: unified PerHeadSource enum.
+  headcountSource: z.nativeEnum(({
+    ALL_INVITED: "ALL_INVITED",
+    CONFIRMED_PLUS_PENDING: "CONFIRMED_PLUS_PENDING",
+    ALL_CONFIRMED: "ALL_CONFIRMED",
+    ADULTS_CONFIRMED: "ADULTS_CONFIRMED",
+    CHILDREN_CONFIRMED: "CHILDREN_CONFIRMED",
+    MANUAL: "MANUAL",
+  } as const)).nullable(),
+  manualHeadcount: z.number().int().min(0).nullable(),
   notes: z.string().max(4000).nullable(),
   courses: z.array(menuCoursePayloadSchema),
 });
@@ -1736,6 +2148,9 @@ export async function saveMenuCard(
           serviceTime: parsed.serviceTime,
           pricePerHeadPence: parsed.pricePerHeadPence,
           confirmedHeadcount: parsed.confirmedHeadcount,
+          // v1.78.0: write the new headcount fields too.
+          headcountSource: parsed.headcountSource,
+          manualHeadcount: parsed.manualHeadcount,
           notes: parsed.notes,
         },
       });
@@ -1825,6 +2240,28 @@ export async function saveMenuCard(
         headerChanged,
       },
     });
+
+    // v1.78.0: auto-resync the linked BudgetLine if the card has one.
+    // No-op when budgetLineId is null (the card isn't linked yet).
+    if (before.budgetLineId) {
+      const source =
+        parsed.headcountSource ??
+        (parsed.pricePerHeadPence != null ? "ALL_CONFIRMED" : null);
+      await syncBudgetLine(before.budgetLineId, {
+        description: before.subsection.title,
+        flatEstimatedPounds: null,
+        perHead:
+          parsed.pricePerHeadPence != null && source
+            ? {
+                perHeadPence: parsed.pricePerHeadPence,
+                headcountSource: source,
+                manualHeadcount: parsed.manualHeadcount ?? parsed.confirmedHeadcount ?? null,
+              }
+            : null,
+      });
+      revalidatePath("/budget");
+    }
+
     await revalidateBookSubsection(subsectionId);
     return { ok: true };
   } catch (err) {
@@ -1847,6 +2284,17 @@ const barItemPayloadSchema = z.object({
   // v1.32.2: per-head pricing + serving moment.
   pricePerHeadPence: z.number().int().min(0).nullable(),
   timing: z.string().max(60).nullable(),
+  // v1.78.0: per-item headcount source. NULL on flat-priced items.
+  // Defaults to ADULTS_CONFIRMED for per-head rows that don't pick a
+  // source explicitly (matches the legacy hardcoded behaviour).
+  headcountSource: z.enum([
+    "ALL_INVITED",
+    "CONFIRMED_PLUS_PENDING",
+    "ALL_CONFIRMED",
+    "ADULTS_CONFIRMED",
+    "CHILDREN_CONFIRMED",
+    "MANUAL",
+  ]).nullable(),
 });
 
 const barSavePayloadSchema = z.object({
@@ -1914,6 +2362,11 @@ export async function saveBarCard(
             notes: i.notes,
             pricePerHeadPence: i.pricePerHeadPence,
             timing: i.timing,
+            // v1.78.0: per-item headcount source. Default to
+            // ADULTS_CONFIRMED for per-head items that don't pick.
+            headcountSource:
+              i.headcountSource ??
+              (i.pricePerHeadPence != null ? "ADULTS_CONFIRMED" : null),
           },
         });
       }
@@ -1933,6 +2386,9 @@ export async function saveBarCard(
             notes: i.notes,
             pricePerHeadPence: i.pricePerHeadPence,
             timing: i.timing,
+            headcountSource:
+              i.headcountSource ??
+              (i.pricePerHeadPence != null ? "ADULTS_CONFIRMED" : null),
             order: orderCounter,
           },
         });
@@ -1960,6 +2416,30 @@ export async function saveBarCard(
         headerChanged,
       },
     });
+
+    // v1.78.0: auto-resync the linked BudgetLine. BAR is multi-item
+    // with mixed pricing modes — we sum a flat estimated total here
+    // (per-head items × confirmedAdults + flat-priced items). This
+    // requires a guest count, so we query confirmedAdults inline.
+    if (before.budgetLineId) {
+      const confirmedAdults = await db.guest.count({
+        where: { archived: false, rsvp: "ATTENDING", isChild: false },
+      });
+      const totalPence = parsed.items.reduce((sum, i) => {
+        if (i.pricePerHeadPence != null) {
+          const qty = i.quantityPlanned ?? 1;
+          return sum + i.pricePerHeadPence * confirmedAdults * qty;
+        }
+        return sum + (i.costPence ?? 0);
+      }, 0);
+      await syncBudgetLine(before.budgetLineId, {
+        description: before.subsection.title,
+        flatEstimatedPounds: totalPence / 100,
+        perHead: null,
+      });
+      revalidatePath("/budget");
+    }
+
     await revalidateBookSubsection(subsectionId);
     return { ok: true };
   } catch (err) {
@@ -2452,6 +2932,18 @@ export async function saveOutfitCard(
         headerChanged,
       },
     });
+
+    // v1.78.0: auto-resync the linked BudgetLine. Flat estimate from
+    // costPence; no per-head config (an outfit isn't priced per head).
+    if (before.budgetLineId) {
+      await syncBudgetLine(before.budgetLineId, {
+        description: before.subsection.title,
+        flatEstimatedPounds: parsed.costPence == null ? null : parsed.costPence / 100,
+        perHead: null,
+      });
+      revalidatePath("/budget");
+    }
+
     await revalidateBookSubsection(subsectionId);
     return { ok: true };
   } catch (err) {
@@ -2626,6 +3118,17 @@ export async function saveStayCard(
         changedFields,
       },
     });
+
+    // v1.78.0: auto-resync the linked BudgetLine.
+    if (before.budgetLineId) {
+      await syncBudgetLine(before.budgetLineId, {
+        description: before.subsection.title,
+        flatEstimatedPounds: parsed.costPence == null ? null : parsed.costPence / 100,
+        perHead: null,
+      });
+      revalidatePath("/budget");
+    }
+
     await revalidateBookSubsection(subsectionId);
     return { ok: true };
   } catch (err) {

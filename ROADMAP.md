@@ -34,6 +34,7 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
+| **v1.78.0** | 2026-05-07 | [Close the financial loop — Wedding Book cost-bearing cards (MENU/BAR/OUTFIT/STAY) gain `budgetLineId` FK + auto-resync into the linked BudgetLine on every card save (mirrors v1.31.1 BUILD pattern). Schema migration `20260514000000_card_budget_links_and_menubar_enum` adds the four FKs + new `BookMenuCard.headcountSource` + `manualHeadcount` + `BookBarItem.headcountSource` (PerHeadSource enum from v1.77.0). Backfills: existing `BookMenuCard.confirmedHeadcount` rows → MANUAL; null+priced → ALL_CONFIRMED; per-head BAR items → ADULTS_CONFIRMED. New `syncBudgetLine` helper + 8 new server actions (`linkXCardToBudget` / `unlinkXCardFromBudget` for each of MENU/BAR/OUTFIT/STAY). Page query loads payments per BUILD material + per OUTFIT item; **paid-on-card reciprocal chip** renders on each material/item showing "📎 £X paid" or "📎 £X / £Y ✓" when fully covered (couple-only via the v1.76.0 money gate). Out of scope (v1.78.1 polish): per-card "Link to budget" picker UI; MENU `headcountSource` dropdown in the editor; BAR per-item source picker.](#2026-05-07--v1780--close-the-financial-loop) |
 | **v1.77.0** | 2026-05-07 | [Variable / per-head budget lines + over-budget warnings + payments category filter + glance spend pulse. New `PerHeadSource` enum + `BudgetLine.{perHeadPence, headcountSource, manualHeadcount}` (additive migration `20260513000000_per_head_budget_lines`). New `src/lib/headcount.ts` resolver (single source of truth, batched count fetch). `BudgetClient`'s "Variable cost (£ × headcount)" toggle on the line edit form expands inputs for price, source (all invited / confirmed + pending / confirmed / adults / children / manual), and live count preview. View mode shows the breakdown chip ("£50 × 60 confirmed = £3,000") and a `⚠ Over` chip when actual exceeds derived estimated. Category headers carry a "⚠ N over" rollup chip and a `↗ Payments` deep-link to `/payments?category=<id>`. /payments accepts the new `?category=` filter (composable with `?supplier=`). /suppliers/[id] gains an "⚠ Over agreed" warning when committed payments exceed `amountAgreed`. /glance Budget card gets a "Recent spend" pulse strip — this week / this month totals + top 3 categories with deep-links.](#2026-05-07--v1770--variable-budget-rollups--warnings--spend-pulse) |
 | **v1.76.0** | 2026-05-07 | [`money` permission gate hides £ values across non-financial surfaces (BUILD/MENU/BAR/OUTFIT/STAY cards, /diy, /suppliers list and detail) for users without it. New `Section` value `"money"`; default for non-couple is NONE so they see project state without prices. Couple promotes specific users (e.g. the planner) to VIEW or EDIT via the existing Settings matrix without unlocking /budget or /payments. Edit-mode money inputs are skipped when hidden but values are preserved via hidden inputs / draft state so non-money editors don't clobber them. Workflow loop (per-head budget rollups, paid-on-BUILD reciprocal display, over-budget warnings, /payments category filter, spend pulse) is the v1.77.0 follow-up.](#2026-05-07--v1760--money-permission-gate) |
 | **v1.75.1** | 2026-05-07 | [Inline payment grid simplified to a single row + supplier autofill input — user feedback: 5 visible rows was too many ("only really need one"), and the supplier `<select>` should be a free-text autofill field instead of a dropdown. `InlinePaymentGrid` collapsed to a single row's worth of state; supplier becomes `<input list="payment-suppliers">` with the existing supplier names as `<datalist>` options. On commit, typed supplier names are matched case-insensitively against existing suppliers; unmatched names auto-create via `createSupplierQuick` (category defaults to "Other") — no separate `+ New supplier…` sub-form needed.](#2026-05-07--v1751--single-row-grid--supplier-autofill) |
@@ -912,6 +913,66 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-05-07 · v1.78.0 — Close the financial loop
+
+The audit's three remaining gaps after v1.77.0:
+
+1. MENU/BAR/OUTFIT/STAY card costs didn't reach the budget — user had to double-enter a flat BudgetLine.
+2. MENU and BAR each had bespoke per-head logic (`confirmedHeadcount` field, hardcoded `confirmedAdults` source) — pre-dated v1.77.0's `PerHeadSource` enum.
+3. v1.75.0's Payment → BookBuildMaterial / BookOutfit link was one-way — payments knew, the cards didn't.
+
+This release closes the data layer for all three. Visible features: paid-on-material chip on BUILD, paid-on-item chip on OUTFIT. Per-card "Link to budget" picker UIs ship in v1.78.1 polish — the auto-resync infrastructure is in this release so existing links keep working.
+
+**Schema migration `20260514000000_card_budget_links_and_menubar_enum`:**
+
+```sql
+-- Per-card BudgetLine FK (mirrors v1.31.1 BookBuildCard.budgetLineId).
+ALTER TABLE "BookMenuCard"   ADD COLUMN "budgetLineId" TEXT;
+ALTER TABLE "BookBarCard"    ADD COLUMN "budgetLineId" TEXT;
+ALTER TABLE "BookOutfitCard" ADD COLUMN "budgetLineId" TEXT;
+ALTER TABLE "BookStayCard"   ADD COLUMN "budgetLineId" TEXT;
+-- + four FK constraints (SetNull on delete) + four indexes.
+
+-- MENU adopts PerHeadSource. confirmedHeadcount kept one release.
+ALTER TABLE "BookMenuCard" ADD COLUMN "headcountSource" "PerHeadSource";
+ALTER TABLE "BookMenuCard" ADD COLUMN "manualHeadcount" INTEGER;
+-- Backfill: rows with confirmedHeadcount → MANUAL with that count;
+-- null+priced rows → ALL_CONFIRMED.
+
+-- BAR per-item adopts PerHeadSource.
+ALTER TABLE "BookBarItem" ADD COLUMN "headcountSource" "PerHeadSource";
+-- Backfill: per-head rows → ADULTS_CONFIRMED (existing hardcoded source).
+```
+
+**Server actions.** New shared helper `syncBudgetLine(budgetLineId, { description, flatEstimatedPounds, perHead })` updates a BudgetLine in-place from a card save — toggles between flat and per-head modes coherently. Eight new actions: `linkMenuCardToBudget` / `linkBarCardToBudget` / `linkOutfitCardToBudget` / `linkStayCardToBudget` (each takes `{ subsectionId, categoryId, description? }` and creates the line + sets the FK), and four matching `unlink<X>CardFromBudget` actions (sets FK to null; line survives).
+
+`saveMenuCard`, `saveBarCard`, `saveOutfitCard`, `saveStayCard` all extended:
+- MENU: schema accepts `headcountSource` + `manualHeadcount`. After save, if `budgetLineId` is set, calls `syncBudgetLine` with `perHead: { perHeadPence, headcountSource ?? "ALL_CONFIRMED", manualHeadcount }`.
+- BAR: per-item schema accepts `headcountSource` (defaults to `ADULTS_CONFIRMED` for per-head items). After save, if linked, sums the rolled total (per-head items × `confirmedAdults` + flat items) and writes a flat `estimated`. BAR is multi-rate so the line carries no per-head config.
+- OUTFIT/STAY: flat `costPence/100` → BudgetLine.estimated. No per-head.
+
+All four card kinds have audit-logged actions (`menu-budget-link` / `outfit-budget-sync` / etc.) with rich metadata.
+
+**Page query.** Loads `payments` per `BookBuildMaterial` and per `BookOutfit` (the per-item model), filtered to PAID status and summed in app code (`paidPence` per row). Also loads each card's `budgetLine: { id, description, category: { id, name } }` for the linked-budget chip (UI in v1.78.1) and `budgetCategories` for the picker.
+
+**Visible UI: paid-on-card reciprocal chips.**
+- BUILD card materials table (couple-only via `showMoney`): below the cost cell on each material row, when `paidPence > 0` shows `📎 £15.00 paid` (or `📎 £15.00 / £15.00 ✓` when paid >= cost).
+- OUTFIT card items list: next to the status pill, same shape.
+
+These close the v1.75.0 reciprocal gap — paying for a material on `/payments` now visibly updates the BUILD card.
+
+**Reusable component:** new `BudgetLinkControl.tsx` — chip + popover for picking a category + creating the link. Plumbing for it ships now (props ready in `CardRouter`); each card's `Link to budget` button wiring is the v1.78.1 polish.
+
+**Out of scope (v1.78.1):**
+- Per-card "Link to budget" affordance UI on each of MENU/BAR/OUTFIT/STAY (data layer ready).
+- MENU edit body: add headcount source dropdown (currently still uses confirmedHeadcount; saves both fields for compat).
+- BAR per-item: add per-row headcount source picker.
+- BUILD's "Copy to Budget" button retrofit to auto-sync (existing manual pattern intentionally preserved).
+
+**Out of scope (later):**
+- Drop `confirmedHeadcount` column (v1.79 — one release recovery buffer).
+- New `PER_HEAD_ITEMS` Wedding Book card kind.
 
 ### 2026-05-07 · v1.77.0 — Variable budget rollups + warnings + spend pulse
 

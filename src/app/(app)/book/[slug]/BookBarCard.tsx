@@ -120,6 +120,10 @@ export function BookBarCard({
         notes: i.notes || null,
         pricePerHeadPence: i.pricePerHeadPence,
         timing: i.timing || null,
+        // v1.78.0: server-side defaults to ADULTS_CONFIRMED for
+        // per-head items if null. Editor UI for selecting this is
+        // a follow-up.
+        headcountSource: null,
       })),
     };
     startTransition(async () => {

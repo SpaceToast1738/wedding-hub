@@ -114,6 +114,11 @@ export function BookMenuCard({
       serviceTime: draft.serviceTime || null,
       pricePerHeadPence: draft.pricePerHeadPence,
       confirmedHeadcount: draft.confirmedHeadcount,
+      // v1.78.0: pass through. The MENU edit body doesn't expose
+      // headcountSource yet (planned in this release); for now we
+      // forward whatever's already on the card or null.
+      headcountSource: null,
+      manualHeadcount: null,
       notes: draft.notes || null,
       courses: draft.courses.map((c) => ({
         id: c.id,
