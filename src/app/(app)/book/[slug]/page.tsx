@@ -6,6 +6,7 @@ import { canEdit, canViewMoney } from "@/lib/permissions";
 import { requireUser } from "@/lib/actions";
 import { AddSubsectionToggle } from "./AddSubsectionToggle";
 import { CardRouter } from "./CardRouter";
+import { SubsectionReorderControls } from "./SubsectionReorderControls";
 import { SectionVisibilityToggle } from "./SectionVisibilityToggle";
 import { LinkedTasksPanel } from "./LinkedTasksPanel";
 import { menuRollups } from "@/lib/book-cards";
@@ -307,7 +308,7 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
               This section has no pages yet. {editable && "Add one above."}
             </p>
           ) : (
-            section.subsections.map((sRaw) => {
+            section.subsections.map((sRaw, subIdx) => {
               // v1.31.1: Coerce BUILD card's BudgetLine.estimated
               // (Prisma Decimal) to a plain number before crossing
               // the client boundary. CardRouter's `Sub` type expects
@@ -461,16 +462,28 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
                 shotList,
               };
               return (
-                <CardRouter
-                  key={s.id}
-                  sub={s}
-                  canEdit={editable}
-                  isCouple={user.isCouple}
-                  showMoney={showMoney}
-                  budgetCategories={budgetCategories}
-                  linkedTasks={subsectionTasksById.get(s.id) ?? []}
-                  users={taskUsers}
-                />
+                // v1.87.0: wrap each card in a Fragment with the
+                // reorder buttons sitting just above it. Hidden when
+                // the user can't edit the book.
+                <div key={s.id} className="space-y-1">
+                  {editable && section.subsections.length > 1 && (
+                    <SubsectionReorderControls
+                      id={s.id}
+                      title={s.title}
+                      isFirst={subIdx === 0}
+                      isLast={subIdx === section.subsections.length - 1}
+                    />
+                  )}
+                  <CardRouter
+                    sub={s}
+                    canEdit={editable}
+                    isCouple={user.isCouple}
+                    showMoney={showMoney}
+                    budgetCategories={budgetCategories}
+                    linkedTasks={subsectionTasksById.get(s.id) ?? []}
+                    users={taskUsers}
+                  />
+                </div>
               );
             })
           )}

@@ -6,6 +6,7 @@ import { canEdit, canView } from "@/lib/permissions";
 import { requireUser } from "@/lib/actions";
 import { bookSceneFor } from "@/components/ui/Illustrations";
 import { AddSectionToggle } from "./AddSectionToggle";
+import { SectionReorderControls } from "./SectionReorderControls";
 
 // Per-section visual treatment to match the prototype's BookCard.
 // Schema doesn't carry description / accent / glyph as columns yet, so we
@@ -144,7 +145,7 @@ export default async function BookHubPage() {
                 gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))",
               }}
             >
-              {sections.map((s) => {
+              {sections.map((s, idx) => {
                 const meta = SECTION_META[s.slug] ?? DEFAULT_META;
                 const isPhoto = s.slug === "photography";
                 const subtitle = isPhoto
@@ -153,14 +154,24 @@ export default async function BookHubPage() {
                     : `Shot list — ${shotsCaptured} of ${shotsTotal} captured`
                   : `${s._count.subsections} ${s._count.subsections === 1 ? "page" : "pages"}`;
                 return (
+                  // v1.87.0: wrap each section card in a `relative` div
+                  // so the reorder buttons can float over the Link.
+                  // Buttons render only when editable.
+                  <div key={s.id} className="relative">
+                    {editable && (
+                      <SectionReorderControls
+                        id={s.id}
+                        isFirst={idx === 0}
+                        isLast={idx === sections.length - 1}
+                      />
+                    )}
                   <Link
-                    key={s.id}
                     href={`/book/${s.slug}`}
                     className={[
                       meta.accent,
                       "border border-border-soft rounded-lg shadow-sm",
                       "p-5 min-h-[160px]",
-                      "flex flex-col items-start gap-3",
+                      "flex flex-col items-start gap-3 block",
                       // hover lift + shadow, mirrors the prototype's BookCard
                       "transition-all duration-150",
                       "hover:shadow-md hover:-translate-y-0.5",
@@ -194,6 +205,7 @@ export default async function BookHubPage() {
                       </div>
                     </div>
                   </Link>
+                  </div>
                 );
               })}
             </div>

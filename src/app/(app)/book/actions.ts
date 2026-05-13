@@ -1186,6 +1186,92 @@ export async function toggleBuildMaterialFlag(
   }
 }
 
+// v1.87.0: reorder a BookSection (top-level /book card). Same swap
+// shape as reorderBuildMaterials — find the neighbour at idx ± 1 and
+// swap their `order` columns in a transaction. Couple-only via
+// requireEdit("book"); audit-logged with the prior + new index.
+export async function reorderBookSection(
+  id: string,
+  delta: number,
+): Promise<BookActionResult> {
+  const user = await requireEdit("book");
+  try {
+    const item = await db.bookSection.findUnique({ where: { id } });
+    if (!item) return { ok: false, error: "Section not found" };
+    const siblings = await db.bookSection.findMany({
+      orderBy: [{ order: "asc" }, { title: "asc" }],
+    });
+    const idx = siblings.findIndex((s) => s.id === id);
+    const targetIdx = idx + (delta < 0 ? -1 : 1);
+    if (targetIdx < 0 || targetIdx >= siblings.length) return { ok: true };
+    const swap = siblings[targetIdx]!;
+    await db.$transaction([
+      db.bookSection.update({ where: { id: item.id }, data: { order: swap.order } }),
+      db.bookSection.update({ where: { id: swap.id }, data: { order: item.order } }),
+    ]);
+    await audit(user, {
+      action: "book-section-reorder",
+      entity: "BookSection",
+      entityId: id,
+      metadata: {
+        title: item.title,
+        delta: delta < 0 ? -1 : 1,
+        swappedWith: swap.title,
+      },
+    });
+    revalidatePath("/book");
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Couldn't reorder" };
+  }
+}
+
+// v1.87.0: reorder a BookSubsection (card within a section's page).
+// Same swap shape; scopes the sibling lookup to the same sectionId so
+// reorder is local to the current section. Title fallback in the
+// orderBy mirrors the page query.
+export async function reorderBookSubsection(
+  id: string,
+  delta: number,
+): Promise<BookActionResult> {
+  const user = await requireEdit("book");
+  try {
+    const item = await db.bookSubsection.findUnique({
+      where: { id },
+      include: { section: { select: { id: true, slug: true } } },
+    });
+    if (!item) return { ok: false, error: "Page not found" };
+    const siblings = await db.bookSubsection.findMany({
+      where: { sectionId: item.sectionId },
+      orderBy: [{ order: "asc" }, { title: "asc" }],
+    });
+    const idx = siblings.findIndex((s) => s.id === id);
+    const targetIdx = idx + (delta < 0 ? -1 : 1);
+    if (targetIdx < 0 || targetIdx >= siblings.length) return { ok: true };
+    const swap = siblings[targetIdx]!;
+    await db.$transaction([
+      db.bookSubsection.update({ where: { id: item.id }, data: { order: swap.order } }),
+      db.bookSubsection.update({ where: { id: swap.id }, data: { order: item.order } }),
+    ]);
+    await audit(user, {
+      action: "book-subsection-reorder",
+      entity: "BookSubsection",
+      entityId: id,
+      metadata: {
+        title: item.title,
+        sectionSlug: item.section.slug,
+        delta: delta < 0 ? -1 : 1,
+        swappedWith: swap.title,
+      },
+    });
+    revalidatePath("/book");
+    revalidatePath(`/book/${item.section.slug}`);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Couldn't reorder" };
+  }
+}
+
 export async function reorderBuildMaterials(
   id: string,
   delta: number,
