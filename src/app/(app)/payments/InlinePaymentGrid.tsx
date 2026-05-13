@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import React, { useRef, useState, useTransition } from "react";
 import { createPayment } from "./actions";
 import { createSupplierQuick } from "@/app/(app)/suppliers/actions";
 import { notify } from "@/lib/notify";
@@ -44,10 +44,16 @@ type LinkSelection =
 // v1.79.0: budget categories + their lines for the per-row picker.
 // Payments linked here roll into the line's `actual` via the B2
 // contract on /budget.
+// v1.80.0: + components per line — payments can target a specific
+// sub-cost (e.g. "Meals" inside the Venue line).
 export type BudgetCategoryWithLines = {
   id: string;
   name: string;
-  lines: { id: string; description: string }[];
+  lines: {
+    id: string;
+    description: string;
+    components: { id: string; label: string }[];
+  }[];
 };
 
 export function InlinePaymentGrid({
@@ -75,10 +81,10 @@ export function InlinePaymentGrid({
   const [attachedFileIds, setAttachedFileIds] = useState<string[]>([]);
   const [queuedFiles, setQueuedFiles] = useState<File[]>([]);
   const [showLinkPicker, setShowLinkPicker] = useState(false);
-  // v1.79.0: budget line link on the row. The select value is either
-  // empty (no link) or "category:<id>:<lineId>" so the picker can
-  // round-trip through a single <select>.
-  const [budgetLineId, setBudgetLineId] = useState<string>("");
+  // v1.79.0: budget link on the row. v1.80.0: prefix-encoded — value
+  // is "line:<lineId>" or "comp:<componentId>" so a single <select>
+  // can offer both line-level and component-level targets.
+  const [budgetTarget, setBudgetTarget] = useState<string>("");
 
   const [pending, startTransition] = useTransition();
   const [suppliers, setSuppliers] = useState<Supplier[]>(initialSuppliers);
@@ -93,7 +99,7 @@ export function InlinePaymentGrid({
     setAttachedFileIds([]);
     setQueuedFiles([]);
     setShowLinkPicker(false);
-    setBudgetLineId("");
+    setBudgetTarget("");
     setTimeout(() => descriptionRef.current?.focus(), 0);
   }
 
@@ -142,7 +148,13 @@ export function InlinePaymentGrid({
         fd.set("amount", trimmedAmt);
         fd.set("status", "DUE");
         if (supplierId) fd.set("supplierId", supplierId);
-        if (budgetLineId) fd.set("budgetLineId", budgetLineId);
+        // v1.80.0: budgetTarget is prefix-encoded; split into the
+        // appropriate FormData field.
+        if (budgetTarget.startsWith("line:")) {
+          fd.set("budgetLineId", budgetTarget.slice(5));
+        } else if (budgetTarget.startsWith("comp:")) {
+          fd.set("budgetLineComponentId", budgetTarget.slice(5));
+        }
         if (link?.kind === "buildMaterial") {
           fd.set("bookBuildMaterialId", link.materialId);
         }
@@ -249,28 +261,41 @@ export function InlinePaymentGrid({
             orphan — `/budget` shows £0 even when payments sum to
             thousands. */}
         <select
-          value={budgetLineId}
-          onChange={(e) => setBudgetLineId(e.target.value)}
+          value={budgetTarget}
+          onChange={(e) => setBudgetTarget(e.target.value)}
           onKeyDown={onPaymentKey}
           disabled={pending || budgetCategories.length === 0}
           className={
             "w-44 text-sm bg-canvas text-ink-primary border rounded-sm px-2 py-1.5 outline-none focus:border-moss-500 " +
-            (budgetLineId ? "border-moss-300" : "border-border-soft")
+            (budgetTarget ? "border-moss-300" : "border-border-soft")
           }
           title={
             budgetCategories.length === 0
               ? "Add a budget category on /budget first"
-              : "Roll this payment into a budget line"
+              : "Roll this payment into a budget line or one of its components"
           }
         >
-          <option value="">📊 Budget line (none)</option>
+          <option value="">📊 Budget link (none)</option>
           {budgetCategories.map((c) =>
             c.lines.length === 0 ? null : (
               <optgroup key={c.id} label={c.name}>
                 {c.lines.map((l) => (
-                  <option key={l.id} value={l.id}>
-                    {l.description}
-                  </option>
+                  // v1.80.0: line option, then its components nested as
+                  // sibling options prefixed with " · " for visual nesting.
+                  // optgroup nesting isn't supported by the platform.
+                  <React.Fragment key={l.id}>
+                    <option value={`line:${l.id}`}>
+                      {l.components.length > 0
+                        ? `${l.description} (whole line)`
+                        : l.description}
+                    </option>
+                    {l.components.map((cmp) => (
+                      <option key={cmp.id} value={`comp:${cmp.id}`}>
+                        {"  · "}
+                        {cmp.label}
+                      </option>
+                    ))}
+                  </React.Fragment>
                 ))}
               </optgroup>
             ),

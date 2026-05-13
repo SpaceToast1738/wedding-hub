@@ -74,6 +74,21 @@ export default async function PaymentsPage({
             category: { select: { id: true, name: true } },
           },
         },
+        // v1.80.0: linked component for the in-row chip when a
+        // payment targets a specific sub-cost.
+        budgetLineComponent: {
+          select: {
+            id: true,
+            label: true,
+            line: {
+              select: {
+                id: true,
+                description: true,
+                category: { select: { id: true, name: true } },
+              },
+            },
+          },
+        },
       },
     }),
     db.supplier.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
@@ -109,6 +124,9 @@ export default async function PaymentsPage({
     // v1.77.0: budget categories for the filter banner display.
     // v1.79.0: + lines per category for the per-row budget-line
     // picker so payments roll up into /budget via the B2 contract.
+    // v1.80.0: + components per line so the picker can offer
+    // component-level targets (lump-sum payment → line; granular DIY
+    // payment → specific component).
     db.budgetCategory.findMany({
       orderBy: { order: "asc" },
       select: {
@@ -116,7 +134,14 @@ export default async function PaymentsPage({
         name: true,
         lines: {
           orderBy: [{ order: "asc" }, { createdAt: "asc" }],
-          select: { id: true, description: true },
+          select: {
+            id: true,
+            description: true,
+            components: {
+              orderBy: [{ order: "asc" }, { createdAt: "asc" }],
+              select: { id: true, label: true },
+            },
+          },
         },
       },
     }),

@@ -25,7 +25,16 @@ export default async function BudgetPage() {
           orderBy: [{ order: "asc" }, { createdAt: "asc" }],
           // B2: payments included so the client can recompute `actual`
           // when it's null (manual override semantics).
-          include: { payments: { select: { amount: true } } },
+          // v1.80.0: + components (with their payments) for composite
+          // line rendering. Component-level estimated rolls up to the
+          // line; component-level payments roll into the line's actual.
+          include: {
+            payments: { select: { amount: true } },
+            components: {
+              orderBy: [{ order: "asc" }, { createdAt: "asc" }],
+              include: { payments: { select: { amount: true } } },
+            },
+          },
         },
       },
     }),
@@ -122,6 +131,18 @@ export default async function BudgetPage() {
             perHeadPence: l.perHeadPence,
             headcountSource: l.headcountSource,
             manualHeadcount: l.manualHeadcount,
+            // v1.80.0: components for composite lines.
+            components: l.components.map((cmp) => ({
+              id: cmp.id,
+              label: cmp.label,
+              flatPence: cmp.flatPence,
+              perHeadPence: cmp.perHeadPence,
+              headcountSource: cmp.headcountSource,
+              manualHeadcount: cmp.manualHeadcount,
+              notes: cmp.notes,
+              order: cmp.order,
+              payments: cmp.payments.map((p) => ({ amount: p.amount.toString() })),
+            })),
           })),
         }))}
         suppliers={suppliers}

@@ -5,13 +5,27 @@ import type { PerHeadSource } from "@prisma/client";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { formatMoneyDecimal } from "@/lib/format";
-import { computeActual, computeEstimated, isManualOverride, sumOfPayments } from "@/lib/budget";
+import { computeActual, computeCompositeActual, computeEstimated, isManualOverride, sumOfPayments } from "@/lib/budget";
+import { createComponent, deleteComponent } from "./actions";
 import { perHeadSourceLabel, perHeadSourceNoun } from "@/lib/headcount";
 import { createCategory, createLine, deleteCategory, deleteLine, updateLine } from "./actions";
 import { notify } from "@/lib/notify";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 
 type Supplier = { id: string; name: string };
+
+// v1.80.0: composite-line component. Either flat or per-head.
+export type Component = {
+  id: string;
+  label: string;
+  flatPence: number | null;
+  perHeadPence: number | null;
+  headcountSource: PerHeadSource | null;
+  manualHeadcount: number | null;
+  notes: string | null;
+  order: number;
+  payments: { amount: string }[];
+};
 
 type Line = {
   id: string;
@@ -28,6 +42,11 @@ type Line = {
   perHeadPence: number | null;
   headcountSource: PerHeadSource | null;
   manualHeadcount: number | null;
+  // v1.80.0: composite-line components. When non-empty, the line's
+  // effective estimated is the sum of components' effective values
+  // (and the line-level flat/perHead fields are ignored by the
+  // renderer until all components are removed).
+  components: Component[];
 };
 
 type Category = { id: string; name: string; lines: Line[] };
@@ -41,7 +60,32 @@ function resolveHeadcount(line: Line, headcounts: HeadcountMap): number | null {
   if (line.headcountSource === "MANUAL") return Math.max(0, line.manualHeadcount ?? 0);
   return headcounts[line.headcountSource];
 }
+// v1.80.0: same shape for a component.
+function resolveComponentHeadcount(component: Component, headcounts: HeadcountMap): number | null {
+  if (component.headcountSource == null) return null;
+  if (component.headcountSource === "MANUAL") return Math.max(0, component.manualHeadcount ?? 0);
+  return headcounts[component.headcountSource];
+}
+function componentEffectiveEstimated(component: Component, headcounts: HeadcountMap): number {
+  if (component.perHeadPence != null && component.headcountSource != null) {
+    const count = resolveComponentHeadcount(component, headcounts) ?? 0;
+    return (component.perHeadPence * count) / 100;
+  }
+  if (component.flatPence != null) return component.flatPence / 100;
+  return 0;
+}
+function componentActual(component: Component): number {
+  return component.payments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+}
+
 function effectiveEstimated(line: Line, headcounts: HeadcountMap): number {
+  // v1.80.0: components win when present.
+  if (line.components.length > 0) {
+    return line.components.reduce(
+      (sum, c) => sum + componentEffectiveEstimated(c, headcounts),
+      0,
+    );
+  }
   const count = resolveHeadcount(line, headcounts);
   return computeEstimated(
     {
@@ -51,6 +95,18 @@ function effectiveEstimated(line: Line, headcounts: HeadcountMap): number {
     },
     count,
   );
+}
+
+// v1.80.0: line actual — sum of line-level payments AND any
+// component-level payments (manual override on the line still wins
+// per the B2 contract). Wraps computeCompositeActual for the
+// general case; falls through to plain computeActual when no
+// components exist so the existing B2 tests don't drift.
+function lineActual(line: Line): number {
+  if (line.components.length > 0) {
+    return computeCompositeActual(line);
+  }
+  return computeActual(line);
 }
 
 function num(d: { toString: () => string } | null | undefined): number {
@@ -79,7 +135,7 @@ export function BudgetClient({
     (acc, c) => {
       for (const l of c.lines) {
         acc.estimated += effectiveEstimated(l, headcounts);
-        acc.actual += computeActual(l);
+        acc.actual += lineActual(l);
         acc.paid += num(l.paid);
       }
       return acc;
@@ -214,7 +270,7 @@ function CategoryBlock({
   const subtotals = category.lines.reduce(
     (acc, l) => ({
       estimated: acc.estimated + effectiveEstimated(l, headcounts),
-      actual: acc.actual + computeActual(l),
+      actual: acc.actual + lineActual(l),
       paid: acc.paid + num(l.paid),
     }),
     { estimated: 0, actual: 0, paid: 0 },
@@ -224,7 +280,7 @@ function CategoryBlock({
   // problem categories at a glance.
   const overBudgetLineCount = category.lines.filter((l) => {
     const est = effectiveEstimated(l, headcounts);
-    return est > 0 && computeActual(l) > est;
+    return est > 0 && lineActual(l) > est;
   }).length;
 
   return (
@@ -360,6 +416,14 @@ function LineRow({
             submitLabel="Save"
             headcounts={headcounts}
           />
+          {/* v1.80.0: composite breakdown editor — live, separate
+              from the line form. Components can be added / deleted
+              without dirtying the line save. */}
+          <ComponentsPanel
+            lineId={line.id}
+            components={line.components}
+            headcounts={headcounts}
+          />
         </td>
       </tr>
     );
@@ -368,7 +432,7 @@ function LineRow({
   // B2: actual is the manual override if set, otherwise sum of payments.
   // The "Σ" pill marks computed totals so the user can tell at a glance
   // which lines are pinned vs. derived.
-  const actualResolved = computeActual(line);
+  const actualResolved = lineActual(line);
   const isManual = isManualOverride(line);
   const paymentsSum = sumOfPayments(line);
   // v1.77.0: per-head breakdown chip + over-budget flag.
@@ -378,6 +442,7 @@ function LineRow({
   const overBudget = estimatedResolved > 0 && actualResolved > estimatedResolved;
 
   return (
+    <>
     <tr className="border-b border-border-soft last:border-b-0 hover:bg-muted/30">
       <td className="px-4 py-2">
         <div className="text-sm text-ink-primary flex items-baseline gap-2 flex-wrap">
@@ -443,6 +508,245 @@ function LineRow({
         </div>
       </td>
     </tr>
+      {/* v1.80.0: composite breakdown — render each component as
+          an indented sub-row beneath the line. Component-level
+          estimated derives the same way the line does (flat or
+          per-head); component-level actual sums its linked
+          payments. No over-budget chip at the component level — the
+          line aggregates that already. */}
+      {line.components.length > 0 &&
+        line.components.map((c) => {
+          const compEst = componentEffectiveEstimated(c, headcounts);
+          const compActual = componentActual(c);
+          const cHead = resolveComponentHeadcount(c, headcounts);
+          return (
+            <tr key={c.id} className="border-b border-border-soft/50 last:border-b-0 bg-canvas/40">
+              <td className="px-4 py-1.5 pl-10">
+                <div className="text-[12px] text-ink-secondary">
+                  <span className="text-ink-tertiary">└ </span>
+                  {c.label}
+                </div>
+                {c.perHeadPence != null && c.headcountSource && (
+                  <div className="text-[10px] text-ink-tertiary pl-3.5">
+                    £{(c.perHeadPence / 100).toFixed(2)} × {cHead ?? 0}{" "}
+                    {perHeadSourceNoun(c.headcountSource, cHead ?? 0)}
+                    {c.headcountSource !== "MANUAL" && (
+                      <> ({perHeadSourceLabel(c.headcountSource)})</>
+                    )}
+                  </div>
+                )}
+              </td>
+              <td className="px-4 py-1.5 text-right text-[12px] text-ink-tertiary tabular-nums">
+                £{compEst.toFixed(2)}
+              </td>
+              <td className="px-4 py-1.5 text-right text-[12px] text-ink-tertiary tabular-nums">
+                {compActual > 0 ? `£${compActual.toFixed(2)}` : "—"}
+              </td>
+              <td className="px-4 py-1.5"></td>
+              <td className="px-4 py-1.5"></td>
+              <td className="px-4 py-1.5"></td>
+            </tr>
+          );
+        })}
+    </>
+  );
+}
+
+// v1.80.0: inline editor for a single line's components. Add new
+// component via flat-or-per-head row; delete with confirm.
+function ComponentsPanel({
+  lineId,
+  components,
+  headcounts,
+}: {
+  lineId: string;
+  components: Component[];
+  headcounts: HeadcountMap;
+}) {
+  const [pending, startTransition] = useTransition();
+  const [showAdd, setShowAdd] = useState(false);
+  const [label, setLabel] = useState("");
+  const [mode, setMode] = useState<"flat" | "perHead">("flat");
+  const [pounds, setPounds] = useState("");
+  const [source, setSource] = useState<PerHeadSource | "">("CONFIRMED_PLUS_PENDING");
+  const confirm = useConfirm();
+
+  function reset() {
+    setLabel("");
+    setMode("flat");
+    setPounds("");
+    setSource("CONFIRMED_PLUS_PENDING");
+    setShowAdd(false);
+  }
+
+  function submit() {
+    const trimmedLabel = label.trim();
+    const pence = Math.round((parseFloat(pounds) || 0) * 100);
+    if (!trimmedLabel) {
+      notify("error", "Component needs a label");
+      return;
+    }
+    if (pence <= 0) {
+      notify("error", "Component needs a price > 0");
+      return;
+    }
+    startTransition(async () => {
+      const res = await createComponent({
+        lineId,
+        label: trimmedLabel,
+        flatPence: mode === "flat" ? pence : null,
+        perHeadPence: mode === "perHead" ? pence : null,
+        headcountSource: mode === "perHead" && source ? source : null,
+        manualHeadcount: null,
+        notes: null,
+      });
+      if (res.ok) {
+        notify("success", `Added "${trimmedLabel}"`);
+        reset();
+      } else {
+        notify("error", res.error ?? "Couldn't add");
+      }
+    });
+  }
+
+  async function onDelete(c: Component) {
+    if (
+      !(await confirm({
+        title: `Delete "${c.label}"?`,
+        body: "Linked payments stay; their component link clears.",
+        confirmLabel: "Delete",
+        tone: "danger",
+      }))
+    )
+      return;
+    startTransition(async () => {
+      const res = await deleteComponent(c.id);
+      if (res.ok) notify("success", "Component deleted");
+      else notify("error", res.error ?? "Couldn't delete");
+    });
+  }
+
+  return (
+    <div className="mt-2 p-3 border border-border-soft bg-canvas/60 rounded-sm">
+      <div className="text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-2">
+        Components ({components.length})
+      </div>
+      {components.length === 0 ? (
+        <p className="text-[11px] text-ink-tertiary italic mb-2">
+          No components yet. Add one to split this line into sub-costs (e.g. meals,
+          drinks, fees) — the line&apos;s estimated will become the sum.
+        </p>
+      ) : (
+        <ul className="space-y-1 mb-2">
+          {components.map((c) => {
+            const est = componentEffectiveEstimated(c, headcounts);
+            const count = resolveComponentHeadcount(c, headcounts);
+            return (
+              <li key={c.id} className="flex items-center gap-2 text-[12px]">
+                <span className="flex-1 text-ink-primary">{c.label}</span>
+                <span className="text-ink-tertiary tabular-nums">
+                  {c.perHeadPence != null && c.headcountSource ? (
+                    <>
+                      £{(c.perHeadPence / 100).toFixed(2)} × {count ?? 0} = £{est.toFixed(2)}
+                    </>
+                  ) : (
+                    <>£{est.toFixed(2)}</>
+                  )}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => onDelete(c)}
+                  disabled={pending}
+                  className="text-ink-tertiary hover:text-danger px-1"
+                  title="Delete component"
+                >
+                  ×
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {showAdd ? (
+        <div className="grid grid-cols-1 sm:grid-cols-6 gap-2 items-end pt-2 border-t border-border-soft">
+          <div className="sm:col-span-2">
+            <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">
+              Label
+            </label>
+            <input
+              type="text"
+              value={label}
+              onChange={(e) => setLabel(e.target.value)}
+              placeholder="e.g. Meals"
+              className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2.5 py-1.5"
+            />
+          </div>
+          <div>
+            <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">
+              Mode
+            </label>
+            <select
+              value={mode}
+              onChange={(e) => setMode(e.target.value as "flat" | "perHead")}
+              className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2 py-1.5"
+            >
+              <option value="flat">Flat £</option>
+              <option value="perHead">£ × head</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">
+              {mode === "flat" ? "Amount £" : "Per head £"}
+            </label>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              value={pounds}
+              onChange={(e) => setPounds(e.target.value)}
+              placeholder="0.00"
+              className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2.5 py-1.5 tabular-nums"
+            />
+          </div>
+          {mode === "perHead" && (
+            <div>
+              <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">
+                Source
+              </label>
+              <select
+                value={source}
+                onChange={(e) => setSource(e.target.value as PerHeadSource)}
+                className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2 py-1.5"
+              >
+                <option value="ALL_INVITED">All invited</option>
+                <option value="CONFIRMED_PLUS_PENDING">Confirmed + pending</option>
+                <option value="ALL_CONFIRMED">Confirmed</option>
+                <option value="ADULTS_CONFIRMED">Adults confirmed</option>
+                <option value="CHILDREN_CONFIRMED">Children confirmed</option>
+              </select>
+            </div>
+          )}
+          <div className="flex gap-1 justify-end">
+            <Button type="button" variant="ghost" size="sm" onClick={reset} disabled={pending}>
+              Cancel
+            </Button>
+            <Button type="button" variant="primary" size="sm" onClick={submit} disabled={pending}>
+              {pending ? "…" : "Add"}
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={() => setShowAdd(true)}
+          disabled={pending}
+        >
+          + Add component
+        </Button>
+      )}
+    </div>
   );
 }
 

@@ -57,6 +57,17 @@ type Payment = {
     description: string;
     category: { id: string; name: string };
   } | null;
+  // v1.80.0
+  budgetLineComponentId: string | null;
+  budgetLineComponent: {
+    id: string;
+    label: string;
+    line: {
+      id: string;
+      description: string;
+      category: { id: string; name: string };
+    };
+  } | null;
 };
 
 type Supplier = { id: string; name: string };
@@ -64,7 +75,11 @@ type FileSummary = { id: string; name: string; mimeType: string };
 type BudgetCategoryWithLines = {
   id: string;
   name: string;
-  lines: { id: string; description: string }[];
+  lines: {
+    id: string;
+    description: string;
+    components: { id: string; label: string }[];
+  }[];
 };
 const STATUS_PILL: Record<string, "PAID" | "SCHEDULED" | "OVERDUE" | "PENDING" | "DECLINED"> = {
   PAID: "PAID",
@@ -137,6 +152,7 @@ export function PaymentRow({
             supplierId: payment.supplierId,
             notes: payment.notes ?? "",
             budgetLineId: payment.budgetLineId,
+            budgetLineComponentId: payment.budgetLineComponentId,
           }}
           // v1.75.0: preserve the existing link + receipt list across
           // saves — PaymentForm appends these as hidden inputs.
@@ -267,7 +283,20 @@ export function PaymentRow({
               <span className="truncate">{linkChip.label}</span>
             </Link>
           )}
-          {payment.budgetLine && (
+          {/* v1.80.0: component-level link wins for the chip label
+              (more specific). */}
+          {payment.budgetLineComponent ? (
+            <Link
+              href="/budget"
+              title={`Budget: ${payment.budgetLineComponent.line.category.name} → ${payment.budgetLineComponent.line.description} → ${payment.budgetLineComponent.label}`}
+              className="inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded-sm border bg-info/10 border-info/30 text-info hover:border-info truncate max-w-[220px]"
+            >
+              <span aria-hidden>📊</span>
+              <span className="truncate">
+                {payment.budgetLineComponent.line.description} · {payment.budgetLineComponent.label}
+              </span>
+            </Link>
+          ) : payment.budgetLine ? (
             <Link
               href="/budget"
               title={`Budget: ${payment.budgetLine.category.name} → ${payment.budgetLine.description}`}
@@ -276,7 +305,7 @@ export function PaymentRow({
               <span aria-hidden>📊</span>
               <span className="truncate">{payment.budgetLine.category.name}</span>
             </Link>
-          )}
+          ) : null}
           {payment.fileIds.length > 0 && (
             <span
               className="inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded-sm border bg-canvas border-border-soft text-ink-tertiary"
@@ -285,7 +314,7 @@ export function PaymentRow({
               📎 {payment.fileIds.length}
             </span>
           )}
-          {!linkChip && !payment.budgetLine && payment.fileIds.length === 0 && (
+          {!linkChip && !payment.budgetLine && !payment.budgetLineComponent && payment.fileIds.length === 0 && (
             <span className="text-[11px] text-ink-tertiary">—</span>
           )}
         </div>

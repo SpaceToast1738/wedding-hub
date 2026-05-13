@@ -17,12 +17,18 @@ type Initial = {
   notes?: string;
   // v1.79.0
   budgetLineId?: string | null;
+  // v1.80.0
+  budgetLineComponentId?: string | null;
 };
 
 export type BudgetCategoryWithLines = {
   id: string;
   name: string;
-  lines: { id: string; description: string }[];
+  lines: {
+    id: string;
+    description: string;
+    components: { id: string; label: string }[];
+  }[];
 };
 
 export function PaymentForm({
@@ -114,26 +120,17 @@ export function PaymentForm({
           </select>
         </div>
         {/* v1.79.0: budget line picker. When set, this payment rolls
-            into the line's `actual` on /budget via the B2 contract. */}
-        <div>
-          <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">Budget line</label>
-          <select
-            name="budgetLineId"
-            defaultValue={initial?.budgetLineId ?? ""}
-            className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2 py-1.5 text-ink-primary outline-none"
-          >
-            <option value="">— none —</option>
-            {budgetCategories.map((c) =>
-              c.lines.length === 0 ? null : (
-                <optgroup key={c.id} label={c.name}>
-                  {c.lines.map((l) => (
-                    <option key={l.id} value={l.id}>{l.description}</option>
-                  ))}
-                </optgroup>
-              ),
-            )}
-          </select>
-        </div>
+            into the line's `actual` on /budget via the B2 contract.
+            v1.80.0: prefix-encoded values so the same select can offer
+            both line-level and component-level targets. The shape
+            "line:<id>" or "comp:<id>" gets split on submit by the
+            wrapping form into either `budgetLineId` or
+            `budgetLineComponentId` hidden inputs. */}
+        <BudgetLinkSelect
+          initialLineId={initial?.budgetLineId ?? null}
+          initialComponentId={initial?.budgetLineComponentId ?? null}
+          budgetCategories={budgetCategories}
+        />
       </div>
       <div>
         <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">Notes</label>
@@ -141,10 +138,90 @@ export function PaymentForm({
           className="w-full text-sm bg-surface text-ink-primary border border-border-soft rounded-sm px-2.5 py-1.5 outline-none focus:border-moss-500" />
       </div>
       {error && <p className="text-xs text-danger">{error}</p>}
+
       <div className="flex gap-2 justify-end">
         {onCancel && <Button type="button" variant="ghost" size="sm" onClick={onCancel} disabled={pending}>Cancel</Button>}
         <Button type="submit" variant="primary" size="sm" disabled={pending}>{pending ? "Saving…" : submitLabel}</Button>
       </div>
     </form>
+  );
+}
+
+// v1.80.0: budget link picker — line-level OR component-level.
+// Prefix-encoded select ("line:<id>" / "comp:<id>") drives two hidden
+// inputs (budgetLineId, budgetLineComponentId) so the same form action
+// reads them naturally.
+function BudgetLinkSelect({
+  initialLineId,
+  initialComponentId,
+  budgetCategories,
+}: {
+  initialLineId: string | null;
+  initialComponentId: string | null;
+  budgetCategories: BudgetCategoryWithLines[];
+}) {
+  const initialEncoded = initialComponentId
+    ? `comp:${initialComponentId}`
+    : initialLineId
+      ? `line:${initialLineId}`
+      : "";
+  const [value, setValue] = useState(initialEncoded);
+  const isComp = value.startsWith("comp:");
+  const isLine = value.startsWith("line:");
+  return (
+    <div>
+      <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">
+        Budget link
+      </label>
+      <select
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2 py-1.5 text-ink-primary outline-none"
+      >
+        <option value="">— none —</option>
+        {budgetCategories.map((c) =>
+          c.lines.length === 0 ? null : (
+            <optgroup key={c.id} label={c.name}>
+              {c.lines.map((l) => (
+                <OptionsForLine key={l.id} line={l} />
+              ))}
+            </optgroup>
+          ),
+        )}
+      </select>
+      <input
+        type="hidden"
+        name="budgetLineId"
+        value={isLine ? value.slice(5) : ""}
+      />
+      <input
+        type="hidden"
+        name="budgetLineComponentId"
+        value={isComp ? value.slice(5) : ""}
+      />
+    </div>
+  );
+}
+
+// Helper: render one line as an <option> followed by its component
+// <options>. Returned as a Fragment so React's "select must have
+// option children" rule is satisfied.
+function OptionsForLine({
+  line,
+}: {
+  line: { id: string; description: string; components: { id: string; label: string }[] };
+}) {
+  return (
+    <>
+      <option value={`line:${line.id}`}>
+        {line.components.length > 0 ? `${line.description} (whole line)` : line.description}
+      </option>
+      {line.components.map((c) => (
+        <option key={c.id} value={`comp:${c.id}`}>
+          {"  · "}
+          {c.label}
+        </option>
+      ))}
+    </>
   );
 }

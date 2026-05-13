@@ -34,6 +34,7 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
+| **v1.80.0** | 2026-05-13 | [Composite budget lines (sub-components). User flagged that the Venue line needs to bundle three different cost shapes — 50 meals × £25, 50 toast drinks × £2.50, one £150 arch — under a single conceptual "Venue" total. New `BudgetLineComponent` model (one-to-many on `BudgetLine`); each component is either flat (£) or per-head (£ × headcount-source). Line's effective estimated = sum of components when components exist; line-level flat/perHead fields are preserved but hidden by the renderer. Payments can target either a line (lump-sum venue payment) OR a specific component (DIY-style "I paid for the foam"). New `Payment.budgetLineComponentId` FK; payment picker on `/payments` is prefix-encoded (`line:<id>` / `comp:<id>`) so a single select offers both levels. Card-to-component link plumbing (5 new `BookXCard.budgetLineComponentId` FK columns) shipped but UI wiring deferred to v1.80.1.](#2026-05-13--v1800--composite-budget-lines) |
 | **v1.79.0** | 2026-05-13 | [Payments → budget line picker. User flagged that payments weren't reaching the budget — the `Payment.budgetLineId` FK existed in the schema but no UI surfaced it, so every payment landed as a budget orphan (paid-totals of £3,957+ showing as £0 on `/budget`). `paymentSchema` now accepts `budgetLineId`; `createPayment` + `updatePayment` persist it + revalidate `/budget`. New `📊 Budget line` `<select>` on the InlinePaymentGrid row (categories as `<optgroup>`, lines as `<option>`). PaymentForm gains a matching dropdown so edit-mode can change the link. PaymentRow renders a `📊 <category>` chip in the "Linked / Receipts" column. Page query loads each payment's `budgetLine.category` + categories' lines for the picker. B2 contract takes over from there — actuals on `/budget` recompute live from the sum of linked payments.](#2026-05-13--v1790--payments-to-budget-line-picker) |
 | **v1.78.0** | 2026-05-07 | [Close the financial loop — Wedding Book cost-bearing cards (MENU/BAR/OUTFIT/STAY) gain `budgetLineId` FK + auto-resync into the linked BudgetLine on every card save (mirrors v1.31.1 BUILD pattern). Schema migration `20260514000000_card_budget_links_and_menubar_enum` adds the four FKs + new `BookMenuCard.headcountSource` + `manualHeadcount` + `BookBarItem.headcountSource` (PerHeadSource enum from v1.77.0). Backfills: existing `BookMenuCard.confirmedHeadcount` rows → MANUAL; null+priced → ALL_CONFIRMED; per-head BAR items → ADULTS_CONFIRMED. New `syncBudgetLine` helper + 8 new server actions (`linkXCardToBudget` / `unlinkXCardFromBudget` for each of MENU/BAR/OUTFIT/STAY). Page query loads payments per BUILD material + per OUTFIT item; **paid-on-card reciprocal chip** renders on each material/item showing "📎 £X paid" or "📎 £X / £Y ✓" when fully covered (couple-only via the v1.76.0 money gate). Out of scope (v1.78.1 polish): per-card "Link to budget" picker UI; MENU `headcountSource` dropdown in the editor; BAR per-item source picker.](#2026-05-07--v1780--close-the-financial-loop) |
 | **v1.77.0** | 2026-05-07 | [Variable / per-head budget lines + over-budget warnings + payments category filter + glance spend pulse. New `PerHeadSource` enum + `BudgetLine.{perHeadPence, headcountSource, manualHeadcount}` (additive migration `20260513000000_per_head_budget_lines`). New `src/lib/headcount.ts` resolver (single source of truth, batched count fetch). `BudgetClient`'s "Variable cost (£ × headcount)" toggle on the line edit form expands inputs for price, source (all invited / confirmed + pending / confirmed / adults / children / manual), and live count preview. View mode shows the breakdown chip ("£50 × 60 confirmed = £3,000") and a `⚠ Over` chip when actual exceeds derived estimated. Category headers carry a "⚠ N over" rollup chip and a `↗ Payments` deep-link to `/payments?category=<id>`. /payments accepts the new `?category=` filter (composable with `?supplier=`). /suppliers/[id] gains an "⚠ Over agreed" warning when committed payments exceed `amountAgreed`. /glance Budget card gets a "Recent spend" pulse strip — this week / this month totals + top 3 categories with deep-links.](#2026-05-07--v1770--variable-budget-rollups--warnings--spend-pulse) |
@@ -914,6 +915,46 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-05-13 · v1.80.0 — Composite budget lines
+
+User raised the modelling gap: the venue invoice has multiple cost shapes (50 meals × £25, 50 toast drinks × £2.50, one £150 arch) that all roll up to one conceptual "Venue" line. Pre-fix, `BudgetLine` was one-shape-only (flat or single per-head rate). Three lines in a category got close but broke the lump-sum mental model.
+
+**Schema (`20260514100000_budget_line_components`).** New `BudgetLineComponent` model:
+
+```prisma
+model BudgetLineComponent {
+  id              String
+  lineId          String       // → BudgetLine, cascade-delete
+  label           String
+  flatPence       Int?         // flat mode
+  perHeadPence    Int?         // per-head mode
+  headcountSource PerHeadSource?
+  manualHeadcount Int?
+  order           Int          @default(0)
+  notes           String?
+  payments        Payment[]    // back-relation
+  // Card targets — v1.80.1 wires the UI; the FKs ship here.
+  menuCards / barCards / outfitCards / stayCards / buildCards
+}
+```
+
+Plus `Payment.budgetLineComponentId` (SetNull on delete) and `BookXCard.budgetLineComponentId` on each of the five cost-bearing card kinds (data layer ready; UI in v1.80.1).
+
+**Pure helpers** (`src/lib/budget.ts`): `computeComponentEstimated`, `computeComponentActual`, `computeCompositeActual` (line actual = line payments + sum of component payments; B2 manual override still wins).
+
+**Server actions** (`src/app/(app)/budget/actions.ts`): `createComponent` / `updateComponent` / `deleteComponent` / `reorderComponents`. Audit-logged with rich metadata. `paymentSchema` extended with `budgetLineComponentId`; `createPayment`/`updatePayment` resolve component → parent line so both FKs are populated consistently regardless of which the UI picks.
+
+**UI: BudgetClient.**
+- Composite line read mode: indented sub-rows beneath the line, each component showing its breakdown chip (`£25.00 × 50 confirmed + pending`) and its own actual rollup. Line aggregates as before.
+- Edit mode: new `ComponentsPanel` inline below the standard line form. Add component (label + flat-vs-perHead + price + source), delete-with-confirm, ordered list.
+- Line-level totals + over-budget chip now factor component-level payments (via `lineActual` helper that switches between `computeActual` and `computeCompositeActual` based on whether components exist).
+
+**UI: PaymentForm + InlinePaymentGrid.** The budget link `<select>` becomes prefix-encoded (`line:<id>` / `comp:<id>`) so the same dropdown offers both line-level and component-level targets. Lines with components render as `Venue (whole line)` followed by indented `· Meals` / `· Toast drinks` / `· Wedding arch` siblings (optgroup nesting isn't a thing in the platform). Two hidden inputs (`budgetLineId` / `budgetLineComponentId`) track the parsed selection; submit goes through unchanged.
+
+**UI: PaymentRow chip.** When a payment targets a component, the chip reads `📊 <line> · <component>` instead of just `📊 <category>`. Component link wins for chip specificity.
+
+**Out of scope (v1.80.1 follow-up):** card-to-component picker UI in `BudgetLinkControl` + the save-action sync to route through `syncBudgetLineComponent` when set. The FKs are in the schema and unblock the UI work.
 
 ### 2026-05-13 · v1.79.0 — Payments → budget line picker
 

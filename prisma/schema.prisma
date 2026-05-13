@@ -482,8 +482,48 @@ model BudgetLine {
   perHeadPence    Int?
   headcountSource PerHeadSource?
   manualHeadcount Int?
+  // v1.80.0: composite lines. When `components` is non-empty, the
+  // line's effective estimated is the SUM of components' effective
+  // estimates — flat + per-head, freely mixed at the component level.
+  // Direct `estimated` and `perHeadPence` on the line are ignored
+  // by the renderer while components exist (but preserved on the
+  // model in case the user removes all components later).
+  components  BudgetLineComponent[]
   createdAt   DateTime       @default(now())
   updatedAt   DateTime       @updatedAt
+}
+
+// v1.80.0: a sub-cost row on a BudgetLine. Models multi-line venue
+// invoices (Meals + Toast drinks + Wedding arch) under one
+// conceptual "Venue" line. Each component is either flat or per-head
+// (mirrors the BudgetLine shape exactly). Wedding Book cards can
+// target a component for finer auto-sync than the line-level link.
+model BudgetLineComponent {
+  id              String         @id @default(cuid())
+  lineId          String
+  line            BudgetLine     @relation(fields: [lineId], references: [id], onDelete: Cascade)
+  label           String
+  flatPence       Int?
+  perHeadPence    Int?
+  headcountSource PerHeadSource?
+  manualHeadcount Int?
+  order           Int            @default(0)
+  notes           String?
+  // Payments that paid for this specific component. Optional —
+  // lump-sum payments still link to the parent BudgetLine.
+  payments        Payment[]
+  // Wedding Book cards that target this component via the v1.80.0
+  // component-level FK. When set, card-saves auto-resync THIS
+  // component (not the parent line).
+  menuCards       BookMenuCard[]
+  barCards        BookBarCard[]
+  outfitCards     BookOutfitCard[]
+  stayCards       BookStayCard[]
+  buildCards      BookBuildCard[]
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  @@index([lineId])
 }
 
 // v1.77.0: which slice of the guest list a per-head BudgetLine
@@ -522,6 +562,13 @@ model Payment {
   bookBuildMaterial    BookBuildMaterial?  @relation(fields: [bookBuildMaterialId], references: [id], onDelete: SetNull)
   bookOutfitId         String?
   bookOutfitItem       BookOutfit?         @relation(fields: [bookOutfitId], references: [id], onDelete: SetNull)
+  // v1.80.0: optional component-level link. When set, this payment
+  // rolls into the component's actual (instead of, or in addition
+  // to, the line's actual). Set both budgetLineId AND
+  // budgetLineComponentId for an over-specified payment — the
+  // server keeps them in sync.
+  budgetLineComponentId String?
+  budgetLineComponent   BudgetLineComponent? @relation(fields: [budgetLineComponentId], references: [id], onDelete: SetNull)
   notes        String?
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
@@ -783,6 +830,11 @@ model BookOutfitCard {
   // v1.78.0: optional auto-sync into a BudgetLine. SetNull on delete.
   budgetLineId     String?
   budgetLine       BudgetLine?    @relation(fields: [budgetLineId], references: [id], onDelete: SetNull)
+  // v1.80.0: optional component-level sync target. When set, card
+  // saves resync the component (not the line). Component link wins
+  // over line link when both are set.
+  budgetLineComponentId String?
+  budgetLineComponent   BudgetLineComponent? @relation(fields: [budgetLineComponentId], references: [id], onDelete: SetNull)
 }
 
 model BookOutfit {
@@ -829,6 +881,11 @@ model BookBuildCard {
   // cascade-delete the build card; the card just loses its link.
   budgetLineId             String?
   budgetLine               BudgetLine?    @relation(fields: [budgetLineId], references: [id], onDelete: SetNull)
+  // v1.80.0: optional component-level sync target. When set, the
+  // BUILD card's auto-sync writes to this component instead of the
+  // line itself.
+  budgetLineComponentId    String?
+  budgetLineComponent      BudgetLineComponent? @relation(fields: [budgetLineComponentId], references: [id], onDelete: SetNull)
   // v1.63.0: optional photo gallery — reuses the existing File model
   // (same 25 MB cap, signed download, visibility gates) by storing an
   // array of File ids. Lifted-pattern from BookOutfitCard.fileIds
@@ -908,6 +965,9 @@ model BookMenuCard {
   // v1.78.0: optional auto-sync into a BudgetLine.
   budgetLineId        String?
   budgetLine          BudgetLine?     @relation(fields: [budgetLineId], references: [id], onDelete: SetNull)
+  // v1.80.0: optional component-level sync target.
+  budgetLineComponentId String?
+  budgetLineComponent   BudgetLineComponent? @relation(fields: [budgetLineComponentId], references: [id], onDelete: SetNull)
 }
 
 model BookMenuCourse {
@@ -957,6 +1017,9 @@ model BookBarCard {
   // itself stays the source of truth for the breakdown.
   budgetLineId  String?
   budgetLine    BudgetLine?   @relation(fields: [budgetLineId], references: [id], onDelete: SetNull)
+  // v1.80.0: optional component-level sync target.
+  budgetLineComponentId String?
+  budgetLineComponent   BudgetLineComponent? @relation(fields: [budgetLineComponentId], references: [id], onDelete: SetNull)
 }
 
 model BookBarItem {
@@ -1095,6 +1158,9 @@ model BookStayCard {
   // v1.78.0: optional auto-sync into a flat BudgetLine.
   budgetLineId     String?
   budgetLine       BudgetLine?    @relation(fields: [budgetLineId], references: [id], onDelete: SetNull)
+  // v1.80.0: optional component-level sync target.
+  budgetLineComponentId String?
+  budgetLineComponent   BudgetLineComponent? @relation(fields: [budgetLineComponentId], references: [id], onDelete: SetNull)
 }
 
 // v1.36.0 (P6): LODGING_GUIDE card — recommended hotels for guests.

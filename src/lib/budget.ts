@@ -87,3 +87,56 @@ export function isOverBudget(
   if (estimated <= 0) return false;
   return computeActual(line) > estimated;
 }
+
+// v1.80.0: per-component estimated. A component is either flat OR
+// per-head — exclusive. Same shape as the line-level helper.
+export type ComponentForEstimate = {
+  flatPence: number | null;
+  perHeadPence: number | null;
+  headcountSource: string | null;
+};
+export function computeComponentEstimated(
+  component: ComponentForEstimate,
+  headcount: number | null,
+): number {
+  if (
+    component.perHeadPence != null &&
+    component.headcountSource != null &&
+    headcount != null
+  ) {
+    return (component.perHeadPence * headcount) / 100;
+  }
+  if (component.flatPence != null) {
+    return component.flatPence / 100;
+  }
+  return 0;
+}
+
+// v1.80.0: per-component actual. Sums payments linked specifically
+// to this component via Payment.budgetLineComponentId. No B2
+// manual-override at the component level — that lives on the line.
+export type ComponentForActual = {
+  payments: { amount: DecimalLike }[];
+};
+export function computeComponentActual(component: ComponentForActual): number {
+  return component.payments.reduce((sum, p) => sum + toNumber(p.amount), 0);
+}
+
+// v1.80.0: composite-line actuals. Sum of payments linked directly
+// to the line PLUS sum of payments linked to any of its components.
+// Manual override on the line still wins (B2 contract preserved).
+export type LineForCompositeActual = BudgetLineForCompute & {
+  components: { payments: { amount: DecimalLike }[] }[];
+};
+export function computeCompositeActual(line: LineForCompositeActual): number {
+  if (line.actual !== null && line.actual !== undefined) {
+    return toNumber(line.actual);
+  }
+  const lineLevel = line.payments.reduce((sum, p) => sum + toNumber(p.amount), 0);
+  const componentLevel = line.components.reduce(
+    (sum, c) => sum + c.payments.reduce((cs, p) => cs + toNumber(p.amount), 0),
+    0,
+  );
+  return lineLevel + componentLevel;
+}
+

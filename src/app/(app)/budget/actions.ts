@@ -255,3 +255,182 @@ export async function deleteLine(id: string): Promise<DeleteResult> {
     };
   }
 }
+
+// ── v1.80.0: BudgetLineComponent CRUD ─────────────────────────────
+//
+// Sub-cost rows on a BudgetLine. Each component is either flat or
+// per-head (mirrors the line shape). The line's effective estimated
+// = sum of components when components exist; line-level flat/perHead
+// fields are preserved but hidden by the UI while components exist.
+
+const componentSchema = z.object({
+  lineId: z.string().min(1),
+  label: z.string().min(1).max(200),
+  // Flat OR per-head — caller sends pence values. Sender enforces
+  // mutual exclusion in the UI; server keeps both as nullable so a
+  // dirty payload can still save without rejection.
+  flatPence: z.number().int().min(0).optional().nullable(),
+  perHeadPence: z.number().int().min(0).optional().nullable(),
+  headcountSource: z.nativeEnum(PerHeadSource).optional().nullable(),
+  manualHeadcount: z.number().int().min(0).optional().nullable(),
+  notes: z.string().max(2000).optional().nullable(),
+});
+
+export async function createComponent(payload: {
+  lineId: string;
+  label: string;
+  flatPence?: number | null;
+  perHeadPence?: number | null;
+  headcountSource?: PerHeadSource | null;
+  manualHeadcount?: number | null;
+  notes?: string | null;
+}): Promise<DeleteResult & { componentId?: string }> {
+  const user = await requireEdit("budget");
+  try {
+    const parsed = componentSchema.parse(payload);
+    const line = await db.budgetLine.findUnique({
+      where: { id: parsed.lineId },
+      include: { _count: { select: { components: true } } },
+    });
+    if (!line) return { ok: false, error: "Budget line not found" };
+    const created = await db.budgetLineComponent.create({
+      data: {
+        lineId: parsed.lineId,
+        label: parsed.label,
+        flatPence: parsed.flatPence ?? null,
+        perHeadPence: parsed.perHeadPence ?? null,
+        headcountSource: parsed.headcountSource ?? null,
+        manualHeadcount: parsed.manualHeadcount ?? null,
+        notes: parsed.notes ?? null,
+        order: line._count.components,
+      },
+    });
+    await audit(user, {
+      action: "budget-component-create",
+      entity: "BudgetLineComponent",
+      entityId: created.id,
+      metadata: {
+        lineId: parsed.lineId,
+        lineDescription: line.description,
+        label: parsed.label,
+        flatPence: parsed.flatPence ?? null,
+        perHeadPence: parsed.perHeadPence ?? null,
+        headcountSource: parsed.headcountSource ?? null,
+      },
+    });
+    revalidatePath("/budget");
+    return { ok: true, componentId: created.id };
+  } catch (err) {
+    console.error("createComponent failed", err);
+    return { ok: false, error: err instanceof Error ? err.message : "Couldn't create component" };
+  }
+}
+
+export async function updateComponent(
+  id: string,
+  payload: {
+    label: string;
+    flatPence?: number | null;
+    perHeadPence?: number | null;
+    headcountSource?: PerHeadSource | null;
+    manualHeadcount?: number | null;
+    notes?: string | null;
+  },
+): Promise<DeleteResult> {
+  const user = await requireEdit("budget");
+  try {
+    const before = await db.budgetLineComponent.findUnique({
+      where: { id },
+      include: { line: { select: { description: true } } },
+    });
+    if (!before) return { ok: false, error: "Component not found" };
+    await db.budgetLineComponent.update({
+      where: { id },
+      data: {
+        label: payload.label,
+        flatPence: payload.flatPence ?? null,
+        perHeadPence: payload.perHeadPence ?? null,
+        headcountSource: payload.headcountSource ?? null,
+        manualHeadcount: payload.manualHeadcount ?? null,
+        notes: payload.notes ?? null,
+      },
+    });
+    const changedFields: string[] = [];
+    if (before.label !== payload.label) changedFields.push("label");
+    if (before.flatPence !== (payload.flatPence ?? null)) changedFields.push("flatPence");
+    if (before.perHeadPence !== (payload.perHeadPence ?? null)) changedFields.push("perHeadPence");
+    if (before.headcountSource !== (payload.headcountSource ?? null)) changedFields.push("headcountSource");
+    if (before.manualHeadcount !== (payload.manualHeadcount ?? null)) changedFields.push("manualHeadcount");
+    if (before.notes !== (payload.notes ?? null)) changedFields.push("notes");
+    await audit(user, {
+      action: "budget-component-update",
+      entity: "BudgetLineComponent",
+      entityId: id,
+      metadata: {
+        lineDescription: before.line.description,
+        label: payload.label,
+        changedFields,
+      },
+    });
+    revalidatePath("/budget");
+    return { ok: true };
+  } catch (err) {
+    console.error("updateComponent failed", err);
+    return { ok: false, error: err instanceof Error ? err.message : "Couldn't update component" };
+  }
+}
+
+export async function deleteComponent(id: string): Promise<DeleteResult> {
+  const user = await requireEdit("budget");
+  try {
+    const before = await db.budgetLineComponent.findUnique({
+      where: { id },
+      include: { line: { select: { description: true } } },
+    });
+    await db.budgetLineComponent.delete({ where: { id } });
+    await audit(user, {
+      action: "budget-component-delete",
+      entity: "BudgetLineComponent",
+      entityId: id,
+      metadata: {
+        label: before?.label ?? null,
+        lineDescription: before?.line.description ?? null,
+        flatPence: before?.flatPence ?? null,
+        perHeadPence: before?.perHeadPence ?? null,
+      },
+    });
+    revalidatePath("/budget");
+    return { ok: true };
+  } catch (err) {
+    console.error("deleteComponent failed", err);
+    return { ok: false, error: err instanceof Error ? err.message : "Couldn't delete component" };
+  }
+}
+
+export async function reorderComponents(
+  lineId: string,
+  orderedIds: string[],
+): Promise<DeleteResult> {
+  const user = await requireEdit("budget");
+  try {
+    await db.$transaction(
+      orderedIds.map((cid, idx) =>
+        db.budgetLineComponent.update({
+          where: { id: cid },
+          data: { order: idx },
+        }),
+      ),
+    );
+    await audit(user, {
+      action: "budget-component-reorder",
+      entity: "BudgetLine",
+      entityId: lineId,
+      metadata: { count: orderedIds.length },
+    });
+    revalidatePath("/budget");
+    return { ok: true };
+  } catch (err) {
+    console.error("reorderComponents failed", err);
+    return { ok: false, error: err instanceof Error ? err.message : "Couldn't reorder" };
+  }
+}

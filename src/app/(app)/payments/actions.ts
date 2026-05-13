@@ -39,6 +39,12 @@ const paymentSchema = z.object({
   // the schema but no UI surfaced it, so every payment landed as a
   // budget orphan.
   budgetLineId: z.string().optional().nullable(),
+  // v1.80.0: component-level link. When set, this payment rolls into
+  // a specific BudgetLineComponent (not the whole line). Lump-sum
+  // payments use budgetLineId; granular DIY-style purchases use
+  // budgetLineComponentId. Both can be set — the component still
+  // rolls up to its parent line.
+  budgetLineComponentId: z.string().optional().nullable(),
 });
 
 function parseAmount(s: string): number {
@@ -106,7 +112,20 @@ export async function createPayment(formData: FormData) {
     bookBuildMaterialId: formData.get("bookBuildMaterialId") || null,
     bookOutfitId: formData.get("bookOutfitId") || null,
     budgetLineId: formData.get("budgetLineId") || null,
+    budgetLineComponentId: formData.get("budgetLineComponentId") || null,
   });
+  // v1.80.0: when a component is targeted, the line FK is implied
+  // (the component's parent). Resolve it once so the row carries
+  // both — payments rendered on /budget can show under the line even
+  // if the user only picked the component.
+  let resolvedLineId = parsed.budgetLineId || null;
+  if (parsed.budgetLineComponentId && !resolvedLineId) {
+    const comp = await db.budgetLineComponent.findUnique({
+      where: { id: parsed.budgetLineComponentId },
+      select: { lineId: true },
+    });
+    if (comp) resolvedLineId = comp.lineId;
+  }
   const created = await db.payment.create({
     data: {
       description: parsed.description,
@@ -120,7 +139,8 @@ export async function createPayment(formData: FormData) {
       fileIds: parsed.fileIds,
       bookBuildMaterialId: parsed.bookBuildMaterialId || null,
       bookOutfitId: parsed.bookOutfitId || null,
-      budgetLineId: parsed.budgetLineId || null,
+      budgetLineId: resolvedLineId,
+      budgetLineComponentId: parsed.budgetLineComponentId || null,
     },
     include: { supplier: { select: { name: true } } },
   });
@@ -145,7 +165,9 @@ export async function createPayment(formData: FormData) {
       bookBuildMaterialId: parsed.bookBuildMaterialId || null,
       bookOutfitId: parsed.bookOutfitId || null,
       // v1.79.0
-      budgetLineId: parsed.budgetLineId || null,
+      budgetLineId: resolvedLineId,
+      // v1.80.0
+      budgetLineComponentId: parsed.budgetLineComponentId || null,
     },
   });
   revalidatePath("/payments");
@@ -153,8 +175,8 @@ export async function createPayment(formData: FormData) {
   // book section the material lives under.
   if (parsed.bookBuildMaterialId) revalidatePath("/book", "layout");
   // v1.79.0: payment linked to a budget line → /budget actuals
-  // auto-recompute (B2 contract). Revalidate to surface immediately.
-  if (parsed.budgetLineId) revalidatePath("/budget");
+  // auto-recompute (B2 contract). v1.80.0: component link → same.
+  if (resolvedLineId || parsed.budgetLineComponentId) revalidatePath("/budget");
 }
 
 export async function updatePayment(id: string, formData: FormData) {
@@ -172,11 +194,22 @@ export async function updatePayment(id: string, formData: FormData) {
     bookBuildMaterialId: formData.get("bookBuildMaterialId") || null,
     bookOutfitId: formData.get("bookOutfitId") || null,
     budgetLineId: formData.get("budgetLineId") || null,
+    budgetLineComponentId: formData.get("budgetLineComponentId") || null,
   });
   const before = await db.payment.findUnique({
     where: { id },
     include: { supplier: { select: { name: true } } },
   });
+  // v1.80.0: resolve component → parent line so the rollup stays
+  // consistent regardless of which FK the UI picked.
+  let resolvedLineId = parsed.budgetLineId || null;
+  if (parsed.budgetLineComponentId && !resolvedLineId) {
+    const comp = await db.budgetLineComponent.findUnique({
+      where: { id: parsed.budgetLineComponentId },
+      select: { lineId: true },
+    });
+    if (comp) resolvedLineId = comp.lineId;
+  }
   const next = {
     description: parsed.description,
     amount: parseAmount(parsed.amount),
@@ -189,7 +222,8 @@ export async function updatePayment(id: string, formData: FormData) {
     fileIds: parsed.fileIds,
     bookBuildMaterialId: parsed.bookBuildMaterialId || null,
     bookOutfitId: parsed.bookOutfitId || null,
-    budgetLineId: parsed.budgetLineId || null,
+    budgetLineId: resolvedLineId,
+    budgetLineComponentId: parsed.budgetLineComponentId || null,
   };
   await db.payment.update({ where: { id }, data: next });
   // Side effect: if the link target changed and the new target is a
@@ -226,6 +260,8 @@ export async function updatePayment(id: string, formData: FormData) {
       changedFields.push("bookOutfitId");
     if (before.budgetLineId !== next.budgetLineId)
       changedFields.push("budgetLineId");
+    if (before.budgetLineComponentId !== next.budgetLineComponentId)
+      changedFields.push("budgetLineComponentId");
   }
   await audit(user, {
     action: "update",
@@ -240,7 +276,12 @@ export async function updatePayment(id: string, formData: FormData) {
   });
   revalidatePath("/payments");
   if (changedFields.includes("bookBuildMaterialId")) revalidatePath("/book", "layout");
-  if (changedFields.includes("budgetLineId") || changedFields.includes("amount") || changedFields.includes("status"))
+  if (
+    changedFields.includes("budgetLineId") ||
+    changedFields.includes("budgetLineComponentId") ||
+    changedFields.includes("amount") ||
+    changedFields.includes("status")
+  )
     revalidatePath("/budget");
 }
 
