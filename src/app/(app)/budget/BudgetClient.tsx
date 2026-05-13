@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import type { PerHeadSource } from "@prisma/client";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -177,12 +177,46 @@ export function BudgetClient({
     },
     { estimated: 0, actual: 0, paid: 0 },
   );
-  const remaining = totals.actual - totals.paid;
+  // v1.84.0: Outstanding can be computed two ways. "actual" (default,
+  // pre-v1.84 behaviour) is "what's been committed but not yet settled" —
+  // money the couple has agreed to spend but the cash hasn't left the
+  // account yet. "planned" is "how much more we need to find against the
+  // budget" — useful when forecasting cashflow rather than tracking
+  // commitments. Persisted to localStorage so the user's preference
+  // sticks across reloads.
+  const [outstandingMode, setOutstandingMode] = useState<"actual" | "planned">("actual");
+  useEffect(() => {
+    try {
+      const stored = window.localStorage.getItem("wh_budget_outstanding_mode");
+      if (stored === "actual" || stored === "planned") {
+        setOutstandingMode(stored);
+      }
+    } catch {
+      // localStorage unavailable (SSR / privacy mode) — accept default
+    }
+  }, []);
+  const handleOutstandingMode = (mode: "actual" | "planned") => {
+    setOutstandingMode(mode);
+    try {
+      window.localStorage.setItem("wh_budget_outstanding_mode", mode);
+    } catch {
+      // best-effort persistence
+    }
+  };
+  const remaining =
+    outstandingMode === "planned"
+      ? totals.estimated - totals.paid
+      : totals.actual - totals.paid;
 
   return (
     <div className="flex-1 overflow-auto">
       <div className="max-w-5xl mx-auto p-4 sm:p-6 space-y-6">
-        <SummaryBar totals={totals} remaining={remaining} />
+        <SummaryBar
+          totals={totals}
+          remaining={remaining}
+          outstandingMode={outstandingMode}
+          onOutstandingModeChange={handleOutstandingMode}
+        />
         {categories.length === 0 ? (
           <p className="text-sm text-ink-tertiary text-center py-12">
             No budget categories yet. Add one below to get started.
@@ -204,7 +238,18 @@ export function BudgetClient({
   );
 }
 
-function SummaryBar({ totals, remaining }: { totals: { estimated: number; actual: number; paid: number }; remaining: number }) {
+function SummaryBar({
+  totals,
+  remaining,
+  outstandingMode,
+  onOutstandingModeChange,
+}: {
+  totals: { estimated: number; actual: number; paid: number };
+  remaining: number;
+  // v1.84.0: Outstanding can be computed against Actual or Planned.
+  outstandingMode: "actual" | "planned";
+  onOutstandingModeChange: (mode: "actual" | "planned") => void;
+}) {
   const Tile = ({ label, value, accent = "text-ink-primary" }: { label: string; value: string; accent?: string }) => (
     <div className="bg-surface border border-border-soft rounded-md px-4 py-3 flex-1 min-w-[140px]">
       <div className="text-[10px] font-bold text-ink-tertiary uppercase tracking-wider">{label}</div>
@@ -213,6 +258,55 @@ function SummaryBar({ totals, remaining }: { totals: { estimated: number; actual
       </div>
     </div>
   );
+
+  // v1.84.0: Outstanding tile gets its own tile renderer so the two-pill
+  // mode toggle sits inside the label row. Keeps the Tile API simple for
+  // the other three.
+  const OutstandingTile = () => {
+    const label = outstandingMode === "planned" ? "vs Planned" : "vs Actual";
+    const pillClass = (active: boolean) =>
+      `px-1.5 py-0.5 rounded text-[10px] font-medium tracking-normal transition-colors ${
+        active
+          ? "bg-marigold-100 text-marigold-700 border border-marigold-300"
+          : "text-ink-tertiary hover:text-ink-secondary border border-transparent"
+      }`;
+    return (
+      <div className="bg-surface border border-border-soft rounded-md px-4 py-3 flex-1 min-w-[140px]">
+        <div className="flex items-center justify-between gap-2">
+          <div className="text-[10px] font-bold text-ink-tertiary uppercase tracking-wider">
+            Outstanding · {label}
+          </div>
+          <div className="flex items-center gap-0.5" role="group" aria-label="Outstanding computation mode">
+            <button
+              type="button"
+              onClick={() => onOutstandingModeChange("actual")}
+              className={pillClass(outstandingMode === "actual")}
+              aria-pressed={outstandingMode === "actual"}
+              title="Actual − Paid: what's committed but not yet settled"
+            >
+              Actual
+            </button>
+            <button
+              type="button"
+              onClick={() => onOutstandingModeChange("planned")}
+              className={pillClass(outstandingMode === "planned")}
+              aria-pressed={outstandingMode === "planned"}
+              title="Planned − Paid: how much more to find against the budget"
+            >
+              Planned
+            </button>
+          </div>
+        </div>
+        <div
+          className={`font-display text-2xl font-semibold mt-1 ${
+            remaining > 0 ? "text-marigold-700" : "text-ink-primary"
+          }`}
+        >
+          {formatMoneyDecimal(remaining as unknown as { toString(): string })}
+        </div>
+      </div>
+    );
+  };
 
   // Stacked progress: paid (moss) + (actual - paid) outstanding (marigold)
   // shown against the planned total. If actual > planned the bar caps at
@@ -228,7 +322,7 @@ function SummaryBar({ totals, remaining }: { totals: { estimated: number; actual
         <Tile label="Planned" value={formatMoneyDecimal(totals.estimated as unknown as { toString(): string })} />
         <Tile label="Actual" value={formatMoneyDecimal(totals.actual as unknown as { toString(): string })} accent={overBudget ? "text-danger" : "text-ink-primary"} />
         <Tile label="Paid" value={formatMoneyDecimal(totals.paid as unknown as { toString(): string })} accent="text-moss-700" />
-        <Tile label="Outstanding" value={formatMoneyDecimal(remaining as unknown as { toString(): string })} accent={remaining > 0 ? "text-marigold-700" : "text-ink-primary"} />
+        <OutstandingTile />
       </div>
       {denominator > 0 && (
         <div>

@@ -34,6 +34,7 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
+| **v1.84.0** | 2026-05-13 | [Outstanding-mode toggle on /budget. The Outstanding summary tile now offers two interpretations side-by-side: **vs Actual** (default, pre-v1.84 behaviour — `actual − paid`, what's been committed but not yet settled) and **vs Planned** (`planned − paid`, how much more we need to find against the budget). Two-pill toggle inside the Outstanding tile; selection persisted to `localStorage` under `wh_budget_outstanding_mode`. The Actual / Planned / Paid tiles + the stacked progress bar are unchanged — only Outstanding switches denominator. Pure render change; no schema, no compute helpers, no migration.](#2026-05-13--v1840--outstanding-mode-toggle) |
 | **v1.83.0** | 2026-05-13 | [Composite-line columns finally render their numbers. **Bug:** the Venue line's Planned cell showed `—` even though its 9 components summed to £5,667 (visible in the category header). Component sub-rows had blank Actual + Paid columns. v1.83.0 surfaces both: parent's Planned cell shows the composite sum with a Σ pill; each component sub-row now renders its own Actual (sum of linked payments) and Paid (PAID-status sum) with Σ pills, falling back to `—` when zero. No schema or compute changes — these values already existed via `effectiveEstimated` and `componentActual`; the rendering just didn't read them out.](#2026-05-13--v1830--composite-line-columns) |
 | **v1.82.0** | 2026-05-13 | [Composite-line components grow up (editing + MANUAL + notes), two new headcount sources (adults / children + pending), and the Paid column finally rolls up linked payments. **Bug fix:** linking a PAID payment to a BudgetLine showed it under Actual but Paid stayed £0 — the column rendered the manual `paid` value verbatim. New `computePaid` + `computeCompositePaid` follow the same B2 contract pattern as Actual: manual override wins, else sum of PAID-status payments. **Component editing:** ComponentsPanel rewritten with a shared `ComponentForm` for both add and edit; click Edit on any component row to switch it into an inline form (label, mode, price, source, manual count, minimum, notes). **MANUAL + notes:** components now support MANUAL source + a notes textarea; notes surface a 📝 hint on the row. **New enum values:** `ADULTS_PENDING_OR_CONFIRMED` and `CHILDREN_PENDING_OR_CONFIRMED` — vendors that price adults vs children differently can now isolate either against the "+ pending" RSVP cohort.](#2026-05-13--v1820--components-grow-up--paid-rollup-fix) |
 | **v1.81.0** | 2026-05-13 | [Minimum-cover floor on per-head budget lines + components. Vendor minimums ("80 covers regardless of RSVPs") are now first-class. New `minimumHeadcount Int?` on BOTH `BudgetLine` and `BudgetLineComponent` (additive migration). New `applyMinimum(resolved, minimum)` pure helper in `src/lib/budget.ts` — `computeEstimated` + `computeComponentEstimated` factor it before pricing. UI: line variable-cost panel + component add-form both gain a `Min` input (optional). Breakdown chips on `/budget` show the active multiplier in marigold + an `(min, actual N)` annotation when the minimum is doing work. MANUAL source respects the minimum too (a typed number is still floored).](#2026-05-13--v1810--minimum-cover-floor) |
@@ -918,6 +919,23 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-05-13 · v1.84.0 — Outstanding-mode toggle
+
+User asked for "a toggle for planned vs paid & actual vs paid near the outstanding field on the budget screen". The Actual / Planned / Paid tiles each present a different lens on the same numbers; Outstanding was hard-coded to one of them. v1.84.0 makes Outstanding switchable.
+
+**Two modes, side-by-side on the same tile:**
+
+- **vs Actual** (default, pre-v1.84 behaviour) — `actual − paid`. *What's been committed but not yet settled* — money the couple has agreed to spend but the cash hasn't left the account yet. Useful when tracking commitments and reconciling vendor invoices.
+- **vs Planned** — `planned − paid`. *How much more we need to find against the budget*. Useful when forecasting cashflow rather than tracking commitments.
+
+**UI.** A two-pill segmented control sits inside the Outstanding tile's label row. The label updates to reflect the active mode ("Outstanding · vs Actual" / "Outstanding · vs Planned"). The Outstanding value re-renders accordingly; the marigold accent (when > 0) is preserved across modes. The three other tiles and the stacked progress bar are unchanged.
+
+**Persistence.** Selection stored to `localStorage` under `wh_budget_outstanding_mode`. Hydrated via `useEffect` post-mount (avoids SSR mismatch). Try/catch around both read + write so the toggle still works in privacy modes / SSR.
+
+**State lift.** `outstandingMode` lives on `BudgetClient` so `remaining` (the value passed into `<SummaryBar>`) can switch denominator. SummaryBar receives `outstandingMode` + `onOutstandingModeChange` as props; an `OutstandingTile` subcomponent renders the pill row + the value.
+
+**No schema, no compute helpers, no migrations.** Pure render change against existing totals.
 
 ### 2026-05-13 · v1.83.0 — Composite-line columns
 
