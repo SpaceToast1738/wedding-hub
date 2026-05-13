@@ -66,6 +66,14 @@ export default async function PaymentsPage({
             },
           },
         },
+        // v1.79.0: linked BudgetLine for the in-row chip + edit picker.
+        budgetLine: {
+          select: {
+            id: true,
+            description: true,
+            category: { select: { id: true, name: true } },
+          },
+        },
       },
     }),
     db.supplier.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
@@ -99,9 +107,18 @@ export default async function PaymentsPage({
       select: { id: true, name: true, mimeType: true },
     }),
     // v1.77.0: budget categories for the filter banner display.
+    // v1.79.0: + lines per category for the per-row budget-line
+    // picker so payments roll up into /budget via the B2 contract.
     db.budgetCategory.findMany({
       orderBy: { order: "asc" },
-      select: { id: true, name: true },
+      select: {
+        id: true,
+        name: true,
+        lines: {
+          orderBy: [{ order: "asc" }, { createdAt: "asc" }],
+          select: { id: true, description: true },
+        },
+      },
     }),
   ]);
 
@@ -217,6 +234,7 @@ export default async function PaymentsPage({
               buildOptions={buildOptions}
               outfitOptions={outfitOptions}
               files={allFiles}
+              budgetCategories={categories}
             />
           </div>
           {payments.length === 0 ? (
@@ -247,6 +265,7 @@ export default async function PaymentsPage({
                       payment={p}
                       suppliers={suppliers}
                       files={allFiles}
+                      budgetCategories={categories}
                       canEdit={true}
                     />
                   ))}

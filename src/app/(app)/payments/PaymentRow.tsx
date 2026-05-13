@@ -50,10 +50,22 @@ type Payment = {
       subsection: { title: string; slug: string };
     };
   } | null;
+  // v1.79.0
+  budgetLineId: string | null;
+  budgetLine: {
+    id: string;
+    description: string;
+    category: { id: string; name: string };
+  } | null;
 };
 
 type Supplier = { id: string; name: string };
 type FileSummary = { id: string; name: string; mimeType: string };
+type BudgetCategoryWithLines = {
+  id: string;
+  name: string;
+  lines: { id: string; description: string }[];
+};
 const STATUS_PILL: Record<string, "PAID" | "SCHEDULED" | "OVERDUE" | "PENDING" | "DECLINED"> = {
   PAID: "PAID",
   SCHEDULED: "SCHEDULED",
@@ -66,11 +78,13 @@ export function PaymentRow({
   payment,
   suppliers,
   files,
+  budgetCategories,
   canEdit,
 }: {
   payment: Payment;
   suppliers: Supplier[];
   files: FileSummary[];
+  budgetCategories: BudgetCategoryWithLines[];
   canEdit: boolean;
 }) {
   const [editing, setEditing] = useState(false);
@@ -112,6 +126,7 @@ export function PaymentRow({
         <PaymentForm
           submitLabel="Save"
           suppliers={suppliers}
+          budgetCategories={budgetCategories}
           initial={{
             description: payment.description,
             amount: payment.amount.toString(),
@@ -121,6 +136,7 @@ export function PaymentRow({
             method: payment.method ?? "",
             supplierId: payment.supplierId,
             notes: payment.notes ?? "",
+            budgetLineId: payment.budgetLineId,
           }}
           // v1.75.0: preserve the existing link + receipt list across
           // saves — PaymentForm appends these as hidden inputs.
@@ -238,7 +254,7 @@ export function PaymentRow({
       <td className="px-4 py-2.5 text-xs text-ink-secondary">{formatDate(payment.dueDate)}</td>
       <td className="px-4 py-2.5"><StatusPill status={STATUS_PILL[payment.status] ?? "PENDING"} label={payment.status.toLowerCase()} /></td>
       <td className="px-4 py-2.5 text-xs text-ink-tertiary">{payment.method ?? "—"}</td>
-      {/* v1.75.0: linked / receipts column */}
+      {/* v1.75.0: linked / receipts column. v1.79.0: + budgetLine chip. */}
       <td className="px-4 py-2.5">
         <div className="flex items-center gap-1.5 flex-wrap">
           {linkChip && (
@@ -251,6 +267,16 @@ export function PaymentRow({
               <span className="truncate">{linkChip.label}</span>
             </Link>
           )}
+          {payment.budgetLine && (
+            <Link
+              href="/budget"
+              title={`Budget: ${payment.budgetLine.category.name} → ${payment.budgetLine.description}`}
+              className="inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded-sm border bg-info/10 border-info/30 text-info hover:border-info truncate max-w-[180px]"
+            >
+              <span aria-hidden>📊</span>
+              <span className="truncate">{payment.budgetLine.category.name}</span>
+            </Link>
+          )}
           {payment.fileIds.length > 0 && (
             <span
               className="inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded-sm border bg-canvas border-border-soft text-ink-tertiary"
@@ -259,7 +285,7 @@ export function PaymentRow({
               📎 {payment.fileIds.length}
             </span>
           )}
-          {!linkChip && payment.fileIds.length === 0 && (
+          {!linkChip && !payment.budgetLine && payment.fileIds.length === 0 && (
             <span className="text-[11px] text-ink-tertiary">—</span>
           )}
         </div>

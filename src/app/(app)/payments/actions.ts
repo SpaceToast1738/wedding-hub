@@ -33,6 +33,12 @@ const paymentSchema = z.object({
   fileIds: z.string().array().default([]),
   bookBuildMaterialId: z.string().optional().nullable(),
   bookOutfitId: z.string().optional().nullable(),
+  // v1.79.0: budget line link. When set, this payment's amount rolls
+  // into the line's `actual` via the B2 contract (manual override
+  // wins; otherwise sum of payments). Pre-fix the column existed on
+  // the schema but no UI surfaced it, so every payment landed as a
+  // budget orphan.
+  budgetLineId: z.string().optional().nullable(),
 });
 
 function parseAmount(s: string): number {
@@ -99,6 +105,7 @@ export async function createPayment(formData: FormData) {
     fileIds: readFileIds(formData),
     bookBuildMaterialId: formData.get("bookBuildMaterialId") || null,
     bookOutfitId: formData.get("bookOutfitId") || null,
+    budgetLineId: formData.get("budgetLineId") || null,
   });
   const created = await db.payment.create({
     data: {
@@ -113,6 +120,7 @@ export async function createPayment(formData: FormData) {
       fileIds: parsed.fileIds,
       bookBuildMaterialId: parsed.bookBuildMaterialId || null,
       bookOutfitId: parsed.bookOutfitId || null,
+      budgetLineId: parsed.budgetLineId || null,
     },
     include: { supplier: { select: { name: true } } },
   });
@@ -136,12 +144,17 @@ export async function createPayment(formData: FormData) {
       receiptCount: parsed.fileIds.length,
       bookBuildMaterialId: parsed.bookBuildMaterialId || null,
       bookOutfitId: parsed.bookOutfitId || null,
+      // v1.79.0
+      budgetLineId: parsed.budgetLineId || null,
     },
   });
   revalidatePath("/payments");
   // v1.75.0: BUILD material `ordered` flag changed → revalidate the
   // book section the material lives under.
   if (parsed.bookBuildMaterialId) revalidatePath("/book", "layout");
+  // v1.79.0: payment linked to a budget line → /budget actuals
+  // auto-recompute (B2 contract). Revalidate to surface immediately.
+  if (parsed.budgetLineId) revalidatePath("/budget");
 }
 
 export async function updatePayment(id: string, formData: FormData) {
@@ -158,6 +171,7 @@ export async function updatePayment(id: string, formData: FormData) {
     fileIds: readFileIds(formData),
     bookBuildMaterialId: formData.get("bookBuildMaterialId") || null,
     bookOutfitId: formData.get("bookOutfitId") || null,
+    budgetLineId: formData.get("budgetLineId") || null,
   });
   const before = await db.payment.findUnique({
     where: { id },
@@ -175,6 +189,7 @@ export async function updatePayment(id: string, formData: FormData) {
     fileIds: parsed.fileIds,
     bookBuildMaterialId: parsed.bookBuildMaterialId || null,
     bookOutfitId: parsed.bookOutfitId || null,
+    budgetLineId: parsed.budgetLineId || null,
   };
   await db.payment.update({ where: { id }, data: next });
   // Side effect: if the link target changed and the new target is a
@@ -209,6 +224,8 @@ export async function updatePayment(id: string, formData: FormData) {
       changedFields.push("bookBuildMaterialId");
     if (before.bookOutfitId !== next.bookOutfitId)
       changedFields.push("bookOutfitId");
+    if (before.budgetLineId !== next.budgetLineId)
+      changedFields.push("budgetLineId");
   }
   await audit(user, {
     action: "update",
@@ -223,6 +240,8 @@ export async function updatePayment(id: string, formData: FormData) {
   });
   revalidatePath("/payments");
   if (changedFields.includes("bookBuildMaterialId")) revalidatePath("/book", "layout");
+  if (changedFields.includes("budgetLineId") || changedFields.includes("amount") || changedFields.includes("status"))
+    revalidatePath("/budget");
 }
 
 export async function setPaymentStatus(id: string, status: PaymentStatus) {

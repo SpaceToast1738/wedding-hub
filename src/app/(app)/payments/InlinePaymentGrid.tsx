@@ -41,18 +41,29 @@ type LinkSelection =
   | { kind: "outfit"; outfitId: string; label: string }
   | null;
 
+// v1.79.0: budget categories + their lines for the per-row picker.
+// Payments linked here roll into the line's `actual` via the B2
+// contract on /budget.
+export type BudgetCategoryWithLines = {
+  id: string;
+  name: string;
+  lines: { id: string; description: string }[];
+};
+
 export function InlinePaymentGrid({
   suppliers: initialSuppliers,
   recentDescriptions,
   buildOptions,
   outfitOptions,
   files: initialFiles,
+  budgetCategories,
 }: {
   suppliers: Supplier[];
   recentDescriptions: string[];
   buildOptions: BuildOption[];
   outfitOptions: OutfitOption[];
   files: FileSummary[];
+  budgetCategories: BudgetCategoryWithLines[];
 }) {
   const [description, setDescription] = useState("");
   const [amount, setAmount] = useState("");
@@ -64,6 +75,10 @@ export function InlinePaymentGrid({
   const [attachedFileIds, setAttachedFileIds] = useState<string[]>([]);
   const [queuedFiles, setQueuedFiles] = useState<File[]>([]);
   const [showLinkPicker, setShowLinkPicker] = useState(false);
+  // v1.79.0: budget line link on the row. The select value is either
+  // empty (no link) or "category:<id>:<lineId>" so the picker can
+  // round-trip through a single <select>.
+  const [budgetLineId, setBudgetLineId] = useState<string>("");
 
   const [pending, startTransition] = useTransition();
   const [suppliers, setSuppliers] = useState<Supplier[]>(initialSuppliers);
@@ -78,6 +93,7 @@ export function InlinePaymentGrid({
     setAttachedFileIds([]);
     setQueuedFiles([]);
     setShowLinkPicker(false);
+    setBudgetLineId("");
     setTimeout(() => descriptionRef.current?.focus(), 0);
   }
 
@@ -126,6 +142,7 @@ export function InlinePaymentGrid({
         fd.set("amount", trimmedAmt);
         fd.set("status", "DUE");
         if (supplierId) fd.set("supplierId", supplierId);
+        if (budgetLineId) fd.set("budgetLineId", budgetLineId);
         if (link?.kind === "buildMaterial") {
           fd.set("bookBuildMaterialId", link.materialId);
         }
@@ -149,7 +166,7 @@ export function InlinePaymentGrid({
     });
   }
 
-  function onPaymentKey(e: React.KeyboardEvent<HTMLInputElement>) {
+  function onPaymentKey(e: React.KeyboardEvent<HTMLInputElement | HTMLSelectElement>) {
     if (e.key === "Enter") {
       e.preventDefault();
       commit();
@@ -227,6 +244,38 @@ export function InlinePaymentGrid({
           placeholder="Supplier (type or pick)"
           className="w-44 text-sm bg-canvas text-ink-primary border border-border-soft rounded-sm px-2.5 py-1.5 outline-none focus:border-moss-500"
         />
+        {/* v1.79.0: budget line picker. Lines listed under their
+            category. Without this, every payment lands as a budget
+            orphan — `/budget` shows £0 even when payments sum to
+            thousands. */}
+        <select
+          value={budgetLineId}
+          onChange={(e) => setBudgetLineId(e.target.value)}
+          onKeyDown={onPaymentKey}
+          disabled={pending || budgetCategories.length === 0}
+          className={
+            "w-44 text-sm bg-canvas text-ink-primary border rounded-sm px-2 py-1.5 outline-none focus:border-moss-500 " +
+            (budgetLineId ? "border-moss-300" : "border-border-soft")
+          }
+          title={
+            budgetCategories.length === 0
+              ? "Add a budget category on /budget first"
+              : "Roll this payment into a budget line"
+          }
+        >
+          <option value="">📊 Budget line (none)</option>
+          {budgetCategories.map((c) =>
+            c.lines.length === 0 ? null : (
+              <optgroup key={c.id} label={c.name}>
+                {c.lines.map((l) => (
+                  <option key={l.id} value={l.id}>
+                    {l.description}
+                  </option>
+                ))}
+              </optgroup>
+            ),
+          )}
+        </select>
         <button
           type="button"
           onClick={() => setShowLinkPicker(!showLinkPicker)}

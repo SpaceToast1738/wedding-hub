@@ -15,11 +15,20 @@ type Initial = {
   method?: string;
   supplierId?: string | null;
   notes?: string;
+  // v1.79.0
+  budgetLineId?: string | null;
+};
+
+export type BudgetCategoryWithLines = {
+  id: string;
+  name: string;
+  lines: { id: string; description: string }[];
 };
 
 export function PaymentForm({
   initial,
   suppliers,
+  budgetCategories = [],
   submitLabel = "Create",
   onSubmit,
   onCancel,
@@ -31,6 +40,7 @@ export function PaymentForm({
 }: {
   initial?: Initial;
   suppliers: { id: string; name: string }[];
+  budgetCategories?: BudgetCategoryWithLines[];
   submitLabel?: string;
   onSubmit: (formData: FormData) => Promise<void>;
   onCancel?: () => void;
@@ -95,12 +105,35 @@ export function PaymentForm({
           <Input name="method" defaultValue={initial?.method ?? ""} placeholder="Bank transfer" />
         </div>
       </div>
-      <div>
-        <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">Supplier</label>
-        <select name="supplierId" defaultValue={initial?.supplierId ?? ""} className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2 py-1.5 text-ink-primary outline-none">
-          <option value="">— none —</option>
-          {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-        </select>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div>
+          <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">Supplier</label>
+          <select name="supplierId" defaultValue={initial?.supplierId ?? ""} className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2 py-1.5 text-ink-primary outline-none">
+            <option value="">— none —</option>
+            {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
+        </div>
+        {/* v1.79.0: budget line picker. When set, this payment rolls
+            into the line's `actual` on /budget via the B2 contract. */}
+        <div>
+          <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">Budget line</label>
+          <select
+            name="budgetLineId"
+            defaultValue={initial?.budgetLineId ?? ""}
+            className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2 py-1.5 text-ink-primary outline-none"
+          >
+            <option value="">— none —</option>
+            {budgetCategories.map((c) =>
+              c.lines.length === 0 ? null : (
+                <optgroup key={c.id} label={c.name}>
+                  {c.lines.map((l) => (
+                    <option key={l.id} value={l.id}>{l.description}</option>
+                  ))}
+                </optgroup>
+              ),
+            )}
+          </select>
+        </div>
       </div>
       <div>
         <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">Notes</label>
