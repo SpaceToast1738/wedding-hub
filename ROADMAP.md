@@ -34,6 +34,7 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
+| **v1.83.0** | 2026-05-13 | [Composite-line columns finally render their numbers. **Bug:** the Venue line's Planned cell showed `—` even though its 9 components summed to £5,667 (visible in the category header). Component sub-rows had blank Actual + Paid columns. v1.83.0 surfaces both: parent's Planned cell shows the composite sum with a Σ pill; each component sub-row now renders its own Actual (sum of linked payments) and Paid (PAID-status sum) with Σ pills, falling back to `—` when zero. No schema or compute changes — these values already existed via `effectiveEstimated` and `componentActual`; the rendering just didn't read them out.](#2026-05-13--v1830--composite-line-columns) |
 | **v1.82.0** | 2026-05-13 | [Composite-line components grow up (editing + MANUAL + notes), two new headcount sources (adults / children + pending), and the Paid column finally rolls up linked payments. **Bug fix:** linking a PAID payment to a BudgetLine showed it under Actual but Paid stayed £0 — the column rendered the manual `paid` value verbatim. New `computePaid` + `computeCompositePaid` follow the same B2 contract pattern as Actual: manual override wins, else sum of PAID-status payments. **Component editing:** ComponentsPanel rewritten with a shared `ComponentForm` for both add and edit; click Edit on any component row to switch it into an inline form (label, mode, price, source, manual count, minimum, notes). **MANUAL + notes:** components now support MANUAL source + a notes textarea; notes surface a 📝 hint on the row. **New enum values:** `ADULTS_PENDING_OR_CONFIRMED` and `CHILDREN_PENDING_OR_CONFIRMED` — vendors that price adults vs children differently can now isolate either against the "+ pending" RSVP cohort.](#2026-05-13--v1820--components-grow-up--paid-rollup-fix) |
 | **v1.81.0** | 2026-05-13 | [Minimum-cover floor on per-head budget lines + components. Vendor minimums ("80 covers regardless of RSVPs") are now first-class. New `minimumHeadcount Int?` on BOTH `BudgetLine` and `BudgetLineComponent` (additive migration). New `applyMinimum(resolved, minimum)` pure helper in `src/lib/budget.ts` — `computeEstimated` + `computeComponentEstimated` factor it before pricing. UI: line variable-cost panel + component add-form both gain a `Min` input (optional). Breakdown chips on `/budget` show the active multiplier in marigold + an `(min, actual N)` annotation when the minimum is doing work. MANUAL source respects the minimum too (a typed number is still floored).](#2026-05-13--v1810--minimum-cover-floor) |
 | **v1.80.0** | 2026-05-13 | [Composite budget lines (sub-components). User flagged that the Venue line needs to bundle three different cost shapes — 50 meals × £25, 50 toast drinks × £2.50, one £150 arch — under a single conceptual "Venue" total. New `BudgetLineComponent` model (one-to-many on `BudgetLine`); each component is either flat (£) or per-head (£ × headcount-source). Line's effective estimated = sum of components when components exist; line-level flat/perHead fields are preserved but hidden by the renderer. Payments can target either a line (lump-sum venue payment) OR a specific component (DIY-style "I paid for the foam"). New `Payment.budgetLineComponentId` FK; payment picker on `/payments` is prefix-encoded (`line:<id>` / `comp:<id>`) so a single select offers both levels. Card-to-component link plumbing (5 new `BookXCard.budgetLineComponentId` FK columns) shipped but UI wiring deferred to v1.80.1.](#2026-05-13--v1800--composite-budget-lines) |
@@ -917,6 +918,22 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-05-13 · v1.83.0 — Composite-line columns
+
+User-reported gap on `/budget` after v1.82.0 shipped: the Venue line's Planned cell read "—" even though its components summed to £5,667 (visible in the category header). The component sub-rows also had blank Actual + Paid cells.
+
+Semantics confirmed with user: Planned = budgeted cost; Actual = final cost so far (sum of linked payments, paid + pending); Paid = settled portion (PAID-status sum). v1.82.0 already implements those compute-side — this release is purely the visual surfacing that v1.80.0 missed when adding the composite-line model.
+
+**Three render-only changes in `BudgetClient.tsx`:**
+
+1. **Parent line Planned cell.** When `line.components.length > 0`, the cell renders `£${effectiveEstimated}` with a Σ pill instead of "—". Existing `effectiveEstimated` helper already sums components; the cell just didn't read it out.
+
+2. **Component sub-row Actual column.** Per-component sum of linked payment amounts (regardless of status). When > 0, renders `£X` with a Σ pill (mirrors the line-level treatment). "—" when zero.
+
+3. **Component sub-row Paid column.** Per-component sum of payments where `status === "PAID"`, rendered in moss-green with a Σ pill (same colour as line-level Paid). "—" when zero. Inline `filter().reduce()` per the v1.82.0 inline-helper convention (avoids re-exporting `componentPaid` from `@/lib/budget` when only this file uses it).
+
+**No schema, no compute, no migrations** — purely surfacing values that already existed.
 
 ### 2026-05-13 · v1.82.0 — Components grow up + Paid rollup fix
 

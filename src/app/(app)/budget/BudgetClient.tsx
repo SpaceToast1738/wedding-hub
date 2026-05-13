@@ -530,9 +530,18 @@ function LineRow({
         )}
       </td>
       <td className="px-4 py-2 text-right text-sm text-ink-secondary tabular-nums">
-        {isPerHead
-          ? `£${estimatedResolved.toFixed(2)}`
-          : formatMoneyDecimal(line.estimated)}
+        {/* v1.83.0: composite lines surface the component-sum here.
+            Σ pill marks it as a rollup (same convention as Actual). */}
+        {line.components.length > 0 ? (
+          <>
+            £{estimatedResolved.toFixed(2)}
+            <span className="ml-1 text-[9px] text-ink-tertiary font-bold">Σ</span>
+          </>
+        ) : isPerHead ? (
+          `£${estimatedResolved.toFixed(2)}`
+        ) : (
+          formatMoneyDecimal(line.estimated)
+        )}
       </td>
       <td className="px-4 py-2 text-right text-sm text-ink-secondary tabular-nums">
         <span title={isManual
@@ -571,6 +580,10 @@ function LineRow({
         line.components.map((c) => {
           const compEst = componentEffectiveEstimated(c, headcounts);
           const compActual = componentActual(c);
+          // v1.83.0: per-component Paid column (PAID-status sum).
+          const compPaid = c.payments
+            .filter((p) => p.status === "PAID")
+            .reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
           const { resolved: rawC, effective: effC } = resolveComponentCount(c, headcounts);
           const minKick = c.perHeadPence != null && c.headcountSource != null && effC > rawC;
           return (
@@ -603,9 +616,25 @@ function LineRow({
                 £{compEst.toFixed(2)}
               </td>
               <td className="px-4 py-1.5 text-right text-[12px] text-ink-tertiary tabular-nums">
-                {compActual > 0 ? `£${compActual.toFixed(2)}` : "—"}
+                {compActual > 0 ? (
+                  <>
+                    £{compActual.toFixed(2)}
+                    <span className="ml-1 text-[9px] text-ink-tertiary font-bold">Σ</span>
+                  </>
+                ) : (
+                  "—"
+                )}
               </td>
-              <td className="px-4 py-1.5"></td>
+              <td className="px-4 py-1.5 text-right text-[12px] text-moss-700 tabular-nums font-medium">
+                {compPaid > 0 ? (
+                  <>
+                    £{compPaid.toFixed(2)}
+                    <span className="ml-1 text-[9px] text-ink-tertiary font-bold">Σ</span>
+                  </>
+                ) : (
+                  "—"
+                )}
+              </td>
               <td className="px-4 py-1.5"></td>
               <td className="px-4 py-1.5"></td>
             </tr>
