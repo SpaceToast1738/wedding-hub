@@ -24,6 +24,11 @@ export function perHeadSourceLabel(source: PerHeadSource): string {
       return "adults confirmed";
     case "CHILDREN_CONFIRMED":
       return "children confirmed";
+    // v1.82.0: age-split "+ pending" variants.
+    case "ADULTS_PENDING_OR_CONFIRMED":
+      return "adults confirmed + pending";
+    case "CHILDREN_PENDING_OR_CONFIRMED":
+      return "children confirmed + pending";
     case "MANUAL":
       return "manual";
   }
@@ -36,8 +41,10 @@ export function perHeadSourceLabel(source: PerHeadSource): string {
 export function perHeadSourceNoun(source: PerHeadSource, n: number): string {
   switch (source) {
     case "ADULTS_CONFIRMED":
+    case "ADULTS_PENDING_OR_CONFIRMED":
       return n === 1 ? "adult" : "adults";
     case "CHILDREN_CONFIRMED":
+    case "CHILDREN_PENDING_OR_CONFIRMED":
       return n === 1 ? "child" : "children";
     case "MANUAL":
       return n === 1 ? "person" : "people";
@@ -76,6 +83,19 @@ export async function computeHeadcount(
         return { archived: false, rsvp: "ATTENDING" as const, isChild: false };
       case "CHILDREN_CONFIRMED":
         return { archived: false, rsvp: "ATTENDING" as const, isChild: true };
+      // v1.82.0
+      case "ADULTS_PENDING_OR_CONFIRMED":
+        return {
+          archived: false,
+          isChild: false,
+          OR: [{ rsvp: "ATTENDING" as const }, { rsvp: "PENDING" as const }],
+        };
+      case "CHILDREN_PENDING_OR_CONFIRMED":
+        return {
+          archived: false,
+          isChild: true,
+          OR: [{ rsvp: "ATTENDING" as const }, { rsvp: "PENDING" as const }],
+        };
     }
   })();
   return db.guest.count({ where });
@@ -91,7 +111,15 @@ export async function computeHeadcount(
 export async function fetchAllHeadcounts(): Promise<
   Record<Exclude<PerHeadSource, "MANUAL">, number>
 > {
-  const [allInvited, confirmedPlusPending, confirmed, adults, children] = await Promise.all([
+  const [
+    allInvited,
+    confirmedPlusPending,
+    confirmed,
+    adults,
+    children,
+    adultsPendingOrConfirmed,
+    childrenPendingOrConfirmed,
+  ] = await Promise.all([
     db.guest.count({ where: { archived: false } }),
     db.guest.count({
       where: { archived: false, OR: [{ rsvp: "ATTENDING" }, { rsvp: "PENDING" }] },
@@ -99,6 +127,20 @@ export async function fetchAllHeadcounts(): Promise<
     db.guest.count({ where: { archived: false, rsvp: "ATTENDING" } }),
     db.guest.count({ where: { archived: false, rsvp: "ATTENDING", isChild: false } }),
     db.guest.count({ where: { archived: false, rsvp: "ATTENDING", isChild: true } }),
+    db.guest.count({
+      where: {
+        archived: false,
+        isChild: false,
+        OR: [{ rsvp: "ATTENDING" }, { rsvp: "PENDING" }],
+      },
+    }),
+    db.guest.count({
+      where: {
+        archived: false,
+        isChild: true,
+        OR: [{ rsvp: "ATTENDING" }, { rsvp: "PENDING" }],
+      },
+    }),
   ]);
   return {
     ALL_INVITED: allInvited,
@@ -106,6 +148,8 @@ export async function fetchAllHeadcounts(): Promise<
     ALL_CONFIRMED: confirmed,
     ADULTS_CONFIRMED: adults,
     CHILDREN_CONFIRMED: children,
+    ADULTS_PENDING_OR_CONFIRMED: adultsPendingOrConfirmed,
+    CHILDREN_PENDING_OR_CONFIRMED: childrenPendingOrConfirmed,
   };
 }
 

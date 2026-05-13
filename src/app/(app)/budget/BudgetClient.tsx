@@ -5,8 +5,8 @@ import type { PerHeadSource } from "@prisma/client";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { formatMoneyDecimal } from "@/lib/format";
-import { applyMinimum, computeActual, computeCompositeActual, computeEstimated, isManualOverride, sumOfPayments } from "@/lib/budget";
-import { createComponent, deleteComponent } from "./actions";
+import { applyMinimum, computeActual, computeCompositeActual, computeCompositePaid, computeEstimated, computePaid, isManualOverride, sumOfPayments } from "@/lib/budget";
+import { createComponent, deleteComponent, updateComponent } from "./actions";
 import { perHeadSourceLabel, perHeadSourceNoun } from "@/lib/headcount";
 import { createCategory, createLine, deleteCategory, deleteLine, updateLine } from "./actions";
 import { notify } from "@/lib/notify";
@@ -26,7 +26,8 @@ export type Component = {
   minimumHeadcount: number | null;
   notes: string | null;
   order: number;
-  payments: { amount: string }[];
+  // v1.82.0: + payment status so the Paid column can sum PAID-only.
+  payments: { amount: string; status: string }[];
 };
 
 type Line = {
@@ -38,7 +39,8 @@ type Line = {
   supplierId: string | null;
   notes: string | null;
   // B2: linked payments so `actual` can be recomputed when null.
-  payments: { amount: string }[];
+  // v1.82.0: + payment status so the Paid column can sum PAID-only.
+  payments: { amount: string; status: string }[];
   // v1.77.0: per-head pricing config. When perHeadPence + headcountSource
   // are both set, the row's effective estimated is computed live.
   perHeadPence: number | null;
@@ -136,11 +138,17 @@ function lineActual(line: Line): number {
   return computeActual(line);
 }
 
-function num(d: { toString: () => string } | null | undefined): number {
-  if (!d) return 0;
-  const n = Number(d.toString());
-  return isNaN(n) ? 0 : n;
+// v1.82.0: line paid — same shape as lineActual, but filters
+// payments to PAID status only. Manual `paid` on the line still wins
+// per the B2 contract. Pre-fix the Paid column rendered the manual
+// value verbatim and ignored linked PAID payments.
+function linePaid(line: Line): number {
+  if (line.components.length > 0) {
+    return computeCompositePaid(line);
+  }
+  return computePaid(line);
 }
+
 
 // v1.57.0 (XL5): map of budgetLineId → BUILD card so each LineRow
 // can render a deep-link chip back to the source card.
@@ -163,7 +171,7 @@ export function BudgetClient({
       for (const l of c.lines) {
         acc.estimated += effectiveEstimated(l, headcounts);
         acc.actual += lineActual(l);
-        acc.paid += num(l.paid);
+        acc.paid += linePaid(l);
       }
       return acc;
     },
@@ -298,7 +306,7 @@ function CategoryBlock({
     (acc, l) => ({
       estimated: acc.estimated + effectiveEstimated(l, headcounts),
       actual: acc.actual + lineActual(l),
-      paid: acc.paid + num(l.paid),
+      paid: acc.paid + linePaid(l),
     }),
     { estimated: 0, actual: 0, paid: 0 },
   );
@@ -536,7 +544,15 @@ function LineRow({
           )}
         </span>
       </td>
-      <td className="px-4 py-2 text-right text-sm text-moss-700 tabular-nums font-medium">{formatMoneyDecimal(line.paid)}</td>
+      <td className="px-4 py-2 text-right text-sm text-moss-700 tabular-nums font-medium">
+        {formatMoneyDecimal(linePaid(line) as unknown as { toString(): string })}
+        {/* v1.82.0: when paid is computed (not a manual override) AND
+            any linked payments are PAID, show the Σ pill so the user
+            knows it's a rollup. Mirrors the Actual column treatment. */}
+        {line.paid == null && linePaid(line) > 0 && (
+          <span className="ml-1 text-[9px] text-ink-tertiary font-bold">Σ</span>
+        )}
+      </td>
       <td className="px-4 py-2 text-xs text-ink-tertiary truncate">{supplierName ?? "—"}</td>
       <td className="px-4 py-2">
         <div className="flex gap-1 justify-end">
@@ -599,8 +615,11 @@ function LineRow({
   );
 }
 
-// v1.80.0: inline editor for a single line's components. Add new
-// component via flat-or-per-head row; delete with confirm.
+// v1.80.0: inline editor for a single line's components. Each row
+// has Edit / Delete affordances. Click Edit → row swaps for a
+// ComponentForm in update mode. + Add component at the bottom opens
+// the same form in create mode. v1.82.0: form supports MANUAL source
+// + notes textarea; new headcount sources (adults / children + pending).
 function ComponentsPanel({
   lineId,
   components,
@@ -612,57 +631,8 @@ function ComponentsPanel({
 }) {
   const [pending, startTransition] = useTransition();
   const [showAdd, setShowAdd] = useState(false);
-  const [label, setLabel] = useState("");
-  const [mode, setMode] = useState<"flat" | "perHead">("flat");
-  const [pounds, setPounds] = useState("");
-  const [source, setSource] = useState<PerHeadSource | "">("CONFIRMED_PLUS_PENDING");
-  // v1.81.0: optional vendor minimum-cover floor on per-head components.
-  const [minimumStr, setMinimumStr] = useState("");
+  const [editingId, setEditingId] = useState<string | null>(null);
   const confirm = useConfirm();
-
-  function reset() {
-    setLabel("");
-    setMode("flat");
-    setPounds("");
-    setSource("CONFIRMED_PLUS_PENDING");
-    setMinimumStr("");
-    setShowAdd(false);
-  }
-
-  function submit() {
-    const trimmedLabel = label.trim();
-    const pence = Math.round((parseFloat(pounds) || 0) * 100);
-    if (!trimmedLabel) {
-      notify("error", "Component needs a label");
-      return;
-    }
-    if (pence <= 0) {
-      notify("error", "Component needs a price > 0");
-      return;
-    }
-    const minimum = (() => {
-      const n = parseInt(minimumStr, 10);
-      return isNaN(n) || n <= 0 ? null : n;
-    })();
-    startTransition(async () => {
-      const res = await createComponent({
-        lineId,
-        label: trimmedLabel,
-        flatPence: mode === "flat" ? pence : null,
-        perHeadPence: mode === "perHead" ? pence : null,
-        headcountSource: mode === "perHead" && source ? source : null,
-        manualHeadcount: null,
-        minimumHeadcount: mode === "perHead" ? minimum : null,
-        notes: null,
-      });
-      if (res.ok) {
-        notify("success", `Added "${trimmedLabel}"`);
-        reset();
-      } else {
-        notify("error", res.error ?? "Couldn't add");
-      }
-    });
-  }
 
   async function onDelete(c: Component) {
     if (
@@ -694,13 +664,46 @@ function ComponentsPanel({
       ) : (
         <ul className="space-y-1 mb-2">
           {components.map((c) => {
+            if (editingId === c.id) {
+              return (
+                <li key={c.id}>
+                  <ComponentForm
+                    mode="edit"
+                    initial={c}
+                    pending={pending}
+                    onCancel={() => setEditingId(null)}
+                    onSubmit={(payload) =>
+                      new Promise((resolve) => {
+                        startTransition(async () => {
+                          const res = await updateComponent(c.id, payload);
+                          if (res.ok) {
+                            notify("success", "Component saved");
+                            setEditingId(null);
+                          } else {
+                            notify("error", res.error ?? "Couldn't save");
+                          }
+                          resolve();
+                        });
+                      })
+                    }
+                  />
+                </li>
+              );
+            }
             const est = componentEffectiveEstimated(c, headcounts);
             const { resolved, effective } = resolveComponentCount(c, headcounts);
             const minKick =
               c.perHeadPence != null && c.headcountSource != null && effective > resolved;
             return (
               <li key={c.id} className="flex items-center gap-2 text-[12px]">
-                <span className="flex-1 text-ink-primary">{c.label}</span>
+                <span className="flex-1 text-ink-primary">
+                  {c.label}
+                  {c.notes && (
+                    <span className="ml-1 text-[10px] text-ink-tertiary italic" title={c.notes}>
+                      📝
+                    </span>
+                  )}
+                </span>
                 <span className="text-ink-tertiary tabular-nums">
                   {c.perHeadPence != null && c.headcountSource ? (
                     <>
@@ -719,6 +722,15 @@ function ComponentsPanel({
                 </span>
                 <button
                   type="button"
+                  onClick={() => setEditingId(c.id)}
+                  disabled={pending}
+                  className="text-[11px] text-ink-tertiary hover:text-moss-700 px-1"
+                  title="Edit component"
+                >
+                  Edit
+                </button>
+                <button
+                  type="button"
                   onClick={() => onDelete(c)}
                   disabled={pending}
                   className="text-ink-tertiary hover:text-danger px-1"
@@ -732,90 +744,25 @@ function ComponentsPanel({
         </ul>
       )}
       {showAdd ? (
-        <div className="grid grid-cols-1 sm:grid-cols-6 gap-2 items-end pt-2 border-t border-border-soft">
-          <div className="sm:col-span-2">
-            <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">
-              Label
-            </label>
-            <input
-              type="text"
-              value={label}
-              onChange={(e) => setLabel(e.target.value)}
-              placeholder="e.g. Meals"
-              className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2.5 py-1.5"
-            />
-          </div>
-          <div>
-            <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">
-              Mode
-            </label>
-            <select
-              value={mode}
-              onChange={(e) => setMode(e.target.value as "flat" | "perHead")}
-              className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2 py-1.5"
-            >
-              <option value="flat">Flat £</option>
-              <option value="perHead">£ × head</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">
-              {mode === "flat" ? "Amount £" : "Per head £"}
-            </label>
-            <input
-              type="number"
-              step="0.01"
-              min="0"
-              value={pounds}
-              onChange={(e) => setPounds(e.target.value)}
-              placeholder="0.00"
-              className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2.5 py-1.5 tabular-nums"
-            />
-          </div>
-          {mode === "perHead" && (
-            <>
-              <div>
-                <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">
-                  Source
-                </label>
-                <select
-                  value={source}
-                  onChange={(e) => setSource(e.target.value as PerHeadSource)}
-                  className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2 py-1.5"
-                >
-                  <option value="ALL_INVITED">All invited</option>
-                  <option value="CONFIRMED_PLUS_PENDING">Confirmed + pending</option>
-                  <option value="ALL_CONFIRMED">Confirmed</option>
-                  <option value="ADULTS_CONFIRMED">Adults confirmed</option>
-                  <option value="CHILDREN_CONFIRMED">Children confirmed</option>
-                </select>
-              </div>
-              {/* v1.81.0: vendor minimum floor. Empty = no minimum. */}
-              <div>
-                <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">
-                  Min
-                </label>
-                <input
-                  type="number"
-                  min="0"
-                  value={minimumStr}
-                  onChange={(e) => setMinimumStr(e.target.value)}
-                  placeholder="optional"
-                  title="Vendor minimum — multiplier = max(count, minimum)"
-                  className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2.5 py-1.5 tabular-nums"
-                />
-              </div>
-            </>
-          )}
-          <div className="flex gap-1 justify-end">
-            <Button type="button" variant="ghost" size="sm" onClick={reset} disabled={pending}>
-              Cancel
-            </Button>
-            <Button type="button" variant="primary" size="sm" onClick={submit} disabled={pending}>
-              {pending ? "…" : "Add"}
-            </Button>
-          </div>
-        </div>
+        <ComponentForm
+          mode="create"
+          pending={pending}
+          onCancel={() => setShowAdd(false)}
+          onSubmit={(payload) =>
+            new Promise((resolve) => {
+              startTransition(async () => {
+                const res = await createComponent({ lineId, ...payload });
+                if (res.ok) {
+                  notify("success", `Added "${payload.label}"`);
+                  setShowAdd(false);
+                } else {
+                  notify("error", res.error ?? "Couldn't add");
+                }
+                resolve();
+              });
+            })
+          }
+        />
       ) : (
         <Button
           type="button"
@@ -827,6 +774,200 @@ function ComponentsPanel({
           + Add component
         </Button>
       )}
+    </div>
+  );
+}
+
+// v1.82.0: shared component editor used by both add (create) and per-
+// row edit (update). Mode + initial state drive defaults; submit
+// returns a payload the parent persists via the appropriate action.
+type ComponentFormPayload = {
+  label: string;
+  flatPence: number | null;
+  perHeadPence: number | null;
+  headcountSource: PerHeadSource | null;
+  manualHeadcount: number | null;
+  minimumHeadcount: number | null;
+  notes: string | null;
+};
+
+function ComponentForm({
+  mode,
+  initial,
+  pending,
+  onCancel,
+  onSubmit,
+}: {
+  mode: "create" | "edit";
+  initial?: Component;
+  pending: boolean;
+  onCancel: () => void;
+  onSubmit: (payload: ComponentFormPayload) => Promise<void>;
+}) {
+  const initialMode: "flat" | "perHead" =
+    initial?.perHeadPence != null ? "perHead" : "flat";
+  const [label, setLabel] = useState(initial?.label ?? "");
+  const [costMode, setCostMode] = useState<"flat" | "perHead">(initialMode);
+  const [pounds, setPounds] = useState<string>(() => {
+    if (initial?.perHeadPence != null) return (initial.perHeadPence / 100).toFixed(2);
+    if (initial?.flatPence != null) return (initial.flatPence / 100).toFixed(2);
+    return "";
+  });
+  const [source, setSource] = useState<PerHeadSource | "">(
+    initial?.headcountSource ?? "CONFIRMED_PLUS_PENDING",
+  );
+  const [manualStr, setManualStr] = useState<string>(
+    initial?.manualHeadcount != null ? String(initial.manualHeadcount) : "",
+  );
+  const [minimumStr, setMinimumStr] = useState<string>(
+    initial?.minimumHeadcount != null ? String(initial.minimumHeadcount) : "",
+  );
+  const [notes, setNotes] = useState<string>(initial?.notes ?? "");
+
+  function submit() {
+    const trimmedLabel = label.trim();
+    const pence = Math.round((parseFloat(pounds) || 0) * 100);
+    if (!trimmedLabel) {
+      notify("error", "Component needs a label");
+      return;
+    }
+    if (pence <= 0) {
+      notify("error", "Component needs a price > 0");
+      return;
+    }
+    const minimum = (() => {
+      const n = parseInt(minimumStr, 10);
+      return isNaN(n) || n <= 0 ? null : n;
+    })();
+    const manual = (() => {
+      const n = parseInt(manualStr, 10);
+      return isNaN(n) || n < 0 ? null : n;
+    })();
+    void onSubmit({
+      label: trimmedLabel,
+      flatPence: costMode === "flat" ? pence : null,
+      perHeadPence: costMode === "perHead" ? pence : null,
+      headcountSource: costMode === "perHead" && source ? source : null,
+      manualHeadcount: costMode === "perHead" && source === "MANUAL" ? manual : null,
+      minimumHeadcount: costMode === "perHead" ? minimum : null,
+      notes: notes.trim() || null,
+    });
+  }
+
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-6 gap-2 items-end pt-2 border-t border-border-soft">
+      <div className="sm:col-span-2">
+        <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">
+          Label
+        </label>
+        <input
+          type="text"
+          value={label}
+          onChange={(e) => setLabel(e.target.value)}
+          placeholder="e.g. Meals"
+          className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2.5 py-1.5"
+        />
+      </div>
+      <div>
+        <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">
+          Mode
+        </label>
+        <select
+          value={costMode}
+          onChange={(e) => setCostMode(e.target.value as "flat" | "perHead")}
+          className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2 py-1.5"
+        >
+          <option value="flat">Flat £</option>
+          <option value="perHead">£ × head</option>
+        </select>
+      </div>
+      <div>
+        <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">
+          {costMode === "flat" ? "Amount £" : "Per head £"}
+        </label>
+        <input
+          type="number"
+          step="0.01"
+          min="0"
+          value={pounds}
+          onChange={(e) => setPounds(e.target.value)}
+          placeholder="0.00"
+          className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2.5 py-1.5 tabular-nums"
+        />
+      </div>
+      {costMode === "perHead" && (
+        <>
+          <div>
+            <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">
+              Source
+            </label>
+            <select
+              value={source}
+              onChange={(e) => setSource(e.target.value as PerHeadSource)}
+              className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2 py-1.5"
+            >
+              <option value="ALL_INVITED">All invited</option>
+              <option value="CONFIRMED_PLUS_PENDING">Confirmed + pending</option>
+              <option value="ADULTS_PENDING_OR_CONFIRMED">Adults confirmed + pending</option>
+              <option value="CHILDREN_PENDING_OR_CONFIRMED">Children confirmed + pending</option>
+              <option value="ALL_CONFIRMED">Confirmed</option>
+              <option value="ADULTS_CONFIRMED">Adults confirmed</option>
+              <option value="CHILDREN_CONFIRMED">Children confirmed</option>
+              <option value="MANUAL">Manual count</option>
+            </select>
+          </div>
+          {source === "MANUAL" && (
+            <div>
+              <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">
+                Manual count
+              </label>
+              <input
+                type="number"
+                min="0"
+                value={manualStr}
+                onChange={(e) => setManualStr(e.target.value)}
+                placeholder="e.g. 4"
+                className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2.5 py-1.5 tabular-nums"
+              />
+            </div>
+          )}
+          <div>
+            <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">
+              Min
+            </label>
+            <input
+              type="number"
+              min="0"
+              value={minimumStr}
+              onChange={(e) => setMinimumStr(e.target.value)}
+              placeholder="optional"
+              title="Vendor minimum — multiplier = max(count, minimum)"
+              className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2.5 py-1.5 tabular-nums"
+            />
+          </div>
+        </>
+      )}
+      {/* Notes spans the full row width so the textarea has room. */}
+      <div className="sm:col-span-6">
+        <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">
+          Notes (optional)
+        </label>
+        <textarea
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          rows={2}
+          placeholder="e.g. quoted by venue 12 Apr"
+          className="w-full text-xs bg-surface border border-border-soft rounded-sm px-2.5 py-1.5"
+        />
+      </div>
+      <div className="sm:col-span-6 flex gap-1 justify-end">
+        <Button type="button" variant="ghost" size="sm" onClick={onCancel} disabled={pending}>
+          Cancel
+        </Button>
+        <Button type="button" variant="primary" size="sm" onClick={submit} disabled={pending}>
+          {pending ? "…" : mode === "create" ? "Add" : "Save"}
+        </Button>
+      </div>
     </div>
   );
 }
@@ -1004,6 +1145,8 @@ function NewLineForm({
                 <option value="">— pick —</option>
                 <option value="ALL_INVITED">All invited</option>
                 <option value="CONFIRMED_PLUS_PENDING">Confirmed + pending</option>
+                <option value="ADULTS_PENDING_OR_CONFIRMED">Adults confirmed + pending</option>
+                <option value="CHILDREN_PENDING_OR_CONFIRMED">Children confirmed + pending</option>
                 <option value="ALL_CONFIRMED">Confirmed</option>
                 <option value="ADULTS_CONFIRMED">Adults confirmed</option>
                 <option value="CHILDREN_CONFIRMED">Children confirmed</option>

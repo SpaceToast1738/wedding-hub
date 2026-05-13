@@ -23,7 +23,7 @@ function toNumber(d: DecimalLike): number {
 
 export type BudgetLineForCompute = {
   actual: DecimalLike;
-  payments: { amount: DecimalLike }[];
+  payments: { amount: DecimalLike; status?: string }[];
 };
 
 // `computeActual` returns the resolved actual amount as a Number.
@@ -33,6 +33,26 @@ export function computeActual(line: BudgetLineForCompute): number {
     return toNumber(line.actual);
   }
   return line.payments.reduce((sum, p) => sum + toNumber(p.amount), 0);
+}
+
+// v1.82.0: `computePaid` follows the same B2 contract pattern as
+// computeActual — manual override on the line wins; otherwise it
+// sums payments WHOSE STATUS IS "PAID". Pre-fix, the Paid column
+// rendered the manual value verbatim and PAID-status payments only
+// fed Actual (which couldn't distinguish committed from settled).
+// Now Paid = "money that's already gone out the door" and Actual =
+// "total committed including pending payments".
+export type BudgetLineForPaid = {
+  paid: DecimalLike;
+  payments: { amount: DecimalLike; status?: string }[];
+};
+export function computePaid(line: BudgetLineForPaid): number {
+  if (line.paid !== null && line.paid !== undefined) {
+    return toNumber(line.paid);
+  }
+  return line.payments
+    .filter((p) => p.status === "PAID")
+    .reduce((sum, p) => sum + toNumber(p.amount), 0);
 }
 
 // `isManualOverride` lets the UI label "Manual override — clear to
@@ -147,7 +167,7 @@ export function computeComponentActual(component: ComponentForActual): number {
 // to the line PLUS sum of payments linked to any of its components.
 // Manual override on the line still wins (B2 contract preserved).
 export type LineForCompositeActual = BudgetLineForCompute & {
-  components: { payments: { amount: DecimalLike }[] }[];
+  components: { payments: { amount: DecimalLike; status?: string }[] }[];
 };
 export function computeCompositeActual(line: LineForCompositeActual): number {
   if (line.actual !== null && line.actual !== undefined) {
@@ -156,6 +176,31 @@ export function computeCompositeActual(line: LineForCompositeActual): number {
   const lineLevel = line.payments.reduce((sum, p) => sum + toNumber(p.amount), 0);
   const componentLevel = line.components.reduce(
     (sum, c) => sum + c.payments.reduce((cs, p) => cs + toNumber(p.amount), 0),
+    0,
+  );
+  return lineLevel + componentLevel;
+}
+
+// v1.82.0: composite-line paid. Same shape as computeCompositeActual
+// but filters payments to PAID status. Manual `paid` override on the
+// line still wins. Used by /budget so the Paid column reflects all
+// money-settled payments across line + components.
+export type LineForCompositePaid = BudgetLineForPaid & {
+  components: { payments: { amount: DecimalLike; status?: string }[] }[];
+};
+export function computeCompositePaid(line: LineForCompositePaid): number {
+  if (line.paid !== null && line.paid !== undefined) {
+    return toNumber(line.paid);
+  }
+  const lineLevel = line.payments
+    .filter((p) => p.status === "PAID")
+    .reduce((sum, p) => sum + toNumber(p.amount), 0);
+  const componentLevel = line.components.reduce(
+    (sum, c) =>
+      sum +
+      c.payments
+        .filter((p) => p.status === "PAID")
+        .reduce((cs, p) => cs + toNumber(p.amount), 0),
     0,
   );
   return lineLevel + componentLevel;

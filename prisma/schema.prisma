@@ -544,6 +544,11 @@ enum PerHeadSource {
   ALL_CONFIRMED
   ADULTS_CONFIRMED
   CHILDREN_CONFIRMED
+  // v1.82.0: age-split "Confirmed + pending" sources. Some vendors
+  // price children differently from adults; the existing
+  // CONFIRMED_PLUS_PENDING blob doesn't let you isolate either.
+  ADULTS_PENDING_OR_CONFIRMED
+  CHILDREN_PENDING_OR_CONFIRMED
   MANUAL
 }
 

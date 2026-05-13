@@ -28,11 +28,17 @@ export default async function BudgetPage() {
           // v1.80.0: + components (with their payments) for composite
           // line rendering. Component-level estimated rolls up to the
           // line; component-level payments roll into the line's actual.
+          // v1.82.0: + Payment.status so the Paid column can sum
+          // PAID-only payments (matches the v1.82.0 computePaid B2
+          // contract). Without status, the column rendered the manual
+          // override only and ignored linked PAID payments — bug
+          // reported when a £1,000 PAID payment showed under Actual
+          // but Paid stayed £0.
           include: {
-            payments: { select: { amount: true } },
+            payments: { select: { amount: true, status: true } },
             components: {
               orderBy: [{ order: "asc" }, { createdAt: "asc" }],
-              include: { payments: { select: { amount: true } } },
+              include: { payments: { select: { amount: true, status: true } } },
             },
           },
         },
@@ -124,8 +130,9 @@ export default async function BudgetPage() {
             supplierId: l.supplierId,
             notes: l.notes,
             // Pass amounts as strings so the client never imports the
-            // Prisma Decimal type (keeps the bundle slim).
-            payments: l.payments.map((p) => ({ amount: p.amount.toString() })),
+            // Prisma Decimal type (keeps the bundle slim). v1.82.0: +
+            // payment status so the Paid column can sum PAID-only.
+            payments: l.payments.map((p) => ({ amount: p.amount.toString(), status: p.status })),
             // v1.77.0: per-head config flows through to LineRow so
             // the breakdown chip + over-budget warning render.
             perHeadPence: l.perHeadPence,
@@ -145,7 +152,7 @@ export default async function BudgetPage() {
               minimumHeadcount: cmp.minimumHeadcount,
               notes: cmp.notes,
               order: cmp.order,
-              payments: cmp.payments.map((p) => ({ amount: p.amount.toString() })),
+              payments: cmp.payments.map((p) => ({ amount: p.amount.toString(), status: p.status })),
             })),
           })),
         }))}
