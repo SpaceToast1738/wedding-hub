@@ -25,20 +25,32 @@ export default async function BudgetPage() {
           orderBy: [{ order: "asc" }, { createdAt: "asc" }],
           // B2: payments included so the client can recompute `actual`
           // when it's null (manual override semantics).
-          // v1.80.0: + components (with their payments) for composite
-          // line rendering. Component-level estimated rolls up to the
-          // line; component-level payments roll into the line's actual.
+          // v1.80.0: + components (with their payments).
           // v1.82.0: + Payment.status so the Paid column can sum
-          // PAID-only payments (matches the v1.82.0 computePaid B2
-          // contract). Without status, the column rendered the manual
-          // override only and ignored linked PAID payments — bug
-          // reported when a £1,000 PAID payment showed under Actual
-          // but Paid stayed £0.
+          // PAID-only payments.
+          // v1.86.0: + Payment.fundSource / fundLabel + per-row fund
+          // fields so the client can filter + group by fund.
           include: {
-            payments: { select: { amount: true, status: true } },
+            payments: {
+              select: {
+                amount: true,
+                status: true,
+                fundSource: true,
+                fundLabel: true,
+              },
+            },
             components: {
               orderBy: [{ order: "asc" }, { createdAt: "asc" }],
-              include: { payments: { select: { amount: true, status: true } } },
+              include: {
+                payments: {
+                  select: {
+                    amount: true,
+                    status: true,
+                    fundSource: true,
+                    fundLabel: true,
+                  },
+                },
+              },
             },
           },
         },
@@ -130,9 +142,16 @@ export default async function BudgetPage() {
             supplierId: l.supplierId,
             notes: l.notes,
             // Pass amounts as strings so the client never imports the
-            // Prisma Decimal type (keeps the bundle slim). v1.82.0: +
-            // payment status so the Paid column can sum PAID-only.
-            payments: l.payments.map((p) => ({ amount: p.amount.toString(), status: p.status })),
+            // Prisma Decimal type (keeps the bundle slim).
+            // v1.86.0: payments carry fundSource + fundLabel so the
+            // client-side filter can group by fund without an extra
+            // round-trip.
+            payments: l.payments.map((p) => ({
+              amount: p.amount.toString(),
+              status: p.status,
+              fundSource: p.fundSource,
+              fundLabel: p.fundLabel,
+            })),
             // v1.77.0: per-head config flows through to LineRow so
             // the breakdown chip + over-budget warning render.
             perHeadPence: l.perHeadPence,
@@ -140,6 +159,10 @@ export default async function BudgetPage() {
             manualHeadcount: l.manualHeadcount,
             // v1.81.0: vendor minimum-cover floor on per-head lines.
             minimumHeadcount: l.minimumHeadcount,
+            // v1.86.0: line-level fund (default for child components
+            // + payments).
+            fundSource: l.fundSource,
+            fundLabel: l.fundLabel,
             // v1.80.0: components for composite lines.
             components: l.components.map((cmp) => ({
               id: cmp.id,
@@ -152,13 +175,25 @@ export default async function BudgetPage() {
               minimumHeadcount: cmp.minimumHeadcount,
               notes: cmp.notes,
               order: cmp.order,
-              payments: cmp.payments.map((p) => ({ amount: p.amount.toString(), status: p.status })),
+              // v1.86.0: component-level fund override.
+              fundSource: cmp.fundSource,
+              fundLabel: cmp.fundLabel,
+              payments: cmp.payments.map((p) => ({
+                amount: p.amount.toString(),
+                status: p.status,
+                fundSource: p.fundSource,
+                fundLabel: p.fundLabel,
+              })),
             })),
           })),
         }))}
         suppliers={suppliers}
         buildCardByLineId={buildCardByLineIdObj}
         headcounts={headcounts}
+        // v1.86.0: pass the couple's first names so the fund-chip row
+        // can render "Bryony" / "Jamie" labels resolved from
+        // WeddingSettings.
+        fundLabelSource={{ brideFirst: wedding.brideFirst, groomFirst: wedding.groomFirst }}
       />
       </div>
     </>

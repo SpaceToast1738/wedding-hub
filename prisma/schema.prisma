@@ -494,8 +494,17 @@ model BudgetLine {
   // by the renderer while components exist (but preserved on the
   // model in case the user removes all components later).
   components  BudgetLineComponent[]
+  // v1.86.0: funding-source tag. NULL = unassigned. Components +
+  // payments inherit this fund silently when their own fundSource is
+  // NULL; a non-null override at component or payment level wins.
+  // `fundLabel` is a free-text annotation (mostly useful for OTHER —
+  // e.g. "Bryony's parents" — but allowed on all four buckets).
+  fundSource  FundSource?
+  fundLabel   String?
   createdAt   DateTime       @default(now())
   updatedAt   DateTime       @updatedAt
+
+  @@index([fundSource])
 }
 
 // v1.80.0: a sub-cost row on a BudgetLine. Models multi-line venue
@@ -527,10 +536,16 @@ model BudgetLineComponent {
   outfitCards     BookOutfitCard[]
   stayCards       BookStayCard[]
   buildCards      BookBuildCard[]
+  // v1.86.0: per-component funding override. NULL inherits the parent
+  // BudgetLine.fundSource. Lets a Venue line tagged Joint hold a sub-
+  // component tagged OTHER (e.g. "Wedding arch — parents' gift").
+  fundSource      FundSource?
+  fundLabel       String?
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
 
   @@index([lineId])
+  @@index([fundSource])
 }
 
 // v1.77.0: which slice of the guest list a per-head BudgetLine
@@ -550,6 +565,20 @@ enum PerHeadSource {
   ADULTS_PENDING_OR_CONFIRMED
   CHILDREN_PENDING_OR_CONFIRMED
   MANUAL
+}
+
+// v1.86.0: who pays for this. JOINT is the couple's combined pot;
+// PERSONAL_BRIDE / PERSONAL_GROOM tag a single partner's personal
+// account; OTHER covers third-party funders (parents, gifts, vendor
+// discounts). The `fundLabel` free-text column on the same row holds
+// the specific OTHER name (e.g. "Bryony's parents"). Bride/groom
+// names are resolved from WeddingSettings at render time so labels
+// stay in sync if the couple is ever renamed.
+enum FundSource {
+  JOINT
+  PERSONAL_BRIDE
+  PERSONAL_GROOM
+  OTHER
 }
 
 model Payment {
@@ -581,6 +610,11 @@ model Payment {
   // server keeps them in sync.
   budgetLineComponentId String?
   budgetLineComponent   BudgetLineComponent? @relation(fields: [budgetLineComponentId], references: [id], onDelete: SetNull)
+  // v1.86.0: which fund this payment came out of. NULL inherits the
+  // linked line's (or component's) fund silently. Explicit override
+  // wins when set. `fundLabel` is the optional OTHER-name annotation.
+  fundSource   FundSource?
+  fundLabel    String?
   notes        String?
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
@@ -591,6 +625,7 @@ model Payment {
   // when BudgetLine.actual is null. Without this index every budget
   // page render would do a sequential scan of Payment.
   @@index([budgetLineId])
+  @@index([fundSource])
 }
 
 enum PaymentStatus {

@@ -19,6 +19,9 @@ type Initial = {
   budgetLineId?: string | null;
   // v1.80.0
   budgetLineComponentId?: string | null;
+  // v1.86.0
+  fundSource?: string | null;
+  fundLabel?: string | null;
 };
 
 export type BudgetCategoryWithLines = {
@@ -132,6 +135,11 @@ export function PaymentForm({
           budgetCategories={budgetCategories}
         />
       </div>
+      {/* v1.86.0: fund picker. Empty = inherit from linked line. */}
+      <FundPicker
+        initialSource={initial?.fundSource ?? null}
+        initialLabel={initial?.fundLabel ?? null}
+      />
       <div>
         <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">Notes</label>
         <textarea name="notes" rows={2} defaultValue={initial?.notes ?? ""}
@@ -199,6 +207,55 @@ function BudgetLinkSelect({
         name="budgetLineComponentId"
         value={isComp ? value.slice(5) : ""}
       />
+    </div>
+  );
+}
+
+// v1.86.0: fund picker. Single select for the four enum values plus
+// "inherit"; an inline text input appears when OTHER is picked.
+// Hidden inputs carry `fundSource` + `fundLabel` to the form action.
+function FundPicker({
+  initialSource,
+  initialLabel,
+}: {
+  initialSource: string | null;
+  initialLabel: string | null;
+}) {
+  const [source, setSource] = useState<string>(initialSource ?? "");
+  const [label, setLabel] = useState<string>(initialLabel ?? "");
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      <div>
+        <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">
+          Fund
+        </label>
+        <select
+          value={source}
+          onChange={(e) => setSource(e.target.value)}
+          className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2 py-1.5 text-ink-primary outline-none"
+        >
+          <option value="">— inherit from line —</option>
+          <option value="JOINT">Joint</option>
+          <option value="PERSONAL_BRIDE">Bride (personal)</option>
+          <option value="PERSONAL_GROOM">Groom (personal)</option>
+          <option value="OTHER">Other</option>
+        </select>
+        <input type="hidden" name="fundSource" value={source} />
+      </div>
+      {source === "OTHER" && (
+        <div>
+          <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">
+            Fund label
+          </label>
+          <Input
+            name="fundLabel"
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            placeholder="e.g. Bryony's parents"
+          />
+        </div>
+      )}
+      {source !== "OTHER" && <input type="hidden" name="fundLabel" value="" />}
     </div>
   );
 }

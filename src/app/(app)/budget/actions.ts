@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { PerHeadSource } from "@prisma/client";
+import { FundSource, PerHeadSource } from "@prisma/client";
 import { db } from "@/lib/db";
 import { audit, requireEdit } from "@/lib/actions";
 
@@ -34,6 +34,11 @@ const lineSchema = z.object({
   manualHeadcount: z.string().optional().nullable(),
   // v1.81.0: vendor minimum-cover floor.
   minimumHeadcount: z.string().optional().nullable(),
+  // v1.86.0: funding-source tag. Null = unassigned (default). When
+  // null, payments + components inherit silently from the line's
+  // sibling fields.
+  fundSource: z.nativeEnum(FundSource).optional().nullable(),
+  fundLabel: z.string().max(120).optional().nullable(),
 });
 
 function parsePence(s: string | null | undefined): number | null {
@@ -195,6 +200,9 @@ export async function createLine(formData: FormData) {
     headcountSource: (formData.get("headcountSource") as string) || null,
     manualHeadcount: formData.get("manualHeadcount") || null,
     minimumHeadcount: formData.get("minimumHeadcount") || null,
+    // v1.86.0: fund fields. Empty string ⇒ null (unassigned).
+    fundSource: (formData.get("fundSource") as string) || null,
+    fundLabel: formData.get("fundLabel") || null,
   });
   const created = await db.budgetLine.create({
     data: {
@@ -209,6 +217,8 @@ export async function createLine(formData: FormData) {
       headcountSource: parsed.headcountSource ?? null,
       manualHeadcount: parseInteger(parsed.manualHeadcount ?? null),
       minimumHeadcount: parseInteger(parsed.minimumHeadcount ?? null),
+      fundSource: parsed.fundSource ?? null,
+      fundLabel: (parsed.fundLabel?.trim() || null) ?? null,
     },
     include: { category: { select: { name: true } } },
   });
@@ -225,6 +235,9 @@ export async function createLine(formData: FormData) {
       supplierId: created.supplierId,
       perHeadPence: created.perHeadPence,
       headcountSource: created.headcountSource,
+      // v1.86.0: fund snapshot for audit.
+      fundSource: created.fundSource,
+      fundLabel: created.fundLabel,
     },
   });
   revalidatePath("/budget");
@@ -244,6 +257,9 @@ export async function updateLine(id: string, formData: FormData) {
     headcountSource: (formData.get("headcountSource") as string) || null,
     manualHeadcount: formData.get("manualHeadcount") || null,
     minimumHeadcount: formData.get("minimumHeadcount") || null,
+    // v1.86.0: fund fields.
+    fundSource: (formData.get("fundSource") as string) || null,
+    fundLabel: formData.get("fundLabel") || null,
   });
   // Read before so the audit row can diff old vs new on the fields
   // the user actually changed.
@@ -263,6 +279,8 @@ export async function updateLine(id: string, formData: FormData) {
     headcountSource: parsed.headcountSource ?? null,
     manualHeadcount: parseInteger(parsed.manualHeadcount ?? null),
     minimumHeadcount: parseInteger(parsed.minimumHeadcount ?? null),
+    fundSource: parsed.fundSource ?? null,
+    fundLabel: (parsed.fundLabel?.trim() || null) ?? null,
   };
   await db.budgetLine.update({ where: { id }, data: next });
 
@@ -279,6 +297,8 @@ export async function updateLine(id: string, formData: FormData) {
     if (before.headcountSource !== next.headcountSource) changedFields.push("headcountSource");
     if (before.manualHeadcount !== next.manualHeadcount) changedFields.push("manualHeadcount");
     if (before.minimumHeadcount !== next.minimumHeadcount) changedFields.push("minimumHeadcount");
+    if (before.fundSource !== next.fundSource) changedFields.push("fundSource");
+    if (before.fundLabel !== next.fundLabel) changedFields.push("fundLabel");
   }
   await audit(user, {
     action: "update",
@@ -344,6 +364,10 @@ const componentSchema = z.object({
   // v1.81.0: vendor minimum-cover floor.
   minimumHeadcount: z.number().int().min(0).optional().nullable(),
   notes: z.string().max(2000).optional().nullable(),
+  // v1.86.0: per-component fund override. Null inherits the parent
+  // BudgetLine's fund silently.
+  fundSource: z.nativeEnum(FundSource).optional().nullable(),
+  fundLabel: z.string().max(120).optional().nullable(),
 });
 
 export async function createComponent(payload: {
@@ -355,6 +379,9 @@ export async function createComponent(payload: {
   manualHeadcount?: number | null;
   minimumHeadcount?: number | null;
   notes?: string | null;
+  // v1.86.0: optional fund override.
+  fundSource?: FundSource | null;
+  fundLabel?: string | null;
 }): Promise<DeleteResult & { componentId?: string }> {
   const user = await requireEdit("budget");
   try {
@@ -374,6 +401,8 @@ export async function createComponent(payload: {
         manualHeadcount: parsed.manualHeadcount ?? null,
         minimumHeadcount: parsed.minimumHeadcount ?? null,
         notes: parsed.notes ?? null,
+        fundSource: parsed.fundSource ?? null,
+        fundLabel: (parsed.fundLabel?.trim() || null) ?? null,
         order: line._count.components,
       },
     });
@@ -408,6 +437,9 @@ export async function updateComponent(
     manualHeadcount?: number | null;
     minimumHeadcount?: number | null;
     notes?: string | null;
+    // v1.86.0
+    fundSource?: FundSource | null;
+    fundLabel?: string | null;
   },
 ): Promise<DeleteResult> {
   const user = await requireEdit("budget");
@@ -417,6 +449,7 @@ export async function updateComponent(
       include: { line: { select: { description: true } } },
     });
     if (!before) return { ok: false, error: "Component not found" };
+    const nextFundLabel = (payload.fundLabel?.trim() || null) ?? null;
     await db.budgetLineComponent.update({
       where: { id },
       data: {
@@ -427,6 +460,8 @@ export async function updateComponent(
         manualHeadcount: payload.manualHeadcount ?? null,
         minimumHeadcount: payload.minimumHeadcount ?? null,
         notes: payload.notes ?? null,
+        fundSource: payload.fundSource ?? null,
+        fundLabel: nextFundLabel,
       },
     });
     const changedFields: string[] = [];
@@ -437,6 +472,8 @@ export async function updateComponent(
     if (before.manualHeadcount !== (payload.manualHeadcount ?? null)) changedFields.push("manualHeadcount");
     if (before.minimumHeadcount !== (payload.minimumHeadcount ?? null)) changedFields.push("minimumHeadcount");
     if (before.notes !== (payload.notes ?? null)) changedFields.push("notes");
+    if (before.fundSource !== (payload.fundSource ?? null)) changedFields.push("fundSource");
+    if (before.fundLabel !== nextFundLabel) changedFields.push("fundLabel");
     await audit(user, {
       action: "budget-component-update",
       entity: "BudgetLineComponent",
@@ -507,5 +544,114 @@ export async function reorderComponents(
   } catch (err) {
     console.error("reorderComponents failed", err);
     return { ok: false, error: err instanceof Error ? err.message : "Couldn't reorder" };
+  }
+}
+
+// ── v1.86.0: fund quick-action helpers ────────────────────────────
+//
+// Tiny dedicated actions so the per-row fund chip on /budget can
+// flip the fund + free-text label in one call without revalidating
+// the whole line / component schema. Use these when ONLY the fund
+// is changing; use updateLine / updateComponent for any other edit.
+
+const fundQuickSchema = z.object({
+  fundSource: z.nativeEnum(FundSource).optional().nullable(),
+  fundLabel: z.string().max(120).optional().nullable(),
+});
+
+export async function setLineFund(
+  id: string,
+  payload: { fundSource?: FundSource | null; fundLabel?: string | null },
+): Promise<DeleteResult> {
+  const user = await requireEdit("budget");
+  try {
+    const parsed = fundQuickSchema.parse(payload);
+    const before = await db.budgetLine.findUnique({
+      where: { id },
+      select: { id: true, description: true, fundSource: true, fundLabel: true },
+    });
+    if (!before) return { ok: false, error: "Budget line not found" };
+    const nextLabel = (parsed.fundLabel?.trim() || null) ?? null;
+    const nextSource = parsed.fundSource ?? null;
+    if (before.fundSource === nextSource && before.fundLabel === nextLabel) {
+      return { ok: true }; // no-op
+    }
+    await db.budgetLine.update({
+      where: { id },
+      data: { fundSource: nextSource, fundLabel: nextLabel },
+    });
+    const changedFields: string[] = [];
+    if (before.fundSource !== nextSource) changedFields.push("fundSource");
+    if (before.fundLabel !== nextLabel) changedFields.push("fundLabel");
+    await audit(user, {
+      action: "budget-line-fund-set",
+      entity: "BudgetLine",
+      entityId: id,
+      metadata: {
+        description: before.description,
+        priorFundSource: before.fundSource,
+        priorFundLabel: before.fundLabel,
+        fundSource: nextSource,
+        fundLabel: nextLabel,
+        changedFields,
+      },
+    });
+    revalidatePath("/budget");
+    return { ok: true };
+  } catch (err) {
+    console.error("setLineFund failed", err);
+    return { ok: false, error: err instanceof Error ? err.message : "Couldn't set fund" };
+  }
+}
+
+export async function setComponentFund(
+  id: string,
+  payload: { fundSource?: FundSource | null; fundLabel?: string | null },
+): Promise<DeleteResult> {
+  const user = await requireEdit("budget");
+  try {
+    const parsed = fundQuickSchema.parse(payload);
+    const before = await db.budgetLineComponent.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        label: true,
+        fundSource: true,
+        fundLabel: true,
+        line: { select: { description: true } },
+      },
+    });
+    if (!before) return { ok: false, error: "Component not found" };
+    const nextLabel = (parsed.fundLabel?.trim() || null) ?? null;
+    const nextSource = parsed.fundSource ?? null;
+    if (before.fundSource === nextSource && before.fundLabel === nextLabel) {
+      return { ok: true };
+    }
+    await db.budgetLineComponent.update({
+      where: { id },
+      data: { fundSource: nextSource, fundLabel: nextLabel },
+    });
+    const changedFields: string[] = [];
+    if (before.fundSource !== nextSource) changedFields.push("fundSource");
+    if (before.fundLabel !== nextLabel) changedFields.push("fundLabel");
+    await audit(user, {
+      action: "budget-component-fund-set",
+      entity: "BudgetLineComponent",
+      entityId: id,
+      metadata: {
+        label: before.label,
+        lineDescription: before.line.description,
+        priorFundSource: before.fundSource,
+        priorFundLabel: before.fundLabel,
+        fundSource: nextSource,
+        fundLabel: nextLabel,
+        changedFields,
+      },
+    });
+    revalidatePath("/budget");
+    return { ok: true };
+  } catch (err) {
+    console.error("setComponentFund failed", err);
+    return { ok: false, error: err instanceof Error ? err.message : "Couldn't set fund" };
   }
 }

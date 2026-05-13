@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
-import { FileVisibility, PaymentStatus } from "@prisma/client";
+import { FileVisibility, FundSource, PaymentStatus } from "@prisma/client";
 import { db } from "@/lib/db";
 import { audit, requireEdit } from "@/lib/actions";
 import {
@@ -45,6 +45,11 @@ const paymentSchema = z.object({
   // budgetLineComponentId. Both can be set — the component still
   // rolls up to its parent line.
   budgetLineComponentId: z.string().optional().nullable(),
+  // v1.86.0: funding-source override. NULL inherits the linked line
+  // / component's fund silently (the resolver in src/lib/funds.ts
+  // walks payment > component > line). Explicit override wins.
+  fundSource: z.nativeEnum(FundSource).optional().nullable(),
+  fundLabel: z.string().max(120).optional().nullable(),
 });
 
 function parseAmount(s: string): number {
@@ -113,6 +118,9 @@ export async function createPayment(formData: FormData) {
     bookOutfitId: formData.get("bookOutfitId") || null,
     budgetLineId: formData.get("budgetLineId") || null,
     budgetLineComponentId: formData.get("budgetLineComponentId") || null,
+    // v1.86.0
+    fundSource: (formData.get("fundSource") as string) || null,
+    fundLabel: formData.get("fundLabel") || null,
   });
   // v1.80.0: when a component is targeted, the line FK is implied
   // (the component's parent). Resolve it once so the row carries
@@ -141,6 +149,8 @@ export async function createPayment(formData: FormData) {
       bookOutfitId: parsed.bookOutfitId || null,
       budgetLineId: resolvedLineId,
       budgetLineComponentId: parsed.budgetLineComponentId || null,
+      fundSource: parsed.fundSource ?? null,
+      fundLabel: (parsed.fundLabel?.trim() || null) ?? null,
     },
     include: { supplier: { select: { name: true } } },
   });
@@ -168,6 +178,9 @@ export async function createPayment(formData: FormData) {
       budgetLineId: resolvedLineId,
       // v1.80.0
       budgetLineComponentId: parsed.budgetLineComponentId || null,
+      // v1.86.0
+      fundSource: created.fundSource,
+      fundLabel: created.fundLabel,
     },
   });
   revalidatePath("/payments");
@@ -195,6 +208,9 @@ export async function updatePayment(id: string, formData: FormData) {
     bookOutfitId: formData.get("bookOutfitId") || null,
     budgetLineId: formData.get("budgetLineId") || null,
     budgetLineComponentId: formData.get("budgetLineComponentId") || null,
+    // v1.86.0
+    fundSource: (formData.get("fundSource") as string) || null,
+    fundLabel: formData.get("fundLabel") || null,
   });
   const before = await db.payment.findUnique({
     where: { id },
@@ -224,6 +240,9 @@ export async function updatePayment(id: string, formData: FormData) {
     bookOutfitId: parsed.bookOutfitId || null,
     budgetLineId: resolvedLineId,
     budgetLineComponentId: parsed.budgetLineComponentId || null,
+    // v1.86.0
+    fundSource: parsed.fundSource ?? null,
+    fundLabel: (parsed.fundLabel?.trim() || null) ?? null,
   };
   await db.payment.update({ where: { id }, data: next });
   // Side effect: if the link target changed and the new target is a
@@ -262,6 +281,9 @@ export async function updatePayment(id: string, formData: FormData) {
       changedFields.push("budgetLineId");
     if (before.budgetLineComponentId !== next.budgetLineComponentId)
       changedFields.push("budgetLineComponentId");
+    // v1.86.0
+    if (before.fundSource !== next.fundSource) changedFields.push("fundSource");
+    if (before.fundLabel !== next.fundLabel) changedFields.push("fundLabel");
   }
   await audit(user, {
     action: "update",
@@ -280,7 +302,10 @@ export async function updatePayment(id: string, formData: FormData) {
     changedFields.includes("budgetLineId") ||
     changedFields.includes("budgetLineComponentId") ||
     changedFields.includes("amount") ||
-    changedFields.includes("status")
+    changedFields.includes("status") ||
+    // v1.86.0: a fund change moves money between buckets on /budget
+    changedFields.includes("fundSource") ||
+    changedFields.includes("fundLabel")
   )
     revalidatePath("/budget");
 }

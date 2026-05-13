@@ -85,6 +85,12 @@ export function InlinePaymentGrid({
   // is "line:<lineId>" or "comp:<componentId>" so a single <select>
   // can offer both line-level and component-level targets.
   const [budgetTarget, setBudgetTarget] = useState<string>("");
+  // v1.86.0: fund picker. Empty string = inherit (payment falls
+  // through to the linked line / component's fund silently). Non-
+  // empty values are FundSource enum strings; "OTHER" enables the
+  // free-text label input.
+  const [fundSource, setFundSource] = useState<string>("");
+  const [fundLabel, setFundLabel] = useState<string>("");
 
   const [pending, startTransition] = useTransition();
   const [suppliers, setSuppliers] = useState<Supplier[]>(initialSuppliers);
@@ -100,6 +106,8 @@ export function InlinePaymentGrid({
     setQueuedFiles([]);
     setShowLinkPicker(false);
     setBudgetTarget("");
+    setFundSource("");
+    setFundLabel("");
     setTimeout(() => descriptionRef.current?.focus(), 0);
   }
 
@@ -160,6 +168,13 @@ export function InlinePaymentGrid({
         }
         if (link?.kind === "outfit") {
           fd.set("bookOutfitId", link.outfitId);
+        }
+        // v1.86.0: fund. Empty source ⇒ inherit silently.
+        if (fundSource) {
+          fd.set("fundSource", fundSource);
+          if (fundSource === "OTHER" && fundLabel.trim()) {
+            fd.set("fundLabel", fundLabel.trim());
+          }
         }
         for (const fid of attachedFileIds) fd.append("fileIds", fid);
         await createPayment(fd);
@@ -301,6 +316,36 @@ export function InlinePaymentGrid({
             ),
           )}
         </select>
+        {/* v1.86.0: fund select. Empty = inherit (default).
+            Picking OTHER reveals an inline free-text label input. */}
+        <select
+          value={fundSource}
+          onChange={(e) => setFundSource(e.target.value)}
+          onKeyDown={onPaymentKey}
+          disabled={pending}
+          title="Funding source — leave on Inherit to follow the linked budget line's fund"
+          className={
+            "w-32 text-sm bg-canvas text-ink-primary border rounded-sm px-2 py-1.5 outline-none focus:border-moss-500 " +
+            (fundSource ? "border-moss-300" : "border-border-soft")
+          }
+        >
+          <option value="">📁 Fund (inherit)</option>
+          <option value="JOINT">Joint</option>
+          <option value="PERSONAL_BRIDE">Bride</option>
+          <option value="PERSONAL_GROOM">Groom</option>
+          <option value="OTHER">Other…</option>
+        </select>
+        {fundSource === "OTHER" && (
+          <input
+            type="text"
+            value={fundLabel}
+            onChange={(e) => setFundLabel(e.target.value)}
+            onKeyDown={onPaymentKey}
+            disabled={pending}
+            placeholder="e.g. Bryony's parents"
+            className="w-40 text-sm bg-canvas text-ink-primary border border-border-soft rounded-sm px-2.5 py-1.5 outline-none focus:border-moss-500"
+          />
+        )}
         <button
           type="button"
           onClick={() => setShowLinkPicker(!showLinkPicker)}

@@ -131,11 +131,15 @@ export default async function AtAGlancePage() {
           // because lines with `actual = null` are recomputed from
           // payments. Pull the rows + payment amounts and reduce in
           // app code so the totals match what the budget page shows.
+          // v1.86.0: + fund fields so the per-fund breakdown line
+          // under the Budget card can render with proper inheritance.
           select: {
             estimated: true,
             actual: true,
             paid: true,
-            payments: { select: { amount: true } },
+            fundSource: true,
+            fundLabel: true,
+            payments: { select: { amount: true, fundSource: true, fundLabel: true } },
           },
         })
       : Promise.resolve(null),
@@ -189,6 +193,34 @@ export default async function AtAGlancePage() {
   }, 0);
   const budgetCommitted = Math.max(0, budgetActual - budgetPaid);
   const budgetRemaining = Math.max(0, budgetPlanned - budgetActual);
+
+  // v1.86.0: per-fund Paid totals (paid = "money already gone").
+  // Walks each payment via the resolver (payment.fundSource OR
+  // line.fundSource OR UNASSIGNED). Lines without payments still
+  // count towards their own bucket if they have a manual `paid`.
+  const fundPaid: Record<"JOINT" | "PERSONAL_BRIDE" | "PERSONAL_GROOM" | "OTHER" | "UNASSIGNED", number> = {
+    JOINT: 0,
+    PERSONAL_BRIDE: 0,
+    PERSONAL_GROOM: 0,
+    OTHER: 0,
+    UNASSIGNED: 0,
+  };
+  type FundBucket = keyof typeof fundPaid;
+  for (const l of budgetLines) {
+    if (l.paid !== null) {
+      // Manual override on the line → attribute to the line's own fund.
+      const key: FundBucket = (l.fundSource as FundBucket | null) ?? "UNASSIGNED";
+      fundPaid[key] += Number(l.paid);
+    } else {
+      // Else sum payments (status is unknown here — glance is the
+      // top-line view; we count all linked payment amounts toward
+      // each fund). The v1.86 chip in /budget uses PAID-only.
+      for (const p of l.payments) {
+        const key: FundBucket = ((p.fundSource as FundBucket | null) ?? (l.fundSource as FundBucket | null)) ?? "UNASSIGNED";
+        fundPaid[key] += Number(p.amount);
+      }
+    }
+  }
 
   // v1.77.0: spend pulse aggregates. Bucketise the last 30 days of
   // paid payments into "this week" (last 7 days) and "this month"
@@ -276,6 +308,44 @@ export default async function AtAGlancePage() {
                   <BudgetStat label="Committed" value={formatGBP(budgetCommitted)} tone="marigold" />
                   <BudgetStat label="Remaining" value={formatGBP(budgetRemaining)} />
                 </div>
+                {/* v1.86.0: per-fund breakdown. Renders only funds with
+                    nonzero totals so a Joint-only wedding doesn't see
+                    empty Bryony / Jamie / Other stubs. Deep-links into
+                    /budget?fund=<KEY> so the user can drill in. */}
+                {(fundPaid.JOINT > 0 ||
+                  fundPaid.PERSONAL_BRIDE > 0 ||
+                  fundPaid.PERSONAL_GROOM > 0 ||
+                  fundPaid.OTHER > 0 ||
+                  fundPaid.UNASSIGNED > 0) && (
+                  <div className="mt-3 pt-3 border-t border-border-soft">
+                    <div className="text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1.5">
+                      Paid by fund
+                    </div>
+                    <div className="flex gap-3 flex-wrap text-xs">
+                      {(
+                        [
+                          ["JOINT", "Joint"],
+                          ["PERSONAL_BRIDE", wedding.brideFirst],
+                          ["PERSONAL_GROOM", wedding.groomFirst],
+                          ["OTHER", "Other"],
+                          ["UNASSIGNED", "Unassigned"],
+                        ] as const
+                      )
+                        .filter(([k]) => fundPaid[k] > 0)
+                        .map(([k, label]) => (
+                          <Link
+                            key={k}
+                            href={`/budget?fund=${k}`}
+                            className="hover:underline"
+                            title={`Filter /budget by ${label}`}
+                          >
+                            <strong className="text-ink-primary tabular-nums">{formatGBP(fundPaid[k])}</strong>
+                            <span className="text-ink-tertiary ml-1">{label}</span>
+                          </Link>
+                        ))}
+                    </div>
+                  </div>
+                )}
                 {/* v1.77.0: spend pulse — recent paid totals + top
                     categories. Hidden when there's been no spend in
                     the last 30 days so the card isn't padded with a

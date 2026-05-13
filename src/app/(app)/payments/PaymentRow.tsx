@@ -16,6 +16,8 @@ import type { PaymentStatus } from "@prisma/client";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import Link from "next/link";
 import { notify } from "@/lib/notify";
+import { effectiveFundForPayment, formatFundChip, resolveFundLabels, type FundLabels } from "@/lib/funds";
+import type { FundSource } from "@prisma/client";
 
 // v1.75.0: PaymentRow extended with link chip (BUILD material / outfit)
 // + receipt count chip in read mode, plus minimal edit-mode receipt
@@ -55,6 +57,8 @@ type Payment = {
   budgetLine: {
     id: string;
     description: string;
+    fundSource: string | null;
+    fundLabel: string | null;
     category: { id: string; name: string };
   } | null;
   // v1.80.0
@@ -62,12 +66,21 @@ type Payment = {
   budgetLineComponent: {
     id: string;
     label: string;
+    fundSource: string | null;
+    fundLabel: string | null;
     line: {
       id: string;
       description: string;
+      fundSource: string | null;
+      fundLabel: string | null;
       category: { id: string; name: string };
     };
   } | null;
+  // v1.86.0: own fund. Resolution chain via effectiveFundForPayment:
+  // payment > component > line. We display the resolved chip on the
+  // row (with "(inherited)" italic when the chip came from a parent).
+  fundSource: string | null;
+  fundLabel: string | null;
 };
 
 type Supplier = { id: string; name: string };
@@ -95,13 +108,18 @@ export function PaymentRow({
   files,
   budgetCategories,
   canEdit,
+  fundLabelSource,
 }: {
   payment: Payment;
   suppliers: Supplier[];
   files: FileSummary[];
   budgetCategories: BudgetCategoryWithLines[];
   canEdit: boolean;
+  // v1.86.0: couple's first names so the fund chip can render
+  // "Bryony" / "Jamie" instead of "Bride" / "Groom" fallbacks.
+  fundLabelSource: { brideFirst: string; groomFirst: string };
 }) {
+  const fundLabels = resolveFundLabels(fundLabelSource);
   const [editing, setEditing] = useState(false);
   const [pending, startTransition] = useTransition();
   const supplierName = payment.supplierId ? suppliers.find((s) => s.id === payment.supplierId)?.name : null;
@@ -153,6 +171,9 @@ export function PaymentRow({
             notes: payment.notes ?? "",
             budgetLineId: payment.budgetLineId,
             budgetLineComponentId: payment.budgetLineComponentId,
+            // v1.86.0
+            fundSource: payment.fundSource,
+            fundLabel: payment.fundLabel,
           }}
           // v1.75.0: preserve the existing link + receipt list across
           // saves — PaymentForm appends these as hidden inputs.
@@ -314,6 +335,10 @@ export function PaymentRow({
               📎 {payment.fileIds.length}
             </span>
           )}
+          {/* v1.86.0: fund chip. Resolved via payment > component >
+              line. Shows "(inherited)" italic when the fund came from
+              a parent. Hidden when nothing in the chain has a fund set. */}
+          <FundChipForPayment payment={payment} labels={fundLabels} />
           {!linkChip && !payment.budgetLine && !payment.budgetLineComponent && payment.fileIds.length === 0 && (
             <span className="text-[11px] text-ink-tertiary">—</span>
           )}
@@ -333,5 +358,63 @@ export function PaymentRow({
         </td>
       )}
     </tr>
+  );
+}
+
+// v1.86.0: render the payment's effective fund chip. Walks the
+// resolution chain (payment > component > line); shows "(inherited)"
+// italic when the chip came from a parent. Hidden when nothing in
+// the chain has a fund set.
+function FundChipForPayment({
+  payment,
+  labels,
+}: {
+  payment: Payment;
+  labels: FundLabels;
+}) {
+  // The `Payment` types in this file widen fundSource to `string |
+  // null` to keep the Prisma-client import out of the row's surface
+  // area. Cast back to FundSource | null at the resolver boundary —
+  // any value in the column was inserted via the Zod-validated
+  // server action so the values are necessarily enum members.
+  const lineCarrier = payment.budgetLine
+    ? {
+        fundSource: payment.budgetLine.fundSource as FundSource | null,
+        fundLabel: payment.budgetLine.fundLabel,
+      }
+    : null;
+  const compCarrier = payment.budgetLineComponent
+    ? {
+        fundSource: payment.budgetLineComponent.fundSource as FundSource | null,
+        fundLabel: payment.budgetLineComponent.fundLabel,
+      }
+    : null;
+  const fallbackLine = payment.budgetLineComponent?.line
+    ? {
+        fundSource: payment.budgetLineComponent.line.fundSource as FundSource | null,
+        fundLabel: payment.budgetLineComponent.line.fundLabel,
+      }
+    : lineCarrier;
+  const resolved = effectiveFundForPayment(
+    {
+      fundSource: payment.fundSource as FundSource | null,
+      fundLabel: payment.fundLabel,
+    },
+    compCarrier,
+    fallbackLine,
+  );
+  if (resolved.fund === "UNASSIGNED") return null;
+  const display = formatFundChip(resolved.fund, resolved.label, labels);
+  return (
+    <span
+      className="inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded-sm border bg-canvas border-border-soft text-ink-secondary"
+      title={resolved.inherited ? `${display} (inherited from budget line)` : display}
+    >
+      <span aria-hidden>▣</span>
+      <span className="truncate max-w-[140px]">{display}</span>
+      {resolved.inherited && (
+        <span className="italic text-ink-tertiary text-[10px]">(inh.)</span>
+      )}
+    </span>
   );
 }

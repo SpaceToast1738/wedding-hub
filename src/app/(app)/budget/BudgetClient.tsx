@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
-import type { PerHeadSource } from "@prisma/client";
+import type { FundSource, PerHeadSource } from "@prisma/client";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { formatMoneyDecimal } from "@/lib/format";
-import { applyMinimum, computeActual, computeCompositeActual, computeCompositePaid, computeEstimated, computePaid, isManualOverride, sumOfPayments } from "@/lib/budget";
-import { createComponent, deleteComponent, updateComponent } from "./actions";
+import { applyMinimum, computeActual, computeCompositeActual, computeCompositePaid, computeEstimated, computePaid, isManualOverride, sumOfPayments, type BudgetFundFilter } from "@/lib/budget";
+import { effectiveFundForComponent, effectiveFundForPayment, formatFundChip, FUND_KEYS, resolveFundLabels, type FundKey, type FundLabels } from "@/lib/funds";
+import { createComponent, deleteComponent, setComponentFund, setLineFund, updateComponent } from "./actions";
 import { perHeadSourceLabel, perHeadSourceNoun } from "@/lib/headcount";
 import { createCategory, createLine, deleteCategory, deleteLine, renameCategory, reorderCategories, updateLine } from "./actions";
 import { notify } from "@/lib/notify";
@@ -27,7 +28,13 @@ export type Component = {
   notes: string | null;
   order: number;
   // v1.82.0: + payment status so the Paid column can sum PAID-only.
-  payments: { amount: string; status: string }[];
+  // v1.86.0: + payment fund fields so the client filter+rollup is
+  // self-contained.
+  payments: { amount: string; status: string; fundSource: FundSource | null; fundLabel: string | null }[];
+  // v1.86.0: per-component fund override. Null inherits the parent
+  // line's fund silently.
+  fundSource: FundSource | null;
+  fundLabel: string | null;
 };
 
 type Line = {
@@ -40,7 +47,12 @@ type Line = {
   notes: string | null;
   // B2: linked payments so `actual` can be recomputed when null.
   // v1.82.0: + payment status so the Paid column can sum PAID-only.
-  payments: { amount: string; status: string }[];
+  // v1.86.0: + payment fund fields.
+  payments: { amount: string; status: string; fundSource: FundSource | null; fundLabel: string | null }[];
+  // v1.86.0: line-level fund (default for child components +
+  // payments). Null = unassigned.
+  fundSource: FundSource | null;
+  fundLabel: string | null;
   // v1.77.0: per-head pricing config. When perHeadPence + headcountSource
   // are both set, the row's effective estimated is computed live.
   perHeadPence: number | null;
@@ -72,7 +84,20 @@ function resolveComponentHeadcount(component: Component, headcounts: HeadcountMa
   if (component.headcountSource === "MANUAL") return Math.max(0, component.manualHeadcount ?? 0);
   return headcounts[component.headcountSource];
 }
-function componentEffectiveEstimated(component: Component, headcounts: HeadcountMap): number {
+function componentEffectiveEstimated(
+  component: Component,
+  headcounts: HeadcountMap,
+  // v1.86.0: filter + parent line so per-component fund overrides
+  // are honoured. Pass undefined to opt out (matches pre-v1.86 behaviour).
+  filter?: BudgetFundFilter,
+  parentLine?: Line,
+): number {
+  if (filter && filter.fund !== "ALL") {
+    const resolved = parentLine
+      ? effectiveFundForComponent(component, parentLine).fund
+      : (component.fundSource ?? "UNASSIGNED");
+    if (resolved !== filter.fund) return 0;
+  }
   if (component.perHeadPence != null && component.headcountSource != null) {
     const raw = resolveComponentHeadcount(component, headcounts) ?? 0;
     const effective = applyMinimum(raw, component.minimumHeadcount ?? null);
@@ -102,17 +127,43 @@ function resolveLineCount(
   const effective = applyMinimum(raw, line.minimumHeadcount ?? null);
   return { resolved: raw, effective };
 }
-function componentActual(component: Component): number {
-  return component.payments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+function componentActual(component: Component, parentLine?: Line, filter?: BudgetFundFilter): number {
+  // v1.86.0: when a filter is active, only payments whose effective
+  // fund matches contribute. Payment fund resolves via the standard
+  // payment > component > line chain.
+  return component.payments.reduce((sum, p) => {
+    if (filter && filter.fund !== "ALL") {
+      const fund = effectiveFundForPayment(p, component, parentLine ?? null).fund;
+      if (fund !== filter.fund) return sum;
+    }
+    return sum + (Number(p.amount) || 0);
+  }, 0);
 }
 
-function effectiveEstimated(line: Line, headcounts: HeadcountMap): number {
+// v1.86.0: + a small fund-only helper for the component PAID column.
+function componentPaid(component: Component, parentLine?: Line, filter?: BudgetFundFilter): number {
+  return component.payments.reduce((sum, p) => {
+    if (p.status !== "PAID") return sum;
+    if (filter && filter.fund !== "ALL") {
+      const fund = effectiveFundForPayment(p, component, parentLine ?? null).fund;
+      if (fund !== filter.fund) return sum;
+    }
+    return sum + (Number(p.amount) || 0);
+  }, 0);
+}
+
+function effectiveEstimated(line: Line, headcounts: HeadcountMap, filter?: BudgetFundFilter): number {
   // v1.80.0: components win when present.
   if (line.components.length > 0) {
     return line.components.reduce(
-      (sum, c) => sum + componentEffectiveEstimated(c, headcounts),
+      (sum, c) => sum + componentEffectiveEstimated(c, headcounts, filter, line),
       0,
     );
+  }
+  // v1.86.0: filter at the line level.
+  if (filter && filter.fund !== "ALL") {
+    const lineFund: FundKey = line.fundSource ?? "UNASSIGNED";
+    if (lineFund !== filter.fund) return 0;
   }
   const count = resolveHeadcount(line, headcounts);
   return computeEstimated(
@@ -131,22 +182,23 @@ function effectiveEstimated(line: Line, headcounts: HeadcountMap): number {
 // per the B2 contract). Wraps computeCompositeActual for the
 // general case; falls through to plain computeActual when no
 // components exist so the existing B2 tests don't drift.
-function lineActual(line: Line): number {
+function lineActual(line: Line, filter?: BudgetFundFilter): number {
   if (line.components.length > 0) {
-    return computeCompositeActual(line);
+    return computeCompositeActual(line, filter);
   }
-  return computeActual(line);
+  return computeActual(line, filter);
 }
 
 // v1.82.0: line paid — same shape as lineActual, but filters
 // payments to PAID status only. Manual `paid` on the line still wins
 // per the B2 contract. Pre-fix the Paid column rendered the manual
 // value verbatim and ignored linked PAID payments.
-function linePaid(line: Line): number {
+// v1.86.0: + optional fund filter.
+function linePaid(line: Line, filter?: BudgetFundFilter): number {
   if (line.components.length > 0) {
-    return computeCompositePaid(line);
+    return computeCompositePaid(line, filter);
   }
-  return computePaid(line);
+  return computePaid(line, filter);
 }
 
 
@@ -159,23 +211,85 @@ export function BudgetClient({
   suppliers,
   buildCardByLineId = {},
   headcounts,
+  fundLabelSource,
 }: {
   categories: Category[];
   suppliers: Supplier[];
   buildCardByLineId?: Record<string, BuildCardLink>;
   /** v1.77.0: live per-source counts for resolving per-head lines. */
   headcounts: HeadcountMap;
+  /** v1.86.0: WeddingSettings bride/groom names → fund chip labels. */
+  fundLabelSource: { brideFirst: string; groomFirst: string };
 }) {
+  // v1.86.0: fund filter. "ALL" is the default (no filter); the four
+  // enum values + UNASSIGNED narrow the view. URL ?fund= wins on
+  // first render; otherwise localStorage; otherwise "ALL".
+  const [fundFilter, setFundFilter] = useState<FundKey | "ALL">("ALL");
+  useEffect(() => {
+    try {
+      // URL param wins first.
+      const url = new URLSearchParams(window.location.search);
+      const fromUrl = url.get("fund");
+      const candidate = fromUrl
+        ?? window.localStorage.getItem("wh_budget_fund_filter");
+      if (
+        candidate === "ALL" ||
+        candidate === "JOINT" ||
+        candidate === "PERSONAL_BRIDE" ||
+        candidate === "PERSONAL_GROOM" ||
+        candidate === "OTHER" ||
+        candidate === "UNASSIGNED"
+      ) {
+        setFundFilter(candidate);
+      }
+    } catch {
+      // privacy / SSR — accept default
+    }
+  }, []);
+  const handleFundFilter = (next: FundKey | "ALL") => {
+    setFundFilter(next);
+    try {
+      window.localStorage.setItem("wh_budget_fund_filter", next);
+    } catch {
+      // best-effort persistence
+    }
+  };
+  const fundLabels = resolveFundLabels(fundLabelSource);
+  // The active filter passed into every compute helper below. Memoise-
+  // free shape (just an object literal) is fine — the components
+  // re-render on every filter change anyway.
+  const filter: BudgetFundFilter = { fund: fundFilter };
   const totals = categories.reduce(
     (acc, c) => {
       for (const l of c.lines) {
-        acc.estimated += effectiveEstimated(l, headcounts);
-        acc.actual += lineActual(l);
-        acc.paid += linePaid(l);
+        acc.estimated += effectiveEstimated(l, headcounts, filter);
+        acc.actual += lineActual(l, filter);
+        acc.paid += linePaid(l, filter);
       }
       return acc;
     },
     { estimated: 0, actual: 0, paid: 0 },
+  );
+  // v1.86.0: per-fund totals for the "By fund" strip below the
+  // SummaryBar. Computed once per render by re-running each helper
+  // five times — cheap (the helpers fold over the same in-memory
+  // arrays) and lets the strip render side-by-side with the filter.
+  const perFundTotals = FUND_KEYS.reduce(
+    (acc, fund) => {
+      const sub = categories.reduce(
+        (s, c) => {
+          for (const l of c.lines) {
+            s.estimated += effectiveEstimated(l, headcounts, { fund });
+            s.paid += linePaid(l, { fund });
+          }
+          return s;
+        },
+        { estimated: 0, paid: 0 },
+      );
+      acc[fund] = sub;
+      return acc;
+    },
+    {} as Record<FundKey, { estimated: number; paid: number }>,
   );
   // v1.84.0: Outstanding can be computed two ways. "actual" (default,
   // pre-v1.84 behaviour) is "what's been committed but not yet settled" —
@@ -211,12 +325,27 @@ export function BudgetClient({
   return (
     <div className="flex-1 overflow-auto">
       <div className="max-w-5xl mx-auto p-4 sm:p-6 space-y-6">
+        {/* v1.86.0: fund filter chips above the tile row. */}
+        <FundFilterChips
+          active={fundFilter}
+          labels={fundLabels}
+          onChange={handleFundFilter}
+        />
         <SummaryBar
           totals={totals}
           remaining={remaining}
           outstandingMode={outstandingMode}
           onOutstandingModeChange={handleOutstandingMode}
+          activeFund={fundFilter}
+          fundLabels={fundLabels}
+          onClearFund={() => handleFundFilter("ALL")}
         />
+        {/* v1.86.0: per-fund summary strip. Hidden when a fund is
+            already filtered (the SummaryBar tiles already show that
+            fund's numbers). */}
+        {fundFilter === "ALL" && (
+          <ByFundStrip totals={perFundTotals} labels={fundLabels} onPick={handleFundFilter} />
+        )}
         {categories.length === 0 ? (
           <p className="text-sm text-ink-tertiary text-center py-12">
             No budget categories yet. Add one below to get started.
@@ -229,6 +358,10 @@ export function BudgetClient({
               suppliers={suppliers}
               buildCardByLineId={buildCardByLineId}
               headcounts={headcounts}
+              // v1.86.0: thread the active fund filter + labels down
+              // so subtotals + chips re-render.
+              fundFilter={filter}
+              fundLabels={fundLabels}
               // v1.85.0: reorder controls — ▲/▼ buttons in the header.
               // Parent computes the new id-order and dispatches in one
               // server call so reorder is atomic.
@@ -255,17 +388,221 @@ export function BudgetClient({
   );
 }
 
+// v1.86.0: chip-row above the SummaryBar. One pill per fund (plus
+// ALL); active pill rendered in marigold. Picking a fund recomputes
+// every total on the page (the parent component re-derives via
+// `effectiveEstimated` / `linePaid` with `filter = { fund }`).
+function FundFilterChips({
+  active,
+  labels,
+  onChange,
+}: {
+  active: FundKey | "ALL";
+  labels: FundLabels;
+  onChange: (next: FundKey | "ALL") => void;
+}) {
+  const options: ReadonlyArray<{ key: FundKey | "ALL"; label: string }> = [
+    { key: "ALL", label: "All funds" },
+    ...FUND_KEYS.map((k) => ({ key: k, label: labels[k] })),
+  ];
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      <span className="text-[10px] uppercase tracking-wider text-ink-tertiary font-bold mr-1">By fund</span>
+      {options.map((o) => {
+        const isActive = active === o.key;
+        return (
+          <button
+            key={o.key}
+            type="button"
+            onClick={() => onChange(o.key)}
+            className={`px-2.5 py-1 rounded-full text-xs font-medium border transition-colors ${
+              isActive
+                ? "bg-marigold-100 text-marigold-700 border-marigold-300"
+                : "bg-surface text-ink-secondary border-border-soft hover:border-border-strong"
+            }`}
+            aria-pressed={isActive}
+          >
+            {o.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// v1.86.0: side-by-side mini-tiles for each fund. Renders only buckets
+// with nonzero planned OR paid so a Joint-only wedding doesn't display
+// four empty stubs. Clicking a tile narrows the filter.
+function ByFundStrip({
+  totals,
+  labels,
+  onPick,
+}: {
+  totals: Record<FundKey, { estimated: number; paid: number }>;
+  labels: FundLabels;
+  onPick: (fund: FundKey) => void;
+}) {
+  const visible = FUND_KEYS.filter(
+    (f) => totals[f].estimated > 0 || totals[f].paid > 0,
+  );
+  if (visible.length === 0) return null;
+  return (
+    <div>
+      <div className="text-[10px] uppercase tracking-wider text-ink-tertiary font-bold mb-1.5">
+        Breakdown by fund
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {visible.map((f) => (
+          <button
+            key={f}
+            type="button"
+            onClick={() => onPick(f)}
+            className="flex-1 min-w-[140px] text-left bg-surface border border-border-soft hover:border-border-strong rounded-md px-3 py-2 transition-colors"
+            title={`Show only ${labels[f]}`}
+          >
+            <div className="text-[10px] font-bold text-ink-tertiary uppercase tracking-wider">
+              {labels[f]}
+            </div>
+            <div className="font-display text-base font-semibold text-ink-primary tabular-nums mt-0.5">
+              {formatMoneyDecimal(totals[f].estimated as unknown as { toString(): string })}
+            </div>
+            <div className="text-[11px] text-moss-700 tabular-nums font-medium">
+              Paid {formatMoneyDecimal(totals[f].paid as unknown as { toString(): string })}
+            </div>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// v1.86.0: per-row fund chip + popover picker. Sits in LineRow's
+// action area and in each component sub-row. Click → expands a tiny
+// inline form: radio of four buckets + an optional free-text label.
+// "Inherit" (leftmost option) clears the fund on the row.
+function FundChipPicker({
+  fundSource,
+  fundLabel,
+  labels,
+  // True when the rendered fund came from a parent (line for component,
+  // line for payment-row use case). Drives the "(inherited)" italic.
+  inherited,
+  onSave,
+  disabled,
+}: {
+  fundSource: FundSource | null;
+  fundLabel: string | null;
+  labels: FundLabels;
+  inherited: boolean;
+  onSave: (next: { fundSource: FundSource | null; fundLabel: string | null }) => void;
+  disabled?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [draftSource, setDraftSource] = useState<FundSource | null>(fundSource);
+  const [draftLabel, setDraftLabel] = useState(fundLabel ?? "");
+  const effective: FundKey = fundSource ?? "UNASSIGNED";
+  const display = formatFundChip(effective, fundLabel, labels);
+
+  function onCommit() {
+    onSave({
+      fundSource: draftSource,
+      fundLabel: draftSource === "OTHER" ? (draftLabel.trim() || null) : null,
+    });
+    setOpen(false);
+  }
+
+  return (
+    <div className="relative inline-block">
+      <button
+        type="button"
+        onClick={() => {
+          setDraftSource(fundSource);
+          setDraftLabel(fundLabel ?? "");
+          setOpen((v) => !v);
+        }}
+        disabled={disabled}
+        className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-sm border text-[10px] font-medium ${
+          fundSource == null
+            ? "bg-canvas text-ink-tertiary border-border-soft"
+            : "bg-surface text-ink-secondary border-border-soft"
+        } hover:border-border-strong`}
+        title={inherited ? `${display} (inherited from parent line)` : display}
+      >
+        <span>▣</span>
+        <span>{display}</span>
+        {inherited && <span className="italic text-ink-tertiary ml-0.5">(inh.)</span>}
+      </button>
+      {open && (
+        <div className="absolute z-10 mt-1 right-0 bg-surface border border-border-soft rounded-md shadow-lg p-2 w-56 text-xs">
+          <div className="font-medium text-ink-primary mb-1">Set fund</div>
+          <div className="space-y-1">
+            {([
+              { val: null, label: "Inherit / Unassigned" },
+              { val: "JOINT" as FundSource, label: labels.JOINT },
+              { val: "PERSONAL_BRIDE" as FundSource, label: labels.PERSONAL_BRIDE },
+              { val: "PERSONAL_GROOM" as FundSource, label: labels.PERSONAL_GROOM },
+              { val: "OTHER" as FundSource, label: labels.OTHER },
+            ] as const).map((o) => (
+              <label key={o.label} className="flex items-center gap-1.5 cursor-pointer">
+                <input
+                  type="radio"
+                  name="fund"
+                  checked={draftSource === o.val}
+                  onChange={() => setDraftSource(o.val)}
+                />
+                <span>{o.label}</span>
+              </label>
+            ))}
+          </div>
+          {draftSource === "OTHER" && (
+            <Input
+              value={draftLabel}
+              onChange={(e) => setDraftLabel(e.target.value)}
+              placeholder="e.g. Bryony's parents"
+              className="mt-2 text-xs"
+            />
+          )}
+          <div className="flex gap-1 justify-end mt-2">
+            <button
+              type="button"
+              onClick={() => setOpen(false)}
+              className="text-ink-tertiary hover:text-ink-secondary px-2 py-0.5"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={onCommit}
+              className="px-2 py-0.5 rounded-sm bg-moss-500 text-white hover:bg-moss-600"
+            >
+              Save
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function SummaryBar({
   totals,
   remaining,
   outstandingMode,
   onOutstandingModeChange,
+  activeFund,
+  fundLabels,
+  onClearFund,
 }: {
   totals: { estimated: number; actual: number; paid: number };
   remaining: number;
   // v1.84.0: Outstanding can be computed against Actual or Planned.
   outstandingMode: "actual" | "planned";
   onOutstandingModeChange: (mode: "actual" | "planned") => void;
+  // v1.86.0: the active fund filter (so the header can show a
+  // "Filtered" banner) and a callback to clear it.
+  activeFund: FundKey | "ALL";
+  fundLabels: FundLabels;
+  onClearFund: () => void;
 }) {
   const Tile = ({ label, value, accent = "text-ink-primary" }: { label: string; value: string; accent?: string }) => (
     <div className="bg-surface border border-border-soft rounded-md px-4 py-3 flex-1 min-w-[140px]">
@@ -335,6 +672,22 @@ function SummaryBar({
 
   return (
     <div className="space-y-3">
+      {/* v1.86.0: tiny "Filtered" banner above the tiles when a fund
+          filter is active. Clear-link returns to ALL. */}
+      {activeFund !== "ALL" && (
+        <div className="flex items-center justify-between gap-2 px-3 py-1.5 rounded-md bg-marigold-50 border border-marigold-200 text-xs">
+          <span className="text-marigold-700">
+            Showing <strong>{fundLabels[activeFund]}</strong> only — totals + outstanding scoped to this fund.
+          </span>
+          <button
+            type="button"
+            onClick={onClearFund}
+            className="text-marigold-700 hover:text-marigold-900 underline"
+          >
+            Clear filter
+          </button>
+        </div>
+      )}
       <div className="flex flex-wrap gap-3">
         <Tile label="Planned" value={formatMoneyDecimal(totals.estimated as unknown as { toString(): string })} />
         <Tile label="Actual" value={formatMoneyDecimal(totals.actual as unknown as { toString(): string })} accent={overBudget ? "text-danger" : "text-ink-primary"} />
@@ -383,6 +736,8 @@ function CategoryBlock({
   isFirst = false,
   isLast = false,
   onMove,
+  fundFilter,
+  fundLabels,
 }: {
   category: Category;
   suppliers: Supplier[];
@@ -393,6 +748,10 @@ function CategoryBlock({
   isFirst?: boolean;
   isLast?: boolean;
   onMove?: (direction: "up" | "down") => void;
+  // v1.86.0: fund filter threaded from BudgetClient so subtotals +
+  // chip rendering on each line / component honour the filter.
+  fundFilter: BudgetFundFilter;
+  fundLabels: FundLabels;
 }) {
   const [adding, setAdding] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
@@ -446,17 +805,19 @@ function CategoryBlock({
   }
 
   // Subtotals so the user gets per-category numbers without having to scan rows.
+  // v1.86.0: + fund filter (subtotals scope to filtered fund).
   const subtotals = category.lines.reduce(
     (acc, l) => ({
-      estimated: acc.estimated + effectiveEstimated(l, headcounts),
-      actual: acc.actual + lineActual(l),
-      paid: acc.paid + linePaid(l),
+      estimated: acc.estimated + effectiveEstimated(l, headcounts, fundFilter),
+      actual: acc.actual + lineActual(l, fundFilter),
+      paid: acc.paid + linePaid(l, fundFilter),
     }),
     { estimated: 0, actual: 0, paid: 0 },
   );
   // v1.77.0: any line over its effective estimated triggers a small
   // warning chip on the category header so the user can spot
-  // problem categories at a glance.
+  // problem categories at a glance. (Always uses ALL-funds totals so
+  // the warning isn't hidden by a fund filter.)
   const overBudgetLineCount = category.lines.filter((l) => {
     const est = effectiveEstimated(l, headcounts);
     return est > 0 && lineActual(l) > est;
@@ -594,7 +955,7 @@ function CategoryBlock({
           </thead>
           <tbody>
             {category.lines.map((l) => (
-              <LineRow key={l.id} line={l} categoryId={category.id} suppliers={suppliers} buildCard={buildCardByLineId[l.id]} headcounts={headcounts} />
+              <LineRow key={l.id} line={l} categoryId={category.id} suppliers={suppliers} buildCard={buildCardByLineId[l.id]} headcounts={headcounts} fundFilter={fundFilter} fundLabels={fundLabels} />
             ))}
             {category.lines.length === 0 && !adding && (
               <tr>
@@ -624,12 +985,17 @@ function LineRow({
   suppliers,
   buildCard,
   headcounts,
+  fundFilter,
+  fundLabels,
 }: {
   line: Line;
   categoryId: string;
   suppliers: Supplier[];
   buildCard?: BuildCardLink;
   headcounts: HeadcountMap;
+  // v1.86.0
+  fundFilter: BudgetFundFilter;
+  fundLabels: FundLabels;
 }) {
   const [editing, setEditing] = useState(false);
   const [pending, startTransition] = useTransition();
@@ -686,7 +1052,9 @@ function LineRow({
   // B2: actual is the manual override if set, otherwise sum of payments.
   // The "Σ" pill marks computed totals so the user can tell at a glance
   // which lines are pinned vs. derived.
-  const actualResolved = lineActual(line);
+  // v1.86.0: actual/paid/estimated use the active fund filter so the
+  // row's visible numbers match the filtered SummaryBar totals.
+  const actualResolved = lineActual(line, fundFilter);
   const isManual = isManualOverride(line);
   const paymentsSum = sumOfPayments(line);
   // v1.77.0: per-head breakdown chip + over-budget flag.
@@ -694,8 +1062,10 @@ function LineRow({
   const isPerHead = line.perHeadPence != null && line.headcountSource != null;
   const { resolved: rawCount, effective: effectiveCount } = resolveLineCount(line, headcounts);
   const minimumKickedIn = isPerHead && effectiveCount > rawCount;
-  const estimatedResolved = effectiveEstimated(line, headcounts);
+  const estimatedResolved = effectiveEstimated(line, headcounts, fundFilter);
   const overBudget = estimatedResolved > 0 && actualResolved > estimatedResolved;
+  // v1.86.0: line's own paid total (re-used in the Paid cell + Σ pill).
+  const linePaidResolved = linePaid(line, fundFilter);
 
   return (
     <>
@@ -773,17 +1143,31 @@ function LineRow({
         </span>
       </td>
       <td className="px-4 py-2 text-right text-sm text-moss-700 tabular-nums font-medium">
-        {formatMoneyDecimal(linePaid(line) as unknown as { toString(): string })}
+        {formatMoneyDecimal(linePaidResolved as unknown as { toString(): string })}
         {/* v1.82.0: when paid is computed (not a manual override) AND
             any linked payments are PAID, show the Σ pill so the user
             knows it's a rollup. Mirrors the Actual column treatment. */}
-        {line.paid == null && linePaid(line) > 0 && (
+        {line.paid == null && linePaidResolved > 0 && (
           <span className="ml-1 text-[9px] text-ink-tertiary font-bold">Σ</span>
         )}
       </td>
       <td className="px-4 py-2 text-xs text-ink-tertiary truncate">{supplierName ?? "—"}</td>
       <td className="px-4 py-2">
-        <div className="flex gap-1 justify-end">
+        <div className="flex gap-1 justify-end items-center">
+          {/* v1.86.0: per-line fund chip. */}
+          <FundChipPicker
+            fundSource={line.fundSource}
+            fundLabel={line.fundLabel}
+            labels={fundLabels}
+            inherited={false}
+            disabled={pending}
+            onSave={({ fundSource, fundLabel }) => {
+              startTransition(async () => {
+                const res = await setLineFund(line.id, { fundSource, fundLabel });
+                if (!res.ok) notify("error", res.error);
+              });
+            }}
+          />
           <Button variant="ghost" size="sm" onClick={() => setEditing(true)} disabled={pending}>Edit</Button>
           <Button variant="ghost" size="sm" onClick={onDelete} disabled={pending}>×</Button>
         </div>
@@ -797,20 +1181,35 @@ function LineRow({
           line aggregates that already. */}
       {line.components.length > 0 &&
         line.components.map((c) => {
-          const compEst = componentEffectiveEstimated(c, headcounts);
-          const compActual = componentActual(c);
-          // v1.83.0: per-component Paid column (PAID-status sum).
-          const compPaid = c.payments
-            .filter((p) => p.status === "PAID")
-            .reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+          // v1.86.0: filter all per-component numbers by the active fund.
+          const compEst = componentEffectiveEstimated(c, headcounts, fundFilter, line);
+          const compActual = componentActual(c, line, fundFilter);
+          const compPaid = componentPaid(c, line, fundFilter);
           const { resolved: rawC, effective: effC } = resolveComponentCount(c, headcounts);
           const minKick = c.perHeadPence != null && c.headcountSource != null && effC > rawC;
+          // v1.86.0: resolve the component's effective fund chip via
+          // inheritance.
+          const compEffective = effectiveFundForComponent(c, line);
           return (
             <tr key={c.id} className="border-b border-border-soft/50 last:border-b-0 bg-canvas/40">
               <td className="px-4 py-1.5 pl-10">
-                <div className="text-[12px] text-ink-secondary">
+                <div className="text-[12px] text-ink-secondary flex items-center gap-2 flex-wrap">
                   <span className="text-ink-tertiary">└ </span>
-                  {c.label}
+                  <span>{c.label}</span>
+                  {/* v1.86.0: component fund chip. */}
+                  <FundChipPicker
+                    fundSource={c.fundSource}
+                    fundLabel={compEffective.label}
+                    labels={fundLabels}
+                    inherited={compEffective.inherited}
+                    onSave={({ fundSource, fundLabel }) => {
+                      void setComponentFund(c.id, { fundSource, fundLabel }).then(
+                        (res) => {
+                          if (!res.ok) notify("error", res.error);
+                        },
+                      );
+                    }}
+                  />
                 </div>
                 {c.perHeadPence != null && c.headcountSource && (
                   <div className="text-[10px] text-ink-tertiary pl-3.5">

@@ -34,6 +34,7 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
+| **v1.86.0** | 2026-05-13 | [Funding sources across the finance system. User: "Add a method for joint vs personal / other funded on the budget screen, find a way to calculate, joint budgets and personal budgets etc & roll that into what we currently have with the toggle between actual and planned outage vs what has been paid, work it into the whole finance system". New `FundSource` enum (`JOINT / PERSONAL_BRIDE / PERSONAL_GROOM / OTHER`) + nullable `fundSource` + free-text `fundLabel` columns on `BudgetLine`, `BudgetLineComponent`, AND `Payment` (additive migration, no backfill). New `src/lib/funds.ts` resolver with inheritance chain `payment > component > line` and an "UNASSIGNED" synthetic key for nulls. Bride/groom labels resolve dynamically from `WeddingSettings.brideFirst` / `.groomFirst`. The six pure compute helpers in `src/lib/budget.ts` (`computeActual` / `computePaid` / `computeEstimated` / `computeComponentEstimated` / `computeCompositeActual` / `computeCompositePaid`) gain an optional `filter?: { fund }` param — non-fund-aware call sites pass nothing and behave exactly as pre-v1.86. **/budget UI:** new `FundFilterChips` row above the SummaryBar; new `ByFundStrip` mini-tile row below it (Joint £X · Bryony £Y · Jamie £Z · Other £W — only nonzero buckets visible; clicking narrows the filter); per-line and per-component `FundChipPicker` popovers (radio of four buckets + OTHER text input → `setLineFund` / `setComponentFund` quick-actions); SummaryBar shows a marigold "Filtered" banner when active. URL state: `/budget?fund=JOINT` wins on first render; localStorage `wh_budget_fund_filter` persists. Outstanding toggle (v1.84) stays orthogonal — it operates on the filtered totals. **/payments:** fund select column on `InlinePaymentGrid`, fund picker block on `PaymentForm`, fund chip on `PaymentRow` (resolved via inheritance, italic "(inh.)" when inherited), `?fund=` URL filter on the page. **/glance:** "Paid by fund" line under the Budget card, deep-links into `/budget?fund=<KEY>`. New tests: 18 in `tests/unit/funds.test.ts` + 12 fund-aware cases in `tests/unit/budget.test.ts` (594 total, was 564).](#2026-05-13--v1860--funding-sources) |
 | **v1.85.0** | 2026-05-13 | [Rename + reorder budget categories. Category headers on `/budget` gain a `✎` pencil (inline rename — Enter saves, Esc cancels) and `▲ / ▼` reorder buttons (disabled at the ends of the list). Two new server actions: `renameCategory(id, name)` (single-field update with audit `priorName` + `name` diff) and `reorderCategories(orderedIds[])` (transactional `order` rewrite, mirrors v1.80.0 `reorderComponents`). Parent `BudgetClient` owns the ordering: clicking ▲/▼ swaps the id at idx ± 1 and dispatches in one server call. No schema; no migration; `BudgetCategory.order` already existed.](#2026-05-13--v1850--rename--reorder-budget-categories) |
 | **v1.84.0** | 2026-05-13 | [Outstanding-mode toggle on /budget. The Outstanding summary tile now offers two interpretations side-by-side: **vs Actual** (default, pre-v1.84 behaviour — `actual − paid`, what's been committed but not yet settled) and **vs Planned** (`planned − paid`, how much more we need to find against the budget). Two-pill toggle inside the Outstanding tile; selection persisted to `localStorage` under `wh_budget_outstanding_mode`. The Actual / Planned / Paid tiles + the stacked progress bar are unchanged — only Outstanding switches denominator. Pure render change; no schema, no compute helpers, no migration.](#2026-05-13--v1840--outstanding-mode-toggle) |
 | **v1.83.0** | 2026-05-13 | [Composite-line columns finally render their numbers. **Bug:** the Venue line's Planned cell showed `—` even though its 9 components summed to £5,667 (visible in the category header). Component sub-rows had blank Actual + Paid columns. v1.83.0 surfaces both: parent's Planned cell shows the composite sum with a Σ pill; each component sub-row now renders its own Actual (sum of linked payments) and Paid (PAID-status sum) with Σ pills, falling back to `—` when zero. No schema or compute changes — these values already existed via `effectiveEstimated` and `componentActual`; the rendering just didn't read them out.](#2026-05-13--v1830--composite-line-columns) |
@@ -920,6 +921,49 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-05-13 · v1.86.0 — Funding sources
+
+User: *"Add a method for joint vs personal / other funded on the budget screen, find a way to calculate, joint budgets and personal budgets etc & roll that into what we currently have with the toggle between actual and planned outage vs what has been paid, work it into the whole finance system."*
+
+Today's finance stack treats every line, component, and payment as one undifferentiated pool. v1.86 layers a **fund** dimension on top so the couple can answer: "How much are Bryony's parents covering?" "How much of the Joint pot have we used?" "Show me only Jamie's personal-account contributions."
+
+**Schema.** Migration `20260514400000_funding_sources`:
+- New `FundSource` enum: `JOINT | PERSONAL_BRIDE | PERSONAL_GROOM | OTHER`.
+- Three models — `BudgetLine`, `BudgetLineComponent`, `Payment` — each gain `fundSource FundSource?` + `fundLabel String?`. All additive; existing rows stay null ("unassigned"). No backfill.
+- Narrow B-tree index on `fundSource` per table for filter queries.
+
+**Resolver — `src/lib/funds.ts` (new).** Single-purpose pure module:
+- `FundKey = FundSource | "UNASSIGNED"` (synthetic key for null chains).
+- `resolveFundLabels({ brideFirst, groomFirst })` returns the 5 chip labels, pulling bride/groom from `WeddingSettings` so renaming the couple cascades automatically.
+- `effectiveFundForComponent(component, line)` — component override wins; falls back to line; else UNASSIGNED.
+- `effectiveFundForPayment(payment, component, line)` — payment > component > line > UNASSIGNED.
+- `groupTotalsByFund`, `rowMatchesFundFilter`, `formatFundChip` — reducers used by /budget and /glance.
+- 18 unit tests in `tests/unit/funds.test.ts`.
+
+**Compute helpers — `src/lib/budget.ts` extension.** The six existing helpers (`computeActual`, `computePaid`, `computeEstimated`, `computeComponentEstimated`, `computeCompositeActual`, `computeCompositePaid`) gain an **optional** `filter?: { fund: FundKey | "ALL" }` parameter. When omitted or set to "ALL" the helpers behave exactly as pre-v1.86 — all existing call sites are unchanged. When a fund is named, payment-sum helpers filter via `effectiveFundForPayment`, and estimate helpers return 0 when the row's own fund doesn't match. Manual `actual` / `paid` overrides count only when the line's own fund matches the filter. 12 new fund-filter cases extend `tests/unit/budget.test.ts`.
+
+**Server actions.**
+- `lineSchema` + `componentSchema` (budget) gain `fundSource` + `fundLabel`. `createLine` / `updateLine` / `createComponent` / `updateComponent` persist + audit. Update flows include the fund fields in `changedFields` per the v1.30.5 enrichment rule.
+- New: `setLineFund(id, { fundSource, fundLabel })` + `setComponentFund(...)` — small dedicated quick-actions so the per-row chip can flip the fund in one round-trip without re-validating the whole line / component schema. Both audit-logged (`budget-line-fund-set` / `budget-component-fund-set`) with `priorFundSource` + `priorFundLabel` snapshots.
+- `paymentSchema` (payments) gains `fundSource` + `fundLabel`. `createPayment` + `updatePayment` persist + revalidate `/budget` when a fund change is detected.
+
+**UI — /budget.** Biggest change. `BudgetClient` now owns a `fundFilter: FundKey | "ALL"` state hydrated from `?fund=` URL param first, then localStorage `wh_budget_fund_filter`, then "ALL". Three new components in `BudgetClient.tsx`:
+- `FundFilterChips` — chip-row above the SummaryBar. `[All funds] [Joint] [Bryony] [Jamie] [Other] [Unassigned]`. Active pill in marigold.
+- `ByFundStrip` — below the SummaryBar (hidden when the filter is already narrowed). One mini-tile per fund showing Planned + Paid. Renders only funds with nonzero totals — a Joint-only wedding doesn't see empty Bryony/Jamie/Other stubs. Tiles are clickable: pick narrows the filter.
+- `FundChipPicker` — popover for the per-line and per-component fund chip. Radio of four buckets + an OTHER text input. The line's chip uses `setLineFund`; component chips use `setComponentFund`. Component chips render `(inh.)` italic when the fund came from the parent line.
+
+SummaryBar gets a small marigold "Filtered" banner when `fundFilter !== "ALL"` with a "Clear filter" link. The Outstanding toggle (v1.84) stays orthogonal — it just operates on the filtered totals.
+
+**UI — /payments.**
+- `InlinePaymentGrid` gets a `📁 Fund` select column (5 values: inherit / Joint / Bride / Groom / Other), plus an inline `fundLabel` text input that appears only when Other is picked.
+- `PaymentForm` (edit mode) gets a matching `FundPicker` block under the Budget link picker.
+- `PaymentRow` renders a fund chip (`▣ Joint` / `▣ Bryony's parents`) in the Linked / Receipts column. The chip walks the resolver chain (payment > component > line) and italicises "(inh.)" when the chip came from a parent.
+- `/payments?fund=JOINT` URL filter composable with the existing `?supplier=` + `?category=`.
+
+**UI — /glance.** Budget card grows a "Paid by fund" line under the existing Paid / Committed / Remaining row. Renders only funds with nonzero totals. Each label deep-links to `/budget?fund=<KEY>`.
+
+**No regression risk.** Every existing call site passes no filter / no fund — totals, audit logs, and renders match pre-v1.86 behaviour for any database where the new columns stay null. Existing 564 tests green; +30 new.
 
 ### 2026-05-13 · v1.85.0 — Rename + reorder budget categories
 

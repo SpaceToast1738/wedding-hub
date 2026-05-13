@@ -24,7 +24,9 @@ export default async function PaymentsPage({
   // v1.77.0: + `?category=<id>` to scope the list to one budget
   // category. Mirrors the v1.57.0 `?supplier=` pattern. The two are
   // composable — `?supplier=X&category=Y` AND-filters.
-  searchParams: Promise<{ supplier?: string; category?: string }>;
+  // v1.86.0: + `?fund=<KEY>` to scope the list to one funding source.
+  // Composable with the other two filters.
+  searchParams: Promise<{ supplier?: string; category?: string; fund?: string }>;
 }) {
   const user = await requireUser();
   if (!user.isCouple) redirect("/");
@@ -32,11 +34,24 @@ export default async function PaymentsPage({
   const sp = await searchParams;
   const supplierFilter = typeof sp.supplier === "string" ? sp.supplier : null;
   const categoryFilter = typeof sp.category === "string" ? sp.category : null;
+  const fundFilter = typeof sp.fund === "string" ? sp.fund : null;
 
   // v1.77.0: combine filters via Prisma AND so each chip stacks.
+  // v1.86.0: + fund. For UNASSIGNED, filter to fundSource = null; for
+  // any explicit enum value, filter to that enum.
   const paymentsWhere: Record<string, unknown> = {};
   if (supplierFilter) paymentsWhere.supplierId = supplierFilter;
   if (categoryFilter) paymentsWhere.budgetLine = { categoryId: categoryFilter };
+  if (fundFilter === "UNASSIGNED") {
+    paymentsWhere.fundSource = null;
+  } else if (
+    fundFilter === "JOINT" ||
+    fundFilter === "PERSONAL_BRIDE" ||
+    fundFilter === "PERSONAL_GROOM" ||
+    fundFilter === "OTHER"
+  ) {
+    paymentsWhere.fundSource = fundFilter;
+  }
 
   const [payments, suppliers, buildCardsRaw, outfitCardsRaw, allFiles, categories] = await Promise.all([
     db.payment.findMany({
@@ -67,23 +82,32 @@ export default async function PaymentsPage({
           },
         },
         // v1.79.0: linked BudgetLine for the in-row chip + edit picker.
+        // v1.86.0: + fundSource/Label on the line so the row's fund
+        // chip can inherit when the payment itself has no fund.
         budgetLine: {
           select: {
             id: true,
             description: true,
+            fundSource: true,
+            fundLabel: true,
             category: { select: { id: true, name: true } },
           },
         },
         // v1.80.0: linked component for the in-row chip when a
         // payment targets a specific sub-cost.
+        // v1.86.0: + fund fields on component + line for inheritance.
         budgetLineComponent: {
           select: {
             id: true,
             label: true,
+            fundSource: true,
+            fundLabel: true,
             line: {
               select: {
                 id: true,
                 description: true,
+                fundSource: true,
+                fundLabel: true,
                 category: { select: { id: true, name: true } },
               },
             },
@@ -292,6 +316,8 @@ export default async function PaymentsPage({
                       files={allFiles}
                       budgetCategories={categories}
                       canEdit={true}
+                      // v1.86.0: couple's first names → fund chip labels
+                      fundLabelSource={{ brideFirst: wedding.brideFirst, groomFirst: wedding.groomFirst }}
                     />
                   ))}
                 </tbody>

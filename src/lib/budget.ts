@@ -21,18 +21,91 @@ function toNumber(d: DecimalLike): number {
   return Number.isNaN(n) ? 0 : n;
 }
 
+// v1.86.0: fund-filter shape. All compute helpers below accept an
+// optional `{ fund }` param. When omitted (or set to "ALL") the
+// helpers behave exactly as pre-v1.86. When set to one of the five
+// FundKeys (JOINT / PERSONAL_BRIDE / PERSONAL_GROOM / OTHER /
+// UNASSIGNED) the helpers drop rows/payments whose effective fund
+// doesn't match.
+//
+// Importing FundKey here would create a cycle (funds.ts has no
+// dependencies; budget.ts builds on it). So the type is duplicated
+// as a string union locally. The values are kept in sync with
+// funds.ts.
+type LocalFundKey = "JOINT" | "PERSONAL_BRIDE" | "PERSONAL_GROOM" | "OTHER" | "UNASSIGNED";
+export type BudgetFundFilter = { fund: LocalFundKey | "ALL" };
+
+// Same shape as funds.ts FundCarrier (avoid cross-imports). Both
+// fields are OPTIONAL so callers that don't track funds can pass
+// any object — the filter helpers treat missing fields as null.
+type FundFields = { fundSource?: string | null; fundLabel?: string | null };
+
+// Returns the row's effective fund as a LocalFundKey. Mirrors
+// funds.ts effectiveFundForX but without the label/inherited info
+// (compute helpers only need the bucket).
+function resolveOwnFund(carrier: FundFields): LocalFundKey {
+  if (carrier.fundSource == null) return "UNASSIGNED";
+  return carrier.fundSource as LocalFundKey;
+}
+function resolveComponentFund(component: FundFields, line: FundFields): LocalFundKey {
+  if (component.fundSource != null) return component.fundSource as LocalFundKey;
+  if (line.fundSource != null) return line.fundSource as LocalFundKey;
+  return "UNASSIGNED";
+}
+function resolvePaymentFund(
+  payment: FundFields,
+  component: FundFields | null,
+  line: FundFields | null,
+): LocalFundKey {
+  if (payment.fundSource != null) return payment.fundSource as LocalFundKey;
+  if (component && component.fundSource != null) return component.fundSource as LocalFundKey;
+  if (line && line.fundSource != null) return line.fundSource as LocalFundKey;
+  return "UNASSIGNED";
+}
+// True when this row should contribute to the filtered totals.
+function matchesFilter(rowFund: LocalFundKey, filter: BudgetFundFilter | undefined): boolean {
+  if (!filter || filter.fund === "ALL") return true;
+  return rowFund === filter.fund;
+}
+
+// v1.86.0: payment now carries optional fund fields so fund-aware
+// callers can filter. `fundSource` is widened to `string | null` so
+// budget.ts stays decoupled from the @prisma/client FundSource enum
+// (the runtime values are the same — JOINT / PERSONAL_BRIDE / ...).
+type PaymentForCompute = {
+  amount: DecimalLike;
+  status?: string;
+  fundSource?: string | null;
+  fundLabel?: string | null;
+};
 export type BudgetLineForCompute = {
   actual: DecimalLike;
-  payments: { amount: DecimalLike; status?: string }[];
+  payments: PaymentForCompute[];
+  // v1.86.0: optional — passing a line without these is fine, falls
+  // through the same code paths as a non-fund-aware caller.
+  fundSource?: string | null;
+  fundLabel?: string | null;
 };
 
 // `computeActual` returns the resolved actual amount as a Number.
 // Manual override wins; otherwise sum of payments.
-export function computeActual(line: BudgetLineForCompute): number {
+//
+// v1.86.0: optional fund filter. When set, the manual override only
+// contributes when the line's own fund matches; otherwise payments
+// are summed but only those whose effective fund matches.
+export function computeActual(
+  line: BudgetLineForCompute,
+  filter?: BudgetFundFilter,
+): number {
+  const lineFund = resolveOwnFund(line);
   if (line.actual !== null && line.actual !== undefined) {
-    return toNumber(line.actual);
+    return matchesFilter(lineFund, filter) ? toNumber(line.actual) : 0;
   }
-  return line.payments.reduce((sum, p) => sum + toNumber(p.amount), 0);
+  return line.payments.reduce((sum, p) => {
+    const fund = resolvePaymentFund(p, null, line);
+    if (!matchesFilter(fund, filter)) return sum;
+    return sum + toNumber(p.amount);
+  }, 0);
 }
 
 // v1.82.0: `computePaid` follows the same B2 contract pattern as
@@ -44,15 +117,26 @@ export function computeActual(line: BudgetLineForCompute): number {
 // "total committed including pending payments".
 export type BudgetLineForPaid = {
   paid: DecimalLike;
-  payments: { amount: DecimalLike; status?: string }[];
+  payments: PaymentForCompute[];
+  // v1.86.0: same optional fund fields as BudgetLineForCompute.
+  fundSource?: string | null;
+  fundLabel?: string | null;
 };
-export function computePaid(line: BudgetLineForPaid): number {
+export function computePaid(
+  line: BudgetLineForPaid,
+  filter?: BudgetFundFilter,
+): number {
+  const lineFund = resolveOwnFund(line);
   if (line.paid !== null && line.paid !== undefined) {
-    return toNumber(line.paid);
+    return matchesFilter(lineFund, filter) ? toNumber(line.paid) : 0;
   }
   return line.payments
     .filter((p) => p.status === "PAID")
-    .reduce((sum, p) => sum + toNumber(p.amount), 0);
+    .reduce((sum, p) => {
+      const fund = resolvePaymentFund(p, null, line);
+      if (!matchesFilter(fund, filter)) return sum;
+      return sum + toNumber(p.amount);
+    }, 0);
 }
 
 // `isManualOverride` lets the UI label "Manual override — clear to
@@ -83,11 +167,18 @@ export type BudgetLineForEstimate = {
   perHeadPence: number | null;
   headcountSource: string | null;
   minimumHeadcount?: number | null;
+  // v1.86.0: optional fund fields. Filter returns 0 when the line's
+  // own fund doesn't match (estimates have no payment-level fund to
+  // fall through to).
+  fundSource?: string | null;
+  fundLabel?: string | null;
 };
 export function computeEstimated(
   line: BudgetLineForEstimate,
   headcount: number | null,
+  filter?: BudgetFundFilter,
 ): number {
+  if (!matchesFilter(resolveOwnFund(line), filter)) return 0;
   if (
     line.perHeadPence != null &&
     line.headcountSource != null &&
@@ -134,11 +225,22 @@ export type ComponentForEstimate = {
   perHeadPence: number | null;
   headcountSource: string | null;
   minimumHeadcount?: number | null;
+  // v1.86.0: optional fund fields. Filter applies the component-vs-
+  // line inheritance rule (component own > line) when `parentLine`
+  // is passed; otherwise defaults to the component's own fund.
+  fundSource?: string | null;
+  fundLabel?: string | null;
 };
 export function computeComponentEstimated(
   component: ComponentForEstimate,
   headcount: number | null,
+  filter?: BudgetFundFilter,
+  parentLine?: FundFields,
 ): number {
+  const fund = parentLine
+    ? resolveComponentFund(component, parentLine)
+    : resolveOwnFund(component);
+  if (!matchesFilter(fund, filter)) return 0;
   if (
     component.perHeadPence != null &&
     component.headcountSource != null &&
@@ -166,16 +268,37 @@ export function computeComponentActual(component: ComponentForActual): number {
 // v1.80.0: composite-line actuals. Sum of payments linked directly
 // to the line PLUS sum of payments linked to any of its components.
 // Manual override on the line still wins (B2 contract preserved).
-export type LineForCompositeActual = BudgetLineForCompute & {
-  components: { payments: { amount: DecimalLike; status?: string }[] }[];
+// v1.86.0: component shape gains optional fund fields so composite
+// rollups can honour per-component overrides.
+type ComponentForComposite = {
+  payments: PaymentForCompute[];
+  fundSource?: string | null;
+  fundLabel?: string | null;
 };
-export function computeCompositeActual(line: LineForCompositeActual): number {
+export type LineForCompositeActual = BudgetLineForCompute & {
+  components: ComponentForComposite[];
+};
+export function computeCompositeActual(
+  line: LineForCompositeActual,
+  filter?: BudgetFundFilter,
+): number {
+  const lineFund = resolveOwnFund(line);
   if (line.actual !== null && line.actual !== undefined) {
-    return toNumber(line.actual);
+    return matchesFilter(lineFund, filter) ? toNumber(line.actual) : 0;
   }
-  const lineLevel = line.payments.reduce((sum, p) => sum + toNumber(p.amount), 0);
+  const lineLevel = line.payments.reduce((sum, p) => {
+    const fund = resolvePaymentFund(p, null, line);
+    if (!matchesFilter(fund, filter)) return sum;
+    return sum + toNumber(p.amount);
+  }, 0);
   const componentLevel = line.components.reduce(
-    (sum, c) => sum + c.payments.reduce((cs, p) => cs + toNumber(p.amount), 0),
+    (sum, c) =>
+      sum +
+      c.payments.reduce((cs, p) => {
+        const fund = resolvePaymentFund(p, c, line);
+        if (!matchesFilter(fund, filter)) return cs;
+        return cs + toNumber(p.amount);
+      }, 0),
     0,
   );
   return lineLevel + componentLevel;
@@ -186,21 +309,33 @@ export function computeCompositeActual(line: LineForCompositeActual): number {
 // line still wins. Used by /budget so the Paid column reflects all
 // money-settled payments across line + components.
 export type LineForCompositePaid = BudgetLineForPaid & {
-  components: { payments: { amount: DecimalLike; status?: string }[] }[];
+  components: ComponentForComposite[];
 };
-export function computeCompositePaid(line: LineForCompositePaid): number {
+export function computeCompositePaid(
+  line: LineForCompositePaid,
+  filter?: BudgetFundFilter,
+): number {
+  const lineFund = resolveOwnFund(line);
   if (line.paid !== null && line.paid !== undefined) {
-    return toNumber(line.paid);
+    return matchesFilter(lineFund, filter) ? toNumber(line.paid) : 0;
   }
   const lineLevel = line.payments
     .filter((p) => p.status === "PAID")
-    .reduce((sum, p) => sum + toNumber(p.amount), 0);
+    .reduce((sum, p) => {
+      const fund = resolvePaymentFund(p, null, line);
+      if (!matchesFilter(fund, filter)) return sum;
+      return sum + toNumber(p.amount);
+    }, 0);
   const componentLevel = line.components.reduce(
     (sum, c) =>
       sum +
       c.payments
         .filter((p) => p.status === "PAID")
-        .reduce((cs, p) => cs + toNumber(p.amount), 0),
+        .reduce((cs, p) => {
+          const fund = resolvePaymentFund(p, c, line);
+          if (!matchesFilter(fund, filter)) return cs;
+          return cs + toNumber(p.amount);
+        }, 0),
     0,
   );
   return lineLevel + componentLevel;
