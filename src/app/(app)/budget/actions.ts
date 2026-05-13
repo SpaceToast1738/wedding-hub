@@ -80,6 +80,67 @@ export async function createCategory(formData: FormData) {
 // failures here are FK-blocked deletes (category has lines).
 export type DeleteResult = { ok: true } | { ok: false; error: string };
 
+// v1.85.0: rename a BudgetCategory. Same Zod shape as create so length
+// + non-empty rules stay consistent.
+export async function renameCategory(
+  id: string,
+  name: string,
+): Promise<DeleteResult> {
+  const user = await requireEdit("budget");
+  try {
+    const parsed = categorySchema.parse({ name });
+    const before = await db.budgetCategory.findUnique({ where: { id } });
+    if (!before) return { ok: false, error: "Category not found" };
+    if (before.name === parsed.name) return { ok: true }; // no-op
+    await db.budgetCategory.update({
+      where: { id },
+      data: { name: parsed.name },
+    });
+    await audit(user, {
+      action: "update",
+      entity: "BudgetCategory",
+      entityId: id,
+      metadata: {
+        priorName: before.name,
+        name: parsed.name,
+        changedFields: ["name"],
+      },
+    });
+    revalidatePath("/budget");
+    return { ok: true };
+  } catch (err) {
+    console.error("renameCategory failed", err);
+    return { ok: false, error: err instanceof Error ? err.message : "Couldn't rename category" };
+  }
+}
+
+// v1.85.0: reorder BudgetCategory rows. Caller passes the new
+// canonical id-order; server rewrites the `order` column in one
+// transaction. Mirrors `reorderComponents` shape.
+export async function reorderCategories(
+  orderedIds: string[],
+): Promise<DeleteResult> {
+  const user = await requireEdit("budget");
+  try {
+    await db.$transaction(
+      orderedIds.map((cid, idx) =>
+        db.budgetCategory.update({ where: { id: cid }, data: { order: idx } }),
+      ),
+    );
+    await audit(user, {
+      action: "budget-category-reorder",
+      entity: "BudgetCategory",
+      entityId: orderedIds[0] ?? "",
+      metadata: { count: orderedIds.length, orderedIds },
+    });
+    revalidatePath("/budget");
+    return { ok: true };
+  } catch (err) {
+    console.error("reorderCategories failed", err);
+    return { ok: false, error: err instanceof Error ? err.message : "Couldn't reorder categories" };
+  }
+}
+
 export async function deleteCategory(id: string): Promise<DeleteResult> {
   const user = await requireEdit("budget");
   try {

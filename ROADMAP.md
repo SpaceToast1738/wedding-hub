@@ -34,6 +34,7 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
+| **v1.85.0** | 2026-05-13 | [Rename + reorder budget categories. Category headers on `/budget` gain a `✎` pencil (inline rename — Enter saves, Esc cancels) and `▲ / ▼` reorder buttons (disabled at the ends of the list). Two new server actions: `renameCategory(id, name)` (single-field update with audit `priorName` + `name` diff) and `reorderCategories(orderedIds[])` (transactional `order` rewrite, mirrors v1.80.0 `reorderComponents`). Parent `BudgetClient` owns the ordering: clicking ▲/▼ swaps the id at idx ± 1 and dispatches in one server call. No schema; no migration; `BudgetCategory.order` already existed.](#2026-05-13--v1850--rename--reorder-budget-categories) |
 | **v1.84.0** | 2026-05-13 | [Outstanding-mode toggle on /budget. The Outstanding summary tile now offers two interpretations side-by-side: **vs Actual** (default, pre-v1.84 behaviour — `actual − paid`, what's been committed but not yet settled) and **vs Planned** (`planned − paid`, how much more we need to find against the budget). Two-pill toggle inside the Outstanding tile; selection persisted to `localStorage` under `wh_budget_outstanding_mode`. The Actual / Planned / Paid tiles + the stacked progress bar are unchanged — only Outstanding switches denominator. Pure render change; no schema, no compute helpers, no migration.](#2026-05-13--v1840--outstanding-mode-toggle) |
 | **v1.83.0** | 2026-05-13 | [Composite-line columns finally render their numbers. **Bug:** the Venue line's Planned cell showed `—` even though its 9 components summed to £5,667 (visible in the category header). Component sub-rows had blank Actual + Paid columns. v1.83.0 surfaces both: parent's Planned cell shows the composite sum with a Σ pill; each component sub-row now renders its own Actual (sum of linked payments) and Paid (PAID-status sum) with Σ pills, falling back to `—` when zero. No schema or compute changes — these values already existed via `effectiveEstimated` and `componentActual`; the rendering just didn't read them out.](#2026-05-13--v1830--composite-line-columns) |
 | **v1.82.0** | 2026-05-13 | [Composite-line components grow up (editing + MANUAL + notes), two new headcount sources (adults / children + pending), and the Paid column finally rolls up linked payments. **Bug fix:** linking a PAID payment to a BudgetLine showed it under Actual but Paid stayed £0 — the column rendered the manual `paid` value verbatim. New `computePaid` + `computeCompositePaid` follow the same B2 contract pattern as Actual: manual override wins, else sum of PAID-status payments. **Component editing:** ComponentsPanel rewritten with a shared `ComponentForm` for both add and edit; click Edit on any component row to switch it into an inline form (label, mode, price, source, manual count, minimum, notes). **MANUAL + notes:** components now support MANUAL source + a notes textarea; notes surface a 📝 hint on the row. **New enum values:** `ADULTS_PENDING_OR_CONFIRMED` and `CHILDREN_PENDING_OR_CONFIRMED` — vendors that price adults vs children differently can now isolate either against the "+ pending" RSVP cohort.](#2026-05-13--v1820--components-grow-up--paid-rollup-fix) |
@@ -919,6 +920,24 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-05-13 · v1.85.0 — Rename + reorder budget categories
+
+User: "Allow me to rename budget Groups & reorder them". Pre-v1.85 the only way to "rename" a budget category was to delete + recreate (and the delete was blocked when the category had lines, so realistically you couldn't fix a typo at all). Reorder had no UI surface despite `BudgetCategory.order` existing in the schema since v0.1.0.
+
+**Two new server actions** in `src/app/(app)/budget/actions.ts`:
+
+- `renameCategory(id, name)` — single-field `BudgetCategory.update`. Same `categorySchema` Zod shape as `createCategory` so length + non-empty rules stay consistent. No-ops when the name is unchanged. Audit row carries `priorName` + new `name` + `changedFields: ["name"]` per the v1.30.5 enrichment standing rule.
+- `reorderCategories(orderedIds[])` — transactional `order`-column rewrite. Mirrors `reorderComponents` from v1.80.0 (1-shot `$transaction(updates[])`). Audit metadata records `count` + the full `orderedIds`.
+
+Both return the existing `DeleteResult` shape so the client can surface real error toasts.
+
+**UI** on the `CategoryBlock` header:
+
+- `✎` pencil button (between the action group and the title's `↗ Payments` link). Clicking swaps the title for an inline `<Input>` — Enter saves, Esc cancels, Save / Cancel buttons for mouse paths. Empty name guarded client-side. The collapsed `▸/▾` indicator stays visible during rename so the layout doesn't jump.
+- `▲ / ▼` buttons that move the category one slot. Disabled at the ends of the list (`idx === 0` / `idx === categories.length - 1`). Parent `BudgetClient` owns the ordering: clicking computes the swapped id-array and dispatches a single `reorderCategories` call.
+
+**No schema, no migration.** `BudgetCategory.order` already existed; the page query already sorts by it. Pure feature wiring on existing data.
 
 ### 2026-05-13 · v1.84.0 — Outstanding-mode toggle
 

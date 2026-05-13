@@ -8,7 +8,7 @@ import { formatMoneyDecimal } from "@/lib/format";
 import { applyMinimum, computeActual, computeCompositeActual, computeCompositePaid, computeEstimated, computePaid, isManualOverride, sumOfPayments } from "@/lib/budget";
 import { createComponent, deleteComponent, updateComponent } from "./actions";
 import { perHeadSourceLabel, perHeadSourceNoun } from "@/lib/headcount";
-import { createCategory, createLine, deleteCategory, deleteLine, updateLine } from "./actions";
+import { createCategory, createLine, deleteCategory, deleteLine, renameCategory, reorderCategories, updateLine } from "./actions";
 import { notify } from "@/lib/notify";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 
@@ -222,13 +222,30 @@ export function BudgetClient({
             No budget categories yet. Add one below to get started.
           </p>
         ) : (
-          categories.map((c) => (
+          categories.map((c, idx) => (
             <CategoryBlock
               key={c.id}
               category={c}
               suppliers={suppliers}
               buildCardByLineId={buildCardByLineId}
               headcounts={headcounts}
+              // v1.85.0: reorder controls — ▲/▼ buttons in the header.
+              // Parent computes the new id-order and dispatches in one
+              // server call so reorder is atomic.
+              isFirst={idx === 0}
+              isLast={idx === categories.length - 1}
+              onMove={(direction) => {
+                const i = idx;
+                const j = direction === "up" ? i - 1 : i + 1;
+                if (j < 0 || j >= categories.length) return;
+                const ids = categories.map((x) => x.id);
+                const tmp = ids[i]!;
+                ids[i] = ids[j]!;
+                ids[j] = tmp;
+                void reorderCategories(ids).then((res) => {
+                  if (!res.ok) notify("error", res.error);
+                });
+              }}
             />
           ))
         )}
@@ -363,16 +380,49 @@ function CategoryBlock({
   suppliers,
   buildCardByLineId = {},
   headcounts,
+  isFirst = false,
+  isLast = false,
+  onMove,
 }: {
   category: Category;
   suppliers: Supplier[];
   buildCardByLineId?: Record<string, BuildCardLink>;
   headcounts: HeadcountMap;
+  // v1.85.0: reorder + rename. Parent owns the ordering so the action
+  // call stays a single round-trip.
+  isFirst?: boolean;
+  isLast?: boolean;
+  onMove?: (direction: "up" | "down") => void;
 }) {
   const [adding, setAdding] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [pending, startTransition] = useTransition();
   const confirm = useConfirm();
+  // v1.85.0: rename mode. Click the title (or the pencil) to swap the
+  // header text for an inline <input>; Enter saves, Esc cancels.
+  const [renaming, setRenaming] = useState(false);
+  const [draftName, setDraftName] = useState(category.name);
+
+  async function onSaveRename() {
+    const next = draftName.trim();
+    if (!next) {
+      notify("error", "Name can't be empty");
+      return;
+    }
+    if (next === category.name) {
+      setRenaming(false);
+      return;
+    }
+    startTransition(async () => {
+      const res = await renameCategory(category.id, next);
+      if (res.ok) {
+        notify("success", "Renamed");
+        setRenaming(false);
+      } else {
+        notify("error", res.error);
+      }
+    });
+  }
 
   async function onDeleteCat() {
     // v1.53.0: server action validates the empty-category constraint
@@ -415,44 +465,119 @@ function CategoryBlock({
   return (
     <section className="bg-surface border border-border-soft rounded-md shadow-sm">
       <div className="flex items-center justify-between px-4 py-2.5 border-b border-border-soft gap-2">
-        <button
-          type="button"
-          onClick={() => setCollapsed((v) => !v)}
-          className="flex items-baseline gap-2 flex-1 text-left hover:text-moss-700"
-          aria-expanded={!collapsed}
-        >
-          <span className="text-ink-tertiary text-xs">{collapsed ? "▸" : "▾"}</span>
-          <h2 className="text-sm font-semibold text-ink-primary">{category.name}</h2>
-          <span className="text-[11px] text-ink-tertiary">
-            {category.lines.length} {category.lines.length === 1 ? "line" : "lines"}
-          </span>
-          {overBudgetLineCount > 0 && (
-            <span
-              className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded-sm border bg-danger-bg text-danger border-danger-border"
-              title={`${overBudgetLineCount} line${overBudgetLineCount === 1 ? "" : "s"} over budget`}
+        {renaming ? (
+          // v1.85.0: inline-rename mode. Stay laid out roughly like the
+          // collapsed-toggle so the header doesn't jump.
+          <div className="flex items-center gap-2 flex-1">
+            <span className="text-ink-tertiary text-xs">{collapsed ? "▸" : "▾"}</span>
+            <Input
+              autoFocus
+              value={draftName}
+              onChange={(e) => setDraftName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  void onSaveRename();
+                } else if (e.key === "Escape") {
+                  e.preventDefault();
+                  setDraftName(category.name);
+                  setRenaming(false);
+                }
+              }}
+              className="text-sm font-semibold max-w-xs"
+              aria-label="Category name"
+              disabled={pending}
+            />
+            <Button variant="ghost" size="sm" onClick={() => void onSaveRename()} disabled={pending}>Save</Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setDraftName(category.name);
+                setRenaming(false);
+              }}
+              disabled={pending}
             >
-              ⚠ {overBudgetLineCount} over
-            </span>
-          )}
-          <span className="flex-1" />
-          <span className="text-xs text-ink-secondary tabular-nums hidden sm:inline">
-            Planned {formatMoneyDecimal(subtotals.estimated as unknown as { toString(): string })}
-          </span>
-          <span className="text-xs text-moss-700 tabular-nums font-medium hidden sm:inline">
-            Paid {formatMoneyDecimal(subtotals.paid as unknown as { toString(): string })}
-          </span>
-        </button>
-        <div className="flex gap-1 flex-shrink-0">
-          <a
-            href={`/payments?category=${category.id}`}
-            className="text-[11px] text-info hover:underline self-center mr-1"
-            title={`Show all payments in ${category.name}`}
+              Cancel
+            </Button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setCollapsed((v) => !v)}
+            className="flex items-baseline gap-2 flex-1 text-left hover:text-moss-700"
+            aria-expanded={!collapsed}
           >
-            ↗ Payments
-          </a>
-          <Button variant="ghost" size="sm" onClick={() => setAdding(true)} disabled={pending}>+ Line</Button>
-          <Button variant="ghost" size="sm" onClick={onDeleteCat} disabled={pending}>Delete</Button>
-        </div>
+            <span className="text-ink-tertiary text-xs">{collapsed ? "▸" : "▾"}</span>
+            <h2 className="text-sm font-semibold text-ink-primary">{category.name}</h2>
+            <span className="text-[11px] text-ink-tertiary">
+              {category.lines.length} {category.lines.length === 1 ? "line" : "lines"}
+            </span>
+            {overBudgetLineCount > 0 && (
+              <span
+                className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded-sm border bg-danger-bg text-danger border-danger-border"
+                title={`${overBudgetLineCount} line${overBudgetLineCount === 1 ? "" : "s"} over budget`}
+              >
+                ⚠ {overBudgetLineCount} over
+              </span>
+            )}
+            <span className="flex-1" />
+            <span className="text-xs text-ink-secondary tabular-nums hidden sm:inline">
+              Planned {formatMoneyDecimal(subtotals.estimated as unknown as { toString(): string })}
+            </span>
+            <span className="text-xs text-moss-700 tabular-nums font-medium hidden sm:inline">
+              Paid {formatMoneyDecimal(subtotals.paid as unknown as { toString(): string })}
+            </span>
+          </button>
+        )}
+        {!renaming && (
+          <div className="flex gap-1 flex-shrink-0 items-center">
+            {/* v1.85.0: reorder buttons. Disabled at the ends of the list. */}
+            <button
+              type="button"
+              onClick={() => onMove?.("up")}
+              disabled={isFirst || pending || !onMove}
+              className="text-ink-tertiary hover:text-ink-primary disabled:opacity-30 disabled:cursor-not-allowed text-xs px-1 py-0.5"
+              title="Move category up"
+              aria-label={`Move ${category.name} up`}
+            >
+              ▲
+            </button>
+            <button
+              type="button"
+              onClick={() => onMove?.("down")}
+              disabled={isLast || pending || !onMove}
+              className="text-ink-tertiary hover:text-ink-primary disabled:opacity-30 disabled:cursor-not-allowed text-xs px-1 py-0.5"
+              title="Move category down"
+              aria-label={`Move ${category.name} down`}
+            >
+              ▼
+            </button>
+            {/* v1.85.0: rename pencil. Quietly themed so the row stays clean. */}
+            <button
+              type="button"
+              onClick={() => {
+                setDraftName(category.name);
+                setRenaming(true);
+              }}
+              disabled={pending}
+              className="text-ink-tertiary hover:text-ink-primary text-xs px-1 py-0.5"
+              title="Rename category"
+              aria-label={`Rename ${category.name}`}
+            >
+              ✎
+            </button>
+            <a
+              href={`/payments?category=${category.id}`}
+              className="text-[11px] text-info hover:underline self-center mr-1 ml-1"
+              title={`Show all payments in ${category.name}`}
+            >
+              ↗ Payments
+            </a>
+            <Button variant="ghost" size="sm" onClick={() => setAdding(true)} disabled={pending}>+ Line</Button>
+            <Button variant="ghost" size="sm" onClick={onDeleteCat} disabled={pending}>Delete</Button>
+          </div>
+        )}
       </div>
       {!collapsed && (
       <div className="overflow-x-auto">
