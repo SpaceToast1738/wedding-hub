@@ -131,6 +131,8 @@ export default async function BudgetPage() {
             perHeadPence: l.perHeadPence,
             headcountSource: l.headcountSource,
             manualHeadcount: l.manualHeadcount,
+            // v1.81.0: vendor minimum-cover floor on per-head lines.
+            minimumHeadcount: l.minimumHeadcount,
             // v1.80.0: components for composite lines.
             components: l.components.map((cmp) => ({
               id: cmp.id,
@@ -139,6 +141,8 @@ export default async function BudgetPage() {
               perHeadPence: cmp.perHeadPence,
               headcountSource: cmp.headcountSource,
               manualHeadcount: cmp.manualHeadcount,
+              // v1.81.0: minimum-cover floor on a sub-component.
+              minimumHeadcount: cmp.minimumHeadcount,
               notes: cmp.notes,
               order: cmp.order,
               payments: cmp.payments.map((p) => ({ amount: p.amount.toString() })),

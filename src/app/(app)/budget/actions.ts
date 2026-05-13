@@ -32,6 +32,8 @@ const lineSchema = z.object({
   perHeadPence: z.string().optional().nullable(),
   headcountSource: z.nativeEnum(PerHeadSource).optional().nullable(),
   manualHeadcount: z.string().optional().nullable(),
+  // v1.81.0: vendor minimum-cover floor.
+  minimumHeadcount: z.string().optional().nullable(),
 });
 
 function parsePence(s: string | null | undefined): number | null {
@@ -131,6 +133,7 @@ export async function createLine(formData: FormData) {
     perHeadPence: formData.get("perHeadPence") || null,
     headcountSource: (formData.get("headcountSource") as string) || null,
     manualHeadcount: formData.get("manualHeadcount") || null,
+    minimumHeadcount: formData.get("minimumHeadcount") || null,
   });
   const created = await db.budgetLine.create({
     data: {
@@ -144,6 +147,7 @@ export async function createLine(formData: FormData) {
       perHeadPence: parsePence(parsed.perHeadPence ?? null),
       headcountSource: parsed.headcountSource ?? null,
       manualHeadcount: parseInteger(parsed.manualHeadcount ?? null),
+      minimumHeadcount: parseInteger(parsed.minimumHeadcount ?? null),
     },
     include: { category: { select: { name: true } } },
   });
@@ -178,6 +182,7 @@ export async function updateLine(id: string, formData: FormData) {
     perHeadPence: formData.get("perHeadPence") || null,
     headcountSource: (formData.get("headcountSource") as string) || null,
     manualHeadcount: formData.get("manualHeadcount") || null,
+    minimumHeadcount: formData.get("minimumHeadcount") || null,
   });
   // Read before so the audit row can diff old vs new on the fields
   // the user actually changed.
@@ -196,6 +201,7 @@ export async function updateLine(id: string, formData: FormData) {
     perHeadPence: parsePence(parsed.perHeadPence ?? null),
     headcountSource: parsed.headcountSource ?? null,
     manualHeadcount: parseInteger(parsed.manualHeadcount ?? null),
+    minimumHeadcount: parseInteger(parsed.minimumHeadcount ?? null),
   };
   await db.budgetLine.update({ where: { id }, data: next });
 
@@ -211,6 +217,7 @@ export async function updateLine(id: string, formData: FormData) {
     if (before.perHeadPence !== next.perHeadPence) changedFields.push("perHeadPence");
     if (before.headcountSource !== next.headcountSource) changedFields.push("headcountSource");
     if (before.manualHeadcount !== next.manualHeadcount) changedFields.push("manualHeadcount");
+    if (before.minimumHeadcount !== next.minimumHeadcount) changedFields.push("minimumHeadcount");
   }
   await audit(user, {
     action: "update",
@@ -273,6 +280,8 @@ const componentSchema = z.object({
   perHeadPence: z.number().int().min(0).optional().nullable(),
   headcountSource: z.nativeEnum(PerHeadSource).optional().nullable(),
   manualHeadcount: z.number().int().min(0).optional().nullable(),
+  // v1.81.0: vendor minimum-cover floor.
+  minimumHeadcount: z.number().int().min(0).optional().nullable(),
   notes: z.string().max(2000).optional().nullable(),
 });
 
@@ -283,6 +292,7 @@ export async function createComponent(payload: {
   perHeadPence?: number | null;
   headcountSource?: PerHeadSource | null;
   manualHeadcount?: number | null;
+  minimumHeadcount?: number | null;
   notes?: string | null;
 }): Promise<DeleteResult & { componentId?: string }> {
   const user = await requireEdit("budget");
@@ -301,6 +311,7 @@ export async function createComponent(payload: {
         perHeadPence: parsed.perHeadPence ?? null,
         headcountSource: parsed.headcountSource ?? null,
         manualHeadcount: parsed.manualHeadcount ?? null,
+        minimumHeadcount: parsed.minimumHeadcount ?? null,
         notes: parsed.notes ?? null,
         order: line._count.components,
       },
@@ -334,6 +345,7 @@ export async function updateComponent(
     perHeadPence?: number | null;
     headcountSource?: PerHeadSource | null;
     manualHeadcount?: number | null;
+    minimumHeadcount?: number | null;
     notes?: string | null;
   },
 ): Promise<DeleteResult> {
@@ -352,6 +364,7 @@ export async function updateComponent(
         perHeadPence: payload.perHeadPence ?? null,
         headcountSource: payload.headcountSource ?? null,
         manualHeadcount: payload.manualHeadcount ?? null,
+        minimumHeadcount: payload.minimumHeadcount ?? null,
         notes: payload.notes ?? null,
       },
     });
@@ -361,6 +374,7 @@ export async function updateComponent(
     if (before.perHeadPence !== (payload.perHeadPence ?? null)) changedFields.push("perHeadPence");
     if (before.headcountSource !== (payload.headcountSource ?? null)) changedFields.push("headcountSource");
     if (before.manualHeadcount !== (payload.manualHeadcount ?? null)) changedFields.push("manualHeadcount");
+    if (before.minimumHeadcount !== (payload.minimumHeadcount ?? null)) changedFields.push("minimumHeadcount");
     if (before.notes !== (payload.notes ?? null)) changedFields.push("notes");
     await audit(user, {
       action: "budget-component-update",

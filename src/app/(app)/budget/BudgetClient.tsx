@@ -5,7 +5,7 @@ import type { PerHeadSource } from "@prisma/client";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { formatMoneyDecimal } from "@/lib/format";
-import { computeActual, computeCompositeActual, computeEstimated, isManualOverride, sumOfPayments } from "@/lib/budget";
+import { applyMinimum, computeActual, computeCompositeActual, computeEstimated, isManualOverride, sumOfPayments } from "@/lib/budget";
 import { createComponent, deleteComponent } from "./actions";
 import { perHeadSourceLabel, perHeadSourceNoun } from "@/lib/headcount";
 import { createCategory, createLine, deleteCategory, deleteLine, updateLine } from "./actions";
@@ -15,6 +15,7 @@ import { useConfirm } from "@/components/ui/ConfirmDialog";
 type Supplier = { id: string; name: string };
 
 // v1.80.0: composite-line component. Either flat or per-head.
+// v1.81.0: + minimumHeadcount for vendor minimum-cover clauses.
 export type Component = {
   id: string;
   label: string;
@@ -22,6 +23,7 @@ export type Component = {
   perHeadPence: number | null;
   headcountSource: PerHeadSource | null;
   manualHeadcount: number | null;
+  minimumHeadcount: number | null;
   notes: string | null;
   order: number;
   payments: { amount: string }[];
@@ -42,6 +44,8 @@ type Line = {
   perHeadPence: number | null;
   headcountSource: PerHeadSource | null;
   manualHeadcount: number | null;
+  // v1.81.0: vendor minimum-cover floor.
+  minimumHeadcount: number | null;
   // v1.80.0: composite-line components. When non-empty, the line's
   // effective estimated is the sum of components' effective values
   // (and the line-level flat/perHead fields are ignored by the
@@ -68,11 +72,33 @@ function resolveComponentHeadcount(component: Component, headcounts: HeadcountMa
 }
 function componentEffectiveEstimated(component: Component, headcounts: HeadcountMap): number {
   if (component.perHeadPence != null && component.headcountSource != null) {
-    const count = resolveComponentHeadcount(component, headcounts) ?? 0;
-    return (component.perHeadPence * count) / 100;
+    const raw = resolveComponentHeadcount(component, headcounts) ?? 0;
+    const effective = applyMinimum(raw, component.minimumHeadcount ?? null);
+    return (component.perHeadPence * effective) / 100;
   }
   if (component.flatPence != null) return component.flatPence / 100;
   return 0;
+}
+
+// v1.81.0: compute the resolved + effective counts together for the
+// breakdown display. `resolved` is the count from the source (or
+// manual); `effective` is `max(resolved, minimum)`. When they
+// differ, the minimum is doing work — UI shows both.
+function resolveComponentCount(
+  component: Component,
+  headcounts: HeadcountMap,
+): { resolved: number; effective: number } {
+  const raw = resolveComponentHeadcount(component, headcounts) ?? 0;
+  const effective = applyMinimum(raw, component.minimumHeadcount ?? null);
+  return { resolved: raw, effective };
+}
+function resolveLineCount(
+  line: Line,
+  headcounts: HeadcountMap,
+): { resolved: number; effective: number } {
+  const raw = resolveHeadcount(line, headcounts) ?? 0;
+  const effective = applyMinimum(raw, line.minimumHeadcount ?? null);
+  return { resolved: raw, effective };
 }
 function componentActual(component: Component): number {
   return component.payments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
@@ -92,6 +118,7 @@ function effectiveEstimated(line: Line, headcounts: HeadcountMap): number {
       estimated: line.estimated,
       perHeadPence: line.perHeadPence,
       headcountSource: line.headcountSource,
+      minimumHeadcount: line.minimumHeadcount,
     },
     count,
   );
@@ -436,8 +463,10 @@ function LineRow({
   const isManual = isManualOverride(line);
   const paymentsSum = sumOfPayments(line);
   // v1.77.0: per-head breakdown chip + over-budget flag.
-  const headcount = resolveHeadcount(line, headcounts);
+  // v1.81.0: + minimumHeadcount can floor the multiplier.
   const isPerHead = line.perHeadPence != null && line.headcountSource != null;
+  const { resolved: rawCount, effective: effectiveCount } = resolveLineCount(line, headcounts);
+  const minimumKickedIn = isPerHead && effectiveCount > rawCount;
   const estimatedResolved = effectiveEstimated(line, headcounts);
   const overBudget = estimatedResolved > 0 && actualResolved > estimatedResolved;
 
@@ -472,10 +501,18 @@ function LineRow({
         {isPerHead && line.perHeadPence != null && (
           <div className="text-[11px] text-ink-tertiary mt-0.5">
             £{(line.perHeadPence / 100).toFixed(2)} ×{" "}
-            {headcount ?? 0}{" "}
-            {perHeadSourceNoun(line.headcountSource!, headcount ?? 0)}
-            {line.headcountSource !== "MANUAL" && (
-              <> ({perHeadSourceLabel(line.headcountSource!)})</>
+            <span className={minimumKickedIn ? "text-marigold-700 font-semibold" : undefined}>
+              {effectiveCount}
+            </span>{" "}
+            {minimumKickedIn ? (
+              <>(min, actual {rawCount})</>
+            ) : (
+              <>
+                {perHeadSourceNoun(line.headcountSource!, effectiveCount)}
+                {line.headcountSource !== "MANUAL" && (
+                  <> ({perHeadSourceLabel(line.headcountSource!)})</>
+                )}
+              </>
             )}
             {" = "}
             <span className="text-ink-secondary tabular-nums">
@@ -518,7 +555,8 @@ function LineRow({
         line.components.map((c) => {
           const compEst = componentEffectiveEstimated(c, headcounts);
           const compActual = componentActual(c);
-          const cHead = resolveComponentHeadcount(c, headcounts);
+          const { resolved: rawC, effective: effC } = resolveComponentCount(c, headcounts);
+          const minKick = c.perHeadPence != null && c.headcountSource != null && effC > rawC;
           return (
             <tr key={c.id} className="border-b border-border-soft/50 last:border-b-0 bg-canvas/40">
               <td className="px-4 py-1.5 pl-10">
@@ -528,10 +566,19 @@ function LineRow({
                 </div>
                 {c.perHeadPence != null && c.headcountSource && (
                   <div className="text-[10px] text-ink-tertiary pl-3.5">
-                    £{(c.perHeadPence / 100).toFixed(2)} × {cHead ?? 0}{" "}
-                    {perHeadSourceNoun(c.headcountSource, cHead ?? 0)}
-                    {c.headcountSource !== "MANUAL" && (
-                      <> ({perHeadSourceLabel(c.headcountSource)})</>
+                    £{(c.perHeadPence / 100).toFixed(2)} ×{" "}
+                    <span className={minKick ? "text-marigold-700 font-semibold" : undefined}>
+                      {effC}
+                    </span>{" "}
+                    {minKick ? (
+                      <>(min, actual {rawC})</>
+                    ) : (
+                      <>
+                        {perHeadSourceNoun(c.headcountSource, effC)}
+                        {c.headcountSource !== "MANUAL" && (
+                          <> ({perHeadSourceLabel(c.headcountSource)})</>
+                        )}
+                      </>
                     )}
                   </div>
                 )}
@@ -569,6 +616,8 @@ function ComponentsPanel({
   const [mode, setMode] = useState<"flat" | "perHead">("flat");
   const [pounds, setPounds] = useState("");
   const [source, setSource] = useState<PerHeadSource | "">("CONFIRMED_PLUS_PENDING");
+  // v1.81.0: optional vendor minimum-cover floor on per-head components.
+  const [minimumStr, setMinimumStr] = useState("");
   const confirm = useConfirm();
 
   function reset() {
@@ -576,6 +625,7 @@ function ComponentsPanel({
     setMode("flat");
     setPounds("");
     setSource("CONFIRMED_PLUS_PENDING");
+    setMinimumStr("");
     setShowAdd(false);
   }
 
@@ -590,6 +640,10 @@ function ComponentsPanel({
       notify("error", "Component needs a price > 0");
       return;
     }
+    const minimum = (() => {
+      const n = parseInt(minimumStr, 10);
+      return isNaN(n) || n <= 0 ? null : n;
+    })();
     startTransition(async () => {
       const res = await createComponent({
         lineId,
@@ -598,6 +652,7 @@ function ComponentsPanel({
         perHeadPence: mode === "perHead" ? pence : null,
         headcountSource: mode === "perHead" && source ? source : null,
         manualHeadcount: null,
+        minimumHeadcount: mode === "perHead" ? minimum : null,
         notes: null,
       });
       if (res.ok) {
@@ -640,14 +695,23 @@ function ComponentsPanel({
         <ul className="space-y-1 mb-2">
           {components.map((c) => {
             const est = componentEffectiveEstimated(c, headcounts);
-            const count = resolveComponentHeadcount(c, headcounts);
+            const { resolved, effective } = resolveComponentCount(c, headcounts);
+            const minKick =
+              c.perHeadPence != null && c.headcountSource != null && effective > resolved;
             return (
               <li key={c.id} className="flex items-center gap-2 text-[12px]">
                 <span className="flex-1 text-ink-primary">{c.label}</span>
                 <span className="text-ink-tertiary tabular-nums">
                   {c.perHeadPence != null && c.headcountSource ? (
                     <>
-                      £{(c.perHeadPence / 100).toFixed(2)} × {count ?? 0} = £{est.toFixed(2)}
+                      £{(c.perHeadPence / 100).toFixed(2)} ×{" "}
+                      <span className={minKick ? "text-marigold-700 font-semibold" : undefined}>
+                        {effective}
+                      </span>
+                      {minKick && (
+                        <span className="text-marigold-700"> (min, actual {resolved})</span>
+                      )}{" "}
+                      = £{est.toFixed(2)}
                     </>
                   ) : (
                     <>£{est.toFixed(2)}</>
@@ -709,22 +773,39 @@ function ComponentsPanel({
             />
           </div>
           {mode === "perHead" && (
-            <div>
-              <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">
-                Source
-              </label>
-              <select
-                value={source}
-                onChange={(e) => setSource(e.target.value as PerHeadSource)}
-                className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2 py-1.5"
-              >
-                <option value="ALL_INVITED">All invited</option>
-                <option value="CONFIRMED_PLUS_PENDING">Confirmed + pending</option>
-                <option value="ALL_CONFIRMED">Confirmed</option>
-                <option value="ADULTS_CONFIRMED">Adults confirmed</option>
-                <option value="CHILDREN_CONFIRMED">Children confirmed</option>
-              </select>
-            </div>
+            <>
+              <div>
+                <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">
+                  Source
+                </label>
+                <select
+                  value={source}
+                  onChange={(e) => setSource(e.target.value as PerHeadSource)}
+                  className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2 py-1.5"
+                >
+                  <option value="ALL_INVITED">All invited</option>
+                  <option value="CONFIRMED_PLUS_PENDING">Confirmed + pending</option>
+                  <option value="ALL_CONFIRMED">Confirmed</option>
+                  <option value="ADULTS_CONFIRMED">Adults confirmed</option>
+                  <option value="CHILDREN_CONFIRMED">Children confirmed</option>
+                </select>
+              </div>
+              {/* v1.81.0: vendor minimum floor. Empty = no minimum. */}
+              <div>
+                <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">
+                  Min
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  value={minimumStr}
+                  onChange={(e) => setMinimumStr(e.target.value)}
+                  placeholder="optional"
+                  title="Vendor minimum — multiplier = max(count, minimum)"
+                  className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2.5 py-1.5 tabular-nums"
+                />
+              </div>
+            </>
           )}
           <div className="flex gap-1 justify-end">
             <Button type="button" variant="ghost" size="sm" onClick={reset} disabled={pending}>
@@ -775,6 +856,8 @@ function NewLineForm({
     perHeadPence?: number | null;
     headcountSource?: PerHeadSource | null;
     manualHeadcount?: number | null;
+    // v1.81.0
+    minimumHeadcount?: number | null;
   };
   existingId?: string;
   submitLabel?: string;
@@ -808,7 +891,13 @@ function NewLineForm({
   const [manualStr, setManualStr] = useState<string>(
     initial?.manualHeadcount != null ? String(initial.manualHeadcount) : "",
   );
+  // v1.81.0: minimum-cover input. Empty = no minimum; integer ≥ 0
+  // floors the multiplier when the resolved count is lower.
+  const [minimumStr, setMinimumStr] = useState<string>(
+    initial?.minimumHeadcount != null ? String(initial.minimumHeadcount) : "",
+  );
   // Live preview of the computed total based on current inputs.
+  // v1.81.0: minimum applies to the multiplier before pricing.
   const previewCount = (() => {
     if (source === "") return null;
     if (source === "MANUAL") {
@@ -818,11 +907,23 @@ function NewLineForm({
     if (!headcounts) return null;
     return headcounts[source];
   })();
+  const previewMinimum = (() => {
+    const n = parseInt(minimumStr, 10);
+    return isNaN(n) ? null : Math.max(0, n);
+  })();
+  const previewEffectiveCount =
+    previewCount != null && previewMinimum != null
+      ? Math.max(previewCount, previewMinimum)
+      : previewCount;
   const previewPerHead = parseFloat(perHeadStr);
   const previewTotal =
-    !isNaN(previewPerHead) && previewCount != null
-      ? previewPerHead * previewCount
+    !isNaN(previewPerHead) && previewEffectiveCount != null
+      ? previewPerHead * previewEffectiveCount
       : null;
+  const previewMinimumKicked =
+    previewMinimum != null &&
+    previewCount != null &&
+    previewMinimum > previewCount;
 
   async function handle(formData: FormData) {
     setError(null);
@@ -933,11 +1034,34 @@ function NewLineForm({
                 <input type="hidden" name="manualHeadcount" value="" />
               )}
             </div>
+            {/* v1.81.0: optional vendor minimum-cover floor. */}
+            <div>
+              <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">
+                Minimum
+              </label>
+              <input
+                type="number"
+                min="0"
+                name="minimumHeadcount"
+                value={minimumStr}
+                onChange={(e) => setMinimumStr(e.target.value)}
+                placeholder="optional"
+                className="w-full text-sm bg-surface text-ink-primary border border-border-soft rounded-sm px-2.5 py-1.5 outline-none focus:border-moss-500 tabular-nums"
+                title="Vendor minimum — multiplier = max(count, minimum)"
+              />
+            </div>
           </div>
           {previewTotal != null && (
             <p className="text-[11px] text-ink-tertiary">
-              Live preview: <strong className="text-ink-secondary tabular-nums">£{previewTotal.toFixed(2)}</strong> ({previewCount} ×{" "}
-              £{(previewPerHead || 0).toFixed(2)})
+              Live preview: <strong className="text-ink-secondary tabular-nums">£{previewTotal.toFixed(2)}</strong> (
+              {previewMinimumKicked ? (
+                <span className="text-marigold-700">
+                  {previewEffectiveCount} min, actual {previewCount}
+                </span>
+              ) : (
+                <>{previewEffectiveCount}</>
+              )}{" "}
+              × £{(previewPerHead || 0).toFixed(2)})
             </p>
           )}
         </div>
@@ -949,6 +1073,7 @@ function NewLineForm({
           <input type="hidden" name="perHeadPence" value="" />
           <input type="hidden" name="headcountSource" value="" />
           <input type="hidden" name="manualHeadcount" value="" />
+          <input type="hidden" name="minimumHeadcount" value="" />
         </>
       )}
       {existingId && hasPayments && (

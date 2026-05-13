@@ -482,6 +482,11 @@ model BudgetLine {
   perHeadPence    Int?
   headcountSource PerHeadSource?
   manualHeadcount Int?
+  // v1.81.0: minimum-cover clause. When set on a per-head line, the
+  // effective multiplier becomes max(resolvedCount, minimumHeadcount)
+  // so vendor minimums (e.g. "80 covers regardless of RSVPs") are
+  // honoured. Null = no minimum.
+  minimumHeadcount Int?
   // v1.80.0: composite lines. When `components` is non-empty, the
   // line's effective estimated is the SUM of components' effective
   // estimates — flat + per-head, freely mixed at the component level.
@@ -507,6 +512,8 @@ model BudgetLineComponent {
   perHeadPence    Int?
   headcountSource PerHeadSource?
   manualHeadcount Int?
+  // v1.81.0: minimum-cover floor (mirrors BudgetLine.minimumHeadcount).
+  minimumHeadcount Int?
   order           Int            @default(0)
   notes           String?
   // Payments that paid for this specific component. Optional —

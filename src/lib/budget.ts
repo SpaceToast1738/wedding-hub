@@ -54,10 +54,15 @@ export function sumOfPayments(line: BudgetLineForCompute): number {
 // return that (in pounds). Otherwise the manual `estimated` column
 // wins. Pure — caller passes in the resolved count so this stays
 // off the DB.
+// v1.81.0: + `minimumHeadcount` — when set, the multiplier becomes
+// `max(resolvedCount, minimum)` so vendor minimum-cover clauses are
+// honoured. Same rule for MANUAL source (a typed count is still
+// floored by the vendor minimum).
 export type BudgetLineForEstimate = {
   estimated: DecimalLike;
   perHeadPence: number | null;
   headcountSource: string | null;
+  minimumHeadcount?: number | null;
 };
 export function computeEstimated(
   line: BudgetLineForEstimate,
@@ -68,10 +73,23 @@ export function computeEstimated(
     line.headcountSource != null &&
     headcount != null
   ) {
+    const effective = applyMinimum(headcount, line.minimumHeadcount ?? null);
     // perHeadPence is integer pence; convert to pounds via /100.
-    return (line.perHeadPence * headcount) / 100;
+    return (line.perHeadPence * effective) / 100;
   }
   return toNumber(line.estimated);
+}
+
+// v1.81.0: apply the vendor minimum to a resolved headcount.
+// Returns `max(resolved, minimum)`; null minimum is a passthrough.
+// Caller is responsible for substituting the manual count when the
+// source is MANUAL — this helper doesn't care about source.
+export function applyMinimum(
+  resolved: number,
+  minimum: number | null,
+): number {
+  if (minimum == null) return resolved;
+  return Math.max(resolved, minimum);
 }
 
 // v1.77.0: is this line over budget? Used by the warning chips on
@@ -90,10 +108,12 @@ export function isOverBudget(
 
 // v1.80.0: per-component estimated. A component is either flat OR
 // per-head — exclusive. Same shape as the line-level helper.
+// v1.81.0: + minimumHeadcount support (same `applyMinimum` rule).
 export type ComponentForEstimate = {
   flatPence: number | null;
   perHeadPence: number | null;
   headcountSource: string | null;
+  minimumHeadcount?: number | null;
 };
 export function computeComponentEstimated(
   component: ComponentForEstimate,
@@ -104,7 +124,8 @@ export function computeComponentEstimated(
     component.headcountSource != null &&
     headcount != null
   ) {
-    return (component.perHeadPence * headcount) / 100;
+    const effective = applyMinimum(headcount, component.minimumHeadcount ?? null);
+    return (component.perHeadPence * effective) / 100;
   }
   if (component.flatPence != null) {
     return component.flatPence / 100;

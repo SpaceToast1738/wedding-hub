@@ -34,6 +34,7 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
+| **v1.81.0** | 2026-05-13 | [Minimum-cover floor on per-head budget lines + components. Vendor minimums ("80 covers regardless of RSVPs") are now first-class. New `minimumHeadcount Int?` on BOTH `BudgetLine` and `BudgetLineComponent` (additive migration). New `applyMinimum(resolved, minimum)` pure helper in `src/lib/budget.ts` — `computeEstimated` + `computeComponentEstimated` factor it before pricing. UI: line variable-cost panel + component add-form both gain a `Min` input (optional). Breakdown chips on `/budget` show the active multiplier in marigold + an `(min, actual N)` annotation when the minimum is doing work. MANUAL source respects the minimum too (a typed number is still floored).](#2026-05-13--v1810--minimum-cover-floor) |
 | **v1.80.0** | 2026-05-13 | [Composite budget lines (sub-components). User flagged that the Venue line needs to bundle three different cost shapes — 50 meals × £25, 50 toast drinks × £2.50, one £150 arch — under a single conceptual "Venue" total. New `BudgetLineComponent` model (one-to-many on `BudgetLine`); each component is either flat (£) or per-head (£ × headcount-source). Line's effective estimated = sum of components when components exist; line-level flat/perHead fields are preserved but hidden by the renderer. Payments can target either a line (lump-sum venue payment) OR a specific component (DIY-style "I paid for the foam"). New `Payment.budgetLineComponentId` FK; payment picker on `/payments` is prefix-encoded (`line:<id>` / `comp:<id>`) so a single select offers both levels. Card-to-component link plumbing (5 new `BookXCard.budgetLineComponentId` FK columns) shipped but UI wiring deferred to v1.80.1.](#2026-05-13--v1800--composite-budget-lines) |
 | **v1.79.0** | 2026-05-13 | [Payments → budget line picker. User flagged that payments weren't reaching the budget — the `Payment.budgetLineId` FK existed in the schema but no UI surfaced it, so every payment landed as a budget orphan (paid-totals of £3,957+ showing as £0 on `/budget`). `paymentSchema` now accepts `budgetLineId`; `createPayment` + `updatePayment` persist it + revalidate `/budget`. New `📊 Budget line` `<select>` on the InlinePaymentGrid row (categories as `<optgroup>`, lines as `<option>`). PaymentForm gains a matching dropdown so edit-mode can change the link. PaymentRow renders a `📊 <category>` chip in the "Linked / Receipts" column. Page query loads each payment's `budgetLine.category` + categories' lines for the picker. B2 contract takes over from there — actuals on `/budget` recompute live from the sum of linked payments.](#2026-05-13--v1790--payments-to-budget-line-picker) |
 | **v1.78.0** | 2026-05-07 | [Close the financial loop — Wedding Book cost-bearing cards (MENU/BAR/OUTFIT/STAY) gain `budgetLineId` FK + auto-resync into the linked BudgetLine on every card save (mirrors v1.31.1 BUILD pattern). Schema migration `20260514000000_card_budget_links_and_menubar_enum` adds the four FKs + new `BookMenuCard.headcountSource` + `manualHeadcount` + `BookBarItem.headcountSource` (PerHeadSource enum from v1.77.0). Backfills: existing `BookMenuCard.confirmedHeadcount` rows → MANUAL; null+priced → ALL_CONFIRMED; per-head BAR items → ADULTS_CONFIRMED. New `syncBudgetLine` helper + 8 new server actions (`linkXCardToBudget` / `unlinkXCardFromBudget` for each of MENU/BAR/OUTFIT/STAY). Page query loads payments per BUILD material + per OUTFIT item; **paid-on-card reciprocal chip** renders on each material/item showing "📎 £X paid" or "📎 £X / £Y ✓" when fully covered (couple-only via the v1.76.0 money gate). Out of scope (v1.78.1 polish): per-card "Link to budget" picker UI; MENU `headcountSource` dropdown in the editor; BAR per-item source picker.](#2026-05-07--v1780--close-the-financial-loop) |
@@ -915,6 +916,28 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-05-13 · v1.81.0 — Minimum-cover floor
+
+User flagged: some venue items have a vendor minimum (e.g. "we charge for 80 covers regardless of RSVPs"). The per-head multiplier needs to honour this — `max(resolvedCount, minimum)`.
+
+**Schema (`20260514200000_minimum_headcount`).** Adds `minimumHeadcount Int?` to BOTH `BudgetLine` (standalone per-head lines) and `BudgetLineComponent` (composite sub-rows). Additive — no backfill.
+
+**Pure helpers** (`src/lib/budget.ts`):
+- New `applyMinimum(resolved, minimum)` → `max(resolved, minimum ?? 0)`. Null minimum passes through.
+- `computeEstimated` now takes optional `minimumHeadcount` on the line shape and applies the floor before multiplying.
+- `computeComponentEstimated` same treatment for components.
+- MANUAL source flows through the same path — a typed count is still floored by the vendor minimum (decision: same rule everywhere; if you've typed "4" but the floor is "6", you pay for 6).
+
+**Server actions:** `createLine` / `updateLine` / `createComponent` / `updateComponent` all accept `minimumHeadcount`. Audit log captures changes.
+
+**UI:**
+- Line edit (`NewLineForm` variable-cost panel) gains a fourth field: `Min` (optional integer ≥ 0). Lives next to the count display.
+- Component add-form (`ComponentsPanel`) shows `Min` next to `Source` when in per-head mode.
+- Live preview on the line form annotates when the min kicks in ("£3,500 (80 min, actual 51 × £43.75)"), marigold-coloured active count.
+- Read-mode breakdown chips — on the line itself and on indented component sub-rows — render the active multiplier in marigold + `(min, actual N)` whenever the floor is doing work. When the actual count is already ≥ minimum (or no minimum is set), display is unchanged.
+
+**Behaviour summary:** breakdown chip on /budget reads `£25 × 80 (min, actual 51) = £2,000` when the minimum applies, `£25 × 51 confirmed + pending = £1,275` otherwise.
 
 ### 2026-05-13 · v1.80.0 — Composite budget lines
 
