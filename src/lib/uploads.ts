@@ -38,11 +38,34 @@ const MIME_EXTENSIONS: Record<string, string> = {
 
 export const ALLOWED_MIME_TYPES = Object.keys(MIME_EXTENSIONS);
 
+// v1.89.1: reverse-lookup map (extension → MIME) used by validateUpload
+// when the browser sends an empty / generic `file.type`. Some sync
+// clients (OneDrive, Outlook attachments) strip the MIME and the
+// browser falls back to `application/octet-stream`, which would
+// otherwise be rejected even though the file is a known-good type.
+const EXTENSION_TO_MIME: Record<string, string> = Object.fromEntries(
+  Object.entries(MIME_EXTENSIONS).map(([mime, ext]) => [ext, mime]),
+);
+// jpeg is the same as jpg — common in the wild, fold both to image/jpeg.
+EXTENSION_TO_MIME.jpeg = "image/jpeg";
+// Word/Excel/PowerPoint also have non-MS extensions occasionally.
+EXTENSION_TO_MIME.htm = "text/plain"; // best-effort — viewable as plaintext
+
 export function extensionFor(mime: string, originalName: string): string {
   const fromMap = MIME_EXTENSIONS[mime];
   if (fromMap) return fromMap;
   const trailing = originalName.split(".").pop();
   return trailing && /^[a-zA-Z0-9]{1,8}$/.test(trailing) ? trailing.toLowerCase() : "bin";
+}
+
+// v1.89.1: best-effort MIME inference from a filename. Returns null
+// when the extension isn't on the allowlist (so the caller's "rejected"
+// error message is still accurate). Used only when the browser-
+// supplied `file.type` is missing or generic.
+export function inferMimeFromName(name: string): string | null {
+  const trailing = name.split(".").pop()?.toLowerCase();
+  if (!trailing) return null;
+  return EXTENSION_TO_MIME[trailing] ?? null;
 }
 
 export type UploadValidation =
@@ -56,9 +79,25 @@ export function validateUpload(file: File | null | undefined): UploadValidation 
     const mb = (MAX_UPLOAD_BYTES / 1024 / 1024).toFixed(0);
     return { ok: false, error: `File is too large (max ${mb} MB).` };
   }
-  const mime = file.type || "application/octet-stream";
+  // v1.89.1: prefer the browser-supplied MIME, but when it's empty or
+  // the generic octet-stream fallback (common for OneDrive-synced or
+  // mail-attached files where the source dropped the Content-Type),
+  // try to infer from the filename extension before giving up. This
+  // un-breaks PDFs / images that previously failed at the validator
+  // even though they were on the allowlist.
+  let mime = file.type;
+  if (!mime || mime === "application/octet-stream") {
+    const inferred = inferMimeFromName(file.name);
+    if (inferred) mime = inferred;
+  }
+  if (!mime) mime = "application/octet-stream";
   if (!ALLOWED_MIME_TYPES.includes(mime)) {
-    return { ok: false, error: `MIME type ${mime} is not allowed.` };
+    // Include the filename so the user can spot a wrong-extension typo
+    // without diving into devtools.
+    return {
+      ok: false,
+      error: `${file.name}: type "${mime}" isn't allowed. Try PDF, image (PNG/JPG/WEBP), Word, Excel, PowerPoint, or zip.`,
+    };
   }
   return { ok: true, mime };
 }

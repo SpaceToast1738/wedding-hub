@@ -34,6 +34,7 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
+| **v1.89.1** | 2026-05-14 | [MIME fallback for OneDrive / mail-attached uploads. User reported a known-good PDF ("Jamie Spencer Proposal_signed.pdf", 1 MB, valid `%PDF` magic bytes) failing to upload. Root cause: OneDrive-synced files lose their Content-Type metadata, so the browser sends `file.type` as empty / `application/octet-stream`, which `validateUpload` rejected even though `.pdf` was on the allowlist. Fix: when `file.type` is missing or generic, fall back to inferring MIME from the file extension via a new reverse-lookup of the `MIME_EXTENSIONS` map (`inferMimeFromName`). Error message now includes the filename + the detected type so users can self-diagnose wrong-extension typos. Applies to every upload surface — payment receipts, BUILD/SETUP/STAY galleries, /files general upload.](#2026-05-14--v1891--mime-fallback-onedrive) |
 | **v1.89.0** | 2026-05-14 | [Inline receipt upload on payments + multi-file support. User: "File upload inline with receipts i.e. upload receipt & also allow multiple files to be uploaded". Pre-v1.89 the inline payment grid had an "Upload from device" button that queued the picked file locally but couldn't auto-attach (createPayment returned void); users were told via warn-toast to re-upload via the row's edit menu. Fixed: `createPayment` now returns `{ id: string }`; the inline grid chains `uploadAndAttachReceipt` for each queued file after creation. Both the inline grid and `PaymentRow`'s receipts panel now accept multiple files via `<input multiple>` (one click → many uploads). PaymentRow gains an explicit `↑ Upload receipt` button — previously edit-mode could only attach files already in /files. Each file goes through the standard MIME + size validation, audit row, and `Payment.fileIds` append.](#2026-05-14--v1890--inline-receipt-upload--multi-file) |
 | **v1.88.0** | 2026-05-14 | [Component fund chip moved to the right-side action column. User: "Can we move the Payment picker 'joint...' to the end of the row where there is more space, after the pricing etc". On composite-line component sub-rows the fund chip sat inline next to the component label, crowding it against the breakdown text. Moved into the last cell (action column), right-aligned, so the chip lines up with the parent line's chip and the label cell can breathe. No schema, no compute changes — purely the chip's render position.](#2026-05-14--v1880--fund-chip-moved-to-action-column) |
 | **v1.87.0** | 2026-05-13 | [Reorder sections + pages in the Wedding Book. User: "Allow me to reorder items in the wedding book". Two new server actions in `src/app/(app)/book/actions.ts` — `reorderBookSection(id, delta)` swaps a section with its neighbour on /book; `reorderBookSubsection(id, delta)` swaps a card (BookSubsection) with its neighbour within the same section. Both use the same swap-`order`-in-a-transaction shape as v1.85.0 budget-category reorder and the existing `reorderBuildMaterials`. **UI:** new `SectionReorderControls` client component renders absolutely-positioned `▲ / ▼` buttons over each section card's top-right on /book (couple-only); new `SubsectionReorderControls` renders a thin action row above each card on /book/[slug] (hidden when a section has only one card). Both audit-logged (`book-section-reorder` / `book-subsection-reorder`) with `title` + `delta` + `swappedWith` snapshot per v1.30.5. No schema; `order` columns already existed.](#2026-05-13--v1870--reorder-book-sections--pages) |
@@ -924,6 +925,19 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-05-14 · v1.89.1 — MIME fallback (OneDrive)
+
+User: tried to upload `Jamie Spencer Proposal_signed.pdf` (1 MB, valid `%PDF-1.3` magic bytes) — upload failed with "type not allowed" despite `application/pdf` being on the allowlist.
+
+**Root cause.** OneDrive-synced files often lose their Content-Type metadata. When the user drags such a file through the browser's file picker, `file.type` comes through as an empty string, and `validateUpload` was substituting `application/octet-stream` and rejecting it.
+
+**Fix in `src/lib/uploads.ts`:**
+- New `inferMimeFromName(name)` helper builds a reverse-lookup of `MIME_EXTENSIONS` (plus `jpeg` → `image/jpeg` since both are common). Returns the inferred MIME or null if the extension isn't on the allowlist.
+- `validateUpload` now prefers the browser-supplied `file.type`, but when it's empty OR `application/octet-stream` it falls back to the extension-based inference before giving up. This unbreaks PDF / image uploads from OneDrive, mail attachments, and other paths where the Content-Type didn't survive.
+- Rejection message now includes the filename + the detected type so the user can spot a wrong-extension typo without diving into devtools.
+
+Applies everywhere uploads land: payment receipts (`uploadAndAttachReceipt`), BUILD / SETUP / STAY image galleries, /files general upload. All paths route through `validateUpload`.
 
 ### 2026-05-14 · v1.89.0 — Inline receipt upload + multi-file
 
