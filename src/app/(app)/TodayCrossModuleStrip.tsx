@@ -15,14 +15,23 @@ type Props = {
 };
 
 export function TodayCrossModuleStrip({ legalHits, outfitHits, decisions }: Props) {
-  if (legalHits.length === 0 && outfitHits.length === 0 && decisions.length === 0) {
-    return null;
-  }
+  // v1.90.0: build the widget list dynamically + use auto-fit so empty
+  // widgets don't leave blank grid cells. Pre-fix, when only Open
+  // decisions had data, the strip rendered as `grid sm:grid-cols-3`
+  // and the two empty <section>s collapsed to nothing — but the grid
+  // template still reserved their column space, leaving a wide blank
+  // gap to the right of the lone card.
+  const widgets: React.ReactNode[] = [];
+  if (legalHits.length > 0) widgets.push(<LegalWidget key="legal" hits={legalHits} />);
+  if (outfitHits.length > 0) widgets.push(<OutfitWidget key="outfit" hits={outfitHits} />);
+  if (decisions.length > 0) widgets.push(<DecisionsWidget key="decisions" decisions={decisions} />);
+  if (widgets.length === 0) return null;
   return (
-    <div className="grid gap-4 sm:grid-cols-3 mb-4 items-stretch">
-      <LegalWidget hits={legalHits} />
-      <OutfitWidget hits={outfitHits} />
-      <DecisionsWidget decisions={decisions} />
+    <div
+      className="grid gap-4 mb-4 items-stretch"
+      style={{ gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))" }}
+    >
+      {widgets}
     </div>
   );
 }

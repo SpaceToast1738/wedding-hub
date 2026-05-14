@@ -34,6 +34,7 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
+| **v1.90.0** | 2026-05-14 | [Today page polish — cross-module strip no longer leaves blank columns + Recent activity gets entity badges + initials chips. User: "Can we make this look better?" Two render fixes on `/today`: (1) `TodayCrossModuleStrip` switched from a fixed `grid-cols-3` to `auto-fit minmax(280px, 1fr)`, with empty widgets filtered before render — pre-fix, when only Open Decisions had data, the lone card sat alone in column 1 with two empty grid cells reserving column 2+3 space. (2) `RecentActivityFeed` rewrote from a uniform-grey-text list into a scannable two-row column: colour-coded entity glyph badges on the left (£ for Payment / Budget, ✓ for Task, ♥ for Guest / Household, ◆ for Supplier, ❧ for Book, ♪ for Songs, 📎 for File, etc.), monospace `time-ago` column, the formatted sentence, and a trailing initials avatar chip with the actor's full name in the title attr. `divide-y` separators + subtle hover so consecutive entries don't blur together.](#2026-05-14--v1900--today-page-polish) |
 | **v1.89.2** | 2026-05-14 | [Folder name on receipt list + grouped picker. User: "Add the folder name to receipts". The receipts panel on /payments showed bare filenames so files with similar names across folders ("invoice.pdf" in Payment receipts vs Catering) were indistinguishable. Now each attached receipt renders the folder as a muted uppercase prefix chip ("PAYMENT RECEIPTS · invoice.pdf"); the "Attach existing file" disclosure groups files under sticky folder headers; the inline grid's `📎 Pick existing` popover does the same. Page query selects `folder` + orders by `folder asc, name asc` so groups arrive pre-sorted. No schema; `File.folder` already exists.](#2026-05-14--v1892--folder-name-on-receipts) |
 | **v1.89.1** | 2026-05-14 | [MIME fallback for OneDrive / mail-attached uploads. User reported a known-good PDF ("Jamie Spencer Proposal_signed.pdf", 1 MB, valid `%PDF` magic bytes) failing to upload. Root cause: OneDrive-synced files lose their Content-Type metadata, so the browser sends `file.type` as empty / `application/octet-stream`, which `validateUpload` rejected even though `.pdf` was on the allowlist. Fix: when `file.type` is missing or generic, fall back to inferring MIME from the file extension via a new reverse-lookup of the `MIME_EXTENSIONS` map (`inferMimeFromName`). Error message now includes the filename + the detected type so users can self-diagnose wrong-extension typos. Applies to every upload surface — payment receipts, BUILD/SETUP/STAY galleries, /files general upload.](#2026-05-14--v1891--mime-fallback-onedrive) |
 | **v1.89.0** | 2026-05-14 | [Inline receipt upload on payments + multi-file support. User: "File upload inline with receipts i.e. upload receipt & also allow multiple files to be uploaded". Pre-v1.89 the inline payment grid had an "Upload from device" button that queued the picked file locally but couldn't auto-attach (createPayment returned void); users were told via warn-toast to re-upload via the row's edit menu. Fixed: `createPayment` now returns `{ id: string }`; the inline grid chains `uploadAndAttachReceipt` for each queued file after creation. Both the inline grid and `PaymentRow`'s receipts panel now accept multiple files via `<input multiple>` (one click → many uploads). PaymentRow gains an explicit `↑ Upload receipt` button — previously edit-mode could only attach files already in /files. Each file goes through the standard MIME + size validation, audit row, and `Payment.fileIds` append.](#2026-05-14--v1890--inline-receipt-upload--multi-file) |
@@ -926,6 +927,23 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-05-14 · v1.90.0 — Today page polish
+
+User: "Can we make this look better?" (with a screenshot of `/today` showing two issues — a lone "Open decisions" card sitting in a 3-column grid with two empty cells beside it, and a "Recent activity" feed that read as a wall of uniform-coloured plaintext rows).
+
+**Two render fixes:**
+
+1. **Cross-module strip — auto-fit grid.** `TodayCrossModuleStrip.tsx` was a static `grid sm:grid-cols-3` with three sibling `<section>` widgets. When a widget had no data it returned `null`, but the grid template still reserved the column space — leaving a wide blank gap beside the lone card. Switched to `style={{ gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))" }}` and filter the widgets array before render. Now: one widget = one full-width card; two widgets = two-up; three widgets = three-up — and no empty cells in any case.
+
+2. **Recent activity — colour-coded badges + initials chip.** `RecentActivityFeed.tsx` rewrote the row layout:
+   - **Entity glyph badge** on the left of each row. Colour-coded by category — `£` (marigold) for Payment / Budget; `✓` (moss) for Task; `♥` (moss) for Guest / Household; `◆` (info) for Supplier; `❧` (moss) for Book; `♪` (info) for Songs; `📎` (muted) for File; `◷` (marigold) for Schedule; etc. New `ENTITY_BADGE` map covers 21 entity types with a neutral `·` fallback for any future addition.
+   - **Right-justified mono `time-ago` column** with fixed 64px width — keeps the sentence start aligned across rows.
+   - **Sentence in `text-ink-primary`** (stronger weight than the surrounding muted text) so it's the row's primary read.
+   - **Trailing actor chip** — `initialsFor(name, email)` extracts "JS" from "Jamie Spencer", falls back to email-prefix or `◯`. Full name in the `title` attr. Replaces the inline ` · Jamie Spencer` suffix that ran into the sentence on every row.
+   - `divide-y divide-border-soft/60` between rows + subtle `hover:bg-canvas/40` so consecutive entries don't blur together when there are 10 at once.
+
+**No data layer changes.** Both fixes are render-only; the page query, audit-format helper, and time-ago helper are untouched.
 
 ### 2026-05-14 · v1.89.2 — Folder name on receipts
 
