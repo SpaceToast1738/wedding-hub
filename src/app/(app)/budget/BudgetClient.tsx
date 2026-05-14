@@ -1193,23 +1193,14 @@ function LineRow({
           return (
             <tr key={c.id} className="border-b border-border-soft/50 last:border-b-0 bg-canvas/40">
               <td className="px-4 py-1.5 pl-10">
-                <div className="text-[12px] text-ink-secondary flex items-center gap-2 flex-wrap">
+                {/* v1.88.0: fund chip moved out of the label cell to
+                    the action column (last cell) so the label has
+                    room and the chip lines up with the parent line's
+                    chip column. The breakdown chip (per-head £ × N)
+                    now wraps under the label as a clean second line. */}
+                <div className="text-[12px] text-ink-secondary flex items-baseline gap-1">
                   <span className="text-ink-tertiary">└ </span>
                   <span>{c.label}</span>
-                  {/* v1.86.0: component fund chip. */}
-                  <FundChipPicker
-                    fundSource={c.fundSource}
-                    fundLabel={compEffective.label}
-                    labels={fundLabels}
-                    inherited={compEffective.inherited}
-                    onSave={({ fundSource, fundLabel }) => {
-                      void setComponentFund(c.id, { fundSource, fundLabel }).then(
-                        (res) => {
-                          if (!res.ok) notify("error", res.error);
-                        },
-                      );
-                    }}
-                  />
                 </div>
                 {c.perHeadPence != null && c.headcountSource && (
                   <div className="text-[10px] text-ink-tertiary pl-3.5">
@@ -1254,7 +1245,25 @@ function LineRow({
                 )}
               </td>
               <td className="px-4 py-1.5"></td>
-              <td className="px-4 py-1.5"></td>
+              <td className="px-4 py-1.5">
+                {/* v1.88.0: component fund chip lives here, aligned
+                    with the parent line's chip column. */}
+                <div className="flex justify-end">
+                  <FundChipPicker
+                    fundSource={c.fundSource}
+                    fundLabel={compEffective.label}
+                    labels={fundLabels}
+                    inherited={compEffective.inherited}
+                    onSave={({ fundSource, fundLabel }) => {
+                      void setComponentFund(c.id, { fundSource, fundLabel }).then(
+                        (res) => {
+                          if (!res.ok) notify("error", res.error);
+                        },
+                      );
+                    }}
+                  />
+                </div>
+              </td>
             </tr>
           );
         })}
