@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useRef, useState, useTransition } from "react";
-import { createPayment } from "./actions";
+import { createPayment, uploadAndAttachReceipt } from "./actions";
 import { createSupplierQuick } from "@/app/(app)/suppliers/actions";
 import { notify } from "@/lib/notify";
 
@@ -177,14 +177,35 @@ export function InlinePaymentGrid({
           }
         }
         for (const fid of attachedFileIds) fd.append("fileIds", fid);
-        await createPayment(fd);
-        if (queuedFiles.length > 0) {
+        // v1.89.0: createPayment now returns the new payment's id so
+        // we can chain receipt uploads onto it. Pre-fix queued local
+        // files were dropped on the floor with a warn toast.
+        const created = await createPayment(fd);
+        let uploadFailures = 0;
+        if (queuedFiles.length > 0 && created?.id) {
+          // Upload sequentially so a 400 on file 3 doesn't block 4+5
+          // and gives us a precise error count.
+          for (const file of queuedFiles) {
+            const upFd = new FormData();
+            upFd.set("file", file);
+            const res = await uploadAndAttachReceipt(created.id, upFd);
+            if (!res.ok) {
+              uploadFailures += 1;
+              notify("error", `Receipt "${file.name}": ${res.error}`);
+            }
+          }
+        }
+        if (uploadFailures > 0) {
           notify(
             "warn",
-            `Payment added, but ${queuedFiles.length} pending receipt${queuedFiles.length === 1 ? "" : "s"} couldn't auto-attach. Upload from the row's edit menu.`,
+            `Payment added, but ${uploadFailures} receipt${uploadFailures === 1 ? "" : "s"} failed to upload (see errors above).`,
           );
         } else {
-          notify("success", `Added "${trimmedDesc}"`);
+          const receiptNote =
+            queuedFiles.length > 0
+              ? ` with ${queuedFiles.length} receipt${queuedFiles.length === 1 ? "" : "s"}`
+              : "";
+          notify("success", `Added "${trimmedDesc}"${receiptNote}`);
         }
         reset();
       } catch (err) {
@@ -205,8 +226,11 @@ export function InlinePaymentGrid({
       curr.includes(fileId) ? curr : [...curr, fileId],
     );
   }
-  function queueLocalFile(file: File) {
-    setQueuedFiles((curr) => [...curr, file]);
+  // v1.89.0: accepts one OR many files (the file input is `multiple`
+  // and the user can pick a whole batch in one go). Append to the
+  // existing queue so the user can repeat the picker for more files.
+  function queueLocalFiles(picked: File[]) {
+    setQueuedFiles((curr) => [...curr, ...picked]);
   }
   function clearAttached() {
     setAttachedFileIds([]);
@@ -366,7 +390,7 @@ export function InlinePaymentGrid({
           attachedIds={attachedFileIds}
           pending={pending}
           onSelectExisting={selectExistingReceipt}
-          onQueueLocal={queueLocalFile}
+          onQueueLocal={queueLocalFiles}
           onClear={clearAttached}
         />
         <button
@@ -393,7 +417,7 @@ export function InlinePaymentGrid({
       )}
 
       <p className="text-[10px] text-ink-tertiary mt-2">
-        Press <kbd className="px-1 border border-border-soft rounded-sm bg-canvas text-ink-secondary text-[10px] font-mono">Enter</kbd> to add. Suppliers you type that don&apos;t already exist are auto-created. Linked BUILD materials are auto-marked as ordered. Receipt uploads attach after the payment exists — for now, attach uploads from the row&apos;s edit menu after creation.
+        Press <kbd className="px-1 border border-border-soft rounded-sm bg-canvas text-ink-secondary text-[10px] font-mono">Enter</kbd> to add. Suppliers you type that don&apos;t already exist are auto-created. Linked BUILD materials are auto-marked as ordered. Queued receipts upload + attach automatically once the payment is created.
       </p>
     </div>
   );
@@ -415,7 +439,9 @@ function ReceiptButton({
   attachedIds: string[];
   pending: boolean;
   onSelectExisting: (id: string) => void;
-  onQueueLocal: (file: File) => void;
+  // v1.89.0: signature takes an array — the underlying input has
+  // `multiple`, so the user can attach a whole batch in one click.
+  onQueueLocal: (files: File[]) => void;
   onClear: () => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -444,10 +470,11 @@ function ReceiptButton({
           <input
             ref={fileInputRef}
             type="file"
+            multiple
             className="hidden"
             onChange={(e) => {
-              const f = e.target.files?.[0];
-              if (f) onQueueLocal(f);
+              const picked = Array.from(e.target.files ?? []);
+              if (picked.length > 0) onQueueLocal(picked);
               e.target.value = "";
             }}
           />
@@ -456,7 +483,7 @@ function ReceiptButton({
             onClick={() => fileInputRef.current?.click()}
             className="w-full text-left text-xs px-2 py-1.5 rounded-sm hover:bg-canvas/40 text-ink-primary"
           >
-            ↑ Upload from device
+            ↑ Upload from device (one or many)
           </button>
           {files.length > 0 && (
             <>

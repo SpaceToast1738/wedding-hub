@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import { Button } from "@/components/ui/Button";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { PaymentForm } from "./PaymentForm";
@@ -10,6 +10,7 @@ import {
   updatePayment,
   attachReceiptToPayment,
   detachReceiptFromPayment,
+  uploadAndAttachReceipt,
 } from "./actions";
 import { formatDate, formatMoneyDecimal, isoForInput } from "@/lib/format";
 import type { PaymentStatus } from "@prisma/client";
@@ -136,6 +137,33 @@ export function PaymentRow({
     startTransition(async () => { await deletePayment(payment.id); });
   }
 
+  // v1.89.0: upload one OR many receipts from the device. Each file
+  // goes through `uploadAndAttachReceipt` so we get the standard
+  // MIME + size validation, audit row, and Files-row creation.
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  function uploadLocalFiles(picked: File[]) {
+    if (picked.length === 0) return;
+    startTransition(async () => {
+      let okCount = 0;
+      for (const file of picked) {
+        const fd = new FormData();
+        fd.set("file", file);
+        const res = await uploadAndAttachReceipt(payment.id, fd);
+        if (res.ok) {
+          okCount += 1;
+        } else {
+          notify("error", `"${file.name}": ${res.error}`);
+        }
+      }
+      if (okCount > 0) {
+        notify(
+          "success",
+          `Uploaded ${okCount} receipt${okCount === 1 ? "" : "s"}`,
+        );
+      }
+    });
+  }
+
   // v1.75.0: receipt attach / detach in edit mode.
   function attachExisting(fileId: string) {
     startTransition(async () => {
@@ -223,9 +251,28 @@ export function PaymentRow({
               })}
             </ul>
           )}
-          {/* Pick existing only — upload-from-edit deferred to a
-              follow-up since it requires multipart wiring. Receipts
-              already in /files can be attached here. */}
+          {/* v1.89.0: inline multi-file upload landed here.
+              Receipts already in /files can still be attached via
+              the "+ Attach existing file" disclosure below. */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={(e) => {
+              const picked = Array.from(e.target.files ?? []);
+              uploadLocalFiles(picked);
+              e.target.value = "";
+            }}
+          />
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={pending}
+            className="text-[11px] mb-1.5 px-2 py-1 rounded-sm border border-border-soft bg-canvas text-ink-secondary hover:border-moss-300 hover:text-moss-700 disabled:opacity-50"
+          >
+            ↑ Upload receipt{payment.fileIds.length > 0 ? " (more)" : ""} — one or many
+          </button>
           <details className="text-[11px]">
             <summary className="cursor-pointer text-ink-secondary hover:text-moss-700">
               + Attach existing file

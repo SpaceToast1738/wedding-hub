@@ -102,7 +102,14 @@ async function maybeMarkMaterialOrdered(
   });
 }
 
-export async function createPayment(formData: FormData) {
+// v1.89.0: return the new payment's id so callers (InlinePaymentGrid)
+// can chain receipt uploads against it. Pre-v1.89 this returned void,
+// which forced the inline grid to display a "couldn't auto-attach"
+// warning when the user picked local files. Returning the id closes
+// that gap. PaymentForm callers ignore the return value (they call it
+// indirectly via `await onSubmit(formData)`) so the wider signature
+// is backwards-compatible.
+export async function createPayment(formData: FormData): Promise<{ id: string }> {
   const user = await requireEdit("payments");
   const parsed = paymentSchema.parse({
     description: formData.get("description"),
@@ -190,6 +197,7 @@ export async function createPayment(formData: FormData) {
   // v1.79.0: payment linked to a budget line → /budget actuals
   // auto-recompute (B2 contract). v1.80.0: component link → same.
   if (resolvedLineId || parsed.budgetLineComponentId) revalidatePath("/budget");
+  return { id: created.id };
 }
 
 export async function updatePayment(id: string, formData: FormData) {
