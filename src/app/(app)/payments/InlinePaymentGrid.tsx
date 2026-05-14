@@ -34,7 +34,10 @@ type BuildOption = {
 
 type OutfitOption = { id: string; label: string };
 
-type FileSummary = { id: string; name: string; mimeType: string };
+// v1.89.2: + `folder` so the existing-file picker can show where each
+// file lives (Payment receipts / Catering / etc.). Matches PaymentRow's
+// shape so the same data flows through both surfaces.
+type FileSummary = { id: string; name: string; mimeType: string; folder: string | null };
 
 type LinkSelection =
   | { kind: "buildMaterial"; cardId: string; materialId: string; label: string }
@@ -491,24 +494,43 @@ function ReceiptButton({
                 Pick existing
               </div>
               <div className="max-h-40 overflow-y-auto">
-                {files.map((f) => {
-                  const taken = attachedIds.includes(f.id);
-                  return (
-                    <button
-                      key={f.id}
-                      type="button"
-                      disabled={taken}
-                      onClick={() => {
-                        onSelectExisting(f.id);
-                        setOpen(false);
-                      }}
-                      className="w-full text-left text-xs px-2 py-1 rounded-sm hover:bg-canvas/40 text-ink-secondary disabled:opacity-40 disabled:cursor-not-allowed truncate"
-                    >
-                      {taken ? "✓ " : ""}
-                      {f.name}
-                    </button>
-                  );
-                })}
+                {/* v1.89.2: group by folder so the picker is scannable
+                    when many files exist across multiple folders. */}
+                {(() => {
+                  const groups = new Map<string, FileSummary[]>();
+                  for (const f of files) {
+                    const key = f.folder ?? "Uncategorised";
+                    const list = groups.get(key);
+                    if (list) list.push(f);
+                    else groups.set(key, [f]);
+                  }
+                  return Array.from(groups.entries()).map(([folder, list]) => (
+                    <div key={folder}>
+                      <div className="text-[9px] font-bold text-ink-tertiary uppercase tracking-wider px-2 pt-1 pb-0.5 bg-canvas/40 sticky top-0">
+                        {folder}
+                      </div>
+                      {list.map((f) => {
+                        const taken = attachedIds.includes(f.id);
+                        return (
+                          <button
+                            key={f.id}
+                            type="button"
+                            disabled={taken}
+                            onClick={() => {
+                              onSelectExisting(f.id);
+                              setOpen(false);
+                            }}
+                            className="w-full text-left text-xs px-2 py-1 rounded-sm hover:bg-canvas/40 text-ink-secondary disabled:opacity-40 disabled:cursor-not-allowed truncate"
+                            title={`${folder} / ${f.name}`}
+                          >
+                            {taken ? "✓ " : ""}
+                            {f.name}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ));
+                })()}
               </div>
             </>
           )}

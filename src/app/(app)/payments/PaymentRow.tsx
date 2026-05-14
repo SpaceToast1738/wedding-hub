@@ -85,7 +85,7 @@ type Payment = {
 };
 
 type Supplier = { id: string; name: string };
-type FileSummary = { id: string; name: string; mimeType: string };
+type FileSummary = { id: string; name: string; mimeType: string; folder: string | null };
 type BudgetCategoryWithLines = {
   id: string;
   name: string;
@@ -233,9 +233,18 @@ export function PaymentRow({
                       href={`/api/files/${fid}`}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-info hover:underline truncate max-w-[280px]"
+                      className="text-info hover:underline truncate max-w-[280px] flex items-baseline gap-1.5"
+                      title={f?.folder ? `${f.folder} / ${f.name}` : f?.name ?? fid}
                     >
-                      {f?.name ?? fid}
+                      {/* v1.89.2: show the folder name as a muted
+                          prefix chip so files with similar names are
+                          distinguishable at a glance. */}
+                      {f?.folder && (
+                        <span className="text-[10px] text-ink-tertiary uppercase tracking-wider">
+                          {f.folder}
+                        </span>
+                      )}
+                      <span className="truncate">{f?.name ?? fid}</span>
                     </a>
                     <button
                       type="button"
@@ -283,19 +292,38 @@ export function PaymentRow({
                   No files in /files yet. Upload via the Files page first.
                 </p>
               )}
-              {files
-                .filter((f) => !payment.fileIds.includes(f.id))
-                .map((f) => (
-                  <button
-                    key={f.id}
-                    type="button"
-                    onClick={() => attachExisting(f.id)}
-                    disabled={pending}
-                    className="w-full text-left px-2 py-1 hover:bg-moss-50 text-ink-secondary truncate"
-                  >
-                    {f.name}
-                  </button>
-                ))}
+              {/* v1.89.2: group available files by folder so the
+                  picker is scannable when there are many files
+                  across multiple folders. */}
+              {(() => {
+                const groups = new Map<string, FileSummary[]>();
+                for (const f of files) {
+                  if (payment.fileIds.includes(f.id)) continue;
+                  const key = f.folder ?? "Uncategorised";
+                  const list = groups.get(key);
+                  if (list) list.push(f);
+                  else groups.set(key, [f]);
+                }
+                return Array.from(groups.entries()).map(([folder, list]) => (
+                  <div key={folder}>
+                    <div className="text-[10px] font-bold text-ink-tertiary uppercase tracking-wider px-2 pt-1.5 pb-0.5 bg-canvas/40 sticky top-0">
+                      {folder}
+                    </div>
+                    {list.map((f) => (
+                      <button
+                        key={f.id}
+                        type="button"
+                        onClick={() => attachExisting(f.id)}
+                        disabled={pending}
+                        className="w-full text-left px-2 py-1 hover:bg-moss-50 text-ink-secondary truncate"
+                        title={`${folder} / ${f.name}`}
+                      >
+                        {f.name}
+                      </button>
+                    ))}
+                  </div>
+                ));
+              })()}
             </div>
           </details>
         </div>

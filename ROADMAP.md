@@ -34,6 +34,7 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
+| **v1.89.2** | 2026-05-14 | [Folder name on receipt list + grouped picker. User: "Add the folder name to receipts". The receipts panel on /payments showed bare filenames so files with similar names across folders ("invoice.pdf" in Payment receipts vs Catering) were indistinguishable. Now each attached receipt renders the folder as a muted uppercase prefix chip ("PAYMENT RECEIPTS · invoice.pdf"); the "Attach existing file" disclosure groups files under sticky folder headers; the inline grid's `📎 Pick existing` popover does the same. Page query selects `folder` + orders by `folder asc, name asc` so groups arrive pre-sorted. No schema; `File.folder` already exists.](#2026-05-14--v1892--folder-name-on-receipts) |
 | **v1.89.1** | 2026-05-14 | [MIME fallback for OneDrive / mail-attached uploads. User reported a known-good PDF ("Jamie Spencer Proposal_signed.pdf", 1 MB, valid `%PDF` magic bytes) failing to upload. Root cause: OneDrive-synced files lose their Content-Type metadata, so the browser sends `file.type` as empty / `application/octet-stream`, which `validateUpload` rejected even though `.pdf` was on the allowlist. Fix: when `file.type` is missing or generic, fall back to inferring MIME from the file extension via a new reverse-lookup of the `MIME_EXTENSIONS` map (`inferMimeFromName`). Error message now includes the filename + the detected type so users can self-diagnose wrong-extension typos. Applies to every upload surface — payment receipts, BUILD/SETUP/STAY galleries, /files general upload.](#2026-05-14--v1891--mime-fallback-onedrive) |
 | **v1.89.0** | 2026-05-14 | [Inline receipt upload on payments + multi-file support. User: "File upload inline with receipts i.e. upload receipt & also allow multiple files to be uploaded". Pre-v1.89 the inline payment grid had an "Upload from device" button that queued the picked file locally but couldn't auto-attach (createPayment returned void); users were told via warn-toast to re-upload via the row's edit menu. Fixed: `createPayment` now returns `{ id: string }`; the inline grid chains `uploadAndAttachReceipt` for each queued file after creation. Both the inline grid and `PaymentRow`'s receipts panel now accept multiple files via `<input multiple>` (one click → many uploads). PaymentRow gains an explicit `↑ Upload receipt` button — previously edit-mode could only attach files already in /files. Each file goes through the standard MIME + size validation, audit row, and `Payment.fileIds` append.](#2026-05-14--v1890--inline-receipt-upload--multi-file) |
 | **v1.88.0** | 2026-05-14 | [Component fund chip moved to the right-side action column. User: "Can we move the Payment picker 'joint...' to the end of the row where there is more space, after the pricing etc". On composite-line component sub-rows the fund chip sat inline next to the component label, crowding it against the breakdown text. Moved into the last cell (action column), right-aligned, so the chip lines up with the parent line's chip and the label cell can breathe. No schema, no compute changes — purely the chip's render position.](#2026-05-14--v1880--fund-chip-moved-to-action-column) |
@@ -925,6 +926,19 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-05-14 · v1.89.2 — Folder name on receipts
+
+User: "Add the folder name to receipts". The receipts panel on /payments and the inline grid's `📎 Pick existing` popover both showed bare filenames, so a user with multiple files of the same name across different folders (e.g. an "invoice.pdf" in `Payment receipts` and another in `Catering`) couldn't tell them apart at a glance.
+
+**Changes:**
+- `db.file.findMany` on /payments now selects `folder` + orders by `folder asc, name asc` so groups arrive pre-sorted.
+- `FileSummary` type (in `PaymentRow` + `InlinePaymentGrid`) gains `folder: string | null`.
+- **PaymentRow's attached-receipt list:** each row renders the folder as a muted uppercase prefix chip (`PAYMENT RECEIPTS · invoice.pdf`). Hover title shows the full path.
+- **PaymentRow's "Attach existing file" picker:** grouped under sticky folder headers so the dropdown is scannable when there are many files across many folders.
+- **InlinePaymentGrid's receipt popover:** same grouping — folder header, then the files within.
+
+No schema changes. `File.folder` already existed (uploads default to "Payment receipts" for receipts, "Wedding Book — outfits" for OUTFIT card photos, etc.); v1.89.2 just surfaces it where the user picks files.
 
 ### 2026-05-14 · v1.89.1 — MIME fallback (OneDrive)
 

@@ -141,9 +141,14 @@ export default async function PaymentsPage({
       },
     }),
     // v1.75.0: file list for the "pick existing receipt" path.
+    // v1.89.2: include `folder` so the receipts panel + "Attach
+    // existing file" picker can show the folder name beside each
+    // filename (e.g. "Payment receipts · invoice.pdf"). Without it
+    // a user with multiple files of the same name can't tell them
+    // apart at a glance.
     db.file.findMany({
-      orderBy: { name: "asc" },
-      select: { id: true, name: true, mimeType: true },
+      orderBy: [{ folder: "asc" }, { name: "asc" }],
+      select: { id: true, name: true, mimeType: true, folder: true },
     }),
     // v1.77.0: budget categories for the filter banner display.
     // v1.79.0: + lines per category for the per-row budget-line
