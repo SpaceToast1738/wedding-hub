@@ -205,7 +205,9 @@ export function BookWeddingPartyCard({
           )}
         </div>
 
-        {/* Matrix. Headerless first column = items; columns = members. */}
+        {/* v1.92.1: matrix flipped on user feedback — people as rows
+            (typical bridal parties = 4-5 people but only 3-4 items, so
+            fewer columns avoids horizontal scroll cutting off names). */}
         {card.members.length === 0 || card.items.length === 0 ? (
           <p className="text-xs text-ink-tertiary italic">
             {canEdit
@@ -218,54 +220,19 @@ export function BookWeddingPartyCard({
               <thead>
                 <tr className="border-b border-border-soft bg-canvas/40">
                   <th className="px-3 py-2 text-left text-[10px] uppercase tracking-wider text-ink-tertiary font-bold w-48">
-                    Item
+                    Person
                   </th>
-                  {card.members.map((m, idx) => (
-                    <th key={m.id} className="px-3 py-2 text-left">
-                      <MemberHeader
-                        member={m}
-                        canEdit={canEdit}
-                        isFirst={idx === 0}
-                        isLast={idx === card.members.length - 1}
-                        onRename={(name, role) => {
-                          startTransition(async () => {
-                            const res = await updateWeddingPartyMember(m.id, { name, role });
-                            if (!res.ok) notify("error", res.error);
-                          });
-                        }}
-                        onDelete={async () => {
-                          if (!(await confirm({ title: `Remove ${m.name}?`, confirmLabel: "Remove", tone: "danger" }))) return;
-                          startTransition(async () => {
-                            const res = await deleteWeddingPartyMember(m.id);
-                            if (!res.ok) notify("error", res.error);
-                          });
-                        }}
-                        onMove={(direction) => {
-                          const ids = card.members.map((x) => x.id);
-                          const j = idx + (direction === "up" ? -1 : 1);
-                          if (j < 0 || j >= ids.length) return;
-                          const tmp = ids[idx]!;
-                          ids[idx] = ids[j]!;
-                          ids[j] = tmp;
-                          startTransition(async () => {
-                            const res = await reorderWeddingPartyMembers(card.id, ids);
-                            if (!res.ok) notify("error", res.error);
-                          });
-                        }}
-                      />
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {card.items.map((item, idx) => (
-                  <tr key={item.id} className="border-b border-border-soft last:border-b-0">
-                    <td className="px-3 py-2 align-top w-48">
+                  {card.items.map((item, idx) => (
+                    <th key={item.id} className="px-3 py-2 text-left">
                       <ItemHeader
                         item={item}
                         canEdit={canEdit}
                         isFirst={idx === 0}
                         isLast={idx === card.items.length - 1}
+                        // v1.92.1: items are now columns — reorder uses
+                        // the "left / right" idiom (mapped to the
+                        // existing onMove("up"/"down") direction).
+                        orientation="column"
                         onRename={(label, notes) => {
                           startTransition(async () => {
                             const res = await updateWeddingPartyItem(item.id, { label, notes });
@@ -292,11 +259,53 @@ export function BookWeddingPartyCard({
                           });
                         }}
                       />
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {card.members.map((m, idx) => (
+                  <tr key={m.id} className="border-b border-border-soft last:border-b-0">
+                    <td className="px-3 py-2 align-top w-48">
+                      <MemberHeader
+                        member={m}
+                        canEdit={canEdit}
+                        isFirst={idx === 0}
+                        isLast={idx === card.members.length - 1}
+                        // v1.92.1: people are now rows — reorder uses
+                        // the "up / down" idiom.
+                        orientation="row"
+                        onRename={(name, role) => {
+                          startTransition(async () => {
+                            const res = await updateWeddingPartyMember(m.id, { name, role });
+                            if (!res.ok) notify("error", res.error);
+                          });
+                        }}
+                        onDelete={async () => {
+                          if (!(await confirm({ title: `Remove ${m.name}?`, confirmLabel: "Remove", tone: "danger" }))) return;
+                          startTransition(async () => {
+                            const res = await deleteWeddingPartyMember(m.id);
+                            if (!res.ok) notify("error", res.error);
+                          });
+                        }}
+                        onMove={(direction) => {
+                          const ids = card.members.map((x) => x.id);
+                          const j = idx + (direction === "up" ? -1 : 1);
+                          if (j < 0 || j >= ids.length) return;
+                          const tmp = ids[idx]!;
+                          ids[idx] = ids[j]!;
+                          ids[j] = tmp;
+                          startTransition(async () => {
+                            const res = await reorderWeddingPartyMembers(card.id, ids);
+                            if (!res.ok) notify("error", res.error);
+                          });
+                        }}
+                      />
                     </td>
-                    {card.members.map((m) => {
+                    {card.items.map((item) => {
                       const status = cellAt(optimisticCells, m.id, item.id);
                       return (
-                        <td key={m.id} className="px-3 py-2 align-top">
+                        <td key={item.id} className="px-3 py-2 align-top">
                           {canEdit ? (
                             <select
                               value={status}
@@ -333,11 +342,11 @@ export function BookWeddingPartyCard({
         {/* Add-row + Add-column buttons. */}
         {canEdit && (
           <div className="flex flex-wrap gap-2">
-            <Button variant="ghost" size="sm" onClick={addItem} disabled={pending}>
-              + Add item (row)
-            </Button>
             <Button variant="ghost" size="sm" onClick={addMember} disabled={pending}>
-              + Add person (column)
+              + Add person (row)
+            </Button>
+            <Button variant="ghost" size="sm" onClick={addItem} disabled={pending}>
+              + Add item (column)
             </Button>
           </div>
         )}
@@ -389,6 +398,7 @@ function MemberHeader({
   onRename,
   onDelete,
   onMove,
+  orientation = "column",
 }: {
   member: Member;
   canEdit: boolean;
@@ -397,7 +407,14 @@ function MemberHeader({
   onRename: (name: string, role: string | null) => void;
   onDelete: () => void;
   onMove: (direction: "up" | "down") => void;
+  // v1.92.1: pick the right arrow glyphs for the move buttons —
+  // "row" headers reorder up/down, "column" headers reorder left/right.
+  orientation?: "row" | "column";
 }) {
+  const prevGlyph = orientation === "row" ? "▲" : "◀";
+  const nextGlyph = orientation === "row" ? "▼" : "▶";
+  const prevTitle = orientation === "row" ? "Move up" : "Move left";
+  const nextTitle = orientation === "row" ? "Move down" : "Move right";
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(member.name);
   const [role, setRole] = useState(member.role ?? "");
@@ -466,18 +483,18 @@ function MemberHeader({
               onClick={() => onMove("up")}
               disabled={isFirst}
               className="text-[10px] text-ink-tertiary hover:text-ink-primary disabled:opacity-30 px-0.5"
-              title="Move left"
+              title={prevTitle}
             >
-              ◀
+              {prevGlyph}
             </button>
             <button
               type="button"
               onClick={() => onMove("down")}
               disabled={isLast}
               className="text-[10px] text-ink-tertiary hover:text-ink-primary disabled:opacity-30 px-0.5"
-              title="Move right"
+              title={nextTitle}
             >
-              ▶
+              {nextGlyph}
             </button>
             <button
               type="button"
@@ -515,6 +532,7 @@ function ItemHeader({
   onRename,
   onDelete,
   onMove,
+  orientation = "row",
 }: {
   item: Item;
   canEdit: boolean;
@@ -523,7 +541,14 @@ function ItemHeader({
   onRename: (label: string, notes: string | null) => void;
   onDelete: () => void;
   onMove: (direction: "up" | "down") => void;
+  // v1.92.1: items are now column headers when the matrix is flipped,
+  // so the reorder arrows need to read as left/right rather than up/down.
+  orientation?: "row" | "column";
 }) {
+  const prevGlyph = orientation === "row" ? "▲" : "◀";
+  const nextGlyph = orientation === "row" ? "▼" : "▶";
+  const prevTitle = orientation === "row" ? "Move up" : "Move left";
+  const nextTitle = orientation === "row" ? "Move down" : "Move right";
   const [editing, setEditing] = useState(false);
   const [label, setLabel] = useState(item.label);
   const [notes, setNotes] = useState(item.notes ?? "");
@@ -594,18 +619,18 @@ function ItemHeader({
             onClick={() => onMove("up")}
             disabled={isFirst}
             className="text-[10px] text-ink-tertiary hover:text-ink-primary disabled:opacity-30 px-0.5"
-            title="Move up"
+            title={prevTitle}
           >
-            ▲
+            {prevGlyph}
           </button>
           <button
             type="button"
             onClick={() => onMove("down")}
             disabled={isLast}
             className="text-[10px] text-ink-tertiary hover:text-ink-primary disabled:opacity-30 px-0.5"
-            title="Move down"
+            title={nextTitle}
           >
-            ▼
+            {nextGlyph}
           </button>
           <button
             type="button"
