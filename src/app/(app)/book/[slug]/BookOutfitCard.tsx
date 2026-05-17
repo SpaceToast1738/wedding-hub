@@ -45,20 +45,17 @@ const ROLE_OPTIONS = [
   "Other",
 ];
 
-// v1.92.0: "Purchased" added — the user noted not every item goes
-// through an "Ordered" flow (e.g. a dress bought off the rack); they
-// want a clean "we have it" status without overloading "Collected".
-const STATUS_OPTIONS = ["Designed", "Purchased", "Ordered", "Fitted", "Collected"];
+// v1.93.0: simplified lifecycle — Planned (default) → Purchased →
+// Received → Already own. Replaces the v1.92.0 set and folds the
+// alreadyOwned boolean into the status enum.
+const STATUS_OPTIONS = ["Planned", "Purchased", "Received", "Already own"];
 
 const STATUS_TONE: Record<string, string> = {
-  Designed: "bg-canvas border-border-soft text-ink-secondary",
-  Purchased: "bg-moss-50 border-moss-300 text-moss-700",
-  Ordered: "bg-info/10 border-info/30 text-info",
-  Fitted: "bg-marigold-100 border-marigold-700/30 text-marigold-700",
-  Collected: "bg-moss-50 border-moss-300 text-moss-700",
+  Planned: "bg-canvas border-border-soft text-ink-secondary",
+  Purchased: "bg-info/10 border-info/30 text-info",
+  Received: "bg-moss-50 border-moss-300 text-moss-700",
+  "Already own": "bg-marigold-100 border-marigold-700/30 text-marigold-700",
 };
-
-const PAID_BY_OPTIONS = ["Self", "Couple", "Parents", "Other"];
 
 type Item = {
   id: string;
@@ -73,21 +70,13 @@ type Item = {
   // outfit-item via Payment.bookOutfitId. Optional so existing edit-mode
   // draft state (which doesn't carry payments) still type-checks.
   paidPence?: number;
-  // v1.92.0: per-item "we already own this" marker — surfaces a chip
-  // on the row and tells the user not to bother with payment tracking.
-  alreadyOwned: boolean;
 };
 
 type CardData = {
   id: string;
   personName: string | null;
   role: string | null;
-  fittingDate: Date | null;
-  alterationsDueBy: Date | null;
-  pickupDate: Date | null;
   costPence: number | null;
-  paidBy: string | null;
-  paid: boolean;
   notes: string | null;
   fileIds: string[];
   items: Item[];
@@ -110,15 +99,6 @@ type OutfitCardEditorProps = {
   linkedTasks?: LinkedTaskRow[];
   users?: UserOpt[];
 };
-
-function isoDate(d: Date | null): string {
-  if (!d) return "";
-  return d.toISOString().slice(0, 10);
-}
-
-function shortDate(d: Date): string {
-  return d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
-}
 
 export function BookOutfitCardEditor({
   subsectionId,
@@ -156,12 +136,7 @@ export function BookOutfitCardEditor({
     const payload: OutfitSavePayload = {
       personName: draft.personName || null,
       role: draft.role || null,
-      fittingDate: draft.fittingDate || null,
-      alterationsDueBy: draft.alterationsDueBy || null,
-      pickupDate: draft.pickupDate || null,
       costPence: draft.costPence,
-      paidBy: draft.paidBy || null,
-      paid: draft.paid,
       fileIds: card.fileIds, // file picker is on view-mode only; draft mirrors saved card
       notes: draft.notes || null,
       items: draft.items.map((i) => ({
@@ -172,8 +147,6 @@ export function BookOutfitCardEditor({
         website: i.website?.trim() || null,
         status: i.status || null,
         notes: i.notes?.trim() || null,
-        // v1.92.0
-        alreadyOwned: i.alreadyOwned ?? false,
       })),
     };
     startTransition(async () => {
@@ -188,9 +161,6 @@ export function BookOutfitCardEditor({
   }
 
   const r = outfitRollups({
-    fittingDate: card.fittingDate,
-    alterationsDueBy: card.alterationsDueBy,
-    pickupDate: card.pickupDate,
     items: card.items.map((i) => ({ status: i.status })),
   });
 
@@ -257,60 +227,20 @@ export function BookOutfitCardEditor({
         );
       })()}
 
-      {/* Stats strip */}
-      <div className={`grid grid-cols-2 ${showMoney ? "sm:grid-cols-4" : "sm:grid-cols-3"} gap-2 mb-4`}>
-        <Stat
-          label={r.nextMilestone ? r.nextMilestone.label : "Next milestone"}
-          value={
-            r.nextMilestone
-              ? `${shortDate(r.nextMilestone.date)} (${
-                  r.daysToNext != null
-                    ? r.daysToNext >= 0
-                      ? `${r.daysToNext}d`
-                      : `${-r.daysToNext}d ago`
-                    : "—"
-                })`
-              : "—"
-          }
-        />
-        {showMoney && <Stat label="Cost" value={formatGBPFromPence(card.costPence)} />}
-        <Stat
-          label="Paid"
-          value={
-            card.paid
-              ? card.paidBy
-                ? `Yes · ${card.paidBy}`
-                : "Yes"
-              : card.paidBy
-                ? `No · ${card.paidBy}`
-                : "No"
-          }
-        />
-        <Stat
-          label="Items"
-          value={r.itemCount === 0 ? "—" : `${r.collectedCount} / ${r.itemCount} collected`}
-        />
-      </div>
-
-      {/* Fitting timeline */}
-      <div className="mb-4 flex items-center gap-1 text-[11px] flex-wrap">
-        <TimelineStep
-          label="Fitting"
-          date={card.fittingDate}
-          isNext={r.nextMilestone?.label === "Fitting"}
-        />
-        <span className="text-ink-tertiary/60">→</span>
-        <TimelineStep
-          label="Alterations"
-          date={card.alterationsDueBy}
-          isNext={r.nextMilestone?.label === "Alterations"}
-        />
-        <span className="text-ink-tertiary/60">→</span>
-        <TimelineStep
-          label="Pickup"
-          date={card.pickupDate}
-          isNext={r.nextMilestone?.label === "Pickup"}
-        />
+      {/* v1.93.0: tiny meta line — items progress + (when showMoney) cost.
+          Replaces the v1.92.0 4-tile Stats strip + fitting timeline. */}
+      <div className="text-[11px] text-ink-tertiary mb-4 flex items-center gap-2 flex-wrap">
+        <span>
+          {r.itemCount === 0
+            ? "No items yet"
+            : `${r.collectedCount} of ${r.itemCount} sorted`}
+        </span>
+        {showMoney && card.costPence != null && (
+          <>
+            <span aria-hidden>·</span>
+            <span>{formatGBPFromPence(card.costPence)} budget</span>
+          </>
+        )}
       </div>
 
       {editing ? (
@@ -341,50 +271,9 @@ export function BookOutfitCardEditor({
   );
 }
 
-// ── Helpers ──────────────────────────────────────────────────────
-
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="bg-canvas/40 border border-border-soft rounded-md px-3 py-2">
-      <div className="text-[10px] uppercase tracking-wider text-ink-tertiary font-bold">
-        {label}
-      </div>
-      <div className="text-sm text-ink-primary tabular-nums truncate font-medium">
-        {value || "—"}
-      </div>
-    </div>
-  );
-}
-
-function TimelineStep({
-  label,
-  date,
-  isNext,
-}: {
-  label: string;
-  date: Date | null;
-  isNext: boolean;
-}) {
-  if (!date) {
-    return (
-      <span className="text-[10px] uppercase tracking-wider rounded-full px-2 py-0.5 bg-canvas border border-dashed border-border-soft text-ink-tertiary">
-        {label} —
-      </span>
-    );
-  }
-  return (
-    <span
-      className={[
-        "text-[10px] uppercase tracking-wider rounded-full px-2 py-0.5 border",
-        isNext
-          ? "bg-moss-50 border-moss-300 text-moss-700 font-semibold"
-          : "bg-canvas border-border-soft text-ink-tertiary",
-      ].join(" ")}
-    >
-      {label} · {shortDate(date)}
-    </span>
-  );
-}
+// v1.93.0: Stat + TimelineStep helpers removed (no more stats strip
+// or fitting timeline). isoDate / shortDate are no longer needed at
+// the card level either (dates moved to Tasks).
 
 // ── View body ────────────────────────────────────────────────────
 
@@ -439,17 +328,6 @@ function ViewBody({
                   </a>
                 )}
                 <span className="ml-auto flex-shrink-0 flex items-center gap-1.5">
-                  {/* v1.92.0: already-own chip. Hidden when not set —
-                      the absence of the chip means "this is something
-                      we still need to sort / buy / pay for". */}
-                  {item.alreadyOwned && (
-                    <span
-                      className="text-[10px] text-info bg-info/10 border border-info/30 rounded-full px-2 py-0.5"
-                      title="We already own this — no purchase needed."
-                    >
-                      ✓ Already own
-                    </span>
-                  )}
                   {/* v1.78.0: paid-on-item reciprocal chip. Renders
                       next to the status pill when this item has
                       received payments. */}
@@ -463,7 +341,7 @@ function ViewBody({
                   )}
                   {item.status ? (
                     <span
-                      className={`text-[10px] uppercase tracking-wider rounded-full px-2 py-0.5 border ${STATUS_TONE[item.status] ?? STATUS_TONE.Designed}`}
+                      className={`text-[10px] uppercase tracking-wider rounded-full px-2 py-0.5 border ${STATUS_TONE[item.status] ?? STATUS_TONE.Planned}`}
                     >
                       {item.status}
                     </span>
@@ -518,12 +396,7 @@ function ViewBody({
 type Draft = {
   personName: string;
   role: string;
-  fittingDate: string;
-  alterationsDueBy: string;
-  pickupDate: string;
   costPence: number | null;
-  paidBy: string;
-  paid: boolean;
   notes: string;
   items: Item[];
 };
@@ -532,12 +405,7 @@ function buildDraft(card: CardData): Draft {
   return {
     personName: card.personName ?? "",
     role: card.role ?? "",
-    fittingDate: isoDate(card.fittingDate),
-    alterationsDueBy: isoDate(card.alterationsDueBy),
-    pickupDate: isoDate(card.pickupDate),
     costPence: card.costPence,
-    paidBy: card.paidBy ?? "",
-    paid: card.paid,
     notes: card.notes ?? "",
     items: card.items.map((i) => ({ ...i })),
   };
@@ -576,8 +444,6 @@ function EditBody({
           status: null,
           notes: null,
           order: draft.items.length,
-          // v1.92.0
-          alreadyOwned: false,
         },
       ],
     });
@@ -630,43 +496,15 @@ function EditBody({
         </FieldLabel>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-start">
-        <FieldLabel className="sm:col-span-4">
-          <Label>Fitting</Label>
-          <input
-            type="date"
-            value={draft.fittingDate}
-            onChange={(e) => patch({ fittingDate: e.target.value })}
-            disabled={pending}
-            className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2 py-1.5 text-ink-primary outline-none focus:border-moss-500"
-          />
-        </FieldLabel>
-        <FieldLabel className="sm:col-span-4">
-          <Label>Alterations due</Label>
-          <input
-            type="date"
-            value={draft.alterationsDueBy}
-            onChange={(e) => patch({ alterationsDueBy: e.target.value })}
-            disabled={pending}
-            className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2 py-1.5 text-ink-primary outline-none focus:border-moss-500"
-          />
-        </FieldLabel>
-        <FieldLabel className="sm:col-span-4">
-          <Label>Pickup</Label>
-          <input
-            type="date"
-            value={draft.pickupDate}
-            onChange={(e) => patch({ pickupDate: e.target.value })}
-            disabled={pending}
-            className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2 py-1.5 text-ink-primary outline-none focus:border-moss-500"
-          />
-        </FieldLabel>
-      </div>
-
-      <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-start">
-        {showMoney && (
-          <FieldLabel className="sm:col-span-4">
-            <Label>Cost</Label>
+      {/* v1.93.0: cost stays as the single budget-link knob (still
+          feeds the linked BudgetLine via syncBudgetLine). Fitting /
+          alterations / pickup dates removed — manage as Tasks. Paid /
+          paidBy removed — payment tracking flows via Payments page +
+          the per-item 📎 paid chip. */}
+      {showMoney && (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 items-start">
+          <FieldLabel>
+            <Label>Cost (budget link)</Label>
             <div className="relative">
               <span className="absolute left-2 top-1/2 -translate-y-1/2 text-ink-tertiary text-sm pointer-events-none">£</span>
               <input
@@ -681,35 +519,8 @@ function EditBody({
               />
             </div>
           </FieldLabel>
-        )}
-        <FieldLabel className="sm:col-span-4">
-          <Label>Paid by</Label>
-          <select
-            value={draft.paidBy}
-            onChange={(e) => patch({ paidBy: e.target.value })}
-            disabled={pending}
-            className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2 py-1.5 text-ink-primary outline-none focus:border-moss-500"
-          >
-            <option value="">— pick —</option>
-            {PAID_BY_OPTIONS.map((p) => (
-              <option key={p} value={p}>
-                {p}
-              </option>
-            ))}
-          </select>
-        </FieldLabel>
-        <div className="sm:col-span-4 flex items-end pb-1.5">
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={draft.paid}
-              onChange={(e) => patch({ paid: e.target.checked })}
-              disabled={pending}
-            />
-            <span>Paid</span>
-          </label>
         </div>
-      </div>
+      )}
 
       {/* Items */}
       <div>
@@ -832,36 +643,18 @@ function ItemEditRow({
           />
         </FieldLabel>
       </div>
-      {/* Row 3 — website | already-own */}
-      <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-start">
-        <FieldLabel className="sm:col-span-9">
-          <Label>Website</Label>
-          <input
-            type="url"
-            value={item.website ?? ""}
-            onChange={(e) => onChange({ website: e.target.value || null })}
-            disabled={pending}
-            placeholder="https://…"
-            className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2 py-1.5 text-ink-primary outline-none focus:border-moss-500"
-          />
-        </FieldLabel>
-        {/* v1.92.0: already-own checkbox. Some items are already in
-            the couple's possession (necklace, socks, etc.) — this
-            tells the card / payments stack "no money tracking needed
-            for this row". */}
-        <FieldLabel className="sm:col-span-3">
-          <Label>&nbsp;</Label>
-          <label className="flex items-center gap-2 text-sm h-9">
-            <input
-              type="checkbox"
-              checked={item.alreadyOwned}
-              onChange={(e) => onChange({ alreadyOwned: e.target.checked })}
-              disabled={pending}
-            />
-            <span>Already own</span>
-          </label>
-        </FieldLabel>
-      </div>
+      {/* Row 3 — website */}
+      <FieldLabel>
+        <Label>Website</Label>
+        <input
+          type="url"
+          value={item.website ?? ""}
+          onChange={(e) => onChange({ website: e.target.value || null })}
+          disabled={pending}
+          placeholder="https://…"
+          className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2 py-1.5 text-ink-primary outline-none focus:border-moss-500"
+        />
+      </FieldLabel>
       {/* Row 4 — reorder/remove */}
       <div className="flex items-center justify-end gap-1 pt-1">
         <button

@@ -2908,23 +2908,20 @@ const outfitItemPayloadSchema = z.object({
   description: z.string().max(2000).nullable(),
   supplier: z.string().max(120).nullable(),
   website: z.string().max(500).nullable(),
+  // v1.93.0: status drives the lifecycle pill — values are
+  // "Planned" / "Purchased" / "Received" / "Already own". The v1.92
+  // alreadyOwned boolean folded into status = "Already own".
   status: z.string().max(40).nullable(),
   notes: z.string().max(2000).nullable(),
-  // v1.92.0: marker for items the couple already owns ("we already
-  // have socks"). View mode renders a chip; finance tracking via the
-  // existing v1.75.0 Payment.bookOutfitId link is skipped for these.
-  alreadyOwned: z.boolean().default(false),
 });
 
 const outfitSavePayloadSchema = z.object({
   personName: z.string().max(120).nullable(),
   role: z.string().max(60).nullable(),
-  fittingDate: z.string().nullable(),
-  alterationsDueBy: z.string().nullable(),
-  pickupDate: z.string().nullable(),
+  // v1.93.0: dropped fittingDate / alterationsDueBy / pickupDate /
+  // paid / paidBy. Dates live as Tasks; paid tracking flows via the
+  // existing v1.75.0 Payment.bookOutfitId per-item link.
   costPence: z.number().int().min(0).nullable(),
-  paidBy: z.string().max(40).nullable(),
-  paid: z.boolean(),
   fileIds: z.array(z.string().min(1).max(50)),
   notes: z.string().max(4000).nullable(),
   items: z.array(outfitItemPayloadSchema),
@@ -2948,18 +2945,7 @@ export async function saveOutfitCard(
     const headerChanged: string[] = [];
     if (parsed.personName !== before.personName) headerChanged.push("personName");
     if (parsed.role !== before.role) headerChanged.push("role");
-    const newFitting = parseISODate(parsed.fittingDate)?.getTime() ?? null;
-    const oldFitting = before.fittingDate?.getTime() ?? null;
-    if (newFitting !== oldFitting) headerChanged.push("fittingDate");
-    const newAlt = parseISODate(parsed.alterationsDueBy)?.getTime() ?? null;
-    const oldAlt = before.alterationsDueBy?.getTime() ?? null;
-    if (newAlt !== oldAlt) headerChanged.push("alterationsDueBy");
-    const newPickup = parseISODate(parsed.pickupDate)?.getTime() ?? null;
-    const oldPickup = before.pickupDate?.getTime() ?? null;
-    if (newPickup !== oldPickup) headerChanged.push("pickupDate");
     if (parsed.costPence !== before.costPence) headerChanged.push("costPence");
-    if (parsed.paidBy !== before.paidBy) headerChanged.push("paidBy");
-    if (parsed.paid !== before.paid) headerChanged.push("paid");
     if (parsed.notes !== before.notes) headerChanged.push("notes");
     if (JSON.stringify([...parsed.fileIds].sort()) !== JSON.stringify([...before.fileIds].sort())) {
       headerChanged.push("fileIds");
@@ -2979,12 +2965,7 @@ export async function saveOutfitCard(
         data: {
           personName: parsed.personName,
           role: parsed.role,
-          fittingDate: parseISODate(parsed.fittingDate),
-          alterationsDueBy: parseISODate(parsed.alterationsDueBy),
-          pickupDate: parseISODate(parsed.pickupDate),
           costPence: parsed.costPence,
-          paidBy: parsed.paidBy,
-          paid: parsed.paid,
           notes: parsed.notes,
           fileIds: parsed.fileIds,
         },
@@ -3002,8 +2983,6 @@ export async function saveOutfitCard(
             website: i.website,
             status: i.status,
             notes: i.notes,
-            // v1.92.0
-            alreadyOwned: i.alreadyOwned ?? false,
           },
         });
       }
@@ -3024,8 +3003,6 @@ export async function saveOutfitCard(
             // a placeholder so existing prod rows pre-migration don't
             // collide. The migration's ALTER drops the NOT NULL.
             personName: null,
-            // v1.92.0
-            alreadyOwned: i.alreadyOwned ?? false,
           },
         });
       }

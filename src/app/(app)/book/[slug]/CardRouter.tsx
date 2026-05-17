@@ -99,19 +99,16 @@ type Sub = {
     }>;
     guests: Array<{ id: string; name: string }>;
   } | null;
-  // v1.35.0: OUTFIT rework — card-level fields hold the person +
-  // fitting timeline + cost; items are per-item composition. `files`
-  // is the global file list the per-card photo picker reads from.
+  // v1.35.0: OUTFIT rework — card-level fields hold person identity
+  // + cost; items hold lifecycle + per-item Payment reciprocal.
+  // v1.93.0: dropped fittingDate / alterationsDueBy / pickupDate /
+  // paid / paidBy (dates → Tasks; paid tracking → Payment.bookOutfitId).
+  // alreadyOwned boolean dropped — folded into the item's status enum.
   outfitCard: {
     id: string;
     personName: string | null;
     role: string | null;
-    fittingDate: Date | null;
-    alterationsDueBy: Date | null;
-    pickupDate: Date | null;
     costPence: number | null;
-    paidBy: string | null;
-    paid: boolean;
     fileIds: string[];
     notes: string | null;
     items: Array<{
@@ -126,8 +123,6 @@ type Sub = {
       // v1.78.0: paid-on-card reciprocal — payments linked to this
       // outfit-item, summed for the chip render.
       paidPence: number;
-      // v1.92.0: per-item already-own marker.
-      alreadyOwned: boolean;
     }>;
     files: Array<{ id: string; name: string; mimeType: string }>;
     // v1.78.0: linked BudgetLine for the auto-sync chip.
@@ -503,12 +498,7 @@ function renderCardBody(
         id: "",
         personName: null,
         role: null,
-        fittingDate: null,
-        alterationsDueBy: null,
-        pickupDate: null,
         costPence: null,
-        paidBy: null,
-        paid: false,
         fileIds: [],
         notes: null,
         items: [],
@@ -527,12 +517,7 @@ function renderCardBody(
             id: oc.id,
             personName: oc.personName,
             role: oc.role,
-            fittingDate: oc.fittingDate,
-            alterationsDueBy: oc.alterationsDueBy,
-            pickupDate: oc.pickupDate,
             costPence: oc.costPence,
-            paidBy: oc.paidBy,
-            paid: oc.paid,
             fileIds: oc.fileIds,
             notes: oc.notes,
             items: oc.items,

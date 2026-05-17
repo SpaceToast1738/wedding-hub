@@ -3,12 +3,14 @@
 // tests lock the contract without setup. The page-level component
 // fetches data, calls these, and renders the result.
 //
-// Three widgets:
+// v1.93.0: dropped nextOutfitMilestones — OUTFIT cards no longer
+// carry fitting / alterations / pickup dates. Those live as Tasks
+// now (Topic-linked to the card via the existing v1.51.0 m2m).
+//
+// Two widgets:
 //   1. nextLegalDeadlines — LEGAL cards with `dueByDate` or items
 //      `expiresAt` falling within the next N days.
-//   2. nextOutfitMilestones — OUTFIT cards with fitting / alterations
-//      / pickup falling within the next N days.
-//   3. oldestOpenDecisions — open Tasks of type=DECISION, oldest
+//   2. oldestOpenDecisions — open Tasks of type=DECISION, oldest
 //      first, capped to N.
 
 const MS_PER_DAY = 86_400_000;
@@ -117,80 +119,9 @@ export function nextLegalDeadlines(
   return hits;
 }
 
-// ─── 2. OUTFIT milestones ─────────────────────────────────────────
-
-export type OutfitMilestoneCard = {
-  cardId: string;
-  personName: string | null;
-  sectionSlug: string;
-  subsectionSlug: string;
-  subsectionTitle: string;
-  fittingDate?: Date | null;
-  alterationsDueBy?: Date | null;
-  pickupDate?: Date | null;
-};
-
-export type OutfitMilestoneHit = {
-  cardId: string;
-  personName: string;
-  sectionSlug: string;
-  subsectionSlug: string;
-  subsectionTitle: string;
-  milestone: "Fitting" | "Alterations" | "Pickup";
-  date: Date;
-  daysToDate: number;
-};
-
-/**
- * Pick OUTFIT card milestones coming up within `daysAhead`. One row
- * per (card, milestone) — a card with all three dates set within the
- * window contributes three rows. Sorted soonest-first, ties broken
- * by personName then milestone order.
- */
-export function nextOutfitMilestones(
-  cards: OutfitMilestoneCard[],
-  now: Date,
-  daysAhead: number,
-): OutfitMilestoneHit[] {
-  const cutoff = now.getTime() + daysAhead * MS_PER_DAY;
-  const out: OutfitMilestoneHit[] = [];
-  const order = { Fitting: 0, Alterations: 1, Pickup: 2 } as const;
-
-  for (const c of cards) {
-    const person = c.personName?.trim() || c.subsectionTitle || "—";
-    const checks: Array<{ label: OutfitMilestoneHit["milestone"]; d: Date | null | undefined }> = [
-      { label: "Fitting", d: c.fittingDate },
-      { label: "Alterations", d: c.alterationsDueBy },
-      { label: "Pickup", d: c.pickupDate },
-    ];
-    for (const check of checks) {
-      if (!check.d) continue;
-      const t = check.d.getTime();
-      // Include future-or-soon. Past milestones are dropped — the
-      // OUTFIT card itself surfaces them, but Today is forward-looking.
-      if (t >= now.getTime() && t <= cutoff) {
-        out.push({
-          cardId: c.cardId,
-          personName: person,
-          sectionSlug: c.sectionSlug,
-          subsectionSlug: c.subsectionSlug,
-          subsectionTitle: c.subsectionTitle,
-          milestone: check.label,
-          date: check.d,
-          daysToDate: Math.round((t - now.getTime()) / MS_PER_DAY),
-        });
-      }
-    }
-  }
-  out.sort((a, b) => {
-    const d = a.date.getTime() - b.date.getTime();
-    if (d !== 0) return d;
-    const p = a.personName.localeCompare(b.personName);
-    if (p !== 0) return p;
-    return order[a.milestone] - order[b.milestone];
-  });
-  return out;
-}
+// v1.93.0: nextOutfitMilestones + OutfitMilestoneHit + OutfitMilestoneCard
+// removed. OUTFIT cards no longer carry fitting / alterations / pickup
+// dates — couples track those as Tasks now.
 
 // ─── 3. Open decisions ────────────────────────────────────────────
 

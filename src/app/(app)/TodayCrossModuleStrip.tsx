@@ -1,29 +1,22 @@
-// v1.37.5 (P7b/C): Today-page strip showing the three new
-// cross-module widgets (legal deadlines, outfit milestones, open
-// decisions). Server component — pure presentational. The page
-// component does the DB fetch + helper call and passes the
-// already-shaped data here. Empty widgets are auto-hidden so the
-// strip collapses on a quiet day.
+// v1.37.5 (P7b/C): Today-page strip showing cross-module widgets.
+// v1.93.0: dropped the OUTFIT "Fittings & pickups" widget. Two
+// widgets remain (legal deadlines, open decisions). Server component
+// — pure presentational; the page does the DB fetch + helper call.
+// Empty widgets are auto-hidden so the strip collapses on a quiet day.
 
 import Link from "next/link";
-import type { LegalDeadlineHit, OutfitMilestoneHit, DecisionTask } from "@/lib/today-widgets";
+import type { LegalDeadlineHit, DecisionTask } from "@/lib/today-widgets";
 
 type Props = {
   legalHits: LegalDeadlineHit[];
-  outfitHits: OutfitMilestoneHit[];
   decisions: DecisionTask[];
 };
 
-export function TodayCrossModuleStrip({ legalHits, outfitHits, decisions }: Props) {
+export function TodayCrossModuleStrip({ legalHits, decisions }: Props) {
   // v1.90.0: build the widget list dynamically + use auto-fit so empty
-  // widgets don't leave blank grid cells. Pre-fix, when only Open
-  // decisions had data, the strip rendered as `grid sm:grid-cols-3`
-  // and the two empty <section>s collapsed to nothing — but the grid
-  // template still reserved their column space, leaving a wide blank
-  // gap to the right of the lone card.
+  // widgets don't leave blank grid cells.
   const widgets: React.ReactNode[] = [];
   if (legalHits.length > 0) widgets.push(<LegalWidget key="legal" hits={legalHits} />);
-  if (outfitHits.length > 0) widgets.push(<OutfitWidget key="outfit" hits={outfitHits} />);
   if (decisions.length > 0) widgets.push(<DecisionsWidget key="decisions" decisions={decisions} />);
   if (widgets.length === 0) return null;
   return (
@@ -101,44 +94,8 @@ function LegalWidget({ hits }: { hits: LegalDeadlineHit[] }) {
   );
 }
 
-function OutfitWidget({ hits }: { hits: OutfitMilestoneHit[] }) {
-  if (hits.length === 0) return null;
-  const cap = 5;
-  return (
-    <section className="bg-surface border border-border-soft rounded-lg p-5 shadow-sm h-full flex flex-col">
-      <div className="flex items-center justify-between mb-3">
-        <h2 className="text-sm font-semibold text-ink-primary">Fittings & pickups</h2>
-        <span className="text-xs text-ink-tertiary">next 30 days</span>
-      </div>
-      <ul className="flex-1 space-y-1.5 text-sm">
-        {hits.slice(0, cap).map((h, i) => {
-          const pill = dayPill(h.daysToDate);
-          return (
-            <li key={i} className="flex items-baseline gap-2">
-              <Link
-                href={`/book/${h.sectionSlug}#${h.subsectionSlug}`}
-                className="text-ink-secondary hover:text-moss-700 hover:underline truncate flex-1"
-                title={`${h.personName} — ${h.milestone}`}
-              >
-                {h.personName}{" "}
-                <span className="text-[11px] text-ink-tertiary">· {h.milestone}</span>
-              </Link>
-              <span className="text-[11px] text-ink-tertiary tabular-nums flex-shrink-0">
-                {shortDate(h.date)}
-              </span>
-              <Pill tone={pill.tone}>{pill.label}</Pill>
-            </li>
-          );
-        })}
-      </ul>
-      {hits.length > cap && (
-        <div className="mt-3 pt-3 border-t border-border-soft text-xs text-ink-tertiary">
-          + {hits.length - cap} more
-        </div>
-      )}
-    </section>
-  );
-}
+// v1.93.0: OutfitWidget retired — fitting / alterations / pickup
+// dates no longer live on the OUTFIT card.
 
 function DecisionsWidget({ decisions }: { decisions: DecisionTask[] }) {
   if (decisions.length === 0) return null;

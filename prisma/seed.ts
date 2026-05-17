@@ -1563,12 +1563,9 @@ export async function seedWeddingPartyPeopleAndDayof() {
           subsectionId: sub.id,
           personName: m.personName,
           role: m.role,
-          fittingDate: m.fittingDate ?? null,
-          alterationsDueBy: m.alterationsDueBy ?? null,
-          pickupDate: m.pickupDate ?? null,
+          // v1.93.0: dropped fittingDate / alterationsDueBy / pickupDate
+          // / paid / paidBy (dates → Tasks, paid tracking → Payments).
           costPence: m.costPence ?? null,
-          paidBy: m.paidBy ?? null,
-          paid: m.paid ?? false,
           notes: m.notes ?? null,
         },
       });

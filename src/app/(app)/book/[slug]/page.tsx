@@ -419,12 +419,7 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
                     id: sRaw.outfitCard.id,
                     personName: sRaw.outfitCard.personName,
                     role: sRaw.outfitCard.role,
-                    fittingDate: sRaw.outfitCard.fittingDate,
-                    alterationsDueBy: sRaw.outfitCard.alterationsDueBy,
-                    pickupDate: sRaw.outfitCard.pickupDate,
                     costPence: sRaw.outfitCard.costPence,
-                    paidBy: sRaw.outfitCard.paidBy,
-                    paid: sRaw.outfitCard.paid,
                     fileIds: sRaw.outfitCard.fileIds,
                     notes: sRaw.outfitCard.notes,
                     items: sRaw.outfitCard.outfits.map((o) => ({
@@ -436,8 +431,6 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
                       status: o.status,
                       notes: o.notes,
                       order: o.order,
-                      // v1.92.0: per-item already-own marker.
-                      alreadyOwned: o.alreadyOwned,
                       paidPence: Math.round(
                         o.payments.reduce(
                           (sum, p) =>

@@ -5,7 +5,6 @@ import { redirect } from "next/navigation";
 import { getWeddingSettings } from "@/lib/wedding-settings";
 import {
   nextLegalDeadlines,
-  nextOutfitMilestones,
   oldestOpenDecisions,
 } from "@/lib/today-widgets";
 import { isAttendee, resolveAttendeeRefs } from "@/lib/group-members";
@@ -34,7 +33,6 @@ export default async function TodayPage() {
     allUsers,
     customUserGroups,
     legalCardRows,
-    outfitCardRows,
     decisionTaskRows,
   ] = await Promise.all([
     // v1.27.2: fetch all open TASK rows (no take, no assignee filter)
@@ -102,19 +100,9 @@ export default async function TodayPage() {
         subsection: { select: { slug: true, title: true, section: { select: { slug: true } } } },
       },
     }),
-    // OUTFIT cards — three date fields per card.
-    db.bookOutfitCard.findMany({
-      select: {
-        id: true,
-        personName: true,
-        fittingDate: true,
-        alterationsDueBy: true,
-        pickupDate: true,
-        subsection: {
-          select: { slug: true, title: true, section: { select: { slug: true } } },
-        },
-      },
-    }),
+    // v1.93.0: dropped OUTFIT-cards query — the Today "Fittings &
+    // pickups" widget is retired. Fitting / alterations / pickup are
+    // tracked as Tasks now.
     // DECISION-type tasks — non-closed.
     db.task.findMany({
       where: {
@@ -159,20 +147,7 @@ export default async function TodayPage() {
     now,
     WIDGET_DAYS_AHEAD,
   );
-  const outfitHits = nextOutfitMilestones(
-    outfitCardRows.map((c) => ({
-      cardId: c.id,
-      personName: c.personName,
-      sectionSlug: c.subsection.section.slug,
-      subsectionSlug: c.subsection.slug,
-      subsectionTitle: c.subsection.title,
-      fittingDate: c.fittingDate,
-      alterationsDueBy: c.alterationsDueBy,
-      pickupDate: c.pickupDate,
-    })),
-    now,
-    WIDGET_DAYS_AHEAD,
-  );
+  // v1.93.0: OUTFIT milestone widget retired (dates moved to Tasks).
   const decisions = oldestOpenDecisions(
     decisionTaskRows.map((t) => ({
       id: t.id,
@@ -336,7 +311,6 @@ export default async function TodayPage() {
             days don't get a blank row. */}
         <TodayCrossModuleStrip
           legalHits={legalHits}
-          outfitHits={outfitHits}
           decisions={decisions}
         />
 

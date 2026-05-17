@@ -878,16 +878,15 @@ model BookOutfitCard {
   id               String         @id @default(cuid())
   subsectionId     String         @unique
   subsection       BookSubsection @relation(fields: [subsectionId], references: [id], onDelete: Cascade)
-  // v1.35.0: card-level person identity + fitting timeline + cost.
+  // v1.35.0: card-level person identity + cost.
   // All nullable so legacy single-card-per-section rows render OK.
+  // v1.93.0: dropped fittingDate / alterationsDueBy / pickupDate / paid
+  // / paidBy. Dates now live as Tasks tagged to this card; payment
+  // tracking flows via the v1.75.0 Payment.bookOutfitId per-item link
+  // + v1.78.0 card → BudgetLine sync.
   personName       String?
   role             String?        // "Bride" | "Groom" | "Best Man" | "Bridesmaid" | "Groomsman" | "Flower Girl" | etc.
-  fittingDate      DateTime?
-  alterationsDueBy DateTime?
-  pickupDate       DateTime?
   costPence        Int?
-  paidBy           String?        // "Self" | "Couple" | "Parents"
-  paid             Boolean        @default(false)
   fileIds          String[]       @default([])
   notes            String?        @db.Text
   outfits          BookOutfit[]
@@ -919,15 +918,11 @@ model BookOutfit {
   notes       String?        @db.Text
   order       Int            @default(0)
   // v1.75.0: payments that paid for this outfit item.
+  // v1.93.0: the "already own" marker is now expressed via
+  // `status = 'Already own'` (one of Planned / Purchased / Received
+  // / Already own). The v1.92.0 alreadyOwned boolean folded into the
+  // status enum so there's a single per-item control.
   payments    Payment[]
-  // v1.92.0: marker for items the couple already owns (necklace
-  // they already have, socks, underwear, etc.) — no money to track,
-  // just "this exists, ✓". Renders as a chip in view mode + a
-  // checkbox in edit. Money tracking for owned items isn't needed;
-  // money tracking for not-owned items still flows via the
-  // v1.75.0 Payment.bookOutfitId link + v1.78.0 card → BudgetLine
-  // sync, no separate paidBy text needed at the item level.
-  alreadyOwned Boolean       @default(false)
 }
 
 // v1.31.0: BUILD card — DIY production tracker. One card per project
