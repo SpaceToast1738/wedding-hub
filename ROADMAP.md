@@ -34,6 +34,7 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
+| **v1.96.2** | 2026-05-17 | [Hotfix — repair the v1.96.0 multi-assignee migration that rolled back in prod. Caddy started returning 502s when the web container hit a `prisma migrate deploy` failure loop: `Error: P3009 — The '20260517200000_task_multi_assignee_drop_category' migration started at 2026-05-17 20:45:34 UTC failed`. Root cause: `Task.assigneeId` was declared as `String?` with no Prisma relation back to User, so the column never had a DB-level FK. Historical rows with `assigneeId` pointing at a long-deleted user were tolerated silently — but the v1.96.0 backfill `INSERT INTO "_TaskAssignees" SELECT id, assigneeId FROM Task WHERE assigneeId IS NOT NULL` violated the new junction's `_TaskAssignees_B_fkey` to User and aborted the whole transaction. Fix rewrites the same migration SQL in-place to be idempotent + orphan-safe: `DROP TABLE IF EXISTS "_TaskAssignees"` clears any partial state, the backfill adds `AND EXISTS (SELECT 1 FROM "User" WHERE id = assigneeId)` so orphan rows silently lose their stale assignment, and `ALTER … DROP COLUMN IF EXISTS` tolerates the column having already been dropped by a partial run. **One-time operator recovery on prod**: `docker compose --env-file .env exec db psql -U "$POSTGRES_USER" "$POSTGRES_DB" -c "DELETE FROM \"_prisma_migrations\" WHERE migration_name = '20260517200000_task_multi_assignee_drop_category';"` to clear the failed-attempt record, then Pull & Up. The re-applied (idempotent) SQL completes cleanly. No new functionality; pure recovery release.](#2026-05-17--v1962--hotfix-v1960-migration-orphans) |
 | **v1.96.1** | 2026-05-17 | [TEXT cards get a photo gallery. User: "Allow photos on the 'text' panel." OUTFIT / DRESS_CODE / BUILD / STAY / LODGING_GUIDE cards have shipped `<ImageGallery>` since v1.63.0, but TEXT — the most flexible card kind — was photo-less. New `BookSubsection.fileIds String[] @default([])` column (migration `20260517300000_book_text_file_ids`, additive — no backfill needed since the default is empty). Three new server actions mirror the OUTFIT triple-action pattern: `attachFileToTextCard` / `detachFileFromTextCard` / `uploadAndAttachTextFile`, each gating on `requireEdit("book")` + emitting `text-file-attach` / `-detach` / `-upload` audit rows. `SubsectionEditor` gains the existing `<ImageGallery>` component — same drop-in used by OUTFIT — rendered below the rich-text body. Visible in edit mode + view mode (when files attached). `CardRouter`'s `Sub` type gains `fileIds: string[]`; a new top-level `files` prop on `CardRouter` threads the full file list down for the TEXT photo-attach picker. `/book/[slug]/page.tsx` extends the `needFiles` predicate to include `hasText` so the bulk file fetch runs for TEXT-containing sections too. No breaking changes — non-TEXT kinds keep their per-kind fileIds columns untouched. 586 tests stay green.](#2026-05-17--v1961--text-card-photos) |
 | **v1.96.0** | 2026-05-17 | [Multi-assignee tasks + drop category + Q&D from Book panels. User: "Allow tasks to be assigned to multiple people. Remove the category option in tasks. Edit tasks from their linked screen aswell as the tasks page. Allow Questions & Decisions to be made on the item screen too." Three of four asks land in this release; edit-from-linked-screen is queued for v1.96.1. **Schema migration `20260517200000_task_multi_assignee_drop_category`**: implicit-m2m `_TaskAssignees` junction replaces the singular `Task.assigneeId`. Existing rows backfill (`assigneeId` → one junction row) before the column drops, so no data is lost. **Server actions**: `createTask` / `updateTask` accept repeated `assigneeIds` form inputs (TopicPicker-style; `__touched__` marker distinguishes "set to empty" from "field not posted"). Category field + `tags = [category]` write dropped from both. **TaskForm**: single-select assignee `<select>` swapped for a chip-toggle multi-select (`AssigneePicker`). Category input + COMMON_CATEGORIES const + datalist gone. **TaskDrawer**: same — chip-toggle multi-assignee replaces the single select; Category field removed; subtitle no longer renders the category suffix. **Readers updated across 13 files** to render `task.assignees[0]` as primary chip with `+N` overflow suffix when multiple: `/` (Today's "My next tasks" group-by-me filter), `/glance`, `/questions` + QuestionsClient, `/tasks` + TaskBoard + TaskList + TaskRow + TaskDrawer, plus the audit/nudge digest pipeline (`nudge-digest.TaskRow.assignees`, `nudge-actions.ts` select shape). **Book panels — Q&D inline**: `LinkedTasksPanel` + `CardLinkedTasksPanel` switch from `showType={false}` / `"+ Task"` to `showType={true}` / `"+ New"`. The TaskForm's Type picker (Task / Question / Decision) is now visible in the modal so couples can capture Q&D from any Book section page or any card without bouncing to `/questions`. The linked-tasks-panel query already selected `type` and rendered the `Q` / `D` glyphs, so Q&D show up in the same list. **586 tests stay green.**](#2026-05-17--v1960--multi-assignee--category-removal--qd-inline) |
 | **v1.95.4** | 2026-05-17 | [Fix TEXT-card body disappearing on save + harden CardChrome title rename. User: "Block text is not displaying after being saved." Screenshots showed a TEXT card ("Rings") with content typed in the editor (H2 headings + paragraphs + tel-link) reverting to the empty-body "—" placeholder after clicking Save changes. Two coordinated fixes: (1) `SubsectionEditor.save()` adds an explicit `router.refresh()` after the `updateBookSubsection` await. Pre-fix `revalidatePath` inside the action invalidated the server cache but didn't always synchronously refresh the calling client component when the action was awaited inside `startTransition` — so `setEditing(false)` flipped the view to read-mode with the stale (pre-save) `sub.bodyHtml` prop, rendering the "—" fallback. `router.refresh()` forces a fresh server fetch before the view-mode flip. (2) `CardChrome.saveTitle()` dropped its `fd.set("body", "")` line. Pre-fix this sent `updateBookSubsection` into the legacy-body branch and wiped both `body` AND `bodyHtml` columns on every title rename. Harmless for the non-TEXT kinds that currently use CardChrome (their body columns are already null), but a footgun the moment any new kind ever ended up routing both flows. Title-only saves now leave the body columns untouched. No schema, no actions changed. 586 tests green.](#2026-05-17--v1954--fix-text-card-body-disappearing) |
@@ -945,6 +946,62 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-05-17 · v1.96.2 — Hotfix v1.96.0 migration orphans
+
+Production deploy of v1.96.0 → v1.96.1 looped on `P3009` after the multi-assignee migration rolled back mid-transaction. Caddy returned 502s while the web container restarted every few seconds.
+
+**Root cause.** The original `Task.assigneeId String?` column was declared without a corresponding Prisma relation field (`assignee User?`) — schema-only `String`, no DB-level foreign key. Historical rows with `assigneeId` pointing at a user that's since been deleted (e.g. an early test admin) were silently tolerated. The v1.96.0 backfill:
+
+```sql
+INSERT INTO "_TaskAssignees" ("A", "B")
+SELECT "id", "assigneeId" FROM "Task" WHERE "assigneeId" IS NOT NULL;
+```
+
+…hit the new junction's `_TaskAssignees_B_fkey` constraint on User, aborted, and rolled back the whole transaction including the `CREATE TABLE`. Subsequent deploy attempts saw a `_prisma_migrations` row with `finished_at = NULL` and refused to proceed — P3009.
+
+**Fix.** In-place revision of the v1.96.0 migration SQL to be both idempotent (handles partial state from any failed attempt) and orphan-safe (filters the backfill):
+
+```sql
+DROP TABLE IF EXISTS "_TaskAssignees";
+
+CREATE TABLE "_TaskAssignees" (
+  "A" TEXT NOT NULL, "B" TEXT NOT NULL,
+  CONSTRAINT "_TaskAssignees_AB_unique" UNIQUE ("A", "B"),
+  CONSTRAINT "_TaskAssignees_A_fkey" FOREIGN KEY ("A") REFERENCES "Task"("id") ON DELETE CASCADE,
+  CONSTRAINT "_TaskAssignees_B_fkey" FOREIGN KEY ("B") REFERENCES "User"("id") ON DELETE CASCADE
+);
+CREATE INDEX "_TaskAssignees_B_index" ON "_TaskAssignees"("B");
+
+INSERT INTO "_TaskAssignees" ("A", "B")
+SELECT t."id", t."assigneeId"
+FROM "Task" t
+WHERE t."assigneeId" IS NOT NULL
+  AND EXISTS (SELECT 1 FROM "User" u WHERE u."id" = t."assigneeId")
+ON CONFLICT DO NOTHING;
+
+ALTER TABLE "Task" DROP COLUMN IF EXISTS "assigneeId";
+```
+
+Editing a "released" migration is generally bad practice, but this one has never successfully applied in production — there's no historical state for the modification to drift from. The first deploy attempt got an empty (or partially-rolled-back) state, so the new SQL starts from the same scratch and completes.
+
+**Operator recovery — one-time, on prod:**
+
+```bash
+# Run inside the db container while web is down (its restart loop
+# blocks an exec shell). The db container stays up because its
+# healthcheck still passes.
+docker compose --env-file .env exec db psql \
+  -U "$POSTGRES_USER" "$POSTGRES_DB" \
+  -c "DELETE FROM \"_prisma_migrations\" \
+      WHERE migration_name = '20260517200000_task_multi_assignee_drop_category';"
+```
+
+Removing the failed-attempt row makes Prisma treat the migration as never-attempted. Next `Pull & Up` runs the revised SQL on a clean slate — DROP IF EXISTS cleans up the `_TaskAssignees` table that may have survived the rolled-back transaction (Postgres rolls back DDL inside an explicit transaction, so the table probably *isn't* there — but the `IF EXISTS` keeps us safe either way).
+
+**Orphan handling.** Tasks whose `assigneeId` pointed at a deleted user silently lose their stale assignment — `WHERE EXISTS` filters them out of the backfill. That's the correct semantic: a foreign key to a non-existent user was an invalid state to begin with, and the new multi-assignee model needs to enforce referential integrity.
+
+**No new functionality.** This is a pure recovery release. 586 tests stay green. `npx tsc --noEmit`, `npm test`, `npm run build` all clean. Future migrations (e.g. v1.96.1's TEXT-card fileIds) re-queue normally once the failed row is cleared.
 
 ### 2026-05-17 · v1.96.1 — TEXT card photo gallery
 
