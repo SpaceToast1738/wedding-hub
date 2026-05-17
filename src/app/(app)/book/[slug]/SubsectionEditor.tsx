@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { RichTextEditor, RichTextRead } from "@/components/ui/RichTextEditor";
@@ -64,6 +65,15 @@ export function SubsectionEditor({
   const [visibility, setVisibility] = useState(sub.visibility);
   const [pending, startTransition] = useTransition();
   const confirm = useConfirm();
+  // v1.95.4: explicit refresh after server actions so the
+  // RichTextRead view-mode body picks up the freshly-saved
+  // `sub.bodyHtml`. `revalidatePath` inside the action invalidates
+  // the server cache but doesn't always synchronously refresh the
+  // calling client component when the action is awaited inside
+  // `startTransition` — `setEditing(false)` would otherwise flip
+  // the render to view mode using the stale (pre-save) prop, which
+  // is what the user saw as the empty-body "—" after typing + saving.
+  const router = useRouter();
   const dirty = title !== sub.title || bodyHtml !== initialHtml;
 
   // Re-sync draft when the underlying sub prop changes (e.g. after a
@@ -102,9 +112,13 @@ export function SubsectionEditor({
     startTransition(async () => {
       try {
         await updateBookSubsection(sub.id, fd);
-        // Exit edit mode on success. The next render picks up the
-        // refreshed sub prop and re-syncs the draft via the useEffect
-        // above.
+        // v1.95.4: force-refresh the page's server data before
+        // flipping to view mode. Pre-fix the `revalidatePath` inside
+        // the action alone wasn't always delivering the new prop in
+        // time, so `setEditing(false)` rendered view mode with the
+        // stale (pre-save) `sub.bodyHtml` — the user saw their typed
+        // body replaced with the "—" placeholder.
+        router.refresh();
         setEditing(false);
       } catch (err) {
         notify("error", err instanceof Error ? err.message : "Couldn't save");

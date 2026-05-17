@@ -66,7 +66,14 @@ export function CardChrome({
     if (title === savedTitle) return;
     const fd = new FormData();
     fd.set("title", title);
-    fd.set("body", ""); // updateBookSubsection currently expects body too
+    // v1.95.4: do NOT post `body` or `bodyHtml` here. Pre-fix this
+    // posted `body=""` which sent updateBookSubsection into the
+    // legacy-body branch and wiped both `body` AND `bodyHtml` on
+    // every title rename. Harmless for the non-TEXT kinds that
+    // currently use CardChrome (their body columns are already
+    // null), but a footgun the moment any card ever ends up
+    // routing both flows. Updating only title now leaves the body
+    // columns untouched.
     startTransition(async () => {
       try {
         await updateBookSubsection(subsectionId, fd);

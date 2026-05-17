@@ -34,6 +34,7 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
+| **v1.95.4** | 2026-05-17 | [Fix TEXT-card body disappearing on save + harden CardChrome title rename. User: "Block text is not displaying after being saved." Screenshots showed a TEXT card ("Rings") with content typed in the editor (H2 headings + paragraphs + tel-link) reverting to the empty-body "—" placeholder after clicking Save changes. Two coordinated fixes: (1) `SubsectionEditor.save()` adds an explicit `router.refresh()` after the `updateBookSubsection` await. Pre-fix `revalidatePath` inside the action invalidated the server cache but didn't always synchronously refresh the calling client component when the action was awaited inside `startTransition` — so `setEditing(false)` flipped the view to read-mode with the stale (pre-save) `sub.bodyHtml` prop, rendering the "—" fallback. `router.refresh()` forces a fresh server fetch before the view-mode flip. (2) `CardChrome.saveTitle()` dropped its `fd.set("body", "")` line. Pre-fix this sent `updateBookSubsection` into the legacy-body branch and wiped both `body` AND `bodyHtml` columns on every title rename. Harmless for the non-TEXT kinds that currently use CardChrome (their body columns are already null), but a footgun the moment any new kind ever ended up routing both flows. Title-only saves now leave the body columns untouched. No schema, no actions changed. 586 tests green.](#2026-05-17--v1954--fix-text-card-body-disappearing) |
 | **v1.95.3** | 2026-05-17 | [Add ORDERED status to WEDDING_PARTY matrix dropdown. User: "Add orderd status to wedding party dropdown." Pre-fix the matrix cells offered four states: NEED (default / sparse) → HAVE → ALREADY_OWN → N_A. No way to capture "we've placed the order but it isn't in our hands yet" — a beat that matters for bridesmaid/groomsman accessories which arrive between order and the event. New `ORDERED` slot inserted between NEED and HAVE: marigold tone (matches the "in-progress" pill the tasks panel uses for OPEN — visually distinct from HAVE's moss "done" tone), `→` glyph. Persists as an explicit cell row (only NEED + no-notes collapses to absence in the sparse-storage convention, which still holds). **Doesn't count as "sorted"** in the v1.92.0 `sortedCount` rollup — the chip filter still requires `HAVE / ALREADY_OWN / N_A` so ordered items show as "in progress, not done yet". `Status` type union, `STATUS_META`, `STATUSES` order array (UI + select option order), and the server-side `VALID_CELL_STATUSES` zod allowlist all extended. No schema migration (status was always a free `String` column). 586 tests green.](#2026-05-17--v1953--ordered-status-on-wedding-party-matrix) |
 | **v1.95.2** | 2026-05-17 | [Equal-height cards on the section grid + wider container. User: "Where pages differ in sizes make the white space match, header at the top, footer at the bottom content in the middle, also widen the whole thing." After v1.95.0 turned `/book/[slug]` into a 2-column grid, side-by-side cards of different heights left the shorter card at its natural height with empty grid-row background showing below it — the row stretched to the taller card but the shorter card didn't fill it. Now: (1) Grid wrapper div switches from `space-y-1` (static block flow) to `flex flex-col gap-1 h-full` so it fills the row's stretched height. (2) `CardChrome` `<article>` adds `flex flex-col flex-1` — fills the wrapper's available height. Content `{children}` wraps in `<div className="flex-1">` so the body absorbs any extra row space; the linked-tasks panel + action footer get pushed to the article's bottom. Empty space falls between the natural end of the content and the linked-tasks panel — header at top, footer at bottom, content in the middle just as the user asked. (3) `SubsectionEditor` (TEXT cards path) gets the same flex treatment for consistency. (4) Container widened from `max-w-5xl` (1024 px) to `max-w-7xl` (1280 px) — narrow side-by-side cards at 5xl were noticeably cramped on wide screens. No schema, no actions changed.](#2026-05-17--v1952--equal-height-cards--wider-grid) |
 | **v1.95.1** | 2026-05-17 | [Fix silently broken Topics autofill on inline task creation from `/book/[slug]`. User: "When creating a task inline with a page, or an item can we autofill the topic according to the location its being created from?" Found a bug: `LinkedTasksPanel` (section level) and `CardLinkedTasksPanel` (card level) both passed `defaultBookSectionIds` / `defaultBookSubsectionIds` to `AddTaskToggle` but **didn't pass the option lists** (`bookSections` / `bookSubsections`). `TaskForm` gates `TopicPicker` rendering on `bookSections.length > 0 || bookSubsections.length > 0 || …` — so the picker never rendered, and because the picker is what emits the hidden `topicKeys` inputs, the IDs never made it into formData. Tasks were getting created with no topics linked. Fix: new `BookTopicsContext` client provider mounted once in `/book/[slug]/page.tsx` carrying `bookSections = [{section}]` + `bookSubsections = section.subsections.map(...)`. Both panels now wrap `AddTaskToggle` in thin context-consumers (`AddTaskToggleWithTopics` / `AddCardTaskToggle`) that pull the lists from context, so the `TopicPicker` renders pre-populated with the right section / card already chip-selected. Context avoids prop-drilling through 14 card editors / `CardChrome` / `CardLinkedTasksPanel`. No schema, no actions changed.](#2026-05-17--v1951--fix-topics-autofill) |
@@ -942,6 +943,49 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-05-17 · v1.95.4 — Fix TEXT-card body disappearing on save
+
+User: "Block text is not displaying after being saved."
+
+Screenshots showed a TEXT card ("Rings") with rich content typed in the editor (H2 headings + paragraphs + tel-link) reverting to the empty-body `—` placeholder after the user clicked **Save changes**. Same content was still visible when re-opening the editor — so the data wasn't being lost in the DB; the read-mode render was just picking up a stale prop.
+
+**Root cause.** `SubsectionEditor.save()` flow:
+
+```ts
+startTransition(async () => {
+  await updateBookSubsection(sub.id, fd); // server-side revalidatePath
+  setEditing(false);                       // flips to read-mode render
+});
+```
+
+`updateBookSubsection` calls `revalidatePath('/book/<slug>')` which invalidates the server cache. In Next 15 this *usually* triggers an automatic refresh of the calling client component's props — but when the action is awaited inside `startTransition` AND `setEditing(false)` fires immediately after, the read-mode flip can race ahead of the prop update. The `<RichTextRead html={initialHtml} />` then renders against the pre-save `sub.bodyHtml` (still null for a brand-new card) and falls through to the `—` placeholder.
+
+**Fix.** Explicit `router.refresh()` after the await:
+
+```ts
+await updateBookSubsection(sub.id, fd);
+router.refresh(); // force fresh server data before view-mode flip
+setEditing(false);
+```
+
+This forces a synchronous re-fetch of the server's data so the new `sub.bodyHtml` is live before the render switches to view mode. Defensive — does nothing in the common case where revalidatePath alone would have sufficed; closes the race when it doesn't.
+
+**Secondary fix — `CardChrome.saveTitle`.** Pre-fix every title rename on a non-TEXT card posted `fd.set("body", "")` alongside the new title. That empty string entered `updateBookSubsection`'s legacy-body branch:
+
+```ts
+} else if (rawBody !== null) {  // rawBody === "" passes this check
+  const text = String(rawBody);
+  data.body = text || null;             // null
+  data.bodyHtml = text ? legacyBodyToHtml(text) : null;  // null
+}
+```
+
+So every CardChrome title rename wrote `body: null, bodyHtml: null` to the row. Harmless today because no CardChrome-using card kind stores body text (FIELD / RECIPE / OUTFIT / etc. keep their content in per-kind tables, leaving body columns null anyway) — but a latent footgun the moment any new kind ever ends up dual-routing through CardChrome AND having body content. Dropping the `fd.set("body", "")` line makes title-only saves leave the body columns untouched.
+
+**Verification.** Manual round-trip: open a TEXT card, click Edit, type H2/H3/paragraph/link content, click Save changes — content now renders in read mode immediately. `npx tsc --noEmit`, `npm test` (586 passing), `npm run build` — all green.
+
+No schema, no action signatures changed.
 
 ### 2026-05-17 · v1.95.3 — Ordered status on WEDDING_PARTY matrix
 
