@@ -3938,6 +3938,113 @@ export async function uploadAndAttachOutfitFile(
   }
 }
 
+// ─── v1.96.1: TEXT card photo gallery ──────────────────────────────
+//
+// TEXT cards' body content lives directly on BookSubsection (body /
+// bodyHtml). Photos use the new BookSubsection.fileIds[] column —
+// mirrors the OUTFIT / DRESS_CODE / SETUP triple-action pattern
+// (attach existing / detach / upload-and-attach) so the shared
+// <ImageGallery> component drops in unchanged on the editor.
+//
+// No kind-check inside these actions — `requireEdit("book")` already
+// gates write access, and the schema column lives on every
+// BookSubsection regardless of kind. Surfacing it in the UI is
+// TEXT-only.
+
+export async function attachFileToTextCard(
+  subsectionId: string,
+  fileId: string,
+): Promise<BookActionResult> {
+  const user = await requireEdit("book");
+  try {
+    const sub = await db.bookSubsection.findUnique({
+      where: { id: subsectionId },
+      select: { title: true, fileIds: true },
+    });
+    if (!sub) return { ok: false, error: "Page not found" };
+    const file = await db.file.findUnique({ where: { id: fileId } });
+    if (!file) return { ok: false, error: "File not found" };
+    if (sub.fileIds.includes(fileId)) return { ok: true };
+    await db.bookSubsection.update({
+      where: { id: subsectionId },
+      data: { fileIds: [...sub.fileIds, fileId] },
+    });
+    await audit(user, {
+      action: "text-file-attach",
+      entity: "BookSubsection",
+      entityId: subsectionId,
+      metadata: { cardTitle: sub.title, fileId, fileName: file.name },
+    });
+    await revalidateBookSubsection(subsectionId);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Couldn't attach file" };
+  }
+}
+
+export async function detachFileFromTextCard(
+  subsectionId: string,
+  fileId: string,
+): Promise<BookActionResult> {
+  const user = await requireEdit("book");
+  try {
+    const sub = await db.bookSubsection.findUnique({
+      where: { id: subsectionId },
+      select: { title: true, fileIds: true },
+    });
+    if (!sub) return { ok: false, error: "Page not found" };
+    if (!sub.fileIds.includes(fileId)) return { ok: true };
+    const file = await db.file.findUnique({ where: { id: fileId } });
+    await db.bookSubsection.update({
+      where: { id: subsectionId },
+      data: { fileIds: sub.fileIds.filter((id) => id !== fileId) },
+    });
+    await audit(user, {
+      action: "text-file-detach",
+      entity: "BookSubsection",
+      entityId: subsectionId,
+      metadata: { cardTitle: sub.title, fileId, fileName: file?.name ?? null },
+    });
+    await revalidateBookSubsection(subsectionId);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Couldn't detach file" };
+  }
+}
+
+export async function uploadAndAttachTextFile(
+  subsectionId: string,
+  formData: FormData,
+): Promise<BookActionResult> {
+  const user = await requireEdit("book");
+  try {
+    const sub = await db.bookSubsection.findUnique({
+      where: { id: subsectionId },
+      select: { title: true, fileIds: true },
+    });
+    if (!sub) return { ok: false, error: "Page not found" };
+    const formFile = formData.get("file");
+    if (!(formFile instanceof File) || formFile.size === 0) {
+      return { ok: false, error: "No file received." };
+    }
+    const file = await uploadFileForBookCard(user, formFile);
+    await db.bookSubsection.update({
+      where: { id: subsectionId },
+      data: { fileIds: [...sub.fileIds, file.id] },
+    });
+    await audit(user, {
+      action: "text-file-upload",
+      entity: "BookSubsection",
+      entityId: subsectionId,
+      metadata: { cardTitle: sub.title, fileId: file.id, fileName: file.name },
+    });
+    await revalidateBookSubsection(subsectionId);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Couldn't upload" };
+  }
+}
+
 // ─── v1.91.0: DRESS_CODE card ─────────────────────────────────────
 //
 // Single-row card (mirrors BookSetupCard shape — no item children).

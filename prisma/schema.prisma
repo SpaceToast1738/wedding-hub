@@ -688,6 +688,11 @@ model BookSubsection {
   // (Record<string, string|number|null>). Was vestigial pre-v1.26.0;
   // the column is reused so the FIELD case adds no new column.
   fields     Json?
+  // v1.96.1: TEXT cards' photo gallery. Other kinds keep their per-
+  // kind fileIds column on the relevant child table; this one is
+  // TEXT-only in practice. Empty array default mirrors the
+  // convention used by every other fileIds column in the schema.
+  fileIds    String[]    @default([])
   order      Int         @default(0)
   // v1.95.0: per-card width on the /book/[slug] two-column grid.
   // false = single column; true = spans both columns. Default false

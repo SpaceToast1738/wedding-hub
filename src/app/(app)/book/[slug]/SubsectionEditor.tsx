@@ -5,10 +5,18 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { RichTextEditor, RichTextRead } from "@/components/ui/RichTextEditor";
+import { ImageGallery } from "@/components/ui/ImageGallery";
 import { notify } from "@/lib/notify";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { legacyBodyToHtml } from "@/lib/sanitize-book-html";
-import { deleteBookSubsection, setBookSubsectionVisibility, updateBookSubsection } from "../actions";
+import {
+  attachFileToTextCard,
+  deleteBookSubsection,
+  detachFileFromTextCard,
+  setBookSubsectionVisibility,
+  updateBookSubsection,
+  uploadAndAttachTextFile,
+} from "../actions";
 import { CardLinkedTasksPanel, type LinkedTaskRow } from "./CardLinkedTasksPanel";
 import type { UserOpt } from "@/app/(app)/tasks/AddTaskToggle";
 
@@ -31,6 +39,9 @@ type Sub = {
   body: string | null;
   bodyHtml: string | null;
   visibility: "EVERYONE" | "COUPLE_ONLY";
+  // v1.96.1: photo gallery on TEXT cards. Default to empty array if
+  // an upstream caller doesn't thread it (older callers stay safe).
+  fileIds?: string[];
 };
 
 export function SubsectionEditor({
@@ -39,6 +50,7 @@ export function SubsectionEditor({
   isCouple,
   linkedTasks = [],
   users = [],
+  files = [],
 }: {
   sub: Sub;
   canEdit: boolean;
@@ -49,6 +61,9 @@ export function SubsectionEditor({
   // v1.92.0: render the linked-tasks panel inline within the card.
   linkedTasks?: LinkedTaskRow[];
   users?: UserOpt[];
+  // v1.96.1: full file list for the photo-attach picker. Same shape
+  // as every other card editor that uses <ImageGallery>.
+  files?: Array<{ id: string; name: string; mimeType: string }>;
 }) {
   // Initial HTML: prefer bodyHtml (the new shape). Fall back to
   // legacyBodyToHtml(body) for rows that haven't been re-saved
@@ -133,6 +148,26 @@ export function SubsectionEditor({
     });
   }
 
+  // v1.96.1: file gallery handlers — mirror the OUTFIT / DRESS_CODE
+  // pattern. Each action runs inside startTransition so the optimistic
+  // UI / pending state behaves correctly; router.refresh() syncs the
+  // gallery against the new `sub.fileIds` once revalidate completes.
+  const fileIds = sub.fileIds ?? [];
+  function attachFile(fileId: string) {
+    startTransition(async () => {
+      const res = await attachFileToTextCard(sub.id, fileId);
+      if (!res.ok) notify("error", res.error);
+      else router.refresh();
+    });
+  }
+  function detachFile(fileId: string) {
+    startTransition(async () => {
+      const res = await detachFileFromTextCard(sub.id, fileId);
+      if (!res.ok) notify("error", res.error);
+      else router.refresh();
+    });
+  }
+
   return (
     // v1.95.2: flex-col + flex-1 mirrors the CardChrome treatment so
     // TEXT cards also stretch to fill the 2-col grid row height with
@@ -173,6 +208,37 @@ export function SubsectionEditor({
           <RichTextRead html={initialHtml} />
         ) : (
           <p className="text-sm text-ink-tertiary italic">—</p>
+        )}
+        {/* v1.96.1: photo gallery on TEXT cards. Renders below the
+            body in both view + edit modes so couples can attach
+            inspiration / reference shots alongside the notes.
+            Hidden in view mode when nothing's attached + the user
+            isn't editing — keeps short cards clean. */}
+        {(canEdit || fileIds.length > 0) && (
+          <div className="mt-4">
+            <strong className="block text-[10px] uppercase tracking-wider text-ink-tertiary font-bold mb-1.5">
+              Photos ({fileIds.length})
+            </strong>
+            <ImageGallery
+              fileIds={fileIds}
+              files={files}
+              canEdit={canEdit}
+              pending={pending}
+              onUpload={async (file) => {
+                const fd = new FormData();
+                fd.set("file", file);
+                const res = await uploadAndAttachTextFile(sub.id, fd);
+                if (res.ok) {
+                  notify("success", "Photo uploaded");
+                  router.refresh();
+                } else {
+                  notify("error", res.error);
+                }
+              }}
+              onAttach={attachFile}
+              onDetach={detachFile}
+            />
+          </div>
         )}
       </div>
       {/* v1.92.0: linked-tasks panel rendered inside the card so it

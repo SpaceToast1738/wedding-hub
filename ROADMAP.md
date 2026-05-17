@@ -34,6 +34,7 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
+| **v1.96.1** | 2026-05-17 | [TEXT cards get a photo gallery. User: "Allow photos on the 'text' panel." OUTFIT / DRESS_CODE / BUILD / STAY / LODGING_GUIDE cards have shipped `<ImageGallery>` since v1.63.0, but TEXT — the most flexible card kind — was photo-less. New `BookSubsection.fileIds String[] @default([])` column (migration `20260517300000_book_text_file_ids`, additive — no backfill needed since the default is empty). Three new server actions mirror the OUTFIT triple-action pattern: `attachFileToTextCard` / `detachFileFromTextCard` / `uploadAndAttachTextFile`, each gating on `requireEdit("book")` + emitting `text-file-attach` / `-detach` / `-upload` audit rows. `SubsectionEditor` gains the existing `<ImageGallery>` component — same drop-in used by OUTFIT — rendered below the rich-text body. Visible in edit mode + view mode (when files attached). `CardRouter`'s `Sub` type gains `fileIds: string[]`; a new top-level `files` prop on `CardRouter` threads the full file list down for the TEXT photo-attach picker. `/book/[slug]/page.tsx` extends the `needFiles` predicate to include `hasText` so the bulk file fetch runs for TEXT-containing sections too. No breaking changes — non-TEXT kinds keep their per-kind fileIds columns untouched. 586 tests stay green.](#2026-05-17--v1961--text-card-photos) |
 | **v1.96.0** | 2026-05-17 | [Multi-assignee tasks + drop category + Q&D from Book panels. User: "Allow tasks to be assigned to multiple people. Remove the category option in tasks. Edit tasks from their linked screen aswell as the tasks page. Allow Questions & Decisions to be made on the item screen too." Three of four asks land in this release; edit-from-linked-screen is queued for v1.96.1. **Schema migration `20260517200000_task_multi_assignee_drop_category`**: implicit-m2m `_TaskAssignees` junction replaces the singular `Task.assigneeId`. Existing rows backfill (`assigneeId` → one junction row) before the column drops, so no data is lost. **Server actions**: `createTask` / `updateTask` accept repeated `assigneeIds` form inputs (TopicPicker-style; `__touched__` marker distinguishes "set to empty" from "field not posted"). Category field + `tags = [category]` write dropped from both. **TaskForm**: single-select assignee `<select>` swapped for a chip-toggle multi-select (`AssigneePicker`). Category input + COMMON_CATEGORIES const + datalist gone. **TaskDrawer**: same — chip-toggle multi-assignee replaces the single select; Category field removed; subtitle no longer renders the category suffix. **Readers updated across 13 files** to render `task.assignees[0]` as primary chip with `+N` overflow suffix when multiple: `/` (Today's "My next tasks" group-by-me filter), `/glance`, `/questions` + QuestionsClient, `/tasks` + TaskBoard + TaskList + TaskRow + TaskDrawer, plus the audit/nudge digest pipeline (`nudge-digest.TaskRow.assignees`, `nudge-actions.ts` select shape). **Book panels — Q&D inline**: `LinkedTasksPanel` + `CardLinkedTasksPanel` switch from `showType={false}` / `"+ Task"` to `showType={true}` / `"+ New"`. The TaskForm's Type picker (Task / Question / Decision) is now visible in the modal so couples can capture Q&D from any Book section page or any card without bouncing to `/questions`. The linked-tasks-panel query already selected `type` and rendered the `Q` / `D` glyphs, so Q&D show up in the same list. **586 tests stay green.**](#2026-05-17--v1960--multi-assignee--category-removal--qd-inline) |
 | **v1.95.4** | 2026-05-17 | [Fix TEXT-card body disappearing on save + harden CardChrome title rename. User: "Block text is not displaying after being saved." Screenshots showed a TEXT card ("Rings") with content typed in the editor (H2 headings + paragraphs + tel-link) reverting to the empty-body "—" placeholder after clicking Save changes. Two coordinated fixes: (1) `SubsectionEditor.save()` adds an explicit `router.refresh()` after the `updateBookSubsection` await. Pre-fix `revalidatePath` inside the action invalidated the server cache but didn't always synchronously refresh the calling client component when the action was awaited inside `startTransition` — so `setEditing(false)` flipped the view to read-mode with the stale (pre-save) `sub.bodyHtml` prop, rendering the "—" fallback. `router.refresh()` forces a fresh server fetch before the view-mode flip. (2) `CardChrome.saveTitle()` dropped its `fd.set("body", "")` line. Pre-fix this sent `updateBookSubsection` into the legacy-body branch and wiped both `body` AND `bodyHtml` columns on every title rename. Harmless for the non-TEXT kinds that currently use CardChrome (their body columns are already null), but a footgun the moment any new kind ever ended up routing both flows. Title-only saves now leave the body columns untouched. No schema, no actions changed. 586 tests green.](#2026-05-17--v1954--fix-text-card-body-disappearing) |
 | **v1.95.3** | 2026-05-17 | [Add ORDERED status to WEDDING_PARTY matrix dropdown. User: "Add orderd status to wedding party dropdown." Pre-fix the matrix cells offered four states: NEED (default / sparse) → HAVE → ALREADY_OWN → N_A. No way to capture "we've placed the order but it isn't in our hands yet" — a beat that matters for bridesmaid/groomsman accessories which arrive between order and the event. New `ORDERED` slot inserted between NEED and HAVE: marigold tone (matches the "in-progress" pill the tasks panel uses for OPEN — visually distinct from HAVE's moss "done" tone), `→` glyph. Persists as an explicit cell row (only NEED + no-notes collapses to absence in the sparse-storage convention, which still holds). **Doesn't count as "sorted"** in the v1.92.0 `sortedCount` rollup — the chip filter still requires `HAVE / ALREADY_OWN / N_A` so ordered items show as "in progress, not done yet". `Status` type union, `STATUS_META`, `STATUSES` order array (UI + select option order), and the server-side `VALID_CELL_STATUSES` zod allowlist all extended. No schema migration (status was always a free `String` column). 586 tests green.](#2026-05-17--v1953--ordered-status-on-wedding-party-matrix) |
@@ -944,6 +945,49 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-05-17 · v1.96.1 — TEXT card photo gallery
+
+User: "Allow photos on the 'text' panel."
+
+OUTFIT (v1.35.0), DRESS_CODE (v1.91.0), BUILD, STAY, LODGING_GUIDE, SETUP cards have all shipped the shared `<ImageGallery>` component since v1.63.0. TEXT — the simplest + most flexible card kind, used as "notes & sizing", "supplier contact", "venue floorplan" — was photo-less. Couples could attach a fitting photo to the OUTFIT card but not to the freeform Rings notes card right beside it.
+
+**Schema migration `20260517300000_book_text_file_ids`:**
+```sql
+ALTER TABLE "BookSubsection" ADD COLUMN "fileIds" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[];
+```
+
+Lives directly on `BookSubsection` rather than spawning a new per-kind `BookTextCard` table. TEXT's content (body / bodyHtml) already sits on the row itself — adding a sibling fileIds column keeps the read path single-query, and the column simply sits unused for non-TEXT kinds (which keep their own per-kind fileIds on `BookOutfitCard`, `BookDressCodeCard`, etc.). The migration is additive with an empty-array default, so no backfill is needed.
+
+**Server actions** (`src/app/(app)/book/actions.ts` — mirror the OUTFIT triple-action pattern):
+
+- `attachFileToTextCard(subsectionId, fileId)` — append fileId, idempotent (already-attached returns `ok` without re-writing).
+- `detachFileFromTextCard(subsectionId, fileId)` — filter out, idempotent.
+- `uploadAndAttachTextFile(subsectionId, formData)` — reuses the existing `uploadFileForBookCard(user, formFile)` helper (validates MIME + writes bytes + creates the `File` row), then appends the new fileId.
+
+All three gate on `requireEdit("book")` and emit `text-file-attach` / `-detach` / `-upload` audit rows with `cardTitle` + `fileName` metadata. `revalidateBookSubsection(subsectionId)` runs at the end of each so the client gets fresh data after the round-trip.
+
+**`SubsectionEditor` UI:**
+
+- New `fileIds?: string[]` on the `Sub` type + new `files?` prop for the picker's full-list dropdown.
+- Three handlers — `attachFile` / `detachFile` / upload — each wrapped in `startTransition` + followed by `router.refresh()` (same v1.95.4 pattern that fixed the post-save render race).
+- `<ImageGallery>` drops in just below the body's flex-1 wrapper. Renders when `canEdit || fileIds.length > 0` so empty cards in read-only mode stay tidy.
+- Section header: `Photos (N)` matching the OUTFIT card convention.
+
+**Threading** (`CardRouter` → `/book/[slug]/page.tsx`):
+
+- `CardRouter.Sub` type gains `fileIds: string[]`.
+- New top-level `files` prop on `CardRouter` — passed through to `renderCardBody` and on into `SubsectionEditor`. Other card kinds carry their files inside their per-kind sub data (`sub.outfitCard.files` etc.) and don't need this top-level list.
+- `/book/[slug]/page.tsx` extends `needFiles` to include `hasText` so the bulk `db.file.findMany` runs for sections that include TEXT cards. Cost: one extra fetch per page that has TEXT cards but no LEGAL/OUTFIT (which were already triggering it).
+
+**Read path.** The page's existing `findUnique({ where: { slug } })` with `include` on subsections loads all scalar fields by default, so `fileIds` flows through automatically. No query changes needed beyond the file-list fetch above.
+
+**Verification:**
+
+- `npx tsc --noEmit`, `npm test` (586 passing), `npm run build` — all green.
+- Manual: open any TEXT card → Edit → Photos block appears below the rich-text editor with "+ Upload photo" + "📎 Attach existing" controls. Upload an image → page reflects the new gallery thumbnail.
+
+**Out of scope.** Surfacing `fileIds` on the read-only "On this page" anchor row (purely a label row, no thumbnail real estate). Drag-to-attach from the Files page (separate ergonomic concern — applies equally to OUTFIT / DRESS_CODE / etc.).
 
 ### 2026-05-17 · v1.96.0 — Multi-assignee + category removal + Q&D inline
 

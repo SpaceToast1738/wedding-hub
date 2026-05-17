@@ -45,6 +45,10 @@ type Sub = {
   // v1.37.0: TEXT cards now author HTML via Tiptap. `body` stays one
   // release as a recoverability buffer; new edits write `bodyHtml`.
   bodyHtml: string | null;
+  // v1.96.1: photo gallery on TEXT cards. Lives directly on
+  // BookSubsection (sibling to body / bodyHtml); ignored for non-
+  // TEXT kinds which use their own per-kind fileIds columns.
+  fileIds: string[];
   fields: unknown;
   visibility: "EVERYONE" | "COUPLE_ONLY";
   kind: "TEXT" | "FIELD" | "RECIPE" | "SHOT_LIST" | "OUTFIT" | "BUILD" | "MENU" | "BAR" | "SETUP" | "LEGAL" | "STAY" | "LODGING_GUIDE" | "DRESS_CODE" | "WEDDING_PARTY";
@@ -356,6 +360,7 @@ export function CardRouter({
   budgetCategories = [],
   linkedTasks = [],
   users = [],
+  files = [],
 }: {
   sub: Sub;
   canEdit: boolean;
@@ -370,6 +375,11 @@ export function CardRouter({
   budgetCategories?: Array<{ id: string; name: string }>;
   linkedTasks?: LinkedTaskRow[];
   users?: UserOpt[];
+  /** v1.96.1: full file list — fuels the TEXT-card photo picker.
+   *  Other kinds embed their files into the per-kind sub data
+   *  (sub.outfitCard.files / sub.dressCodeCard.files / …) and
+   *  don't need this top-level list. */
+  files?: Array<{ id: string; name: string; mimeType: string }>;
 }) {
   // v1.92.0: the four kinds the user is actively iterating on (TEXT,
   // OUTFIT, DRESS_CODE, WEDDING_PARTY) render the linked-tasks panel
@@ -384,7 +394,7 @@ export function CardRouter({
     // suppresses the duplicate sibling render.
     "FIELD", "RECIPE",
   ]);
-  const body = renderCardBody(sub, canEdit, isCouple, showMoney, budgetCategories, linkedTasks, users);
+  const body = renderCardBody(sub, canEdit, isCouple, showMoney, budgetCategories, linkedTasks, users, files);
   if (inlineKinds.has(sub.kind)) return body;
   return (
     <>
@@ -421,6 +431,10 @@ function renderCardBody(
   budgetCategories: Array<{ id: string; name: string }>,
   linkedTasks: LinkedTaskRow[],
   users: UserOpt[],
+  // v1.96.1: full file list for the TEXT-card photo picker. Other
+  // kinds embed their files into their per-kind sub data; this
+  // top-level param is TEXT-specific.
+  files: Array<{ id: string; name: string; mimeType: string }>,
 ) {
   // v1.78.0: budgetCategories is loaded by the page and passed
   // through here for the per-card "Link to budget" pickers (MENU /
@@ -438,11 +452,14 @@ function renderCardBody(
             body: sub.body,
             bodyHtml: sub.bodyHtml,
             visibility: sub.visibility,
+            // v1.96.1: TEXT card photo gallery.
+            fileIds: sub.fileIds,
           }}
           canEdit={canEdit}
           isCouple={isCouple}
           linkedTasks={linkedTasks}
           users={users}
+          files={files}
         />
       );
     case "FIELD":

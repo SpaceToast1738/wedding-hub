@@ -237,7 +237,10 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
   // present.
   const hasLegal = section.subsections.some((s) => s.kind === "LEGAL");
   const hasOutfit = section.subsections.some((s) => s.kind === "OUTFIT");
-  const needFiles = hasLegal || hasOutfit;
+  // v1.96.1: TEXT cards get a photo gallery, so any section with a
+  // TEXT card also needs the full file list for the attach picker.
+  const hasText = section.subsections.some((s) => s.kind === "TEXT");
+  const needFiles = hasLegal || hasOutfit || hasText;
   const [weddingSettings, allFiles] = needFiles
     ? await Promise.all([
         hasLegal ? db.weddingSettings.findUnique({ where: { id: 1 } }) : Promise.resolve(null),
@@ -604,6 +607,10 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
                     budgetCategories={budgetCategories}
                     linkedTasks={subsectionTasksById.get(s.id) ?? []}
                     users={taskUsers}
+                    // v1.96.1: full file list for the TEXT-card photo
+                    // picker. Pre-loaded above when `hasText` (or any
+                    // other file-needing kind) is true.
+                    files={allFiles}
                   />
                 </div>
               );
