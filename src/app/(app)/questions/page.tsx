@@ -16,6 +16,18 @@ export default async function QuestionsPage() {
     db.task.findMany({
       where: { type: { in: ["QUESTION", "DECISION"] } },
       orderBy: [{ status: "asc" }, { priority: "desc" }, { createdAt: "desc" }],
+      // v1.90.1: include the four topic m2m relations so the inline
+      // edit form on /questions can pre-select existing links (parity
+      // with /tasks, which already includes these on its row query).
+      // Without this the edit form's TopicPicker was hidden entirely
+      // because TaskForm gates the block on `bookSections.length > 0
+      // || …` and we passed empty defaults.
+      include: {
+        bookSections:    { select: { id: true } },
+        bookSubsections: { select: { id: true } },
+        navTags:         { select: { id: true } },
+        guestGroups:     { select: { id: true } },
+      },
     }),
     db.user.findMany({ orderBy: [{ isCouple: "desc" }, { name: "asc" }] }),
     // v1.22.0: defs scoped to task entity (Question/Decision are
@@ -122,10 +134,22 @@ export default async function QuestionsPage() {
           notes: q.notes,
           tags: q.tags,
           customFieldValues: q.customFieldValues as Record<string, string | number | null> | null,
+          // v1.90.1: flatten the m2m arrays to ID lists so the edit
+          // form's TopicPicker pre-selects the existing links.
+          bookSectionIds:    q.bookSections.map((s) => s.id),
+          bookSubsectionIds: q.bookSubsections.map((s) => s.id),
+          navTagIds:         q.navTags.map((n) => n.id),
+          guestGroupIds:     q.guestGroups.map((g) => g.id),
         }))}
         users={users.map((u) => ({ id: u.id, name: u.name, email: u.email }))}
         editable={editable}
         customFieldDefs={customFieldDefsTyped}
+        // v1.90.1: option lists for the inline edit form's TopicPicker.
+        // Same shapes already loaded above for AddTaskToggle.
+        bookSections={bookSections}
+        bookSubsections={bookSubsections}
+        navTags={navTags}
+        guestGroups={guestGroups}
       />
     </>
   );

@@ -11,6 +11,7 @@ import { notify } from "@/lib/notify";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { deleteTask, updateTask } from "@/app/(app)/tasks/actions";
 import { TaskForm, type UserOpt as TaskFormUserOpt } from "@/app/(app)/tasks/TaskForm";
+import type { BookSectionOpt, BookSubsectionOpt, NavTagOpt, GuestGroupOpt } from "@/app/(app)/tasks/TopicPicker";
 import { AnswerForm } from "./AnswerForm";
 
 type Q = {
@@ -25,6 +26,12 @@ type Q = {
   notes?: string | null;
   tags?: string[];
   customFieldValues?: Record<string, string | number | null> | null;
+  // v1.90.1: existing topic m2m links — used to pre-select the
+  // TopicPicker in the inline edit form. Parity with /tasks.
+  bookSectionIds: string[];
+  bookSubsectionIds: string[];
+  navTagIds: string[];
+  guestGroupIds: string[];
 };
 
 type UserOpt = { id: string; name: string | null; email: string };
@@ -39,11 +46,21 @@ export function QuestionsClient({
   users,
   editable,
   customFieldDefs = [],
+  bookSections = [],
+  bookSubsections = [],
+  navTags = [],
+  guestGroups = [],
 }: {
   questions: Q[];
   users: UserOpt[];
   editable: boolean;
   customFieldDefs?: CustomFieldDef[];
+  // v1.90.1: option lists for the inline edit form's TopicPicker.
+  // Same shapes as on AddTaskToggle (page already loads them).
+  bookSections?: BookSectionOpt[];
+  bookSubsections?: BookSubsectionOpt[];
+  navTags?: NavTagOpt[];
+  guestGroups?: GuestGroupOpt[];
 }) {
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
   const [priorityFilter, setPriorityFilter] = useState<PriorityFilter>("all");
@@ -113,8 +130,8 @@ export function QuestionsClient({
           </p>
         ) : (
           <>
-            <Section title="Open" items={open} users={users} usersById={usersById} editable={editable} customFieldDefs={customFieldDefs} />
-            <Section title="Answered" items={answered} users={users} usersById={usersById} editable={editable} customFieldDefs={customFieldDefs} />
+            <Section title="Open" items={open} users={users} usersById={usersById} editable={editable} customFieldDefs={customFieldDefs} bookSections={bookSections} bookSubsections={bookSubsections} navTags={navTags} guestGroups={guestGroups} />
+            <Section title="Answered" items={answered} users={users} usersById={usersById} editable={editable} customFieldDefs={customFieldDefs} bookSections={bookSections} bookSubsections={bookSubsections} navTags={navTags} guestGroups={guestGroups} />
           </>
         )}
       </div>
@@ -129,6 +146,10 @@ function Section({
   usersById,
   editable,
   customFieldDefs,
+  bookSections,
+  bookSubsections,
+  navTags,
+  guestGroups,
 }: {
   title: string;
   items: Q[];
@@ -136,6 +157,11 @@ function Section({
   usersById: Map<string, UserOpt>;
   editable: boolean;
   customFieldDefs: CustomFieldDef[];
+  // v1.90.1: passed through to Row → TaskForm for the Topics picker.
+  bookSections: BookSectionOpt[];
+  bookSubsections: BookSubsectionOpt[];
+  navTags: NavTagOpt[];
+  guestGroups: GuestGroupOpt[];
 }) {
   if (items.length === 0) return null;
   return (
@@ -143,7 +169,18 @@ function Section({
       <h2 className="text-[11px] font-bold text-ink-tertiary uppercase tracking-wider mb-2">{title}</h2>
       <ol className="bg-surface border border-border-soft rounded-md shadow-sm divide-y divide-border-soft">
         {items.map((q) => (
-          <Row key={q.id} q={q} users={users} usersById={usersById} editable={editable} customFieldDefs={customFieldDefs} />
+          <Row
+            key={q.id}
+            q={q}
+            users={users}
+            usersById={usersById}
+            editable={editable}
+            customFieldDefs={customFieldDefs}
+            bookSections={bookSections}
+            bookSubsections={bookSubsections}
+            navTags={navTags}
+            guestGroups={guestGroups}
+          />
         ))}
       </ol>
     </section>
@@ -156,12 +193,21 @@ function Row({
   usersById,
   editable,
   customFieldDefs,
+  bookSections,
+  bookSubsections,
+  navTags,
+  guestGroups,
 }: {
   q: Q;
   users: UserOpt[];
   usersById: Map<string, UserOpt>;
   editable: boolean;
   customFieldDefs: CustomFieldDef[];
+  // v1.90.1: option lists for TaskForm's TopicPicker.
+  bookSections: BookSectionOpt[];
+  bookSubsections: BookSubsectionOpt[];
+  navTags: NavTagOpt[];
+  guestGroups: GuestGroupOpt[];
 }) {
   const [editing, setEditing] = useState(false);
   const [pending, startTransition] = useTransition();
@@ -192,6 +238,13 @@ function Row({
         <TaskForm
           users={users as TaskFormUserOpt[]}
           submitLabel="Save"
+          // v1.90.1: forward topic option lists + existing IDs so the
+          // TopicPicker renders + pre-selects existing links. Parity
+          // with /tasks' edit drawer.
+          bookSections={bookSections}
+          bookSubsections={bookSubsections}
+          navTags={navTags}
+          guestGroups={guestGroups}
           initial={{
             title: q.title,
             type: q.type,
@@ -201,6 +254,10 @@ function Row({
             dueDate: isoForInput(q.dueDate),
             category: q.tags?.[0] ?? "",
             notes: q.notes ?? "",
+            bookSectionIds:    q.bookSectionIds,
+            bookSubsectionIds: q.bookSubsectionIds,
+            navTagIds:         q.navTagIds,
+            guestGroupIds:     q.guestGroupIds,
           }}
           onSubmit={async (fd) => {
             await updateTask(q.id, fd);

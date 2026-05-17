@@ -34,6 +34,7 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
+| **v1.90.1** | 2026-05-14 | [Questions / Decisions edit form gets the Topics picker (parity with Tasks). User: "They don't have the same edit screen". On `/questions`, the inline edit row's `TaskForm` was missing the Topics multi-select (Book sections / Book pages / Nav tags / Guest groups) — `+ New` via `AddTaskToggle` had it because the page only piped the option lists into the create form, not the edit form. Two coordinated fixes in `questions/page.tsx` + `QuestionsClient.tsx`: (1) the task query now `include`s the four m2m relations so each row carries its existing topic-link IDs; (2) the option lists + ID arrays are threaded through `QuestionsClient → Section → Row → TaskForm`. `TaskForm`'s existing guard (`bookSections.length > 0 || …`) now sees non-empty lists and renders the picker, pre-selected with the row's existing links. Save path uses the existing `updateTask` + `parseTopicKeys` — no server changes. No schema; relations exist since v1.30.5 / v1.51.0 / v1.61.0.](#2026-05-14--v1901--questions-edit-form-parity) |
 | **v1.90.0** | 2026-05-14 | [Today page polish — cross-module strip no longer leaves blank columns + Recent activity gets entity badges + initials chips. User: "Can we make this look better?" Two render fixes on `/today`: (1) `TodayCrossModuleStrip` switched from a fixed `grid-cols-3` to `auto-fit minmax(280px, 1fr)`, with empty widgets filtered before render — pre-fix, when only Open Decisions had data, the lone card sat alone in column 1 with two empty grid cells reserving column 2+3 space. (2) `RecentActivityFeed` rewrote from a uniform-grey-text list into a scannable two-row column: colour-coded entity glyph badges on the left (£ for Payment / Budget, ✓ for Task, ♥ for Guest / Household, ◆ for Supplier, ❧ for Book, ♪ for Songs, 📎 for File, etc.), monospace `time-ago` column, the formatted sentence, and a trailing initials avatar chip with the actor's full name in the title attr. `divide-y` separators + subtle hover so consecutive entries don't blur together.](#2026-05-14--v1900--today-page-polish) |
 | **v1.89.2** | 2026-05-14 | [Folder name on receipt list + grouped picker. User: "Add the folder name to receipts". The receipts panel on /payments showed bare filenames so files with similar names across folders ("invoice.pdf" in Payment receipts vs Catering) were indistinguishable. Now each attached receipt renders the folder as a muted uppercase prefix chip ("PAYMENT RECEIPTS · invoice.pdf"); the "Attach existing file" disclosure groups files under sticky folder headers; the inline grid's `📎 Pick existing` popover does the same. Page query selects `folder` + orders by `folder asc, name asc` so groups arrive pre-sorted. No schema; `File.folder` already exists.](#2026-05-14--v1892--folder-name-on-receipts) |
 | **v1.89.1** | 2026-05-14 | [MIME fallback for OneDrive / mail-attached uploads. User reported a known-good PDF ("Jamie Spencer Proposal_signed.pdf", 1 MB, valid `%PDF` magic bytes) failing to upload. Root cause: OneDrive-synced files lose their Content-Type metadata, so the browser sends `file.type` as empty / `application/octet-stream`, which `validateUpload` rejected even though `.pdf` was on the allowlist. Fix: when `file.type` is missing or generic, fall back to inferring MIME from the file extension via a new reverse-lookup of the `MIME_EXTENSIONS` map (`inferMimeFromName`). Error message now includes the filename + the detected type so users can self-diagnose wrong-extension typos. Applies to every upload surface — payment receipts, BUILD/SETUP/STAY galleries, /files general upload.](#2026-05-14--v1891--mime-fallback-onedrive) |
@@ -927,6 +928,22 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-05-14 · v1.90.1 — Questions edit form parity
+
+User: "They don't have the same edit screen" — screenshot of `/questions` editing a question, showing Title · Type · Priority · Status · Due · Assignee · Category · Notes — but no Topics multi-select. The `+ New` form on the same page (via `AddTaskToggle`) has the Topics picker; the inline edit row didn't.
+
+**Diagnosis.** `TaskForm` only renders its Topics block when at least one of `bookSections / bookSubsections / navTags / guestGroups` is non-empty (the guard hides an empty card on pages that don't load any). The Questions page already loaded all four lists for `AddTaskToggle` but never threaded them into `QuestionsClient` — and the task query never `include`d the m2m relations, so even if the picker rendered it would have nothing pre-selected.
+
+**Two coordinated fixes:**
+
+1. **`questions/page.tsx`** — `db.task.findMany` gains `include: { bookSections, bookSubsections, navTags, guestGroups }` (only `.id` selected; just need IDs for picker pre-selection). The page's `<QuestionsClient>` invocation now passes the four option lists + flattens each row's m2m arrays into `bookSectionIds / bookSubsectionIds / navTagIds / guestGroupIds` on the shaped `Q` object.
+
+2. **`QuestionsClient.tsx`** — local `Q` type extended with the four ID arrays; the four option-list props added to `QuestionsClient → Section → Row`; `TaskForm` invocation in the editing branch forwards both the option lists and the existing IDs as `initial`.
+
+**No server changes.** `updateTask` already reads topic IDs via `parseTopicKeys(formData)` (writing them was never broken — the form just never surfaced them to edit). `TopicPicker`'s `__touched__` sentinel (v1.61.1) handles the unchanged-relations preservation rule correctly.
+
+**Verification.** Edit any open question on /questions — the form now has a Topics section under Notes with the four chip groups, pre-selected with the row's existing links. Toggle, save, reload — the relations persist and surface under `LinkedTasksPanel` / `CardLinkedTasksPanel` on the linked Wedding Book section/card. 594/594 tests stay green.
 
 ### 2026-05-14 · v1.90.0 — Today page polish
 
