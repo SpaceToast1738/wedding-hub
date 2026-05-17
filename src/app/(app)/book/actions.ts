@@ -437,6 +437,37 @@ export async function setBookSubsectionVisibility(
   revalidatePath(`/book/${sub.section.slug}`);
 }
 
+// v1.95.0: per-card width on the section page's two-column grid.
+// `false` = single column; `true` = spans both columns. No couple-tier
+// gate — layout is purely cosmetic and any book-editor should be able
+// to flip it (same access tier as reorder).
+export async function setBookSubsectionWide(
+  id: string,
+  wide: boolean,
+): Promise<BookActionResult> {
+  const user = await requireEdit("book");
+  const before = await db.bookSubsection.findUnique({
+    where: { id },
+    select: { wide: true, title: true, section: { select: { slug: true } } },
+  });
+  if (!before) return { ok: false, error: "Card not found" };
+  if (before.wide === wide) return { ok: true }; // no-op
+  await db.bookSubsection.update({ where: { id }, data: { wide } });
+  await audit(user, {
+    action: "update",
+    entity: "BookSubsection",
+    entityId: id,
+    metadata: {
+      changedFields: ["wide"],
+      title: before.title,
+      wideBefore: before.wide,
+      wideAfter: wide,
+    },
+  });
+  revalidatePath(`/book/${before.section.slug}`);
+  return { ok: true };
+}
+
 // v1.24.0: same gate, applied at the BookSection level so the couple
 // can hide a whole section (not just individual pages). Mirrors the
 // subsection action above 1:1.

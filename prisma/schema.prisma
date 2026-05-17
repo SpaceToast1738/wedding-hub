@@ -683,6 +683,10 @@ model BookSubsection {
   // the column is reused so the FIELD case adds no new column.
   fields     Json?
   order      Int         @default(0)
+  // v1.95.0: per-card width on the /book/[slug] two-column grid.
+  // false = single column; true = spans both columns. Default false
+  // so the layout doesn't shift for existing rows on migration.
+  wide       Boolean     @default(false)
   // C1 (v1.14.0): per-page audience override. Mirrors FileVisibility.
   // Couple-only pages are filtered out for non-couple users at read
   // time. Default EVERYONE so existing rows remain visible.

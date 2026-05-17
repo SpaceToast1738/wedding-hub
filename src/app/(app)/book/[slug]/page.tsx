@@ -9,6 +9,7 @@ import { CardRouter } from "./CardRouter";
 import { SubsectionReorderControls } from "./SubsectionReorderControls";
 import { SectionVisibilityToggle } from "./SectionVisibilityToggle";
 import { EditSectionToggle } from "./EditSectionToggle";
+import { SubsectionWidthToggle } from "./SubsectionWidthToggle";
 import { LinkedTasksPanel } from "./LinkedTasksPanel";
 import { menuRollups } from "@/lib/book-cards";
 
@@ -306,7 +307,11 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
         }
       />
       <div className="flex-1 overflow-auto">
-        <div className="max-w-3xl mx-auto p-4 sm:p-6 space-y-4">
+        {/* v1.95.0: container widened from max-w-3xl to max-w-5xl so
+            the 2-column card grid below has room to breathe. The
+            anchor row / linked tasks panel / back link still read
+            naturally at the wider width (they're left-aligned text). */}
+        <div className="max-w-5xl mx-auto p-4 sm:p-6 space-y-4">
           <Link href="/book" className="text-xs text-moss-500 hover:underline inline-block">← Wedding Book</Link>
 
           {/* On-page anchor row — quick jumps for long sections.
@@ -344,7 +349,12 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
               This section has no pages yet. {editable && "Add one above."}
             </p>
           ) : (
-            section.subsections.map((sRaw, subIdx) => {
+            // v1.95.0: two-column grid. Each card opts in to spanning
+            // both columns via its `wide` flag (`md:col-span-2`).
+            // Below the `md` breakpoint everything stacks into a
+            // single column so phones still get a readable layout.
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {section.subsections.map((sRaw, subIdx) => {
               // v1.31.1: Coerce BUILD card's BudgetLine.estimated
               // (Prisma Decimal) to a plain number before crossing
               // the client boundary. CardRouter's `Sub` type expects
@@ -535,14 +545,32 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
                 // v1.87.0: wrap each card in a Fragment with the
                 // reorder buttons sitting just above it. Hidden when
                 // the user can't edit the book.
-                <div key={s.id} className="space-y-1">
-                  {editable && section.subsections.length > 1 && (
-                    <SubsectionReorderControls
-                      id={s.id}
-                      title={s.title}
-                      isFirst={subIdx === 0}
-                      isLast={subIdx === section.subsections.length - 1}
-                    />
+                // v1.95.0: wide cards span both grid columns; narrow
+                // cards take a single column. The flag flips via the
+                // SubsectionWidthToggle in the reorder action-row.
+                <div
+                  key={s.id}
+                  className={[
+                    "space-y-1",
+                    sRaw.wide ? "md:col-span-2" : "",
+                  ].join(" ")}
+                >
+                  {editable && (
+                    <div className="flex items-center justify-end gap-0.5 -mb-2">
+                      <SubsectionWidthToggle
+                        id={s.id}
+                        title={s.title}
+                        wide={sRaw.wide}
+                      />
+                      {section.subsections.length > 1 && (
+                        <SubsectionReorderControls
+                          id={s.id}
+                          title={s.title}
+                          isFirst={subIdx === 0}
+                          isLast={subIdx === section.subsections.length - 1}
+                        />
+                      )}
+                    </div>
                   )}
                   <CardRouter
                     sub={s}
@@ -555,7 +583,8 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
                   />
                 </div>
               );
-            })
+            })}
+            </div>
           )}
         </div>
       </div>

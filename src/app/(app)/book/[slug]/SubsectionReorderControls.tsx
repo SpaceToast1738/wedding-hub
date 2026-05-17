@@ -29,8 +29,11 @@ export function SubsectionReorderControls({
     });
   }
 
+  // v1.95.0: dropped the outer flex wrapper so the caller can
+  // compose ▲/▼ alongside the SubsectionWidthToggle in a single
+  // action-row. Caller now owns the layout.
   return (
-    <div className="flex items-center justify-end gap-0.5 -mb-2">
+    <>
       <button
         type="button"
         onClick={() => move(-1)}
@@ -51,6 +54,6 @@ export function SubsectionReorderControls({
       >
         ▼
       </button>
-    </div>
+    </>
   );
 }
