@@ -10,6 +10,7 @@ import { SubsectionReorderControls } from "./SubsectionReorderControls";
 import { SectionVisibilityToggle } from "./SectionVisibilityToggle";
 import { EditSectionToggle } from "./EditSectionToggle";
 import { SubsectionWidthToggle } from "./SubsectionWidthToggle";
+import { BookTopicsProvider } from "./BookTopicsContext";
 import { LinkedTasksPanel } from "./LinkedTasksPanel";
 import { menuRollups } from "@/lib/book-cards";
 
@@ -336,7 +337,24 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
           )}
 
           {/* v1.30.5: section-level linked tasks panel. Renders above
-              the cards. v1.71.0: + task-add affordance + inline toggle. */}
+              the cards. v1.71.0: + task-add affordance + inline toggle.
+              v1.95.1: wrapped in BookTopicsProvider so inline task
+              creation here AND in each card's CardLinkedTasksPanel
+              (deep inside CardChrome) can pull the section's option
+              lists for the TopicPicker — that picker is what emits
+              the hidden `topicKeys` inputs that persist the autofill. */}
+          <BookTopicsProvider
+            bookSections={[
+              { id: section.id, title: section.title, slug: section.slug },
+            ]}
+            bookSubsections={section.subsections.map((s) => ({
+              id: s.id,
+              title: s.title,
+              sectionTitle: section.title,
+              slug: s.slug,
+              sectionSlug: section.slug,
+            }))}
+          >
           <LinkedTasksPanel
             tasks={linkedTasks}
             canEdit={editable}
@@ -586,6 +604,7 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
             })}
             </div>
           )}
+          </BookTopicsProvider>
         </div>
       </div>
     </>

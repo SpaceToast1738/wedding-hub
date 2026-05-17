@@ -13,6 +13,7 @@
 import { useState, useTransition } from "react";
 import { AddTaskToggle, type UserOpt } from "@/app/(app)/tasks/AddTaskToggle";
 import { setTaskStatus } from "@/app/(app)/tasks/actions";
+import { useBookTopics } from "./BookTopicsContext";
 
 export type LinkedTaskRow = {
   id: string;
@@ -45,11 +46,15 @@ export function CardLinkedTasksPanel({
         )}
         <div className="ml-auto flex items-center gap-2">
           {canEdit && (
-            <AddTaskToggle
+            // v1.95.1: pulls section + subsection option lists from
+            // BookTopicsContext so the TopicPicker actually renders
+            // and the autofill IDs make it into formData. Pre-fix
+            // CardLinkedTasksPanel passed defaultBookSubsectionIds
+            // without the corresponding option lists, so the picker
+            // was hidden — and with it the hidden topicKeys inputs.
+            <AddCardTaskToggle
               users={users}
-              defaultBookSubsectionIds={[subsectionId]}
-              buttonLabel="+ Task"
-              showType={false}
+              subsectionId={subsectionId}
             />
           )}
           <a href="/tasks" className="text-[10px] text-moss-700 hover:underline">
@@ -67,6 +72,30 @@ export function CardLinkedTasksPanel({
         </ul>
       )}
     </section>
+  );
+}
+
+// v1.95.1: context-consumer wrapper around AddTaskToggle. Reading
+// from BookTopicsContext here keeps the per-card panel's signature
+// unchanged for all 14+ editor call-sites that render through
+// CardChrome — none of them need to know about the topic lists.
+function AddCardTaskToggle({
+  users,
+  subsectionId,
+}: {
+  users: UserOpt[];
+  subsectionId: string;
+}) {
+  const { bookSections, bookSubsections } = useBookTopics();
+  return (
+    <AddTaskToggle
+      users={users}
+      bookSections={bookSections}
+      bookSubsections={bookSubsections}
+      defaultBookSubsectionIds={[subsectionId]}
+      buttonLabel="+ Task"
+      showType={false}
+    />
   );
 }
 

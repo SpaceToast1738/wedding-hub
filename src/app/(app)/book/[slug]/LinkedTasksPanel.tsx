@@ -4,6 +4,7 @@ import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { setTaskStatus } from "@/app/(app)/tasks/actions";
 import { AddTaskToggle, type UserOpt } from "@/app/(app)/tasks/AddTaskToggle";
+import { useBookTopics } from "./BookTopicsContext";
 
 // v1.30.5: section-level linked tasks panel.
 // v1.71.0: + interactive status toggle + AddTaskToggle affordance.
@@ -138,11 +139,13 @@ export function LinkedTasksPanel({
         )}
         <div className="ml-auto flex items-center gap-2">
           {canEdit && sectionId && (
-            <AddTaskToggle
+            // v1.95.1: thread the section-page topic option lists in
+            // from context so the TopicPicker actually renders (and
+            // its hidden `topicKeys` inputs make it into formData,
+            // which is what persists the Book section autofill).
+            <AddTaskToggleWithTopics
               users={users}
-              defaultBookSectionIds={[sectionId]}
-              buttonLabel="+ Task"
-              showType={false}
+              sectionId={sectionId}
             />
           )}
           <Link href="/tasks" className="text-[10px] text-info hover:underline">
@@ -162,5 +165,30 @@ export function LinkedTasksPanel({
         </ul>
       )}
     </div>
+  );
+}
+
+// v1.95.1: thin context-consumer wrapper. AddTaskToggle is a server-
+// safe component (just a button + modal); the only reason this lives
+// here is to read the BookTopicsContext that's only available inside
+// the page's "use client" subtree. Splitting it out keeps the main
+// LinkedTasksPanel body uncluttered.
+function AddTaskToggleWithTopics({
+  users,
+  sectionId,
+}: {
+  users: UserOpt[];
+  sectionId: string;
+}) {
+  const { bookSections, bookSubsections } = useBookTopics();
+  return (
+    <AddTaskToggle
+      users={users}
+      bookSections={bookSections}
+      bookSubsections={bookSubsections}
+      defaultBookSectionIds={[sectionId]}
+      buttonLabel="+ Task"
+      showType={false}
+    />
   );
 }

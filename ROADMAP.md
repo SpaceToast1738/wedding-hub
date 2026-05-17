@@ -34,6 +34,7 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
+| **v1.95.1** | 2026-05-17 | [Fix silently broken Topics autofill on inline task creation from `/book/[slug]`. User: "When creating a task inline with a page, or an item can we autofill the topic according to the location its being created from?" Found a bug: `LinkedTasksPanel` (section level) and `CardLinkedTasksPanel` (card level) both passed `defaultBookSectionIds` / `defaultBookSubsectionIds` to `AddTaskToggle` but **didn't pass the option lists** (`bookSections` / `bookSubsections`). `TaskForm` gates `TopicPicker` rendering on `bookSections.length > 0 || bookSubsections.length > 0 || …` — so the picker never rendered, and because the picker is what emits the hidden `topicKeys` inputs, the IDs never made it into formData. Tasks were getting created with no topics linked. Fix: new `BookTopicsContext` client provider mounted once in `/book/[slug]/page.tsx` carrying `bookSections = [{section}]` + `bookSubsections = section.subsections.map(...)`. Both panels now wrap `AddTaskToggle` in thin context-consumers (`AddTaskToggleWithTopics` / `AddCardTaskToggle`) that pull the lists from context, so the `TopicPicker` renders pre-populated with the right section / card already chip-selected. Context avoids prop-drilling through 14 card editors / `CardChrome` / `CardLinkedTasksPanel`. No schema, no actions changed.](#2026-05-17--v1951--fix-topics-autofill) |
 | **v1.95.0** | 2026-05-17 | [Two-column layout on the Wedding Book section page + per-card column-span toggle. User: "In the book section, can we have a two columns, and the option for pages to either use 1 or both columns." `/book/[slug]` previously stacked every card in a single column inside a `max-w-3xl` container — works for OUTFIT / TEXT but wastes a lot of horizontal space on wide cards like WEDDING_PARTY (matrix), MENU (long course lists), BUILD (materials + sessions). New schema column `BookSubsection.wide Boolean @default(false)` (migration `20260517100000_book_subsection_wide`) flags individual cards for column-spanning. New server action `setBookSubsectionWide(id, wide)` flips the flag (same `requireEdit("book")` gate as reorder — layout is cosmetic so no couple-tier restriction). New `SubsectionWidthToggle` client component renders a `⇆ / ⇤⇥` icon button in the same action-row as the existing reorder ▲/▼ buttons; `SubsectionReorderControls` lost its outer flex wrapper so both controls compose into one shared row owned by the page. `/book/[slug]/page.tsx` widened from `max-w-3xl` → `max-w-5xl`, the subsection map is wrapped in `grid grid-cols-1 md:grid-cols-2 gap-4`, and each subsection wrapper gets `md:col-span-2` when `wide=true` so it spans both columns. Below the `md` breakpoint everything stacks into a single column so phones still get a readable layout. Existing cards default to narrow — no layout shift on migration. 586 tests stay green.](#2026-05-17--v1950--two-column-section-grid) |
 | **v1.94.2** | 2026-05-17 | [Auto-derive slugs on Wedding Book section + card creation. User: "Can we also remove the forced slug, make the app auto generate the slug." Both `/book` "+ New section" and `/book/[slug]` "+ New card" required a hand-authored URL-safe slug alongside the title (regex `^[a-z0-9-]+$` enforced client-side via `pattern=` AND server-side via Zod) — friction for a non-technical user, and the slug isn't even surfaced as content after creation. New shared `src/lib/slugify.ts` exposes `slugify(input)` (lowercase → `[^a-z0-9]+` → `-` → trim → 60-char cap, matches the existing inline copies in `nav-tag-actions` / `guest-group-actions` / `permission-group-actions`) + `disambiguateSlug(base, isTaken)` (walks `base`, `base-2`, `base-3`, … with a 1000-collision Date.now fallback). `sectionSchema` + `subsectionSchema` drop `slug`; `createBookSection` derives from title and disambiguates against `bookSection.findUnique` (global unique); `createBookSubsection` derives + disambiguates against `bookSubsection.findFirst({sectionId, slug})` (per-section unique — the slug fuels the "On this page" anchor row's `#<slug>` deep-links). `AddSectionToggle` drops the Slug `<Input>`; Title goes controlled so a live `URL: /book/<slug>` preview updates as the couple types (placeholder "section" when title slugifies to empty). `AddSubsectionToggle` same treatment with `Anchor: #<slug>` preview (placeholder "page"). Existing rows untouched — no schema migration, slug-uniqueness constraints preserved. Collision handling moves from the user (who'd hit "slug taken" and retry) to the action (silent `-2` suffix). 586 tests stay green.](#2026-05-17--v1942--auto-derive-book-slugs) |
 | **v1.94.1** | 2026-05-17 | [Polish the `/book` overview cards — colour rotation + smart glyphs for custom sections + accent-tab border. User: "Can we also make these look nicer? maybe sort the colouring out when adding extra items." Pre-fix the 7 canonical prototype slugs (`wedding-party`, `venue`, `food-drink`, `photography`, `guest-experience`, `legal-admin`, `accommodation`) had hand-picked accents + SVG illustrations from `SECTION_META` / `bookSceneFor`. Every custom section the couple authored (`clothing`, `wedding-party-people`, `venue-spaces`, `legal-before-the-day`, `legal-after`, `post-wedding`, etc.) fell through to `DEFAULT_META` → flat `bg-canvas` white with a generic 📖 emoji. Three coordinated fixes: (1) **Deterministic accent rotation** — `fallbackAccentFor(slug)` hashes the slug into one of the existing three canonical accents (`bg-moss-100 / bg-moss-50 / bg-marigold-100`). Same slug → same accent forever, so cards don't shift colour on reorder. (2) **Keyword-inferred glyph** — `fallbackGlyphFor(slug, title)` matches against a lowercased `${slug} ${title}` haystack and returns 🏛 / 👗 / 👰 / 📜 / 🛏 / 📷 / 🍽 / 🎉 / 🗓 / 🎵 / 🚗 / ✈ / 🥂 / 📔 / 📖 by topic ("venue-spaces" → 🏛, "Clothing & Accesories" → 👗, "Wedding Party — People" → 👰, "Legal — After" → 📜, "Post-wedding" → 📔). (3) **`bookSceneFor` keyword fallback** — variant slugs that contain a canonical root (e.g. "venue-spaces", "venue-decor", "wedding-party-people", "wedding-party-day-of", "legal-before-the-day") now inherit the parent illustration instead of falling through to `null`. (4) **Accent-tab left border** — `border-l-4 border-l-moss-300` (`hover:border-l-moss-500`) reads as a subtle bookmark / tab spine, gives each card a stronger visual anchor than the previous all-around soft border. No schema, no actions, no data migration. 586 tests stay green.](#2026-05-17--v1941--book-overview-card-polish) |
@@ -939,6 +940,63 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-05-17 · v1.95.1 — Fix Topics autofill on inline task creation
+
+User: "When creating a task inline with a page, or an item can we autofill the topic according to the location its being created from?"
+
+The intent was already coded — both inline-task panels on `/book/[slug]` pass a `default*Ids` prop to `AddTaskToggle`:
+
+```tsx
+// LinkedTasksPanel (section level)
+<AddTaskToggle defaultBookSectionIds={[sectionId]} ... />
+
+// CardLinkedTasksPanel (card level)
+<AddTaskToggle defaultBookSubsectionIds={[subsectionId]} ... />
+```
+
+But the autofill was **silently broken** because of a downstream rendering gate. `AddTaskToggle` forwards defaults to `TaskForm`'s `initial` prop; `TaskForm` renders the `TopicPicker` only when at least one option list is non-empty:
+
+```tsx
+// TaskForm.tsx:181
+{(bookSections.length > 0 || bookSubsections.length > 0 || navTags.length > 0 || guestGroups.length > 0) && (
+  <TopicPicker ... initialBookSubsectionIds={initial.bookSubsectionIds} />
+)}
+```
+
+Both panels passed `default*Ids` **without the corresponding option lists**, so `bookSections.length === 0 && bookSubsections.length === 0` and the picker was hidden. Because the picker is what renders the hidden `<input name="topicKeys">` inputs that get persisted by `createTask` → `parseTopicKeys`, the IDs never made it into formData. Net effect: tasks created from book panels had no topic links.
+
+**Fix without prop-drilling through 14 editors.** The card-level panel sits at the bottom of `CardChrome`, which is invoked by every per-kind editor (`BookOutfitCard`, `BookTextCard`, `BookWeddingPartyCard`, etc. — 14 of them). Threading two new props through each editor would touch a lot of files. Solution: **`BookTopicsContext`** — a thin client-side React context provider mounted once at the page level.
+
+**New `src/app/(app)/book/[slug]/BookTopicsContext.tsx`:**
+- `BookTopicsProvider({ bookSections, bookSubsections, children })` — wraps the subtree.
+- `useBookTopics()` — returns the lists; defaults to empty arrays so consumers outside the provider don't crash.
+
+**Server-side wiring (`page.tsx`):** the section page already loads `section` + `section.subsections`. Builds two option lists in scope:
+
+```tsx
+<BookTopicsProvider
+  bookSections={[{ id: section.id, title: section.title, slug: section.slug }]}
+  bookSubsections={section.subsections.map((s) => ({
+    id: s.id,
+    title: s.title,
+    sectionTitle: section.title,
+    slug: s.slug,
+    sectionSlug: section.slug,
+  }))}
+>
+  <LinkedTasksPanel ... />
+  {/* grid of cards */}
+</BookTopicsProvider>
+```
+
+The provider is a client component but receives server-serialised options as props — works fine across the boundary.
+
+**Panel consumers:** each panel now extracts its `AddTaskToggle` invocation into a thin internal wrapper (`AddTaskToggleWithTopics` inside `LinkedTasksPanel`, `AddCardTaskToggle` inside `CardLinkedTasksPanel`) that reads `useBookTopics()` and forwards the lists. None of the 14 card editors, `CardChrome`, or `CardRouter` change — the prop drilling is replaced by context lookup at the leaf where it's needed.
+
+**Effect.** Open `/book/clothing` → click "+ Task" on a card's Linked Tasks header → modal opens with the TopicPicker visible, the current card already pre-selected as a chip. Click "+ Task" on the section-level panel → modal opens with the section already pre-selected. Submit → task persists with the right topic links and shows up in the right panel on reload.
+
+No schema migration, no action signatures changed. 586 tests stay green.
 
 ### 2026-05-17 · v1.95.0 — Two-column section grid
 
