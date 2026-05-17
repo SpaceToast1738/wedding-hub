@@ -34,6 +34,7 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
+| **v1.94.1** | 2026-05-17 | [Polish the `/book` overview cards — colour rotation + smart glyphs for custom sections + accent-tab border. User: "Can we also make these look nicer? maybe sort the colouring out when adding extra items." Pre-fix the 7 canonical prototype slugs (`wedding-party`, `venue`, `food-drink`, `photography`, `guest-experience`, `legal-admin`, `accommodation`) had hand-picked accents + SVG illustrations from `SECTION_META` / `bookSceneFor`. Every custom section the couple authored (`clothing`, `wedding-party-people`, `venue-spaces`, `legal-before-the-day`, `legal-after`, `post-wedding`, etc.) fell through to `DEFAULT_META` → flat `bg-canvas` white with a generic 📖 emoji. Three coordinated fixes: (1) **Deterministic accent rotation** — `fallbackAccentFor(slug)` hashes the slug into one of the existing three canonical accents (`bg-moss-100 / bg-moss-50 / bg-marigold-100`). Same slug → same accent forever, so cards don't shift colour on reorder. (2) **Keyword-inferred glyph** — `fallbackGlyphFor(slug, title)` matches against a lowercased `${slug} ${title}` haystack and returns 🏛 / 👗 / 👰 / 📜 / 🛏 / 📷 / 🍽 / 🎉 / 🗓 / 🎵 / 🚗 / ✈ / 🥂 / 📔 / 📖 by topic ("venue-spaces" → 🏛, "Clothing & Accesories" → 👗, "Wedding Party — People" → 👰, "Legal — After" → 📜, "Post-wedding" → 📔). (3) **`bookSceneFor` keyword fallback** — variant slugs that contain a canonical root (e.g. "venue-spaces", "venue-decor", "wedding-party-people", "wedding-party-day-of", "legal-before-the-day") now inherit the parent illustration instead of falling through to `null`. (4) **Accent-tab left border** — `border-l-4 border-l-moss-300` (`hover:border-l-moss-500`) reads as a subtle bookmark / tab spine, gives each card a stronger visual anchor than the previous all-around soft border. No schema, no actions, no data migration. 586 tests stay green.](#2026-05-17--v1941--book-overview-card-polish) |
 | **v1.94.0** | 2026-05-17 | [Editable per-section subtitle on Wedding Book + section rename. User: "Can we add a subtitle to the pages". Looking at `/book`, every section card had a hard-coded descriptive line from `SECTION_META[slug].description` ("Reference notes" generic / "Pixel Party, table games, photo booth, favours" for the canonical 7 prototype sections). Couples couldn't edit it — and any custom section they created fell through to the generic "Reference notes" line. Now: new `BookSection.subtitle String?` column (migration `20260517000000_book_section_subtitle`), threaded through `createBookSection` + new `updateBookSection` action (which also exposes title rename — couples previously had no way to fix a section title typo without re-creating + reordering). `AddSectionToggle` modal gets a Subtitle input (optional, max 240, placeholder "e.g. Package, shot list, locations, day-of contact"). New `EditSectionToggle` component renders an "Edit details" button in the `/book/[slug]` header next to "+ New card"; opens a modal with Title + Subtitle inputs. **Slug stays stable** — URLs are public-shareable + couple's bookmark / muscle memory survives a rename. **Render fallthrough:** on `/book`, `section.subtitle ?? meta.description` so existing sections without a custom subtitle still read the prototype line. On `/book/[slug]` the page header subtitle becomes `"<subtitle> · 3 pages · couple-only"` when set; otherwise the v1.93 `"Wedding Book · 3 pages"` is preserved. Audit log captures the v1.30.5 standard `changedFields` + before/after snapshots so renames are forensically clear. 586 tests stay green; no test churn needed (additive UI + persistence).](#2026-05-17--v1940--per-section-subtitle--rename) |
 | **v1.93.2** | 2026-05-17 | [Per-item notes on OUTFIT items + view-row UX restructure. User: "review the ux and look of the page Allow me to add notes to each 'outfit' item." `BookOutfit.notes` already existed in the schema + payload — exposed in the UI for the first time. Item edit row gains a 2-row textarea Row 4 ("e.g. waist taken in 1.5cm, due back 12 Sept"); view row surfaces notes as an italic muted line under the structured fields. **View-row restructure** — the previous single-line dense cluster (label · description · supplier · website + cost / paid / status pills competing for space on the right) splits into a deliberate 2-row layout: Row 1 holds label (left, font-medium) + status/cost/paid pills (right); Row 2 holds description · supplier · website link in muted small text; Row 3 holds notes if set. Empty items still collapse to a clean single line because Row 2 only renders when at least one meta field is set. **Status pill always renders** — when `item.status` is null it falls back to "Planned" with the Planned tone, so items always communicate their position in the lifecycle (was: nothing rendered, so couples couldn't see that `0 of 2 sorted` meant the items were still Planned). No schema, no actions, no data migration.](#2026-05-17--v1932--per-item-notes--view-row-restructure) |
 | **v1.93.1** | 2026-05-17 | [Per-item cost on OUTFIT items. User: "Add cost to each item." Additive — `BookOutfit.costPence Int?` (migration `20260515300000_outfit_item_cost`), threaded through `outfitItemPayloadSchema` + `saveOutfitCard` persistence + `CardRouter` Sub type + `page.tsx` outfit shape + `BookOutfitCard` Item type / draft / save payload / addItem default. View row gets a small muted `£X.XX` chip next to the status pill when set. Edit row's Row 3 (was just Website full-width) becomes a 2-col grid (Website 8 / Cost 4) when `showMoney` is true; otherwise Website stays full-width. The meta line under the title gains an "items total: £X" chip alongside the existing budget chip when any item has a cost — couple can now see "£400 budget · items total: £375" at a glance for sanity-checking the budget link. **Card-level `costPence` still drives BudgetLine sync** (v1.78.0 `syncBudgetLine`) — per-item costs are additive tracking only; no rollup into the linked BudgetLine in this release.](#2026-05-17--v1931--per-item-cost-on-outfit) |
@@ -936,6 +937,46 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-05-17 · v1.94.1 — `/book` overview card polish
+
+User: "Can we also make these look nicer? maybe sort the colouring out when adding extra items."
+
+Screenshot of `/book` showed only the 7 canonical prototype sections carrying meaningful accents + illustrations — every custom section the couple had authored (Clothing & Accesories, Wedding Party — People, Wedding Party — Day-of, Venue — Spaces, Venue — Décor, all three Legal — splits, Post-wedding) fell through to `DEFAULT_META`: flat `bg-canvas` white with a generic 📖 emoji and the placeholder "Reference notes" line. Visually the page split into "real cards" and "white placeholders".
+
+**Four coordinated changes, all in `/book/page.tsx` and `Illustrations.tsx`:**
+
+**1. Deterministic accent rotation.** New `fallbackAccentFor(slug)` helper hashes the slug into one of the three canonical accents (`bg-moss-100`, `bg-moss-50`, `bg-marigold-100`). Same slug always hashes to the same accent, so cards don't shift colour on reorder, rename of an adjacent section, or arbitrary re-render. The three-accent rotation matches the prototype palette — no new colours introduced, just spread across more cards.
+
+```ts
+const FALLBACK_ACCENTS = ["bg-moss-100", "bg-moss-50", "bg-marigold-100"] as const;
+function hashSlug(slug: string): number {
+  let h = 0;
+  for (let i = 0; i < slug.length; i++) h = (h * 31 + slug.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+function fallbackAccentFor(slug: string) { return FALLBACK_ACCENTS[hashSlug(slug) % 3]!; }
+```
+
+**2. Keyword-inferred glyph.** New `fallbackGlyphFor(slug, title)` matches against a lowercased `${slug} ${title}` haystack and picks the most-specific emoji from a curated list — 🏛 for venue / ceremony / reception / space / decor, 👗 for clothing / outfit / dress / attire / accessor, 👰 for wedding-party / bridesmaid / groomsman, 📜 for legal / licen / notice / document, 🛏 for accommodation / lodging / suite / room, 📷 for photo / video, 🍽 for food / drink / menu / bar / cake / catering, 🎉 for guest / favour / entertainment, 🗓 for schedule / timeline / day-of, 🎵 for song / music / dj / band, 🚗 for transport / car / taxi, ✈ for honeymoon / flight, 🥂 for stag / hen, 📔 for post-wedding, 📖 as last-resort fallback. Order matters — longer / more distinctive matches first so "Wedding Party — Day of" picks 👰 (party root) rather than 🗓 (day-of).
+
+**3. `bookSceneFor` keyword fallback.** Pre-fix `bookSceneFor("venue-spaces")` returned null because only the bare canonical slugs were switched on. Now any slug starting with `venue` (or containing `ceremony` / `reception` / `space` / `decor`) inherits `IllusVenue`; same family handling for the other six canonical roots. Result: the "Venue — Spaces" + "Venue — Décor" custom sections both get the venue illustration; "Wedding Party — People" + "Wedding Party — Day-of" both get the wedding-party illustration; "Legal — Before the day" + "Legal — On the day" + "Legal — After" all get the legal illustration.
+
+**4. Accent-tab left border.** `border-l-4 border-l-moss-300` (`hover:border-l-moss-500`) on each card. Reads as a subtle bookmark / book-spine tab — gives the card a stronger visual anchor than the previous uniform soft-border, and the moss accent on hover signals interactivity more clearly than the existing `hover:shadow-md hover:-translate-y-0.5` alone.
+
+**Render wiring** (`/book/page.tsx`):
+```ts
+const canonical = SECTION_META[s.slug];
+const meta = canonical ?? {
+  accent: fallbackAccentFor(s.slug),
+  glyph: fallbackGlyphFor(s.slug, s.title),
+  description: DEFAULT_META.description,
+};
+```
+
+Canonical wins exact-match; custom synthesises a per-section meta from the helpers. Existing v1.94.0 `s.subtitle ?? meta.description` fallthrough preserved.
+
+No schema, no actions, no data migration. 586 tests stay green.
 
 ### 2026-05-17 · v1.94.0 — Per-section subtitle + rename
 

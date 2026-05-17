@@ -178,6 +178,11 @@ export function IllusAccommodation({ size = 48 }: { size?: number }) {
 // Slug-based lookup table for the Wedding Book hub. Falls through to
 // `null` for slugs we don't have a scene illustration for (the hub
 // then keeps the existing emoji glyph).
+//
+// v1.94.1: keyword fallback — when the slug doesn't exact-match a
+// canonical key, look for the canonical root as a prefix or contained
+// token so split sections inherit the illustration. Example:
+// "venue-spaces" + "venue-decor" both inherit IllusVenue.
 export function bookSceneFor(slug: string) {
   switch (slug) {
     case "wedding-party": return IllusWeddingParty;
@@ -187,8 +192,17 @@ export function bookSceneFor(slug: string) {
     case "guest-experience": return IllusGuestExp;
     case "legal-admin": return IllusLegal;
     case "accommodation": return IllusAccommodation;
-    default: return null;
   }
+  // Keyword fallback for variant slugs the couple has authored.
+  // Ordered by specificity — longer / more distinctive matches first.
+  if (slug.startsWith("wedding-party") || slug.includes("bridesmaid") || slug.includes("groomsman")) return IllusWeddingParty;
+  if (slug.startsWith("venue") || slug.includes("ceremony") || slug.includes("reception") || slug.includes("space") || slug.includes("decor")) return IllusVenue;
+  if (slug.startsWith("food") || slug.startsWith("drink") || slug.includes("menu") || slug.includes("bar") || slug.includes("cake") || slug.includes("catering")) return IllusFood;
+  if (slug.startsWith("photo") || slug.startsWith("video") || slug.includes("shot")) return IllusPhotography;
+  if (slug.startsWith("guest") || slug.includes("favour") || slug.includes("entertainment")) return IllusGuestExp;
+  if (slug.startsWith("legal") || slug.includes("admin") || slug.includes("licen") || slug.includes("document")) return IllusLegal;
+  if (slug.startsWith("accommodation") || slug.includes("lodging") || slug.includes("hotel") || slug.includes("suite") || slug.includes("room")) return IllusAccommodation;
+  return null;
 }
 
 // ── Empty-state illustrations (120×100) ─────────────────────────────────────

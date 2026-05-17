@@ -83,6 +83,49 @@ const DEFAULT_META = {
   description: "Reference notes",
 };
 
+// v1.94.1: variety in the card colours for non-canonical sections.
+// Pre-fix every custom section fell through to DEFAULT_META.accent
+// (`bg-canvas`, plain white), so the /book grid felt washed-out
+// whenever the couple authored more than the 7 canonical slugs.
+// Three accents = the existing canonical rotation; deterministic
+// hashing keeps the choice stable across renders + reorders.
+const FALLBACK_ACCENTS = ["bg-moss-100", "bg-moss-50", "bg-marigold-100"] as const;
+function hashSlug(slug: string): number {
+  let h = 0;
+  for (let i = 0; i < slug.length; i++) {
+    h = (h * 31 + slug.charCodeAt(i)) | 0;
+  }
+  return Math.abs(h);
+}
+function fallbackAccentFor(slug: string): string {
+  return FALLBACK_ACCENTS[hashSlug(slug) % FALLBACK_ACCENTS.length]!;
+}
+
+// v1.94.1: keyword-inferred glyph for custom sections. Pre-fix
+// every non-canonical section landed on the generic 📖 — visually
+// indistinguishable. Now matches against the section's slug + title
+// so "venue-spaces" / "Legal — Before the day" / "Wedding Party —
+// People" get a meaningful emoji even when bookSceneFor returns null.
+function fallbackGlyphFor(slug: string, title: string): string {
+  const hay = `${slug} ${title}`.toLowerCase();
+  // Ordered by specificity — most distinctive wins.
+  if (hay.includes("honeymoon") || hay.includes("flight")) return "✈";
+  if (hay.includes("transport") || hay.includes("car") || hay.includes("taxi")) return "🚗";
+  if (hay.includes("stag") || hay.includes("hen")) return "🥂";
+  if (hay.includes("song") || hay.includes("music") || hay.includes("dj") || hay.includes("band")) return "🎵";
+  if (hay.includes("schedule") || hay.includes("timeline") || hay.includes("day-of") || hay.includes("day of")) return "🗓";
+  if (hay.includes("photo") || hay.includes("video")) return "📷";
+  if (hay.includes("legal") || hay.includes("licen") || hay.includes("notice") || hay.includes("document")) return "📜";
+  if (hay.includes("food") || hay.includes("drink") || hay.includes("menu") || hay.includes("bar") || hay.includes("cake") || hay.includes("catering")) return "🍽";
+  if (hay.includes("clothing") || hay.includes("outfit") || hay.includes("dress") || hay.includes("attire") || hay.includes("accessor")) return "👗";
+  if (hay.includes("wedding party") || hay.includes("wedding-party") || hay.includes("bridesmaid") || hay.includes("groomsman") || hay.includes("best man") || hay.includes("maid of honour")) return "👰";
+  if (hay.includes("guest") || hay.includes("favour") || hay.includes("entertainment")) return "🎉";
+  if (hay.includes("accommodat") || hay.includes("lodging") || hay.includes("hotel") || hay.includes("suite") || hay.includes("room")) return "🛏";
+  if (hay.includes("venue") || hay.includes("ceremony") || hay.includes("reception") || hay.includes("space") || hay.includes("decor")) return "🏛";
+  if (hay.includes("post") && hay.includes("wedding")) return "📔";
+  return "📖";
+}
+
 export default async function BookHubPage() {
   const user = await requireUser();
   if (!(await canView(user, "book"))) redirect("/");
@@ -146,7 +189,17 @@ export default async function BookHubPage() {
               }}
             >
               {sections.map((s, idx) => {
-                const meta = SECTION_META[s.slug] ?? DEFAULT_META;
+                // v1.94.1: canonical slugs win exact-match; custom
+                // slugs synthesise a meta from the new hash-rotated
+                // accent + keyword-inferred glyph helpers so the grid
+                // stays visually varied no matter what the couple
+                // names a section.
+                const canonical = SECTION_META[s.slug];
+                const meta = canonical ?? {
+                  accent: fallbackAccentFor(s.slug),
+                  glyph: fallbackGlyphFor(s.slug, s.title),
+                  description: DEFAULT_META.description,
+                };
                 const isPhoto = s.slug === "photography";
                 const subtitle = isPhoto
                   ? shotsTotal === 0
@@ -169,12 +222,18 @@ export default async function BookHubPage() {
                     href={`/book/${s.slug}`}
                     className={[
                       meta.accent,
-                      "border border-border-soft rounded-lg shadow-sm",
+                      // v1.94.1: thicker left border in moss tone reads
+                      // as a subtle "tab" — gives the card a stronger
+                      // anchor point than the previous all-around soft
+                      // border, and the moss accent reads as an active
+                      // bookmark visually distinct from card chrome.
+                      "border border-border-soft border-l-4 border-l-moss-300",
+                      "rounded-lg shadow-sm",
                       "p-5 min-h-[160px]",
                       "flex flex-col items-start gap-3 block",
                       // hover lift + shadow, mirrors the prototype's BookCard
                       "transition-all duration-150",
-                      "hover:shadow-md hover:-translate-y-0.5",
+                      "hover:shadow-md hover:-translate-y-0.5 hover:border-l-moss-500",
                     ].join(" ")}
                   >
                     <div className="flex items-start justify-between w-full">
