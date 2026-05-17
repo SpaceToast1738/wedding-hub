@@ -26,14 +26,19 @@ import {
   generateStoredName,
   validateUpload,
 } from "@/lib/uploads";
+import { slugify, disambiguateSlug } from "@/lib/slugify";
 
 // v1.26.0: shared result shape — every new action returns this rather
 // than throwing, so Next production redaction can't swallow the
 // validation message (see v1.22.9 / v1.23.2).
 export type BookActionResult = { ok: true } | { ok: false; error: string };
 
+// v1.94.2: slug dropped from the create schema — derived from
+// title server-side via slugify() + disambiguated against existing
+// section slugs. Couples no longer have to author URL-safe slugs by
+// hand; the input was removed from the AddSectionToggle modal at
+// the same time.
 const sectionSchema = z.object({
-  slug: z.string().min(1).max(80).regex(/^[a-z0-9-]+$/, "slug: lowercase letters, numbers, dashes only"),
   title: z.string().min(1).max(120),
   // v1.94.0: optional descriptive line under the section title.
   // Empty string normalises to null at the action level.
@@ -48,9 +53,11 @@ const sectionUpdateSchema = z.object({
   subtitle: z.string().max(240).optional().nullable(),
 });
 
+// v1.94.2: slug dropped here too — auto-derived from title and
+// disambiguated within the parent section so the "On this page"
+// anchor row + future deep-links remain stable.
 const subsectionSchema = z.object({
   sectionId: z.string().min(1),
-  slug: z.string().min(1).max(80).regex(/^[a-z0-9-]+$/),
   title: z.string().min(1).max(120),
   body: z.string().max(20000).optional().nullable(),
   kind: z.nativeEnum(BookSubsectionKind).default(BookSubsectionKind.TEXT),
@@ -59,7 +66,6 @@ const subsectionSchema = z.object({
 export async function createBookSection(formData: FormData) {
   const user = await requireEdit("book");
   const parsed = sectionSchema.parse({
-    slug: formData.get("slug"),
     title: formData.get("title"),
     subtitle: formData.get("subtitle"),
   });
@@ -67,10 +73,23 @@ export async function createBookSection(formData: FormData) {
   // /book overview falls through to SECTION_META.description.
   const subtitle =
     parsed.subtitle && parsed.subtitle.trim() ? parsed.subtitle.trim() : null;
+  // v1.94.2: auto-derive a URL-safe slug from the title. Fallback to
+  // "section" when the title is pure punctuation / non-alphanumeric so
+  // we never hit the unique-constraint violation on an empty slug.
+  // disambiguateSlug walks `section`, `section-2`, `section-3`, … until
+  // it finds a free one.
+  const baseSlug = slugify(parsed.title) || "section";
+  const slug = await disambiguateSlug(baseSlug, async (candidate) => {
+    const existing = await db.bookSection.findUnique({
+      where: { slug: candidate },
+      select: { id: true },
+    });
+    return existing !== null;
+  });
   const last = await db.bookSection.findFirst({ orderBy: { order: "desc" } });
   const created = await db.bookSection.create({
     data: {
-      slug: parsed.slug,
+      slug,
       title: parsed.title,
       subtitle,
       order: (last?.order ?? -1) + 1,
@@ -178,10 +197,22 @@ export async function createBookSubsection(formData: FormData) {
   // shape it implied was wrong.
   const parsed = subsectionSchema.parse({
     sectionId: formData.get("sectionId"),
-    slug: formData.get("slug"),
     title: formData.get("title"),
     body: formData.get("body") || null,
     kind: formData.get("kind") ?? undefined,
+  });
+  // v1.94.2: auto-derive a slug from the title, disambiguating only
+  // within the parent section (BookSubsection.slug is per-section, not
+  // global). The slug fuels the "On this page" anchor row + any
+  // future deep-links — duplicates within a section would break the
+  // anchor jump, so we walk -2 / -3 just like the section action.
+  const baseSubSlug = slugify(parsed.title) || "page";
+  const subSlug = await disambiguateSlug(baseSubSlug, async (candidate) => {
+    const existing = await db.bookSubsection.findFirst({
+      where: { sectionId: parsed.sectionId, slug: candidate },
+      select: { id: true },
+    });
+    return existing !== null;
   });
   const last = await db.bookSubsection.findFirst({
     where: { sectionId: parsed.sectionId },
@@ -190,7 +221,7 @@ export async function createBookSubsection(formData: FormData) {
   const created = await db.bookSubsection.create({
     data: {
       sectionId: parsed.sectionId,
-      slug: parsed.slug,
+      slug: subSlug,
       title: parsed.title,
       body: parsed.body ?? null,
       kind: parsed.kind,

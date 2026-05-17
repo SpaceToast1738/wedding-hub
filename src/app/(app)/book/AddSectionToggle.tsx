@@ -4,13 +4,19 @@ import { useState, useTransition } from "react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { AddNewModal } from "@/components/ui/AddNewModal";
+import { slugify } from "@/lib/slugify";
 import { createBookSection } from "./actions";
 
 // v1.56.0: shared AddNewModal popout — was inline-expand previously.
+// v1.94.2: slug input dropped — auto-derived from title server-side
+// via slugify(). A muted "/book/<slug>" preview line updates live as
+// the title is typed so the couple sees the URL it'll become.
 export function AddSectionToggle() {
   const [open, setOpen] = useState(false);
+  const [title, setTitle] = useState("");
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const previewSlug = slugify(title) || "section";
 
   return (
     <>
@@ -24,6 +30,7 @@ export function AddSectionToggle() {
             startTransition(async () => {
               try {
                 await createBookSection(fd);
+                setTitle("");
                 setOpen(false);
               } catch (err) {
                 setError(err instanceof Error ? err.message : "Failed");
@@ -31,15 +38,21 @@ export function AddSectionToggle() {
             });
           }}
         >
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">Title</label>
-              <Input name="title" required autoFocus placeholder="e.g. Photography" />
-            </div>
-            <div>
-              <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">Slug</label>
-              <Input name="slug" required pattern="[a-z0-9-]+" placeholder="photography" />
-            </div>
+          <div>
+            <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">Title</label>
+            <Input
+              name="title"
+              required
+              autoFocus
+              placeholder="e.g. Photography"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              maxLength={120}
+            />
+            {/* v1.94.2: live URL preview replaces the manual Slug input. */}
+            <p className="text-[11px] text-ink-tertiary mt-1">
+              URL: <code className="font-mono text-ink-secondary">/book/{previewSlug}</code>
+            </p>
           </div>
           {/* v1.94.0: optional descriptive line that renders under the
               section title on the /book overview + section page header. */}

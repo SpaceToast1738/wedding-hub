@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { AddNewModal } from "@/components/ui/AddNewModal";
 import { BOOK_CARD_KIND_META, BOOK_CARD_KINDS, type BookCardKind } from "@/lib/book-cards";
+import { slugify } from "@/lib/slugify";
 import { createBookSubsection } from "../actions";
 
 // v1.26.0: kind picker. Pre-fix this was a "New page" form that
@@ -22,8 +23,11 @@ export function AddSubsectionToggle({
 }) {
   const [open, setOpen] = useState(false);
   const [kind, setKind] = useState<BookCardKind>("TEXT");
+  const [title, setTitle] = useState("");
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  // v1.94.2: live anchor preview replaces the manual slug input.
+  const previewSlug = slugify(title) || "page";
 
   // v1.56.0: shared AddNewModal popout.
   return (
@@ -42,6 +46,7 @@ export function AddSubsectionToggle({
             await createBookSubsection(fd);
             setOpen(false);
             setKind("TEXT");
+            setTitle("");
           } catch (err) {
             setError(err instanceof Error ? err.message : "Failed");
           }
@@ -75,19 +80,24 @@ export function AddSubsectionToggle({
           {BOOK_CARD_KIND_META[kind].description}
         </p>
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <div>
-          <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">
-            Title
-          </label>
-          <Input name="title" required autoFocus placeholder="e.g. Cocktail menu" />
-        </div>
-        <div>
-          <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">
-            Slug
-          </label>
-          <Input name="slug" required pattern="[a-z0-9-]+" placeholder="cocktail-menu" />
-        </div>
+      <div>
+        <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">
+          Title
+        </label>
+        <Input
+          name="title"
+          required
+          autoFocus
+          placeholder="e.g. Cocktail menu"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          maxLength={120}
+        />
+        {/* v1.94.2: anchor preview — the slug fuels the "On this page"
+            row's deep-links once the section has 5+ cards. */}
+        <p className="text-[11px] text-ink-tertiary mt-1">
+          Anchor: <code className="font-mono text-ink-secondary">#{previewSlug}</code>
+        </p>
       </div>
       {/* TEXT cards still accept an initial body inline. Other kinds
           start empty — you build them up in their dedicated UI. */}

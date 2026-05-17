@@ -34,6 +34,7 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
+| **v1.94.2** | 2026-05-17 | [Auto-derive slugs on Wedding Book section + card creation. User: "Can we also remove the forced slug, make the app auto generate the slug." Both `/book` "+ New section" and `/book/[slug]` "+ New card" required a hand-authored URL-safe slug alongside the title (regex `^[a-z0-9-]+$` enforced client-side via `pattern=` AND server-side via Zod) — friction for a non-technical user, and the slug isn't even surfaced as content after creation. New shared `src/lib/slugify.ts` exposes `slugify(input)` (lowercase → `[^a-z0-9]+` → `-` → trim → 60-char cap, matches the existing inline copies in `nav-tag-actions` / `guest-group-actions` / `permission-group-actions`) + `disambiguateSlug(base, isTaken)` (walks `base`, `base-2`, `base-3`, … with a 1000-collision Date.now fallback). `sectionSchema` + `subsectionSchema` drop `slug`; `createBookSection` derives from title and disambiguates against `bookSection.findUnique` (global unique); `createBookSubsection` derives + disambiguates against `bookSubsection.findFirst({sectionId, slug})` (per-section unique — the slug fuels the "On this page" anchor row's `#<slug>` deep-links). `AddSectionToggle` drops the Slug `<Input>`; Title goes controlled so a live `URL: /book/<slug>` preview updates as the couple types (placeholder "section" when title slugifies to empty). `AddSubsectionToggle` same treatment with `Anchor: #<slug>` preview (placeholder "page"). Existing rows untouched — no schema migration, slug-uniqueness constraints preserved. Collision handling moves from the user (who'd hit "slug taken" and retry) to the action (silent `-2` suffix). 586 tests stay green.](#2026-05-17--v1942--auto-derive-book-slugs) |
 | **v1.94.1** | 2026-05-17 | [Polish the `/book` overview cards — colour rotation + smart glyphs for custom sections + accent-tab border. User: "Can we also make these look nicer? maybe sort the colouring out when adding extra items." Pre-fix the 7 canonical prototype slugs (`wedding-party`, `venue`, `food-drink`, `photography`, `guest-experience`, `legal-admin`, `accommodation`) had hand-picked accents + SVG illustrations from `SECTION_META` / `bookSceneFor`. Every custom section the couple authored (`clothing`, `wedding-party-people`, `venue-spaces`, `legal-before-the-day`, `legal-after`, `post-wedding`, etc.) fell through to `DEFAULT_META` → flat `bg-canvas` white with a generic 📖 emoji. Three coordinated fixes: (1) **Deterministic accent rotation** — `fallbackAccentFor(slug)` hashes the slug into one of the existing three canonical accents (`bg-moss-100 / bg-moss-50 / bg-marigold-100`). Same slug → same accent forever, so cards don't shift colour on reorder. (2) **Keyword-inferred glyph** — `fallbackGlyphFor(slug, title)` matches against a lowercased `${slug} ${title}` haystack and returns 🏛 / 👗 / 👰 / 📜 / 🛏 / 📷 / 🍽 / 🎉 / 🗓 / 🎵 / 🚗 / ✈ / 🥂 / 📔 / 📖 by topic ("venue-spaces" → 🏛, "Clothing & Accesories" → 👗, "Wedding Party — People" → 👰, "Legal — After" → 📜, "Post-wedding" → 📔). (3) **`bookSceneFor` keyword fallback** — variant slugs that contain a canonical root (e.g. "venue-spaces", "venue-decor", "wedding-party-people", "wedding-party-day-of", "legal-before-the-day") now inherit the parent illustration instead of falling through to `null`. (4) **Accent-tab left border** — `border-l-4 border-l-moss-300` (`hover:border-l-moss-500`) reads as a subtle bookmark / tab spine, gives each card a stronger visual anchor than the previous all-around soft border. No schema, no actions, no data migration. 586 tests stay green.](#2026-05-17--v1941--book-overview-card-polish) |
 | **v1.94.0** | 2026-05-17 | [Editable per-section subtitle on Wedding Book + section rename. User: "Can we add a subtitle to the pages". Looking at `/book`, every section card had a hard-coded descriptive line from `SECTION_META[slug].description` ("Reference notes" generic / "Pixel Party, table games, photo booth, favours" for the canonical 7 prototype sections). Couples couldn't edit it — and any custom section they created fell through to the generic "Reference notes" line. Now: new `BookSection.subtitle String?` column (migration `20260517000000_book_section_subtitle`), threaded through `createBookSection` + new `updateBookSection` action (which also exposes title rename — couples previously had no way to fix a section title typo without re-creating + reordering). `AddSectionToggle` modal gets a Subtitle input (optional, max 240, placeholder "e.g. Package, shot list, locations, day-of contact"). New `EditSectionToggle` component renders an "Edit details" button in the `/book/[slug]` header next to "+ New card"; opens a modal with Title + Subtitle inputs. **Slug stays stable** — URLs are public-shareable + couple's bookmark / muscle memory survives a rename. **Render fallthrough:** on `/book`, `section.subtitle ?? meta.description` so existing sections without a custom subtitle still read the prototype line. On `/book/[slug]` the page header subtitle becomes `"<subtitle> · 3 pages · couple-only"` when set; otherwise the v1.93 `"Wedding Book · 3 pages"` is preserved. Audit log captures the v1.30.5 standard `changedFields` + before/after snapshots so renames are forensically clear. 586 tests stay green; no test churn needed (additive UI + persistence).](#2026-05-17--v1940--per-section-subtitle--rename) |
 | **v1.93.2** | 2026-05-17 | [Per-item notes on OUTFIT items + view-row UX restructure. User: "review the ux and look of the page Allow me to add notes to each 'outfit' item." `BookOutfit.notes` already existed in the schema + payload — exposed in the UI for the first time. Item edit row gains a 2-row textarea Row 4 ("e.g. waist taken in 1.5cm, due back 12 Sept"); view row surfaces notes as an italic muted line under the structured fields. **View-row restructure** — the previous single-line dense cluster (label · description · supplier · website + cost / paid / status pills competing for space on the right) splits into a deliberate 2-row layout: Row 1 holds label (left, font-medium) + status/cost/paid pills (right); Row 2 holds description · supplier · website link in muted small text; Row 3 holds notes if set. Empty items still collapse to a clean single line because Row 2 only renders when at least one meta field is set. **Status pill always renders** — when `item.status` is null it falls back to "Planned" with the Planned tone, so items always communicate their position in the lifecycle (was: nothing rendered, so couples couldn't see that `0 of 2 sorted` meant the items were still Planned). No schema, no actions, no data migration.](#2026-05-17--v1932--per-item-notes--view-row-restructure) |
@@ -937,6 +938,52 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-05-17 · v1.94.2 — Auto-derive book slugs
+
+User: "Can we also remove the forced slug, make the app auto generate the slug."
+
+Both Wedding Book creation modals (`AddSectionToggle` on `/book`, `AddSubsectionToggle` on `/book/[slug]`) required the couple to author a URL-safe slug by hand alongside the title — pattern `^[a-z0-9-]+$` enforced client-side AND server-side via Zod. Two problems: (a) friction for non-technical users — slugs are technical, titles are content; (b) the slug isn't even visible after creation, so there's no signal of why it needed to exist as a separate input.
+
+**Shared helper extraction.** Three existing settings actions (`src/app/(app)/settings/nav-tag-actions.ts`, `guest-group-actions.ts`, `permission-group-actions.ts`) each carried an inline `slugify`. New `src/lib/slugify.ts` lifts the helper to a shared lib with identical rules:
+
+```ts
+export function slugify(input: string): string {
+  return input
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60);
+}
+```
+
+Plus a new `disambiguateSlug(base, isTaken)` companion that walks `base`, `base-2`, `base-3`, … against a caller-supplied existence-check. Falls back to a `Date.now()` suffix after 1000 collisions (pathological case).
+
+**Server-action wiring** (`src/app/(app)/book/actions.ts`):
+
+- Imports `slugify, disambiguateSlug` from `@/lib/slugify`.
+- `sectionSchema` drops the `slug` field.
+- `subsectionSchema` drops the `slug` field.
+- `createBookSection`: derives `baseSlug = slugify(parsed.title) || "section"` (fallback for titles that slugify to empty — pure punctuation), then `disambiguateSlug` against `db.bookSection.findUnique({where: {slug: candidate}})` to honour the global `@unique` constraint.
+- `createBookSubsection`: same pattern but disambiguates against `db.bookSubsection.findFirst({where: {sectionId, slug: candidate}})` so each section's slug-space is independent (matches the schema — `BookSubsection.slug` is per-section, not globally unique, and fuels the `#<slug>` anchor row).
+
+**UI wiring** (`AddSectionToggle.tsx` + `AddSubsectionToggle.tsx`):
+
+- Slug `<Input>` removed.
+- Title field becomes controlled (`useState<string>("")`) so a live preview line can update as the couple types.
+- Section modal shows `URL: /book/<slug>` (because section slugs are URL paths).
+- Subsection modal shows `Anchor: #<slug>` (because subsection slugs fuel anchor jumps, not URL paths).
+- Empty-title preview: section falls back to `"section"`, subsection to `"page"` (the same fallbacks the actions use server-side, so the preview matches reality).
+- State resets to `""` on successful create.
+
+**Why the actions handle uniqueness, not the UI.** A client-side check would race against concurrent creation. Keeping uniqueness server-side in the same transaction as the insert is the only correct point — and from the user's perspective the experience is identical to the manual-slug flow (no error toast, just a working URL).
+
+**No schema migration.** Existing `slug @unique` on `BookSection` and the implicit per-section uniqueness contract on `BookSubsection` stay exactly as they were. Slug-uniqueness still enforced at the DB layer; the *origin* of the slug (typed by hand vs. derived from title) is what changed.
+
+**Out of scope.** Collapsing the three settings `slugify` duplicates onto `@/lib/slugify` — tracked but not done here to keep this release additive. Section-slug rename on title update still preserved as a deliberate non-change (v1.94.0's `updateBookSection` keeps slug stable because URLs are public-shareable).
+
+586 tests stay green.
 
 ### 2026-05-17 · v1.94.1 — `/book` overview card polish
 
