@@ -41,6 +41,18 @@ export function AddSectionToggle() {
               <Input name="slug" required pattern="[a-z0-9-]+" placeholder="photography" />
             </div>
           </div>
+          {/* v1.94.0: optional descriptive line that renders under the
+              section title on the /book overview + section page header. */}
+          <div className="mt-3">
+            <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">
+              Subtitle <span className="font-normal text-ink-tertiary/70 normal-case">— optional</span>
+            </label>
+            <Input
+              name="subtitle"
+              maxLength={240}
+              placeholder="e.g. Package, shot list, locations, day-of contact"
+            />
+          </div>
           {error && <p className="text-xs text-danger mt-2">{error}</p>}
           <div className="flex gap-2 justify-end mt-3">
             <Button type="button" variant="ghost" size="sm" onClick={() => setOpen(false)} disabled={pending}>Cancel</Button>

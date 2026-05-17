@@ -35,6 +35,17 @@ export type BookActionResult = { ok: true } | { ok: false; error: string };
 const sectionSchema = z.object({
   slug: z.string().min(1).max(80).regex(/^[a-z0-9-]+$/, "slug: lowercase letters, numbers, dashes only"),
   title: z.string().min(1).max(120),
+  // v1.94.0: optional descriptive line under the section title.
+  // Empty string normalises to null at the action level.
+  subtitle: z.string().max(240).optional().nullable(),
+});
+
+// v1.94.0: section rename + subtitle edit. Title kept editable
+// because the existing /book overview only supported creation —
+// couples had no way to rename a section after typo / re-scope.
+const sectionUpdateSchema = z.object({
+  title: z.string().min(1).max(120),
+  subtitle: z.string().max(240).optional().nullable(),
 });
 
 const subsectionSchema = z.object({
@@ -50,18 +61,86 @@ export async function createBookSection(formData: FormData) {
   const parsed = sectionSchema.parse({
     slug: formData.get("slug"),
     title: formData.get("title"),
+    subtitle: formData.get("subtitle"),
   });
+  // v1.94.0: empty string → null for the optional subtitle so the
+  // /book overview falls through to SECTION_META.description.
+  const subtitle =
+    parsed.subtitle && parsed.subtitle.trim() ? parsed.subtitle.trim() : null;
   const last = await db.bookSection.findFirst({ orderBy: { order: "desc" } });
   const created = await db.bookSection.create({
-    data: { slug: parsed.slug, title: parsed.title, order: (last?.order ?? -1) + 1 },
+    data: {
+      slug: parsed.slug,
+      title: parsed.title,
+      subtitle,
+      order: (last?.order ?? -1) + 1,
+    },
   });
   await audit(user, {
     action: "create",
     entity: "BookSection",
     entityId: created.id,
-    metadata: { slug: created.slug, title: created.title, order: created.order },
+    metadata: {
+      slug: created.slug,
+      title: created.title,
+      subtitle: created.subtitle,
+      order: created.order,
+    },
   });
   revalidatePath("/book");
+}
+
+// v1.94.0: edit title + subtitle on an existing section. Slug stays
+// stable (URLs are public-shareable + couple's bookmark / muscle
+// memory survives a rename). Couple can only edit via /book/[slug]
+// header → EditSectionToggle modal.
+export async function updateBookSection(
+  id: string,
+  formData: FormData,
+): Promise<BookActionResult> {
+  const user = await requireEdit("book");
+  let parsed: z.infer<typeof sectionUpdateSchema>;
+  try {
+    parsed = sectionUpdateSchema.parse({
+      title: formData.get("title"),
+      subtitle: formData.get("subtitle"),
+    });
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof z.ZodError ? err.errors[0]?.message ?? "Invalid input" : "Invalid input",
+    };
+  }
+  const before = await db.bookSection.findUnique({ where: { id } });
+  if (!before) return { ok: false, error: "Section not found" };
+  const subtitle =
+    parsed.subtitle && parsed.subtitle.trim() ? parsed.subtitle.trim() : null;
+  // v1.30.5 audit convention — record only the fields that actually
+  // changed so the activity feed reads cleanly ("renamed Clothing to
+  // Outfits" rather than "updated Clothing").
+  const changedFields: string[] = [];
+  if (before.title !== parsed.title) changedFields.push("title");
+  if ((before.subtitle ?? null) !== subtitle) changedFields.push("subtitle");
+  const updated = await db.bookSection.update({
+    where: { id },
+    data: { title: parsed.title, subtitle },
+  });
+  await audit(user, {
+    action: "update",
+    entity: "BookSection",
+    entityId: id,
+    metadata: {
+      slug: updated.slug,
+      changedFields,
+      titleBefore: before.title,
+      titleAfter: updated.title,
+      subtitleBefore: before.subtitle,
+      subtitleAfter: updated.subtitle,
+    },
+  });
+  revalidatePath("/book");
+  revalidatePath(`/book/${updated.slug}`);
+  return { ok: true };
 }
 
 export async function deleteBookSection(id: string) {

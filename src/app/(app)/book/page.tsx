@@ -198,7 +198,11 @@ export default async function BookHubPage() {
                         {s.title}
                       </div>
                       <div className="text-xs text-ink-secondary leading-snug">
-                        {meta.description}
+                        {/* v1.94.0: DB-stored section subtitle wins;
+                            falls through to the hard-coded SECTION_META
+                            description so existing sections without a
+                            custom subtitle still read the prototype line. */}
+                        {s.subtitle ?? meta.description}
                       </div>
                       <div className="text-[11px] text-ink-tertiary mt-2">
                         {subtitle}

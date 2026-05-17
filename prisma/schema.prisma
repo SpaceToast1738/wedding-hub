@@ -642,6 +642,10 @@ model BookSection {
   id          String           @id @default(cuid())
   slug        String           @unique
   title       String
+  // v1.94.0: per-section subtitle. Editable replacement for the
+  // hard-coded SECTION_META.description that used to show under
+  // each section title on /book.
+  subtitle    String?
   illustration String?
   order       Int              @default(0)
   subsections BookSubsection[]

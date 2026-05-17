@@ -8,6 +8,7 @@ import { AddSubsectionToggle } from "./AddSubsectionToggle";
 import { CardRouter } from "./CardRouter";
 import { SubsectionReorderControls } from "./SubsectionReorderControls";
 import { SectionVisibilityToggle } from "./SectionVisibilityToggle";
+import { EditSectionToggle } from "./EditSectionToggle";
 import { LinkedTasksPanel } from "./LinkedTasksPanel";
 import { menuRollups } from "@/lib/book-cards";
 
@@ -271,7 +272,18 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
     <>
       <PageHeader
         title={section.title}
-        subtitle={`Wedding Book · ${section.subsections.length} ${section.subsections.length === 1 ? "page" : "pages"}${section.visibility === "COUPLE_ONLY" ? " · couple-only" : ""}`}
+        subtitle={(() => {
+          // v1.94.0: prepend the editable section subtitle when set.
+          // Reads "<subtitle> · 3 pages · couple-only" / fallback
+          // "Wedding Book · 3 pages" preserves v1.93 behaviour for
+          // sections without a custom subtitle.
+          const pageCount = `${section.subsections.length} ${section.subsections.length === 1 ? "page" : "pages"}`;
+          const couple = section.visibility === "COUPLE_ONLY" ? " · couple-only" : "";
+          if (section.subtitle && section.subtitle.trim()) {
+            return `${section.subtitle} · ${pageCount}${couple}`;
+          }
+          return `Wedding Book · ${pageCount}${couple}`;
+        })()}
         actions={
           <div className="flex items-center gap-2">
             {/* v1.24.0: section-level visibility toggle, couple-only. */}
@@ -279,6 +291,14 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
               <SectionVisibilityToggle
                 sectionId={section.id}
                 initial={section.visibility}
+              />
+            )}
+            {/* v1.94.0: title + subtitle edit modal. Slug stays stable. */}
+            {editable && (
+              <EditSectionToggle
+                id={section.id}
+                initialTitle={section.title}
+                initialSubtitle={section.subtitle}
               />
             )}
             {editable && <AddSubsectionToggle sectionId={section.id} />}
