@@ -6,6 +6,8 @@ import { notify } from "@/lib/notify";
 import { recipeRollups } from "@/lib/book-cards";
 import { saveRecipeCard, type RecipeSavePayload } from "../actions";
 import { CardChrome } from "./CardChrome";
+import type { LinkedTaskRow } from "./CardLinkedTasksPanel";
+import type { UserOpt } from "@/app/(app)/tasks/AddTaskToggle";
 import { FieldLabel, Label, newRowId } from "./bookCardUi";
 
 // v1.26.0: RECIPE card editor.
@@ -33,6 +35,8 @@ type CardProps = {
   visibility: "EVERYONE" | "COUPLE_ONLY";
   canEdit: boolean;
   isCouple: boolean;
+  linkedTasks?: LinkedTaskRow[];
+  users?: UserOpt[];
 };
 
 function formatMinutes(m: number): string {
@@ -53,6 +57,8 @@ export function BookRecipeCard({
   visibility,
   canEdit,
   isCouple,
+  linkedTasks = [],
+  users = [],
 }: CardProps) {
   const [pending, startTransition] = useTransition();
   const [editing, setEditing] = useState(false);
@@ -135,6 +141,8 @@ export function BookRecipeCard({
       canEdit={canEdit}
       isCouple={isCouple}
       kindBadge="Recipe"
+      linkedTasks={linkedTasks}
+      users={users}
     >
       {/* Header strip: servings + active / day-before time */}
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-3">

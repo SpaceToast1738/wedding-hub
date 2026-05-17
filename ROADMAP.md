@@ -34,6 +34,7 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
+| **v1.92.0** | 2026-05-14 | [Course-correct v1.91.0 — drop subsection categorisation + OUTFIT trackingMode + per-item paidBy; new matrix WEDDING_PARTY card; inline linked-tasks panel; OUTFIT gets Purchased + Already-own. User feedback: "remove the subcategorisations, I want to track bridesmaids and groomsmen as a group, in a card where I can list out their names, list out the items they need, and if we have them or not. The outfit section as a whole isn't really working — several options are unnecessary. Status doesn't have a Purchased option, paidBy doesn't account for if we already own something and again doesn't link into the existing finance system. The tasks/questions/decisions section should be **inline within the card** and not look like it's been appended at the bottom." Five coordinated changes: (1) **DROP `BookSubsection.category`** + every UI surface from v1.91.0 (AddSubsectionToggle field, CardChrome inline category strip, SubsectionEditor inline strip, page.tsx group-by-category render). (2) **DROP `BookOutfitCard.trackingMode`** + the FULL/LIGHT toggle UI + all `isLight` branches. (3) **DROP `BookOutfit.paidBy`** (v1.91.0 per-item text field). (4) **ADD `BookOutfit.alreadyOwned Boolean`** — per-item "we already own this" marker. OUTFIT items get an Already-own checkbox in edit mode + a `✓ Already own` chip in view mode. Status options gain `Purchased` (between Designed and Ordered). (5) **NEW `WEDDING_PARTY` card kind** — matrix tracker (items × people) with sparse cell storage. New `BookWeddingPartyCard` + `Member` + `Item` + `Cell` models. Per-cell status (Need / Have / Already own / N/A) saved via standalone `setWeddingPartyCell` action (no draft form). Members + items + matrix cells reorderable + renameable. Card-level groupLabel + notes save on blur. (6) **Inline linked-tasks panel** — `CardLinkedTasksPanel` lifted into its own file; rendered INSIDE the card's `<article>` via CardChrome / direct include for TEXT / OUTFIT / DRESS_CODE / WEDDING_PARTY / FIELD / RECIPE. Other 8 kinds keep the v1.51.0 sibling-render until migrated individually in a follow-up. **OUTFIT → Budget + Payments** wiring unchanged from v1.78.0 (card → BudgetLine sync) + v1.75.0 (Payment.bookOutfitId per-item link) — Already-own is display-only at the item level. Migration `20260515100000_wedding_party_card_outfit_cleanup_drop_categories` drops 3 columns + 1 enum, adds 1 column + 1 enum value + 4 models.](#2026-05-14--v1920--course-correct-v1910) |
 | **v1.91.0** | 2026-05-14 | [New DRESS_CODE card kind + OUTFIT-card flexibility + subsection categorisation. User: "We currently have clothing and accessories in detail for where we are making the purchases, but we don't have anything for tracking if bridesmaids, groomsmen have made their purchases etc — Also general clothing guidance for any guests asking. Could we plan out some new cards, maybe also start to categorise the cards…". Three coordinated changes: (1) **OUTFIT card flexibility** — new `BookOutfitCard.trackingMode` enum (`FULL / LIGHT`); LIGHT collapses the editor + read view to "items + status + per-item paidBy" only (hides fitting / alterations / pickup / cost / gallery) so bridesmaid / groomsman cards don't need the deep tracker. New `BookOutfit.paidBy` free-text override per item ("Aimee" / "Couple" / "Parents") so a bridesmaid card can carry mixed responsibility (Dress: Aimee, Bouquet: Couple); chip in view mode falls back to card-level paidBy with `(inh.)` italic suffix. (2) **DRESS_CODE card kind** — new `BookDressCodeCard` model + new `BookSubsectionKind.DRESS_CODE`. Single-row card with structured fields (dress code label, summary, colour guidance, footwear, weather, accessories) + rich-text `bodyHtml` + image gallery. Couple-internal reference. (3) **Subsection categorisation** — `BookSubsection.category` (nullable, indexed); cards on the section page group under uppercase category headers ("BRIDE" / "BRIDESMAIDS" / "GROOMSMEN"). `CardChrome` + `SubsectionEditor` get inline category inputs with datalist autofill from existing categories on the section; `AddSubsectionToggle` gains a category field on create. New server actions `saveDressCodeCard` + `attachFileToDressCodeCard` / `detachFileFromDressCodeCard` / `uploadAndAttachDressCodeFile`; `createBookSubsection` seeds the DRESS_CODE row + persists category; `updateBookSubsection` round-trips category. OUTFIT → Budget sync (v1.78.0) unchanged: card-level `costPence` continues to drive the linked `BudgetLine.estimated` on save. Per-item Payment links (v1.75.0 `Payment.bookOutfitId`) unchanged. Migration `20260515000000_dress_code_outfit_modes_categories` is additive — `trackingMode` defaults to FULL, `paidBy` + `category` start null.](#2026-05-14--v1910--dress-code--outfit-modes--card-categories) |
 | **v1.90.1** | 2026-05-14 | [Questions / Decisions edit form gets the Topics picker (parity with Tasks). User: "They don't have the same edit screen". On `/questions`, the inline edit row's `TaskForm` was missing the Topics multi-select (Book sections / Book pages / Nav tags / Guest groups) — `+ New` via `AddTaskToggle` had it because the page only piped the option lists into the create form, not the edit form. Two coordinated fixes in `questions/page.tsx` + `QuestionsClient.tsx`: (1) the task query now `include`s the four m2m relations so each row carries its existing topic-link IDs; (2) the option lists + ID arrays are threaded through `QuestionsClient → Section → Row → TaskForm`. `TaskForm`'s existing guard (`bookSections.length > 0 || …`) now sees non-empty lists and renders the picker, pre-selected with the row's existing links. Save path uses the existing `updateTask` + `parseTopicKeys` — no server changes. No schema; relations exist since v1.30.5 / v1.51.0 / v1.61.0.](#2026-05-14--v1901--questions-edit-form-parity) |
 | **v1.90.0** | 2026-05-14 | [Today page polish — cross-module strip no longer leaves blank columns + Recent activity gets entity badges + initials chips. User: "Can we make this look better?" Two render fixes on `/today`: (1) `TodayCrossModuleStrip` switched from a fixed `grid-cols-3` to `auto-fit minmax(280px, 1fr)`, with empty widgets filtered before render — pre-fix, when only Open Decisions had data, the lone card sat alone in column 1 with two empty grid cells reserving column 2+3 space. (2) `RecentActivityFeed` rewrote from a uniform-grey-text list into a scannable two-row column: colour-coded entity glyph badges on the left (£ for Payment / Budget, ✓ for Task, ♥ for Guest / Household, ◆ for Supplier, ❧ for Book, ♪ for Songs, 📎 for File, etc.), monospace `time-ago` column, the formatted sentence, and a trailing initials avatar chip with the actor's full name in the title attr. `divide-y` separators + subtle hover so consecutive entries don't blur together.](#2026-05-14--v1900--today-page-polish) |
@@ -929,6 +930,51 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-05-14 · v1.92.0 — Course-correct v1.91.0
+
+User feedback after v1.91.0 shipped:
+
+> "This isn't really what I wanted, remove the subcategorisations, I want to track bridesmaids and groomsmen as a group, in a card where I can list out their names, list out the items they need, and if we have them or not. The outfit section as a whole isn't really working — several options are unnecessary. Status doesn't have a Purchased option, paidBy doesn't account for if we already own something and again doesn't link into the existing finance system. The tasks/questions/decisions section should be **inline within the card** and not look like it's been appended at the bottom."
+
+**Five coordinated changes** in one release.
+
+**1. Drop subsection categorisation (v1.91.0).** The wrong abstraction — what the user actually wanted was a group-level matrix card. Schema drops `BookSubsection.category` + the index. UI drops: `AddSubsectionToggle` category input, `CardChrome` inline category strip + `saveCategory` handler, `SubsectionEditor` inline category strip, `page.tsx` group-by-category render + existingCategories computation, `CardRouter`'s threading.
+
+**2. Drop OUTFIT `trackingMode` (v1.91.0).** The FULL/LIGHT distinction stops being useful now that bridesmaid / groomsman tracking moves to the new matrix card. Schema drops `BookOutfitCard.trackingMode` + the `OutfitTrackingMode` enum. UI drops the toggle + all `isLight` branches in the editor.
+
+**3. Drop OUTFIT per-item `paidBy` (v1.91.0).** Replaced by per-item **`alreadyOwned: Boolean @default(false)`**. The user noted some items they plan to wear are already in their possession (necklace with new chain, socks, underwear, etc.) — these don't need money tracking. Items they're buying continue to flow through the existing v1.78.0 BookOutfitCard → BudgetLine sync + v1.75.0 `Payment.bookOutfitId` per-item link (which surface the `📎 £X paid` chip on each row).
+
+**OUTFIT improvements:**
+- `Already own` checkbox in the edit row + `✓ Already own` chip in view mode.
+- `Purchased` added to `STATUS_OPTIONS` (between Designed and Ordered) — the user noted not every item goes through an "Ordered" flow.
+
+**4. New `WEDDING_PARTY` card kind.** Matrix tracker (items as rows, people as columns) for bridesmaid / groomsman / flower-girl readiness. Four new models:
+- `BookWeddingPartyCard` — single per-subsection row, holds `groupLabel` + `notes`.
+- `BookWeddingPartyMember` — one per person (name + optional role + order).
+- `BookWeddingPartyItem` — one per item (label + notes + order).
+- `BookWeddingPartyCell` — **sparse** cell storage. Only rows where status differs from the default `NEED` are persisted. Statuses: `NEED / HAVE / ALREADY_OWN / N_A`.
+
+Editor renders as a `<table>` with members across the top + items down the left + a status dropdown in each cell. Cell-by-cell save via `setWeddingPartyCell` (no draft form). Members + items have inline rename / delete / reorder via hover-only action buttons. Card-level `groupLabel` + `notes` save on blur. ~10 new server actions for member / item / cell CRUD + reorder.
+
+**5. Inline linked-tasks panel.** The v1.51.0 `CardLinkedTasksPanel` rendered as a sibling **below** each card's `<article>` (visually appended). User asked for it to read as part of the card.
+- Lifted from `CardRouter.tsx` into its own `CardLinkedTasksPanel.tsx`.
+- `CardChrome` now renders the panel **inside** the article element between the children and the action footer.
+- `SubsectionEditor` (TEXT) renders the same inline.
+- `BookDressCodeCard` renders the same inline.
+- The four kinds the user is actively iterating on (`TEXT / OUTFIT / DRESS_CODE / WEDDING_PARTY`) + `FIELD / RECIPE` (props already threaded) render inline; the remaining 8 kinds keep the v1.51.0 sibling-render via a small `SiblingLinkedTasksPanel` wrapper in CardRouter until they're each migrated in a follow-up release.
+
+**OUTFIT → Budget + Payments wiring unchanged.** Card-level `costPence` still drives the linked `BudgetLine.estimated` via `syncBudgetLine`; per-item Payments still link via `Payment.bookOutfitId` and surface the `📎 £X paid` reciprocal chip. `alreadyOwned` is **display-only** at the item level — no auto-skip on budget sync (the couple manually nets out owned items when setting the card-level cost).
+
+Migration `20260515100000_wedding_party_card_outfit_cleanup_drop_categories`:
+- DROP `BookSubsection.category` + index.
+- DROP `BookOutfitCard.trackingMode` + `OutfitTrackingMode` enum.
+- DROP `BookOutfit.paidBy`.
+- ADD `BookOutfit.alreadyOwned` (BOOLEAN NOT NULL DEFAULT false).
+- ADD `WEDDING_PARTY` to `BookSubsectionKind`.
+- ADD 4 new tables + indexes.
+
+594/594 tests still green.
 
 ### 2026-05-14 · v1.91.0 — Dress-code + outfit modes + card categories
 

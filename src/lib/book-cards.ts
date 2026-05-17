@@ -7,8 +7,8 @@
 // v1.15.0 custom-fields patterns.
 
 // v1.31.0: + BUILD. v1.32.0: + MENU, BAR. v1.33.0: + SETUP. v1.34.0: + LEGAL.
-// v1.36.0: + STAY, LODGING_GUIDE. v1.91.0: + DRESS_CODE.
-export const BOOK_CARD_KINDS = ["TEXT", "FIELD", "RECIPE", "SHOT_LIST", "OUTFIT", "BUILD", "MENU", "BAR", "SETUP", "LEGAL", "STAY", "LODGING_GUIDE", "DRESS_CODE"] as const;
+// v1.36.0: + STAY, LODGING_GUIDE. v1.91.0: + DRESS_CODE. v1.92.0: + WEDDING_PARTY.
+export const BOOK_CARD_KINDS = ["TEXT", "FIELD", "RECIPE", "SHOT_LIST", "OUTFIT", "BUILD", "MENU", "BAR", "SETUP", "LEGAL", "STAY", "LODGING_GUIDE", "DRESS_CODE", "WEDDING_PARTY"] as const;
 export type BookCardKind = (typeof BOOK_CARD_KINDS)[number];
 
 // Display metadata for each card kind — used by the picker UI and
@@ -71,6 +71,11 @@ export const BOOK_CARD_KIND_META: Record<
   DRESS_CODE: {
     label: "Dress code",
     description: "Couple-internal reference for the dress code + colour / footwear / weather guidance.",
+  },
+  // v1.92.0
+  WEDDING_PARTY: {
+    label: "Wedding party",
+    description: "Matrix tracker for bridesmaid / groomsman / flower-girl readiness (items × people).",
   },
 };
 

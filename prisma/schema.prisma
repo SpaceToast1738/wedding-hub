@@ -715,11 +715,9 @@ model BookSubsection {
   // dress code + colour / footwear / weather guidance the couple
   // shares with guests on request.
   dressCodeCard BookDressCodeCard?
-  // v1.91.0: free-text category label so the section page can group
-  // cards under headers ("Bride", "Bridesmaids", "Groomsmen", etc.).
-  // Null cards render under an "Uncategorised" group at the top.
-  // Indexed for the grouped-fetch query.
-  category   String?
+  // v1.92.0: WEDDING_PARTY card — matrix tracker (items × people)
+  // for bridesmaid / groomsman / flower-girl readiness.
+  weddingPartyCard BookWeddingPartyCard?
   // v1.30.5: subsection-level task link removed; replaced by section-
   // level link on the parent BookSection (see BookSection.tasks).
   // v1.51.0: subsection-level link reintroduced as a **parallel** m2m
@@ -731,7 +729,6 @@ model BookSubsection {
   updatedAt  DateTime    @updatedAt
 
   @@unique([sectionId, slug])
-  @@index([category])
 }
 
 // v1.26.0: card-kind discriminator on BookSubsection.
@@ -758,17 +755,11 @@ enum BookSubsectionKind {
   // + an image gallery. Lives on /book like every other kind; no
   // public surface yet.
   DRESS_CODE
-}
-
-// v1.91.0: OUTFIT card tracking depth. FULL is the existing editor
-// (fitting / alterations / pickup / cost / file gallery + items).
-// LIGHT collapses to just person + role + items + per-item status +
-// per-item paidBy — for bridesmaids / groomsmen whose detail the
-// couple doesn't need to micromanage. Stored data is preserved
-// across mode flips so the user can drill into FULL later if needed.
-enum OutfitTrackingMode {
-  FULL
-  LIGHT
+  // v1.92.0: matrix tracker for bridesmaid / groomsman / flower-girl
+  // readiness. Items (Dress, Shoes, Hair, etc.) as rows; named
+  // members as columns; per-cell status (Need / Have / Already own
+  // / N/A).
+  WEDDING_PARTY
 }
 
 // v1.26.0: FIELD card — list of typed fields. Values stored on
@@ -908,11 +899,6 @@ model BookOutfitCard {
   // over line link when both are set.
   budgetLineComponentId String?
   budgetLineComponent   BudgetLineComponent? @relation(fields: [budgetLineComponentId], references: [id], onDelete: SetNull)
-  // v1.91.0: editor-depth toggle. FULL = full tracker (default for
-  // Bryony / Jamie); LIGHT = collapsed editor for bridesmaids /
-  // groomsmen — items + status + per-item paidBy only. Existing data
-  // is preserved across mode flips.
-  trackingMode     OutfitTrackingMode @default(FULL)
 }
 
 model BookOutfit {
@@ -934,11 +920,14 @@ model BookOutfit {
   order       Int            @default(0)
   // v1.75.0: payments that paid for this outfit item.
   payments    Payment[]
-  // v1.91.0: per-item "who's paying for this" override. Free text
-  // ("Couple" / "Aimee" / "Parents" / etc.) — defaults to the
-  // card-level `paidBy` when null. Lets a bridesmaid card carry
-  // mixed responsibility (Dress: Aimee, Bouquet: Couple).
-  paidBy      String?
+  // v1.92.0: marker for items the couple already owns (necklace
+  // they already have, socks, underwear, etc.) — no money to track,
+  // just "this exists, ✓". Renders as a chip in view mode + a
+  // checkbox in edit. Money tracking for owned items isn't needed;
+  // money tracking for not-owned items still flows via the
+  // v1.75.0 Payment.bookOutfitId link + v1.78.0 card → BudgetLine
+  // sync, no separate paidBy text needed at the item level.
+  alreadyOwned Boolean       @default(false)
 }
 
 // v1.31.0: BUILD card — DIY production tracker. One card per project
@@ -1295,6 +1284,67 @@ model BookDressCodeCard {
   fileIds        String[]       @default([])
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
+}
+
+// v1.92.0: WEDDING_PARTY card — matrix tracker for bridesmaid /
+// groomsman / flower-girl readiness. groupLabel is the friendly
+// "Bridesmaids" / "Groomsmen" tag. Members + items rendered as
+// columns + rows respectively; cells are sparse (only persisted
+// when status differs from default NEED) so a 5×8 grid with 3 set
+// cells is 3 rows, not 40.
+model BookWeddingPartyCard {
+  id           String                   @id @default(cuid())
+  subsectionId String                   @unique
+  subsection   BookSubsection           @relation(fields: [subsectionId], references: [id], onDelete: Cascade)
+  groupLabel   String?
+  notes        String?                  @db.Text
+  members      BookWeddingPartyMember[]
+  items        BookWeddingPartyItem[]
+  createdAt    DateTime                 @default(now())
+  updatedAt    DateTime                 @updatedAt
+}
+
+model BookWeddingPartyMember {
+  id     String                 @id @default(cuid())
+  cardId String
+  card   BookWeddingPartyCard   @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  name   String
+  // Optional sub-label ("Maid of Honour", "Best Man", "Bridesmaid").
+  role   String?
+  order  Int                    @default(0)
+  cells  BookWeddingPartyCell[]
+
+  @@index([cardId])
+}
+
+model BookWeddingPartyItem {
+  id     String                 @id @default(cuid())
+  cardId String
+  card   BookWeddingPartyCard   @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  label  String
+  notes  String?
+  order  Int                    @default(0)
+  cells  BookWeddingPartyCell[]
+
+  @@index([cardId])
+}
+
+// Status stored as a free string — values are "NEED" | "HAVE" |
+// "ALREADY_OWN" | "N_A". Stored as text (not enum) so the matrix
+// editor can add new statuses later without a schema migration.
+model BookWeddingPartyCell {
+  id        String                 @id @default(cuid())
+  memberId  String
+  member    BookWeddingPartyMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  itemId    String
+  item      BookWeddingPartyItem   @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  status    String
+  notes     String?
+  updatedAt DateTime               @updatedAt
+
+  @@unique([memberId, itemId])
+  @@index([memberId])
+  @@index([itemId])
 }
 
 enum BookSubsectionVisibility {

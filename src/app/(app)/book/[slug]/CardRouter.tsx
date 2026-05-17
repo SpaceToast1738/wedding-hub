@@ -1,6 +1,5 @@
 "use client";
 
-import { useState, useTransition } from "react";
 import { BookBarCard } from "./BookBarCard";
 import { BookBuildCard } from "./BookBuildCard";
 import { BookFieldsCard } from "./BookFieldsCard";
@@ -13,9 +12,15 @@ import { BookSetupCard } from "./BookSetupCard";
 import { BookShotListCard } from "./BookShotListCard";
 import { BookStayCard } from "./BookStayCard";
 import { BookDressCodeCard } from "./BookDressCodeCard";
+import { BookWeddingPartyCard } from "./BookWeddingPartyCard";
 import { SubsectionEditor } from "./SubsectionEditor";
-import { setTaskStatus } from "@/app/(app)/tasks/actions";
-import { AddTaskToggle, type UserOpt } from "@/app/(app)/tasks/AddTaskToggle";
+import type { UserOpt } from "@/app/(app)/tasks/AddTaskToggle";
+// v1.92.0: re-export so existing imports (`import { LinkedTaskRow }
+// from "./CardRouter"`) continue to compile; the canonical location
+// is now CardLinkedTasksPanel.tsx.
+export type { LinkedTaskRow } from "./CardLinkedTasksPanel";
+import { CardLinkedTasksPanel } from "./CardLinkedTasksPanel";
+import type { LinkedTaskRow } from "./CardLinkedTasksPanel";
 
 // v1.26.0: kind discriminator → per-kind editor. Each subsection
 // arrives from the server with all its per-kind data eager-loaded
@@ -42,10 +47,7 @@ type Sub = {
   bodyHtml: string | null;
   fields: unknown;
   visibility: "EVERYONE" | "COUPLE_ONLY";
-  // v1.91.0: optional grouping label rendered as a chip in CardChrome
-  // / SubsectionEditor + a section-page group header.
-  category: string | null;
-  kind: "TEXT" | "FIELD" | "RECIPE" | "SHOT_LIST" | "OUTFIT" | "BUILD" | "MENU" | "BAR" | "SETUP" | "LEGAL" | "STAY" | "LODGING_GUIDE" | "DRESS_CODE";
+  kind: "TEXT" | "FIELD" | "RECIPE" | "SHOT_LIST" | "OUTFIT" | "BUILD" | "MENU" | "BAR" | "SETUP" | "LEGAL" | "STAY" | "LODGING_GUIDE" | "DRESS_CODE" | "WEDDING_PARTY";
   fieldDefs: Array<{
     id: string;
     label: string;
@@ -124,14 +126,12 @@ type Sub = {
       // v1.78.0: paid-on-card reciprocal — payments linked to this
       // outfit-item, summed for the chip render.
       paidPence: number;
-      // v1.91.0: per-item paidBy override (null inherits card-level).
-      paidBy: string | null;
+      // v1.92.0: per-item already-own marker.
+      alreadyOwned: boolean;
     }>;
     files: Array<{ id: string; name: string; mimeType: string }>;
     // v1.78.0: linked BudgetLine for the auto-sync chip.
     budgetLine: { id: string; description: string; category: { id: string; name: string } } | null;
-    // v1.91.0: tracking-mode toggle (FULL / LIGHT).
-    trackingMode: "FULL" | "LIGHT";
   } | null;
   // v1.32.0: MENU card eager-loaded data + server-computed live counts.
   menuCard: {
@@ -290,6 +290,16 @@ type Sub = {
     fileIds: string[];
     files: Array<{ id: string; name: string; mimeType: string }>;
   } | null;
+  // v1.92.0: WEDDING_PARTY card eager-loaded data — members + items
+  // + sparse cells.
+  weddingPartyCard: {
+    id: string;
+    groupLabel: string | null;
+    notes: string | null;
+    members: Array<{ id: string; name: string; role: string | null; order: number }>;
+    items: Array<{ id: string; label: string; notes: string | null; order: number }>;
+    cells: Array<{ memberId: string; itemId: string; status: string; notes: string | null }>;
+  } | null;
   // v1.31.0: BUILD card eager-loaded data.
   // v1.31.1: + budgetLineId + budgetLine snapshot.
   // v1.78.0: + paidPence per material (sum of linked Payment.amount).
@@ -337,18 +347,9 @@ type Sub = {
   } | null;
 };
 
-// v1.51.0: per-card linked tasks shape. Loaded by the parent page
-// from the parallel Task ↔ BookSubsection m2m. Optional so older
-// callers that don't pass the prop still type-check; they just
-// don't render the inline panel.
-export type LinkedTaskRow = {
-  id: string;
-  title: string;
-  type: string;
-  status: string;
-  priority: string;
-  dueDate: Date | null;
-};
+// v1.92.0: LinkedTaskRow is re-exported above from
+// CardLinkedTasksPanel.tsx (lifted in v1.92.0 so each editor can
+// render the panel inside its own <article>).
 
 export function CardRouter({
   sub,
@@ -358,7 +359,6 @@ export function CardRouter({
   budgetCategories = [],
   linkedTasks = [],
   users = [],
-  existingCategories = [],
 }: {
   sub: Sub;
   canEdit: boolean;
@@ -373,25 +373,45 @@ export function CardRouter({
   budgetCategories?: Array<{ id: string; name: string }>;
   linkedTasks?: LinkedTaskRow[];
   users?: UserOpt[];
-  /** v1.91.0: distinct subsection categories on this section for the
-   *  CardChrome / SubsectionEditor inline category input autofill. */
-  existingCategories?: string[];
 }) {
-  const body = renderCardBody(sub, canEdit, isCouple, showMoney, budgetCategories, existingCategories);
-  // v1.51.0: inline panel renders directly below every kind's body.
-  // v1.71.0: always shown when canEdit (so "Add task" is available).
+  // v1.92.0: the four kinds the user is actively iterating on (TEXT,
+  // OUTFIT, DRESS_CODE, WEDDING_PARTY) render the linked-tasks panel
+  // inline inside their own <article> via CardChrome / direct
+  // include. The remaining 10 kinds continue to render it as a
+  // sibling below the body (the v1.51.0 default) until they're each
+  // migrated to inline in a follow-up release.
+  const inlineKinds = new Set([
+    "TEXT", "OUTFIT", "DRESS_CODE", "WEDDING_PARTY",
+    // v1.92.0: FIELD + RECIPE editors already forward props to
+    // CardChrome (which renders the panel inline). Adding them here
+    // suppresses the duplicate sibling render.
+    "FIELD", "RECIPE",
+  ]);
+  const body = renderCardBody(sub, canEdit, isCouple, showMoney, budgetCategories, linkedTasks, users);
+  if (inlineKinds.has(sub.kind)) return body;
   return (
     <>
       {body}
       {(linkedTasks.length > 0 || canEdit) && (
-        <CardLinkedTasksPanel
-          tasks={linkedTasks}
-          subsectionId={sub.id}
-          canEdit={canEdit}
-          users={users}
-        />
+        <SiblingLinkedTasksPanel tasks={linkedTasks} subsectionId={sub.id} canEdit={canEdit} users={users} />
       )}
     </>
+  );
+}
+
+// v1.92.0: thin wrapper around CardLinkedTasksPanel for the 10 kinds
+// that haven't been migrated to inline rendering. Wraps with the
+// "appended below" v1.51.0 styling so untouched cards don't regress.
+function SiblingLinkedTasksPanel(props: {
+  tasks: LinkedTaskRow[];
+  subsectionId: string;
+  canEdit: boolean;
+  users: UserOpt[];
+}) {
+  return (
+    <div className="-mt-2 px-4">
+      <CardLinkedTasksPanel {...props} />
+    </div>
   );
 }
 
@@ -402,7 +422,8 @@ function renderCardBody(
   showMoney: boolean,
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   budgetCategories: Array<{ id: string; name: string }>,
-  existingCategories: string[],
+  linkedTasks: LinkedTaskRow[],
+  users: UserOpt[],
 ) {
   // v1.78.0: budgetCategories is loaded by the page and passed
   // through here for the per-card "Link to budget" pickers (MENU /
@@ -420,12 +441,11 @@ function renderCardBody(
             body: sub.body,
             bodyHtml: sub.bodyHtml,
             visibility: sub.visibility,
-            // v1.91.0
-            category: sub.category ?? null,
           }}
           canEdit={canEdit}
           isCouple={isCouple}
-          existingCategories={existingCategories}
+          linkedTasks={linkedTasks}
+          users={users}
         />
       );
     case "FIELD":
@@ -443,6 +463,8 @@ function renderCardBody(
           visibility={sub.visibility}
           canEdit={canEdit}
           isCouple={isCouple}
+          linkedTasks={linkedTasks}
+          users={users}
         />
       );
     case "RECIPE":
@@ -458,6 +480,8 @@ function renderCardBody(
           visibility={sub.visibility}
           canEdit={canEdit}
           isCouple={isCouple}
+          linkedTasks={linkedTasks}
+          users={users}
         />
       );
     case "SHOT_LIST":
@@ -489,7 +513,6 @@ function renderCardBody(
         notes: null,
         items: [],
         files: [],
-        trackingMode: "FULL" as const,
       };
       return (
         <BookOutfitCardEditor
@@ -513,12 +536,10 @@ function renderCardBody(
             fileIds: oc.fileIds,
             notes: oc.notes,
             items: oc.items,
-            trackingMode: oc.trackingMode ?? "FULL",
           }}
           files={oc.files}
-          // v1.91.0
-          category={sub.category ?? null}
-          existingCategories={existingCategories}
+          linkedTasks={linkedTasks}
+          users={users}
         />
       );
     }
@@ -754,6 +775,47 @@ function renderCardBody(
         />
       );
     }
+    case "WEDDING_PARTY": {
+      // v1.92.0: matrix tracker. Defensive default if the per-kind
+      // row hasn't been seeded (shouldn't happen — createBookSubsection
+      // seeds it — but matches every other branch's fallback shape).
+      const wp = sub.weddingPartyCard ?? {
+        id: "",
+        groupLabel: null,
+        notes: null,
+        members: [],
+        items: [],
+        cells: [],
+      };
+      return (
+        <BookWeddingPartyCard
+          subsectionId={sub.id}
+          slug={sub.slug}
+          title={sub.title}
+          visibility={sub.visibility}
+          canEdit={canEdit}
+          isCouple={isCouple}
+          card={{
+            id: wp.id,
+            groupLabel: wp.groupLabel,
+            notes: wp.notes,
+            members: wp.members,
+            items: wp.items,
+            // Cast Cell.status from string → the four-value union the
+            // editor expects. Server-side `setWeddingPartyCell`
+            // restricts to the same 4 values via Zod.
+            cells: wp.cells.map((c) => ({
+              memberId: c.memberId,
+              itemId: c.itemId,
+              status: c.status as "NEED" | "HAVE" | "ALREADY_OWN" | "N_A",
+              notes: c.notes,
+            })),
+          }}
+          linkedTasks={linkedTasks}
+          users={users}
+        />
+      );
+    }
     case "DRESS_CODE": {
       // v1.91.0: couple-internal dress-code reference card. Defensive
       // defaults when the per-kind row hasn't been seeded (shouldn't
@@ -790,6 +852,8 @@ function renderCardBody(
             fileIds: dc.fileIds,
           }}
           files={dc.files}
+          linkedTasks={linkedTasks}
+          users={users}
         />
       );
     }
@@ -803,120 +867,6 @@ function renderCardBody(
   }
 }
 
-// v1.51.0: per-card linked tasks panel.
-// v1.71.0: interactive status toggle + AddTaskToggle affordance.
-function CardInlineTaskRow({ task, canEdit }: { task: LinkedTaskRow; canEdit: boolean }) {
-  const [pending, startTransition] = useTransition();
-  const [optimisticStatus, setOptimisticStatus] = useState(task.status);
-  const isDone = optimisticStatus === "DONE" || optimisticStatus === "ARCHIVED";
-
-  function statusClass(s: string): string {
-    if (s === "DONE") return "text-moss-700 bg-moss-50 border-moss-300";
-    if (s === "OPEN") return "text-marigold-700 bg-marigold-100/40 border-marigold-700/30";
-    if (s === "IN_PROGRESS") return "text-info bg-canvas border-border-soft";
-    return "text-ink-tertiary bg-canvas border-border-soft";
-  }
-  function statusLabel(s: string): string {
-    if (s === "OPEN") return "Open";
-    if (s === "IN_PROGRESS") return "Doing";
-    if (s === "WAITING") return "Waiting";
-    if (s === "DONE") return "Done";
-    if (s === "ARCHIVED") return "Archived";
-    return s;
-  }
-
-  function toggle() {
-    if (!canEdit) return;
-    const next = isDone ? "OPEN" : "DONE";
-    setOptimisticStatus(next);
-    startTransition(async () => {
-      await setTaskStatus(task.id, next as "OPEN" | "DONE");
-    });
-  }
-
-  return (
-    <li className="px-4 py-1.5 flex items-center gap-2">
-      {canEdit ? (
-        <button
-          type="button"
-          onClick={toggle}
-          disabled={pending}
-          className={`flex-shrink-0 w-3.5 h-3.5 rounded-sm border transition-colors ${
-            isDone
-              ? "bg-moss-500 border-moss-500 text-white"
-              : "border-border-soft bg-surface hover:border-moss-400"
-          } flex items-center justify-center disabled:opacity-50`}
-          title={isDone ? "Mark as open" : "Mark as done"}
-        >
-          {isDone && (
-            <svg width="8" height="6" viewBox="0 0 8 6" fill="none">
-              <path d="M1 3l2 2 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-          )}
-        </button>
-      ) : (
-        <span className="text-[10px] font-mono text-ink-tertiary w-4 text-center">
-          {task.type === "QUESTION" ? "Q" : task.type === "DECISION" ? "D" : "·"}
-        </span>
-      )}
-      <span className={`flex-1 min-w-0 truncate text-sm ${isDone ? "text-ink-tertiary line-through" : "text-ink-primary"}`}>
-        {task.title}
-      </span>
-      <span className={`text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded-md border flex-shrink-0 ${statusClass(optimisticStatus)}`}>
-        {statusLabel(optimisticStatus)}
-      </span>
-      {task.dueDate && (
-        <span className="text-[10px] text-ink-tertiary tabular-nums whitespace-nowrap flex-shrink-0">
-          {task.dueDate.toLocaleDateString("en-GB", { day: "2-digit", month: "short" })}
-        </span>
-      )}
-    </li>
-  );
-}
-
-function CardLinkedTasksPanel({
-  tasks,
-  subsectionId,
-  canEdit,
-  users,
-}: {
-  tasks: LinkedTaskRow[];
-  subsectionId: string;
-  canEdit: boolean;
-  users: UserOpt[];
-}) {
-  return (
-    <section className="mt-2 -mx-px border-x border-b border-border-soft bg-canvas/40 rounded-b-md">
-      <header className="px-4 py-1.5 border-b border-border-soft flex items-center gap-2">
-        <span className="text-[10px] uppercase tracking-wider font-bold text-ink-tertiary">
-          Linked tasks
-        </span>
-        {tasks.length > 0 && (
-          <span className="text-[10px] text-ink-tertiary tabular-nums">{tasks.length}</span>
-        )}
-        <div className="ml-auto flex items-center gap-2">
-          {canEdit && (
-            <AddTaskToggle
-              users={users}
-              defaultBookSubsectionIds={[subsectionId]}
-              buttonLabel="+ Task"
-              showType={false}
-            />
-          )}
-          <a href="/tasks" className="text-[10px] text-moss-700 hover:underline">
-            Manage →
-          </a>
-        </div>
-      </header>
-      {tasks.length === 0 ? (
-        <p className="px-4 py-2 text-xs text-ink-tertiary italic">No linked tasks yet.</p>
-      ) : (
-        <ul className="divide-y divide-border-soft">
-          {tasks.map((t) => (
-            <CardInlineTaskRow key={t.id} task={t} canEdit={canEdit} />
-          ))}
-        </ul>
-      )}
-    </section>
-  );
-}
+// v1.92.0: CardLinkedTasksPanel + CardInlineTaskRow lifted into
+// CardLinkedTasksPanel.tsx so multiple editors can render the
+// inline panel within their own <article>.

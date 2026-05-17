@@ -8,6 +8,8 @@ import { notify } from "@/lib/notify";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { legacyBodyToHtml } from "@/lib/sanitize-book-html";
 import { deleteBookSubsection, setBookSubsectionVisibility, updateBookSubsection } from "../actions";
+import { CardLinkedTasksPanel, type LinkedTaskRow } from "./CardLinkedTasksPanel";
+import type { UserOpt } from "@/app/(app)/tasks/AddTaskToggle";
 
 // v1.37.0: TEXT cards switched to a Tiptap WYSIWYG. The editor authors
 // HTML; the server sanitises on write, RichTextRead sanitises on read
@@ -28,15 +30,14 @@ type Sub = {
   body: string | null;
   bodyHtml: string | null;
   visibility: "EVERYONE" | "COUPLE_ONLY";
-  // v1.91.0: optional grouping label rendered on the section page.
-  category: string | null;
 };
 
 export function SubsectionEditor({
   sub,
   canEdit,
   isCouple,
-  existingCategories = [],
+  linkedTasks = [],
+  users = [],
 }: {
   sub: Sub;
   canEdit: boolean;
@@ -44,9 +45,9 @@ export function SubsectionEditor({
   // editors can still edit content; visibility is locked behind the
   // couple gate (server enforces this regardless of UI).
   isCouple: boolean;
-  // v1.91.0: distinct category strings on this section, used as the
-  // datalist for the inline category input.
-  existingCategories?: string[];
+  // v1.92.0: render the linked-tasks panel inline within the card.
+  linkedTasks?: LinkedTaskRow[];
+  users?: UserOpt[];
 }) {
   // Initial HTML: prefer bodyHtml (the new shape). Fall back to
   // legacyBodyToHtml(body) for rows that haven't been re-saved
@@ -61,11 +62,9 @@ export function SubsectionEditor({
   const [title, setTitle] = useState(sub.title);
   const [bodyHtml, setBodyHtml] = useState(initialHtml);
   const [visibility, setVisibility] = useState(sub.visibility);
-  // v1.91.0: editable category.
-  const [category, setCategory] = useState(sub.category ?? "");
   const [pending, startTransition] = useTransition();
   const confirm = useConfirm();
-  const dirty = title !== sub.title || bodyHtml !== initialHtml || (category.trim() || null) !== (sub.category ?? null);
+  const dirty = title !== sub.title || bodyHtml !== initialHtml;
 
   // Re-sync draft when the underlying sub prop changes (e.g. after a
   // server-action revalidate completes). Mirrors the pattern used in
@@ -74,13 +73,11 @@ export function SubsectionEditor({
     setTitle(sub.title);
     setBodyHtml(initialHtml);
     setVisibility(sub.visibility);
-    setCategory(sub.category ?? "");
-  }, [sub.id, sub.title, sub.visibility, sub.category, initialHtml]);
+  }, [sub.id, sub.title, sub.visibility, initialHtml]);
 
   function cancel() {
     setTitle(sub.title);
     setBodyHtml(initialHtml);
-    setCategory(sub.category ?? "");
     setEditing(false);
   }
 
@@ -102,7 +99,6 @@ export function SubsectionEditor({
     const fd = new FormData();
     fd.set("title", title);
     fd.set("bodyHtml", bodyHtml);
-    fd.set("category", category.trim()); // server trims / nulls on empty
     startTransition(async () => {
       try {
         await updateBookSubsection(sub.id, fd);
@@ -145,38 +141,6 @@ export function SubsectionEditor({
           </span>
         )}
       </div>
-      {/* v1.91.0: category strip — editable input in edit mode, small
-          chip in view mode (when set). Free text + datalist of
-          existing categories on this section. */}
-      {editing ? (
-        <div className="flex items-center gap-2 mb-3">
-          <span className="text-[10px] font-bold text-ink-tertiary uppercase tracking-wider">
-            Category
-          </span>
-          <input
-            type="text"
-            value={category}
-            onChange={(e) => setCategory(e.target.value)}
-            disabled={pending}
-            list="subsection-editor-category-options"
-            placeholder="— uncategorised —"
-            className="text-xs bg-transparent border-b border-dashed border-border-soft hover:border-border-strong focus:border-moss-500 px-1 py-0.5 text-ink-secondary outline-none flex-1 min-w-0 max-w-xs"
-          />
-          {existingCategories.length > 0 && (
-            <datalist id="subsection-editor-category-options">
-              {existingCategories.map((c) => (
-                <option key={c} value={c} />
-              ))}
-            </datalist>
-          )}
-        </div>
-      ) : sub.category ? (
-        <div className="mb-3">
-          <span className="text-[10px] font-bold text-ink-tertiary uppercase tracking-wider">
-            {sub.category}
-          </span>
-        </div>
-      ) : null}
       {editing ? (
         <RichTextEditor
           value={bodyHtml}
@@ -188,6 +152,16 @@ export function SubsectionEditor({
         <RichTextRead html={initialHtml} />
       ) : (
         <p className="text-sm text-ink-tertiary italic">—</p>
+      )}
+      {/* v1.92.0: linked-tasks panel rendered inside the card so it
+          reads as part of the card, not a separate appendage. */}
+      {(linkedTasks.length > 0 || canEdit) && (
+        <CardLinkedTasksPanel
+          tasks={linkedTasks}
+          subsectionId={sub.id}
+          canEdit={canEdit}
+          users={users}
+        />
       )}
       {canEdit && (
         <div className="flex gap-2 justify-end mt-3 pt-3 border-t border-border-soft">

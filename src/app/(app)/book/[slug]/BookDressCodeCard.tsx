@@ -23,6 +23,8 @@ import {
   uploadAndAttachDressCodeFile,
   type DressCodeSavePayload,
 } from "../actions";
+import { CardLinkedTasksPanel, type LinkedTaskRow } from "./CardLinkedTasksPanel";
+import type { UserOpt } from "@/app/(app)/tasks/AddTaskToggle";
 
 type CardData = {
   id: string;
@@ -44,6 +46,9 @@ type Props = {
   canEdit: boolean;
   card: CardData;
   files: Array<{ id: string; name: string; mimeType: string }>;
+  // v1.92.0: inline linked-tasks panel.
+  linkedTasks?: LinkedTaskRow[];
+  users?: UserOpt[];
 };
 
 // Read-mode field row — heading + value paragraph. Returns null when
@@ -69,6 +74,8 @@ export function BookDressCodeCard({
   canEdit,
   card,
   files,
+  linkedTasks = [],
+  users = [],
 }: Props) {
   const [editing, setEditing] = useState(false);
   const [pending, startTransition] = useTransition();
@@ -307,6 +314,16 @@ export function BookDressCodeCard({
             />
           )}
         </div>
+      )}
+
+      {/* v1.92.0: linked-tasks panel rendered inside the card. */}
+      {(linkedTasks.length > 0 || canEdit) && (
+        <CardLinkedTasksPanel
+          tasks={linkedTasks}
+          subsectionId={subsectionId}
+          canEdit={canEdit}
+          users={users}
+        />
       )}
 
       {canEdit && (

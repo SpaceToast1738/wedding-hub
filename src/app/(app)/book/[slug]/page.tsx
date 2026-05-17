@@ -26,10 +26,7 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
         // C1 (v1.14.0): non-couple users don't see COUPLE_ONLY pages.
         // The couple sees everything. Mirrors File.visibility.
         where: user.isCouple ? undefined : { visibility: "EVERYONE" },
-        // v1.91.0: sort by (category, order, title) so cards naturally
-        // arrive grouped by category for the section-page render.
-        // Nulls land last via the categoryOrder sort below in JS.
-        orderBy: [{ category: "asc" }, { order: "asc" }, { title: "asc" }],
+        orderBy: [{ order: "asc" }, { title: "asc" }],
         // v1.26.0: load all per-kind nested data so the CardRouter
         // can render whichever editor matches the subsection's kind.
         // v1.31.0: + buildCard.
@@ -112,6 +109,15 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
           // v1.91.0: DRESS_CODE card. Single-row card; just include
           // the row by default — no nested children.
           dressCodeCard: true,
+          // v1.92.0: WEDDING_PARTY card — members + items + sparse
+          // cells (cells are accessed via Member.cells; we flatten in
+          // JS below before passing into the editor).
+          weddingPartyCard: {
+            include: {
+              members: { orderBy: { order: "asc" }, include: { cells: true } },
+              items: { orderBy: { order: "asc" } },
+            },
+          },
         },
       },
     },
@@ -140,16 +146,6 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
       })
     : [];
 
-  // v1.91.0: distinct subsection categories on this section — used by
-  // CardChrome's inline category input and SubsectionEditor's category
-  // strip as the autofill datalist.
-  const existingCategories = Array.from(
-    new Set(
-      section.subsections
-        .map((s) => s.category?.trim())
-        .filter((c): c is string => !!c && c.length > 0),
-    ),
-  ).sort();
 
   // v1.30.5: pull section-level linked tasks (m2m bookSections relation).
   // Replaces v1.30.0's per-subsection link.
@@ -285,12 +281,7 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
                 initial={section.visibility}
               />
             )}
-            {editable && (
-              <AddSubsectionToggle
-                sectionId={section.id}
-                existingCategories={existingCategories}
-              />
-            )}
+            {editable && <AddSubsectionToggle sectionId={section.id} />}
           </div>
         }
       />
@@ -330,16 +321,7 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
               This section has no pages yet. {editable && "Add one above."}
             </p>
           ) : (
-            // v1.91.0: render with category group headers. The query
-            // already sorted by (category, order, title), so we just
-            // need to insert a `<div>{category}</div>` header above
-            // each new category boundary (header-on-change). Sentinel
-            // tracks the previous row's category so the very first
-            // card and each subsequent category switch both trigger
-            // a header.
-            (() => {
-              let prevCategory: string | null | undefined = undefined; // undefined ⇒ first iteration
-              return section.subsections.map((sRaw, subIdx) => {
+            section.subsections.map((sRaw, subIdx) => {
               // v1.31.1: Coerce BUILD card's BudgetLine.estimated
               // (Prisma Decimal) to a plain number before crossing
               // the client boundary. CardRouter's `Sub` type expects
@@ -442,9 +424,6 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
                     paid: sRaw.outfitCard.paid,
                     fileIds: sRaw.outfitCard.fileIds,
                     notes: sRaw.outfitCard.notes,
-                    // v1.91.0: tracking-mode toggle threads through to
-                    // the editor.
-                    trackingMode: sRaw.outfitCard.trackingMode,
                     items: sRaw.outfitCard.outfits.map((o) => ({
                       id: o.id,
                       itemLabel: o.itemLabel ?? "Outfit",
@@ -454,8 +433,8 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
                       status: o.status,
                       notes: o.notes,
                       order: o.order,
-                      // v1.91.0: per-item paidBy override.
-                      paidBy: o.paidBy,
+                      // v1.92.0: per-item already-own marker.
+                      alreadyOwned: o.alreadyOwned,
                       paidPence: Math.round(
                         o.payments.reduce(
                           (sum, p) =>
@@ -490,6 +469,36 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
               const dressCodeCard = sRaw.dressCodeCard
                 ? { ...sRaw.dressCodeCard, files: allFiles }
                 : null;
+              // v1.92.0: WEDDING_PARTY card — flatten cells from
+              // members.cells into a single sparse array for the
+              // matrix editor's lookup map.
+              const weddingPartyCard = sRaw.weddingPartyCard
+                ? {
+                    id: sRaw.weddingPartyCard.id,
+                    groupLabel: sRaw.weddingPartyCard.groupLabel,
+                    notes: sRaw.weddingPartyCard.notes,
+                    members: sRaw.weddingPartyCard.members.map((m) => ({
+                      id: m.id,
+                      name: m.name,
+                      role: m.role,
+                      order: m.order,
+                    })),
+                    items: sRaw.weddingPartyCard.items.map((i) => ({
+                      id: i.id,
+                      label: i.label,
+                      notes: i.notes,
+                      order: i.order,
+                    })),
+                    cells: sRaw.weddingPartyCard.members.flatMap((m) =>
+                      m.cells.map((c) => ({
+                        memberId: c.memberId,
+                        itemId: c.itemId,
+                        status: c.status,
+                        notes: c.notes,
+                      })),
+                    ),
+                  }
+                : null;
               const s = {
                 ...sRaw,
                 buildCard,
@@ -502,25 +511,13 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
                 lodgingCard,
                 shotList,
                 dressCodeCard,
+                weddingPartyCard,
               };
-              // v1.91.0: emit a category-group header on the first
-              // iteration AND each time the category changes.
-              const showHeader = prevCategory !== sRaw.category;
-              prevCategory = sRaw.category;
-              const headerLabel = (sRaw.category?.trim() || null) ?? "Uncategorised";
-              const hasAnyCategory = existingCategories.length > 0;
               return (
                 // v1.87.0: wrap each card in a Fragment with the
                 // reorder buttons sitting just above it. Hidden when
                 // the user can't edit the book.
                 <div key={s.id} className="space-y-1">
-                  {showHeader && hasAnyCategory && (
-                    <div className="pt-2 first:pt-0">
-                      <div className="text-[10px] font-bold text-ink-tertiary uppercase tracking-wider border-b border-border-soft pb-1">
-                        {headerLabel}
-                      </div>
-                    </div>
-                  )}
                   {editable && section.subsections.length > 1 && (
                     <SubsectionReorderControls
                       id={s.id}
@@ -537,12 +534,10 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
                     budgetCategories={budgetCategories}
                     linkedTasks={subsectionTasksById.get(s.id) ?? []}
                     users={taskUsers}
-                    existingCategories={existingCategories}
                   />
                 </div>
               );
-            });
-            })()
+            })
           )}
         </div>
       </div>

@@ -10,6 +10,8 @@ import {
   setBookSubsectionVisibility,
   updateBookSubsection,
 } from "../actions";
+import { CardLinkedTasksPanel, type LinkedTaskRow } from "./CardLinkedTasksPanel";
+import type { UserOpt } from "@/app/(app)/tasks/AddTaskToggle";
 
 // v1.26.0: shared chrome for the four new card kinds (FIELD, RECIPE,
 // SHOT_LIST, OUTFIT). Renders an `<article>` with the same anchor /
@@ -29,8 +31,8 @@ export function CardChrome({
   isCouple,
   kindBadge,
   children,
-  initialCategory = null,
-  existingCategories = [],
+  linkedTasks = [],
+  users = [],
 }: {
   subsectionId: string;
   slug: string;
@@ -43,19 +45,16 @@ export function CardChrome({
   // which kind of card this is without opening it.
   kindBadge: string;
   children: ReactNode;
-  // v1.91.0: optional grouping label rendered as a small chip on the
-  // card header and editable inline (matches the title's onBlur save
-  // pattern). When `canEdit`, the chip becomes an editable input.
-  initialCategory?: string | null;
-  // Distinct category strings on this section — surface as the
-  // datalist for autofill.
-  existingCategories?: string[];
+  // v1.92.0: render the LinkedTasksPanel INSIDE the card (between
+  // children and the action footer) instead of as a sibling below.
+  // Both default to empty so callers that don't thread tasks just
+  // omit the panel.
+  linkedTasks?: LinkedTaskRow[];
+  users?: UserOpt[];
 }) {
   const [title, setTitle] = useState(initialTitle);
   const [savedTitle, setSavedTitle] = useState(initialTitle);
   const [vis, setVis] = useState(visibility);
-  const [category, setCategory] = useState(initialCategory ?? "");
-  const [savedCategory, setSavedCategory] = useState(initialCategory ?? "");
   const [pending, startTransition] = useTransition();
   const confirm = useConfirm();
 
@@ -75,24 +74,6 @@ export function CardChrome({
       } catch (err) {
         setTitle(savedTitle);
         notify("error", err instanceof Error ? err.message : "Couldn't save title");
-      }
-    });
-  }
-
-  function saveCategory() {
-    const next = category.trim();
-    if (next === savedCategory) return;
-    const fd = new FormData();
-    fd.set("title", savedTitle);
-    fd.set("category", next);
-    startTransition(async () => {
-      try {
-        await updateBookSubsection(subsectionId, fd);
-        setSavedCategory(next);
-        setCategory(next);
-      } catch (err) {
-        setCategory(savedCategory);
-        notify("error", err instanceof Error ? err.message : "Couldn't save category");
       }
     });
   }
@@ -149,40 +130,18 @@ export function CardChrome({
           </span>
         )}
       </div>
-      {/* v1.91.0: category strip — editable inline when canEdit.
-          Free text + datalist of existing categories on this section
-          for one-click autofill. Saves onBlur (same pattern as title). */}
-      {canEdit ? (
-        <div className="flex items-center gap-2 -mt-2 mb-3">
-          <span className="text-[10px] font-bold text-ink-tertiary uppercase tracking-wider">
-            Category
-          </span>
-          <input
-            type="text"
-            value={category}
-            onChange={(e) => setCategory(e.target.value)}
-            onBlur={saveCategory}
-            disabled={pending}
-            list="card-chrome-category-options"
-            placeholder="— uncategorised —"
-            className="text-xs bg-transparent border-b border-dashed border-border-soft hover:border-border-strong focus:border-moss-500 px-1 py-0.5 text-ink-secondary outline-none flex-1 min-w-0 max-w-xs"
-          />
-          {existingCategories.length > 0 && (
-            <datalist id="card-chrome-category-options">
-              {existingCategories.map((c) => (
-                <option key={c} value={c} />
-              ))}
-            </datalist>
-          )}
-        </div>
-      ) : savedCategory ? (
-        <div className="-mt-2 mb-3">
-          <span className="text-[10px] font-bold text-ink-tertiary uppercase tracking-wider">
-            {savedCategory}
-          </span>
-        </div>
-      ) : null}
       {children}
+      {/* v1.92.0: linked-tasks panel rendered inside the card so it
+          reads as part of the card, not a separate appendage. Renders
+          when the panel has anything to show (tasks or the +Task button). */}
+      {(linkedTasks.length > 0 || canEdit) && (
+        <CardLinkedTasksPanel
+          tasks={linkedTasks}
+          subsectionId={subsectionId}
+          canEdit={canEdit}
+          users={users}
+        />
+      )}
       {canEdit && (
         <div className="flex justify-end gap-1 mt-3 pt-3 border-t border-border-soft">
           {isCouple && (

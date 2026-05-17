@@ -14,6 +14,8 @@ import {
 } from "../actions";
 import { outfitRollups } from "@/lib/book-cards";
 import { CardChrome } from "./CardChrome";
+import type { LinkedTaskRow } from "./CardLinkedTasksPanel";
+import type { UserOpt } from "@/app/(app)/tasks/AddTaskToggle";
 import {
   FieldLabel,
   Label,
@@ -43,10 +45,14 @@ const ROLE_OPTIONS = [
   "Other",
 ];
 
-const STATUS_OPTIONS = ["Designed", "Ordered", "Fitted", "Collected"];
+// v1.92.0: "Purchased" added — the user noted not every item goes
+// through an "Ordered" flow (e.g. a dress bought off the rack); they
+// want a clean "we have it" status without overloading "Collected".
+const STATUS_OPTIONS = ["Designed", "Purchased", "Ordered", "Fitted", "Collected"];
 
 const STATUS_TONE: Record<string, string> = {
   Designed: "bg-canvas border-border-soft text-ink-secondary",
+  Purchased: "bg-moss-50 border-moss-300 text-moss-700",
   Ordered: "bg-info/10 border-info/30 text-info",
   Fitted: "bg-marigold-100 border-marigold-700/30 text-marigold-700",
   Collected: "bg-moss-50 border-moss-300 text-moss-700",
@@ -67,9 +73,9 @@ type Item = {
   // outfit-item via Payment.bookOutfitId. Optional so existing edit-mode
   // draft state (which doesn't carry payments) still type-checks.
   paidPence?: number;
-  // v1.91.0: per-item "who's paying for this" override. Null inherits
-  // the card-level `paidBy` (e.g. "Couple" / "Aimee" / "Parents").
-  paidBy?: string | null;
+  // v1.92.0: per-item "we already own this" marker — surfaces a chip
+  // on the row and tells the user not to bother with payment tracking.
+  alreadyOwned: boolean;
 };
 
 type CardData = {
@@ -85,9 +91,6 @@ type CardData = {
   notes: string | null;
   fileIds: string[];
   items: Item[];
-  // v1.91.0: editor-depth toggle. FULL = full tracker (default);
-  // LIGHT = collapsed view for bridesmaids / groomsmen.
-  trackingMode: "FULL" | "LIGHT";
 };
 
 type OutfitCardEditorProps = {
@@ -103,9 +106,9 @@ type OutfitCardEditorProps = {
   card: CardData;
   /** All Files in the system, surfaced in the card-level photos picker. */
   files: Array<{ id: string; name: string; mimeType: string }>;
-  /** v1.91.0: optional subsection category + autofill list. */
-  category?: string | null;
-  existingCategories?: string[];
+  /** v1.92.0: inline linked-tasks panel (rendered by CardChrome). */
+  linkedTasks?: LinkedTaskRow[];
+  users?: UserOpt[];
 };
 
 function isoDate(d: Date | null): string {
@@ -127,8 +130,8 @@ export function BookOutfitCardEditor({
   showMoney = true,
   card,
   files,
-  category = null,
-  existingCategories = [],
+  linkedTasks = [],
+  users = [],
 }: OutfitCardEditorProps) {
   const [pending, startTransition] = useTransition();
   const [editing, setEditing] = useState(false);
@@ -169,11 +172,9 @@ export function BookOutfitCardEditor({
         website: i.website?.trim() || null,
         status: i.status || null,
         notes: i.notes?.trim() || null,
-        // v1.91.0: per-item paidBy (null/empty inherits card-level).
-        paidBy: i.paidBy?.trim() || null,
+        // v1.92.0
+        alreadyOwned: i.alreadyOwned ?? false,
       })),
-      // v1.91.0
-      trackingMode: draft.trackingMode,
     };
     startTransition(async () => {
       const res = await saveOutfitCard(subsectionId, payload);
@@ -222,8 +223,8 @@ export function BookOutfitCardEditor({
       canEdit={canEdit}
       isCouple={isCouple}
       kindBadge="Outfit"
-      initialCategory={category}
-      existingCategories={existingCategories}
+      linkedTasks={linkedTasks}
+      users={users}
     >
       {/* Person header */}
       <div className="mb-4 flex items-baseline gap-2 flex-wrap">
@@ -235,24 +236,9 @@ export function BookOutfitCardEditor({
             {card.role}
           </span>
         )}
-        {/* v1.91.0: tracking-mode pill. Read-only in view mode — the
-            couple flips the toggle inside the edit form. LIGHT shows
-            as a quiet muted chip so the user knows the editor is
-            collapsed; FULL hides (it's the default + the verbose
-            editor speaks for itself). */}
-        {card.trackingMode === "LIGHT" && (
-          <span
-            className="text-[10px] uppercase tracking-wider rounded-full px-2 py-0.5 bg-canvas border border-border-soft text-ink-tertiary"
-            title="Light tracking — items + status only. Flip to Full in the editor for the fitting / alterations / pickup / cost tracker."
-          >
-            Light tracking
-          </span>
-        )}
       </div>
 
-      {/* Stats strip — v1.91.0: hidden under LIGHT mode (no fitting /
-          cost data to surface). */}
-      {card.trackingMode !== "LIGHT" && (
+      {/* Stats strip */}
       <div className={`grid grid-cols-2 ${showMoney ? "sm:grid-cols-4" : "sm:grid-cols-3"} gap-2 mb-4`}>
         <Stat
           label={r.nextMilestone ? r.nextMilestone.label : "Next milestone"}
@@ -286,10 +272,8 @@ export function BookOutfitCardEditor({
           value={r.itemCount === 0 ? "—" : `${r.collectedCount} / ${r.itemCount} collected`}
         />
       </div>
-      )}
 
-      {/* Fitting timeline — v1.91.0: hidden under LIGHT mode. */}
-      {card.trackingMode !== "LIGHT" && (
+      {/* Fitting timeline */}
       <div className="mb-4 flex items-center gap-1 text-[11px] flex-wrap">
         <TimelineStep
           label="Fitting"
@@ -309,7 +293,6 @@ export function BookOutfitCardEditor({
           isNext={r.nextMilestone?.label === "Pickup"}
         />
       </div>
-      )}
 
       {editing ? (
         <EditBody draft={draft} setDraft={setDraft} pending={pending} showMoney={showMoney} />
@@ -437,26 +420,17 @@ function ViewBody({
                   </a>
                 )}
                 <span className="ml-auto flex-shrink-0 flex items-center gap-1.5">
-                  {/* v1.91.0: per-item paidBy chip. Shows own value
-                      when set; otherwise falls back to the card-level
-                      `paidBy` with an `(inh.)` italic suffix (matches
-                      v1.86.0 fund-chip convention). Hidden when no
-                      paidBy is set anywhere on the row chain. */}
-                  {(() => {
-                    const own = item.paidBy?.trim() || null;
-                    const inherited = !own && (card.paidBy?.trim() || null);
-                    const display = own ?? inherited;
-                    if (!display) return null;
-                    return (
-                      <span
-                        className="text-[10px] text-ink-secondary bg-canvas border border-border-soft rounded-full px-2 py-0.5"
-                        title={inherited ? `${display} (inherited from card)` : display}
-                      >
-                        ▣ {display}
-                        {inherited && <span className="italic text-ink-tertiary ml-0.5">(inh.)</span>}
-                      </span>
-                    );
-                  })()}
+                  {/* v1.92.0: already-own chip. Hidden when not set —
+                      the absence of the chip means "this is something
+                      we still need to sort / buy / pay for". */}
+                  {item.alreadyOwned && (
+                    <span
+                      className="text-[10px] text-info bg-info/10 border border-info/30 rounded-full px-2 py-0.5"
+                      title="We already own this — no purchase needed."
+                    >
+                      ✓ Already own
+                    </span>
+                  )}
                   {/* v1.78.0: paid-on-item reciprocal chip. Renders
                       next to the status pill when this item has
                       received payments. */}
@@ -486,10 +460,7 @@ function ViewBody({
           the shared <ImageGallery> component. Now actually shows the
           photos as photos (thumbnails) instead of "📎 dress-fitting.jpg"
           text links. + Upload button uploads-and-attaches in one
-          step from a phone's camera roll.
-          v1.91.0: hidden under LIGHT tracking mode (bridesmaids /
-          groomsmen don't need a card-level photo gallery). */}
-      {card.trackingMode !== "LIGHT" && (
+          step from a phone's camera roll. */}
       <div>
         <strong className="block text-[11px] uppercase tracking-wider text-ink-tertiary font-bold mb-1.5">
           Photos ({card.fileIds.length})
@@ -510,7 +481,6 @@ function ViewBody({
           onDetach={onDetach}
         />
       </div>
-      )}
 
       {card.notes && (
         <div>
@@ -537,8 +507,6 @@ type Draft = {
   paid: boolean;
   notes: string;
   items: Item[];
-  // v1.91.0
-  trackingMode: "FULL" | "LIGHT";
 };
 
 function buildDraft(card: CardData): Draft {
@@ -553,7 +521,6 @@ function buildDraft(card: CardData): Draft {
     paid: card.paid,
     notes: card.notes ?? "",
     items: card.items.map((i) => ({ ...i })),
-    trackingMode: card.trackingMode ?? "FULL",
   };
 }
 
@@ -590,8 +557,8 @@ function EditBody({
           status: null,
           notes: null,
           order: draft.items.length,
-          // v1.91.0: paidBy inherits card-level by default (null).
-          paidBy: null,
+          // v1.92.0
+          alreadyOwned: false,
         },
       ],
     });
@@ -612,45 +579,8 @@ function EditBody({
     patch({ costPence: poundsStringToPence(s) });
   }
 
-  const isLight = draft.trackingMode === "LIGHT";
-
   return (
     <div className="space-y-4">
-      {/* v1.91.0: tracking-mode pill toggle. Couple flips between
-          FULL (default — fitting / alterations / pickup / cost +
-          photo gallery) and LIGHT (collapsed editor for
-          bridesmaids / groomsmen — items + status + per-item paidBy
-          only). Existing data is preserved across flips. */}
-      <div className="flex items-center gap-1.5">
-        <span className="text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mr-1">
-          Tracking
-        </span>
-        {(["FULL", "LIGHT"] as const).map((mode) => {
-          const active = draft.trackingMode === mode;
-          return (
-            <button
-              key={mode}
-              type="button"
-              onClick={() => patch({ trackingMode: mode })}
-              disabled={pending}
-              className={[
-                "px-2.5 py-0.5 rounded-full text-[11px] font-medium border",
-                active
-                  ? "bg-marigold-100 text-marigold-700 border-marigold-700/30"
-                  : "bg-canvas text-ink-secondary border-border-soft hover:border-border-strong",
-              ].join(" ")}
-              title={
-                mode === "FULL"
-                  ? "Full tracker — fitting / alterations / pickup / cost + photo gallery (couple's own outfits)."
-                  : "Light tracker — items + status + per-item paidBy only (bridesmaids / groomsmen)."
-              }
-            >
-              {mode === "FULL" ? "Full" : "Light"}
-            </button>
-          );
-        })}
-      </div>
-
       {/* Header rows per §10a */}
       <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-start">
         <FieldLabel className="sm:col-span-7">
@@ -681,10 +611,6 @@ function EditBody({
         </FieldLabel>
       </div>
 
-      {/* v1.91.0: timeline + cost rows hidden under LIGHT mode.
-          Wrapped in a fragment so both grid blocks toggle together. */}
-      {!isLight && (
-      <>
       <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-start">
         <FieldLabel className="sm:col-span-4">
           <Label>Fitting</Label>
@@ -765,8 +691,6 @@ function EditBody({
           </label>
         </div>
       </div>
-      </>
-      )}
 
       {/* Items */}
       <div>
@@ -889,9 +813,9 @@ function ItemEditRow({
           />
         </FieldLabel>
       </div>
-      {/* Row 3 — website | paid by */}
+      {/* Row 3 — website | already-own */}
       <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-start">
-        <FieldLabel className="sm:col-span-8">
+        <FieldLabel className="sm:col-span-9">
           <Label>Website</Label>
           <input
             type="url"
@@ -902,26 +826,21 @@ function ItemEditRow({
             className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2 py-1.5 text-ink-primary outline-none focus:border-moss-500"
           />
         </FieldLabel>
-        {/* v1.91.0: per-item paidBy override. Free-text + datalist
-            of common values so a bridesmaid card can carry mixed
-            responsibility (Dress: Aimee, Bouquet: Couple). Blank =
-            inherits the card-level paidBy. */}
-        <FieldLabel className="sm:col-span-4">
-          <Label>Paid by</Label>
-          <input
-            type="text"
-            list="outfit-item-paidby"
-            value={item.paidBy ?? ""}
-            onChange={(e) => onChange({ paidBy: e.target.value || null })}
-            disabled={pending}
-            placeholder="— inherit —"
-            className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2 py-1.5 text-ink-primary outline-none focus:border-moss-500"
-          />
-          <datalist id="outfit-item-paidby">
-            {PAID_BY_OPTIONS.map((p) => (
-              <option key={p} value={p} />
-            ))}
-          </datalist>
+        {/* v1.92.0: already-own checkbox. Some items are already in
+            the couple's possession (necklace, socks, etc.) — this
+            tells the card / payments stack "no money tracking needed
+            for this row". */}
+        <FieldLabel className="sm:col-span-3">
+          <Label>&nbsp;</Label>
+          <label className="flex items-center gap-2 text-sm h-9">
+            <input
+              type="checkbox"
+              checked={item.alreadyOwned}
+              onChange={(e) => onChange({ alreadyOwned: e.target.checked })}
+              disabled={pending}
+            />
+            <span>Already own</span>
+          </label>
         </FieldLabel>
       </div>
       {/* Row 4 — reorder/remove */}

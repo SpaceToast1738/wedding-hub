@@ -7,6 +7,8 @@ import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { formatBookFieldValue, type BookFieldDefShape } from "@/lib/book-cards";
 import { addBookFieldDef, deleteBookFieldDef, setBookFieldValue } from "../actions";
 import { CardChrome } from "./CardChrome";
+import type { LinkedTaskRow } from "./CardLinkedTasksPanel";
+import type { UserOpt } from "@/app/(app)/tasks/AddTaskToggle";
 
 // v1.38.0 (P7b/B): FIELD card gains group label, helpText, required
 // flag, and number / date range bounds. Editor renders fields grouped
@@ -53,6 +55,8 @@ export function BookFieldsCard({
   visibility,
   canEdit,
   isCouple,
+  linkedTasks = [],
+  users = [],
 }: {
   subsectionId: string;
   slug: string;
@@ -62,6 +66,8 @@ export function BookFieldsCard({
   visibility: "EVERYONE" | "COUPLE_ONLY";
   canEdit: boolean;
   isCouple: boolean;
+  linkedTasks?: LinkedTaskRow[];
+  users?: UserOpt[];
 }) {
   const [adding, setAdding] = useState(false);
   return (
@@ -73,6 +79,8 @@ export function BookFieldsCard({
       canEdit={canEdit}
       isCouple={isCouple}
       kindBadge="Field"
+      linkedTasks={linkedTasks}
+      users={users}
     >
       {fieldDefs.length === 0 && !canEdit ? (
         <p className="text-xs text-ink-tertiary italic">No fields yet.</p>

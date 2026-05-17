@@ -43,9 +43,6 @@ const subsectionSchema = z.object({
   title: z.string().min(1).max(120),
   body: z.string().max(20000).optional().nullable(),
   kind: z.nativeEnum(BookSubsectionKind).default(BookSubsectionKind.TEXT),
-  // v1.91.0: optional free-text category label for grouping cards on
-  // the section page (Bride / Bridesmaids / Groomsmen / etc.).
-  category: z.string().max(80).optional().nullable(),
 });
 
 export async function createBookSection(formData: FormData) {
@@ -106,8 +103,6 @@ export async function createBookSubsection(formData: FormData) {
     title: formData.get("title"),
     body: formData.get("body") || null,
     kind: formData.get("kind") ?? undefined,
-    // v1.91.0
-    category: formData.get("category") || null,
   });
   const last = await db.bookSubsection.findFirst({
     where: { sectionId: parsed.sectionId },
@@ -121,8 +116,6 @@ export async function createBookSubsection(formData: FormData) {
       body: parsed.body ?? null,
       kind: parsed.kind,
       order: (last?.order ?? -1) + 1,
-      // v1.91.0: category trimmed; empty → null.
-      category: (parsed.category?.trim() || null) ?? null,
     },
   });
   // Seed the per-kind child for non-TEXT kinds so the renderer always
@@ -187,6 +180,23 @@ export async function createBookSubsection(formData: FormData) {
     // fills in dress code + colour / footwear / weather / accessory
     // guidance + an optional mood-board image gallery via the editor.
     await db.bookDressCodeCard.create({ data: { subsectionId: created.id } });
+  } else if (parsed.kind === BookSubsectionKind.WEDDING_PARTY) {
+    // v1.92.0: WEDDING_PARTY card seeds with one placeholder member
+    // + three common item rows so the matrix renders something
+    // actionable on first open. Couple renames / replaces freely.
+    const card = await db.bookWeddingPartyCard.create({
+      data: { subsectionId: created.id },
+    });
+    await db.bookWeddingPartyMember.create({
+      data: { cardId: card.id, name: "Member 1", order: 0 },
+    });
+    await db.bookWeddingPartyItem.createMany({
+      data: [
+        { cardId: card.id, label: "Dress", order: 0 },
+        { cardId: card.id, label: "Shoes", order: 1 },
+        { cardId: card.id, label: "Accessories", order: 2 },
+      ],
+    });
   }
   // FIELD card seeds the value bag lazily — fields stays null until
   // the user adds the first def + value.
@@ -212,16 +222,11 @@ export async function updateBookSubsection(id: string, formData: FormData) {
   // in tree, but keeps the surface non-breaking for one release).
   const rawBodyHtml = formData.get("bodyHtml");
   const rawBody = formData.get("body");
-  // v1.91.0: optional category. Posted as a separate form field by
-  // SubsectionEditor's new category input (datalist of existing
-  // categories on the section). Empty / whitespace-only ⇒ null.
-  const rawCategory = formData.get("category");
   if (!title) throw new Error("Title is required");
   const data: {
     title: string;
     bodyHtml?: string | null;
     body?: string | null;
-    category?: string | null;
   } = { title };
   if (rawBodyHtml !== null) {
     const cleaned = sanitizeBookHtml(String(rawBodyHtml));
@@ -236,15 +241,11 @@ export async function updateBookSubsection(id: string, formData: FormData) {
     data.body = text || null;
     data.bodyHtml = text ? legacyBodyToHtml(text) : null;
   }
-  if (rawCategory !== null) {
-    const trimmed = String(rawCategory).trim();
-    data.category = trimmed.length > 0 ? trimmed.slice(0, 80) : null;
-  }
   // v1.54.0 (B3): snapshot before update so changedFields can diff
   // the title (and body shape on TEXT cards) for a useful audit row.
   const before = await db.bookSubsection.findUnique({
     where: { id },
-    select: { title: true, bodyHtml: true, body: true, category: true },
+    select: { title: true, bodyHtml: true, body: true },
   });
   const updated = await db.bookSubsection.update({
     where: { id },
@@ -256,7 +257,6 @@ export async function updateBookSubsection(id: string, formData: FormData) {
     if (before.title !== updated.title) changedFields.push("title");
     if (data.bodyHtml !== undefined && before.bodyHtml !== data.bodyHtml) changedFields.push("bodyHtml");
     if (data.body !== undefined && before.body !== data.body) changedFields.push("body");
-    if (data.category !== undefined && before.category !== data.category) changedFields.push("category");
   }
   await audit(user, {
     action: "update",
@@ -2910,9 +2910,10 @@ const outfitItemPayloadSchema = z.object({
   website: z.string().max(500).nullable(),
   status: z.string().max(40).nullable(),
   notes: z.string().max(2000).nullable(),
-  // v1.91.0: per-item "who's paying for this" override. Null inherits
-  // the card-level `paidBy` (e.g. "Couple" / "Aimee" / "Parents").
-  paidBy: z.string().max(80).nullable().optional(),
+  // v1.92.0: marker for items the couple already owns ("we already
+  // have socks"). View mode renders a chip; finance tracking via the
+  // existing v1.75.0 Payment.bookOutfitId link is skipped for these.
+  alreadyOwned: z.boolean().default(false),
 });
 
 const outfitSavePayloadSchema = z.object({
@@ -2927,10 +2928,6 @@ const outfitSavePayloadSchema = z.object({
   fileIds: z.array(z.string().min(1).max(50)),
   notes: z.string().max(4000).nullable(),
   items: z.array(outfitItemPayloadSchema),
-  // v1.91.0: editor-depth toggle. FULL = full tracker; LIGHT =
-  // collapsed view for bridesmaids / groomsmen. Defaults to FULL on
-  // the server so existing callers stay correct.
-  trackingMode: z.enum(["FULL", "LIGHT"]).default("FULL"),
 });
 
 export type OutfitSavePayload = z.infer<typeof outfitSavePayloadSchema>;
@@ -2967,7 +2964,6 @@ export async function saveOutfitCard(
     if (JSON.stringify([...parsed.fileIds].sort()) !== JSON.stringify([...before.fileIds].sort())) {
       headerChanged.push("fileIds");
     }
-    if (parsed.trackingMode !== before.trackingMode) headerChanged.push("trackingMode");
 
     const beforeIds = new Set(before.outfits.map((i) => i.id));
     const incomingIds = new Set(
@@ -2991,8 +2987,6 @@ export async function saveOutfitCard(
           paid: parsed.paid,
           notes: parsed.notes,
           fileIds: parsed.fileIds,
-          // v1.91.0
-          trackingMode: parsed.trackingMode,
         },
       });
       if (toDelete.length > 0) {
@@ -3008,8 +3002,8 @@ export async function saveOutfitCard(
             website: i.website,
             status: i.status,
             notes: i.notes,
-            // v1.91.0
-            paidBy: i.paidBy ?? null,
+            // v1.92.0
+            alreadyOwned: i.alreadyOwned ?? false,
           },
         });
       }
@@ -3030,8 +3024,8 @@ export async function saveOutfitCard(
             // a placeholder so existing prod rows pre-migration don't
             // collide. The migration's ALTER drops the NOT NULL.
             personName: null,
-            // v1.91.0
-            paidBy: i.paidBy ?? null,
+            // v1.92.0
+            alreadyOwned: i.alreadyOwned ?? false,
           },
         });
       }
@@ -4001,3 +3995,349 @@ export async function detachFileFromDressCodeCard(
     return { ok: false, error: err instanceof Error ? err.message : "Couldn't detach" };
   }
 }
+
+// ─── v1.92.0: WEDDING_PARTY card ──────────────────────────────────
+//
+// Matrix tracker (items × people). Cells are sparse — a cell row
+// only exists when the user has set status away from the default
+// NEED. setWeddingPartyCell upserts on the unique (memberId,
+// itemId) index; when status reverts to NEED with no notes, the
+// cell row is deleted to keep the table small.
+
+const weddingPartyHeaderSchema = z.object({
+  groupLabel: z.string().max(80).nullable(),
+  notes: z.string().max(4000).nullable(),
+});
+
+export async function saveWeddingPartyCardHeader(
+  subsectionId: string,
+  payload: { groupLabel: string | null; notes: string | null },
+): Promise<BookActionResult> {
+  const user = await requireEdit("book");
+  try {
+    const parsed = weddingPartyHeaderSchema.parse(payload);
+    const before = await db.bookWeddingPartyCard.findUnique({
+      where: { subsectionId },
+      include: { subsection: true },
+    });
+    if (!before) return { ok: false, error: "Wedding party card not found" };
+    await db.bookWeddingPartyCard.update({
+      where: { subsectionId },
+      data: { groupLabel: parsed.groupLabel, notes: parsed.notes },
+    });
+    const changedFields: string[] = [];
+    if (before.groupLabel !== parsed.groupLabel) changedFields.push("groupLabel");
+    if (before.notes !== parsed.notes) changedFields.push("notes");
+    await audit(user, {
+      action: "wedding-party-header-save",
+      entity: "BookSubsection",
+      entityId: subsectionId,
+      metadata: {
+        cardTitle: before.subsection.title,
+        groupLabel: parsed.groupLabel,
+        changedFields,
+      },
+    });
+    await revalidateBookSubsection(subsectionId);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Couldn't save" };
+  }
+}
+
+const memberSchema = z.object({
+  name: z.string().min(1).max(120),
+  role: z.string().max(60).nullable().optional(),
+});
+
+export async function createWeddingPartyMember(
+  cardId: string,
+  payload: { name: string; role?: string | null },
+): Promise<BookActionResult & { memberId?: string }> {
+  const user = await requireEdit("book");
+  try {
+    const parsed = memberSchema.parse(payload);
+    const card = await db.bookWeddingPartyCard.findUnique({
+      where: { id: cardId },
+      include: { subsection: true, _count: { select: { members: true } } },
+    });
+    if (!card) return { ok: false, error: "Card not found" };
+    const created = await db.bookWeddingPartyMember.create({
+      data: {
+        cardId,
+        name: parsed.name,
+        role: parsed.role ?? null,
+        order: card._count.members,
+      },
+    });
+    await audit(user, {
+      action: "wedding-party-member-create",
+      entity: "BookSubsection",
+      entityId: card.subsectionId,
+      metadata: { cardTitle: card.subsection.title, memberName: parsed.name },
+    });
+    await revalidateBookSubsection(card.subsectionId);
+    return { ok: true, memberId: created.id };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Couldn't add member" };
+  }
+}
+
+export async function updateWeddingPartyMember(
+  id: string,
+  payload: { name: string; role?: string | null },
+): Promise<BookActionResult> {
+  const user = await requireEdit("book");
+  try {
+    const parsed = memberSchema.parse(payload);
+    const before = await db.bookWeddingPartyMember.findUnique({
+      where: { id },
+      include: { card: { include: { subsection: true } } },
+    });
+    if (!before) return { ok: false, error: "Member not found" };
+    await db.bookWeddingPartyMember.update({
+      where: { id },
+      data: { name: parsed.name, role: parsed.role ?? null },
+    });
+    await audit(user, {
+      action: "wedding-party-member-update",
+      entity: "BookSubsection",
+      entityId: before.card.subsectionId,
+      metadata: {
+        cardTitle: before.card.subsection.title,
+        priorName: before.name,
+        name: parsed.name,
+      },
+    });
+    await revalidateBookSubsection(before.card.subsectionId);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Couldn't update" };
+  }
+}
+
+export async function deleteWeddingPartyMember(id: string): Promise<BookActionResult> {
+  const user = await requireEdit("book");
+  try {
+    const before = await db.bookWeddingPartyMember.findUnique({
+      where: { id },
+      include: { card: { include: { subsection: true } } },
+    });
+    if (!before) return { ok: false, error: "Member not found" };
+    await db.bookWeddingPartyMember.delete({ where: { id } });
+    await audit(user, {
+      action: "wedding-party-member-delete",
+      entity: "BookSubsection",
+      entityId: before.card.subsectionId,
+      metadata: { cardTitle: before.card.subsection.title, name: before.name },
+    });
+    await revalidateBookSubsection(before.card.subsectionId);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Couldn't delete" };
+  }
+}
+
+export async function reorderWeddingPartyMembers(
+  cardId: string,
+  orderedIds: string[],
+): Promise<BookActionResult> {
+  const user = await requireEdit("book");
+  try {
+    const card = await db.bookWeddingPartyCard.findUnique({
+      where: { id: cardId },
+      include: { subsection: true },
+    });
+    if (!card) return { ok: false, error: "Card not found" };
+    await db.$transaction(
+      orderedIds.map((id, idx) =>
+        db.bookWeddingPartyMember.update({ where: { id }, data: { order: idx } }),
+      ),
+    );
+    await audit(user, {
+      action: "wedding-party-member-reorder",
+      entity: "BookSubsection",
+      entityId: card.subsectionId,
+      metadata: { cardTitle: card.subsection.title, count: orderedIds.length },
+    });
+    await revalidateBookSubsection(card.subsectionId);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Couldn't reorder" };
+  }
+}
+
+const itemSchema = z.object({
+  label: z.string().min(1).max(160),
+  notes: z.string().max(2000).nullable().optional(),
+});
+
+export async function createWeddingPartyItem(
+  cardId: string,
+  payload: { label: string; notes?: string | null },
+): Promise<BookActionResult & { itemId?: string }> {
+  const user = await requireEdit("book");
+  try {
+    const parsed = itemSchema.parse(payload);
+    const card = await db.bookWeddingPartyCard.findUnique({
+      where: { id: cardId },
+      include: { subsection: true, _count: { select: { items: true } } },
+    });
+    if (!card) return { ok: false, error: "Card not found" };
+    const created = await db.bookWeddingPartyItem.create({
+      data: {
+        cardId,
+        label: parsed.label,
+        notes: parsed.notes ?? null,
+        order: card._count.items,
+      },
+    });
+    await audit(user, {
+      action: "wedding-party-item-create",
+      entity: "BookSubsection",
+      entityId: card.subsectionId,
+      metadata: { cardTitle: card.subsection.title, itemLabel: parsed.label },
+    });
+    await revalidateBookSubsection(card.subsectionId);
+    return { ok: true, itemId: created.id };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Couldn't add item" };
+  }
+}
+
+export async function updateWeddingPartyItem(
+  id: string,
+  payload: { label: string; notes?: string | null },
+): Promise<BookActionResult> {
+  const user = await requireEdit("book");
+  try {
+    const parsed = itemSchema.parse(payload);
+    const before = await db.bookWeddingPartyItem.findUnique({
+      where: { id },
+      include: { card: { include: { subsection: true } } },
+    });
+    if (!before) return { ok: false, error: "Item not found" };
+    await db.bookWeddingPartyItem.update({
+      where: { id },
+      data: { label: parsed.label, notes: parsed.notes ?? null },
+    });
+    await audit(user, {
+      action: "wedding-party-item-update",
+      entity: "BookSubsection",
+      entityId: before.card.subsectionId,
+      metadata: {
+        cardTitle: before.card.subsection.title,
+        priorLabel: before.label,
+        label: parsed.label,
+      },
+    });
+    await revalidateBookSubsection(before.card.subsectionId);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Couldn't update" };
+  }
+}
+
+export async function deleteWeddingPartyItem(id: string): Promise<BookActionResult> {
+  const user = await requireEdit("book");
+  try {
+    const before = await db.bookWeddingPartyItem.findUnique({
+      where: { id },
+      include: { card: { include: { subsection: true } } },
+    });
+    if (!before) return { ok: false, error: "Item not found" };
+    await db.bookWeddingPartyItem.delete({ where: { id } });
+    await audit(user, {
+      action: "wedding-party-item-delete",
+      entity: "BookSubsection",
+      entityId: before.card.subsectionId,
+      metadata: { cardTitle: before.card.subsection.title, label: before.label },
+    });
+    await revalidateBookSubsection(before.card.subsectionId);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Couldn't delete" };
+  }
+}
+
+export async function reorderWeddingPartyItems(
+  cardId: string,
+  orderedIds: string[],
+): Promise<BookActionResult> {
+  const user = await requireEdit("book");
+  try {
+    const card = await db.bookWeddingPartyCard.findUnique({
+      where: { id: cardId },
+      include: { subsection: true },
+    });
+    if (!card) return { ok: false, error: "Card not found" };
+    await db.$transaction(
+      orderedIds.map((id, idx) =>
+        db.bookWeddingPartyItem.update({ where: { id }, data: { order: idx } }),
+      ),
+    );
+    await audit(user, {
+      action: "wedding-party-item-reorder",
+      entity: "BookSubsection",
+      entityId: card.subsectionId,
+      metadata: { cardTitle: card.subsection.title, count: orderedIds.length },
+    });
+    await revalidateBookSubsection(card.subsectionId);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Couldn't reorder" };
+  }
+}
+
+const VALID_CELL_STATUSES = ["NEED", "HAVE", "ALREADY_OWN", "N_A"] as const;
+const cellSchema = z.object({
+  status: z.enum(VALID_CELL_STATUSES),
+  notes: z.string().max(2000).nullable().optional(),
+});
+
+export async function setWeddingPartyCell(
+  memberId: string,
+  itemId: string,
+  payload: { status: typeof VALID_CELL_STATUSES[number]; notes?: string | null },
+): Promise<BookActionResult> {
+  const user = await requireEdit("book");
+  try {
+    const parsed = cellSchema.parse(payload);
+    // Resolve subsection for revalidate path. memberId + itemId must
+    // belong to the same card; we don't enforce that here (the UI
+    // never crosses cards) but the unique constraint catches dupes.
+    const member = await db.bookWeddingPartyMember.findUnique({
+      where: { id: memberId },
+      include: { card: { include: { subsection: true } } },
+    });
+    if (!member) return { ok: false, error: "Member not found" };
+    const trimmedNotes = parsed.notes?.trim() || null;
+    // Sparse storage convention: NEED + no notes ⇒ delete the row.
+    if (parsed.status === "NEED" && !trimmedNotes) {
+      await db.bookWeddingPartyCell.deleteMany({
+        where: { memberId, itemId },
+      });
+    } else {
+      await db.bookWeddingPartyCell.upsert({
+        where: { memberId_itemId: { memberId, itemId } },
+        update: { status: parsed.status, notes: trimmedNotes },
+        create: { memberId, itemId, status: parsed.status, notes: trimmedNotes },
+      });
+    }
+    await audit(user, {
+      action: "wedding-party-cell-set",
+      entity: "BookSubsection",
+      entityId: member.card.subsectionId,
+      metadata: {
+        cardTitle: member.card.subsection.title,
+        memberName: member.name,
+        status: parsed.status,
+      },
+    });
+    await revalidateBookSubsection(member.card.subsectionId);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Couldn't set cell" };
+  }
+}
+
