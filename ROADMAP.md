@@ -34,6 +34,7 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
+| **v1.93.1** | 2026-05-17 | [Per-item cost on OUTFIT items. User: "Add cost to each item." Additive — `BookOutfit.costPence Int?` (migration `20260515300000_outfit_item_cost`), threaded through `outfitItemPayloadSchema` + `saveOutfitCard` persistence + `CardRouter` Sub type + `page.tsx` outfit shape + `BookOutfitCard` Item type / draft / save payload / addItem default. View row gets a small muted `£X.XX` chip next to the status pill when set. Edit row's Row 3 (was just Website full-width) becomes a 2-col grid (Website 8 / Cost 4) when `showMoney` is true; otherwise Website stays full-width. The meta line under the title gains an "items total: £X" chip alongside the existing budget chip when any item has a cost — couple can now see "£400 budget · items total: £375" at a glance for sanity-checking the budget link. **Card-level `costPence` still drives BudgetLine sync** (v1.78.0 `syncBudgetLine`) — per-item costs are additive tracking only; no rollup into the linked BudgetLine in this release.](#2026-05-17--v1931--per-item-cost-on-outfit) |
 | **v1.93.0** | 2026-05-14 | [OUTFIT card simplification round 2 — dates gone (use Tasks), card-level paid gone (use Payments), lifecycle is Planned → Purchased → Received → Already own. User: "Lets add planned as an uption, also on the outfit remove the paid. Lets simplify the outfit section, I want to be able to plan each item, mark if we have paid for it, or recieved it, description, supplier and web link, maybe pictures too, remove fitting alterations and pickup, anything with dates as these can be managed via tasks." Migration `20260515200000_outfit_card_simplification` (a) maps existing `BookOutfit.status` values to the new lifecycle (`Designed → Planned`, `Ordered → Purchased`, `Fitted / Collected → Received`, `alreadyOwned=true → Already own`), (b) drops `BookOutfitCard.fittingDate / alterationsDueBy / pickupDate / paid / paidBy` + `BookOutfit.alreadyOwned`. The "Fittings & pickups" Today widget is retired along with `nextOutfitMilestones` + `OutfitMilestoneHit`. `outfitRollups` simplifies to `{ itemCount, collectedCount, percentCollected }` with done-states being Received + Already own. UI: STATUS_OPTIONS = ["Planned", "Purchased", "Received", "Already own"]; stats strip + fitting timeline removed and replaced with a single meta line ("3 of 5 sorted · £400 budget"); per-item Already-own checkbox removed (subsumed by status). Cost field stays (still feeds `BudgetLine.estimated` via v1.78.0 sync). Per-item Payment.bookOutfitId link + `📎 £X paid` chip unchanged.](#2026-05-14--v1930--outfit-card-simplification-round-2) |
 | **v1.92.2** | 2026-05-14 | [Drop redundant titles on the section page. User: "also seems to have multiple titles in a section" — screenshot showed `/book/clothing` repeating the same labels three times (section header → "On this page" pills → card title → internal person header). Two fixes: (1) **OUTFIT card** drops its standalone "Bryony" person-header line when the personName is already contained in the card title (heuristic: `title.toLowerCase().includes(personName.toLowerCase())`). The role chip (BRIDE / GROOM / etc) still renders on its own line so the tag info isn't lost; when no personName is set the chip + "No name set" italic still surface. (2) **"On this page" pills** threshold bumped from `> 1` to `> 4` so 2-4-card sections (the common case) don't carry a redundant titles row above cards that sit in the same scroll viewport. Render-only — no schema, no actions, no data migration.](#2026-05-14--v1922--drop-redundant-titles) |
 | **v1.92.1** | 2026-05-14 | [Flip the WEDDING_PARTY matrix — people as rows, items as columns. User: "might be better to swap people & Items?" — screenshot showed the v1.92.0 4-people-as-columns layout cutting off the 4th name behind a horizontal scroll. Typical wedding parties are 4-5 people × 3-4 items, so people-as-rows fits in the available width without scroll. Pure render flip: matrix shape + cell save shape unchanged (still `setWeddingPartyCell(memberId, itemId, status)`). `MemberHeader` + `ItemHeader` gain an `orientation` prop so the reorder arrows read as `▲/▼` for rows and `◀/▶` for columns. "+Add person (column)" → "+Add person (row)"; "+Add item (row)" → "+Add item (column)". No schema, no actions, no data migration.](#2026-05-14--v1921--flip-the-wedding-party-matrix) |
@@ -933,6 +934,31 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-05-17 · v1.93.1 — Per-item cost on OUTFIT
+
+User: "Add cost to each item."
+
+v1.93.0 dropped card-level paid + dates and centred OUTFIT on "what we need". Couple immediately wanted itemised spend — knowing the card-level cost is £400 doesn't say whether the dress is £300 + the shoes are £100, or some other split. Additive change so the existing BudgetLine sync stays unchanged.
+
+**Schema migration `20260515300000_outfit_item_cost`:**
+```sql
+ALTER TABLE "BookOutfit" ADD COLUMN "costPence" INTEGER;
+```
+Nullable so existing rows survive with `null` (= "not itemised yet").
+
+**Server action.** `outfitItemPayloadSchema` gains `costPence: z.number().int().min(0).nullable()`. `saveOutfitCard`'s `tx.bookOutfit.update` + `tx.bookOutfit.create` both persist the new field.
+
+**Threading.** `CardRouter.tsx`'s outfit items type adds `costPence: number | null`; `page.tsx` maps `costPence: o.costPence` into the threaded shape; `BookOutfitCard.tsx`'s local `Item` type + save-payload + `addItem` default all extended.
+
+**UI:**
+- **View row:** small muted `£X.XX` chip renders next to the status pill when an item has a cost. Skipped when null (no zero-fill noise).
+- **Edit row:** Row 3 (was Website full-width) becomes a 2-col grid (Website `col-span-8` / Cost `col-span-4`) when `showMoney` is true; otherwise Website stays full-width so couple-hidden views don't suddenly show money fields. Cost uses the existing `penceToPoundsString` / `poundsStringToPence` helpers + `£` prefix + `inputMode="decimal"` + `tabular-nums` matching the card-level Cost input.
+- **Card meta line:** the v1.93.0 line `"3 of 5 sorted · £400 budget"` gains a third chip — `"items total: £375"` — when any item has a cost. Title-attr tooltip explains "Sum of per-item costs; card-level cost drives the linked BudgetLine."
+
+**Finance integration unchanged.** Card-level `costPence` still drives `BudgetLine.estimated` via v1.78.0 `syncBudgetLine`. Per-item costs are display-only tracking — no rollup into BudgetLine in this release (deliberate: keeping the budget-link semantics stable while the couple decides how they want item-level money to flow into the budget).
+
+586 tests stay green; no test changes needed (per-item cost is additive UI + persistence, no rollup helpers to update).
 
 ### 2026-05-14 · v1.93.0 — OUTFIT card simplification round 2
 

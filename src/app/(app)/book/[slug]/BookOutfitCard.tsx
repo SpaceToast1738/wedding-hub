@@ -70,6 +70,8 @@ type Item = {
   // outfit-item via Payment.bookOutfitId. Optional so existing edit-mode
   // draft state (which doesn't carry payments) still type-checks.
   paidPence?: number;
+  // v1.93.1: optional per-item cost in pence.
+  costPence: number | null;
 };
 
 type CardData = {
@@ -147,6 +149,8 @@ export function BookOutfitCardEditor({
         website: i.website?.trim() || null,
         status: i.status || null,
         notes: i.notes?.trim() || null,
+        // v1.93.1
+        costPence: i.costPence ?? null,
       })),
     };
     startTransition(async () => {
@@ -228,20 +232,41 @@ export function BookOutfitCardEditor({
       })()}
 
       {/* v1.93.0: tiny meta line — items progress + (when showMoney) cost.
-          Replaces the v1.92.0 4-tile Stats strip + fitting timeline. */}
-      <div className="text-[11px] text-ink-tertiary mb-4 flex items-center gap-2 flex-wrap">
-        <span>
-          {r.itemCount === 0
-            ? "No items yet"
-            : `${r.collectedCount} of ${r.itemCount} sorted`}
-        </span>
-        {showMoney && card.costPence != null && (
-          <>
-            <span aria-hidden>·</span>
-            <span>{formatGBPFromPence(card.costPence)} budget</span>
-          </>
-        )}
-      </div>
+          v1.93.1: + items-total chip when at least one item has its
+          own cost set. Discrepancy with the manual card-level budget
+          is visible at a glance. */}
+      {(() => {
+        const itemsTotalPence = card.items.reduce(
+          (sum, i) => sum + (i.costPence ?? 0),
+          0,
+        );
+        const anyItemCost = card.items.some((i) => i.costPence != null);
+        return (
+          <div className="text-[11px] text-ink-tertiary mb-4 flex items-center gap-2 flex-wrap">
+            <span>
+              {r.itemCount === 0
+                ? "No items yet"
+                : `${r.collectedCount} of ${r.itemCount} sorted`}
+            </span>
+            {showMoney && card.costPence != null && (
+              <>
+                <span aria-hidden>·</span>
+                <span>{formatGBPFromPence(card.costPence)} budget</span>
+              </>
+            )}
+            {showMoney && anyItemCost && (
+              <>
+                <span aria-hidden>·</span>
+                <span
+                  title="Sum of per-item costs. The card-level budget above stays manual — set it to whatever the linked budget line should track."
+                >
+                  items total: {formatGBPFromPence(itemsTotalPence)}
+                </span>
+              </>
+            )}
+          </div>
+        );
+      })()}
 
       {editing ? (
         <EditBody draft={draft} setDraft={setDraft} pending={pending} showMoney={showMoney} />
@@ -328,6 +353,17 @@ function ViewBody({
                   </a>
                 )}
                 <span className="ml-auto flex-shrink-0 flex items-center gap-1.5">
+                  {/* v1.93.1: per-item cost chip — muted by default
+                      so it doesn't compete visually with paid /
+                      status pills. Hidden when not set. */}
+                  {item.costPence != null && (
+                    <span
+                      className="text-[10px] text-ink-secondary tabular-nums"
+                      title={`Item cost: £${(item.costPence / 100).toFixed(2)}`}
+                    >
+                      £{(item.costPence / 100).toFixed(2)}
+                    </span>
+                  )}
                   {/* v1.78.0: paid-on-item reciprocal chip. Renders
                       next to the status pill when this item has
                       received payments. */}
@@ -444,6 +480,8 @@ function EditBody({
           status: null,
           notes: null,
           order: draft.items.length,
+          // v1.93.1
+          costPence: null,
         },
       ],
     });
@@ -545,6 +583,7 @@ function EditBody({
                 isFirst={idx === 0}
                 isLast={idx === draft.items.length - 1}
                 pending={pending}
+                showMoney={showMoney}
                 onChange={(p) => patchItem(idx, p)}
                 onRemove={() => removeItem(idx)}
                 onMoveUp={() => moveItem(idx, -1)}
@@ -575,6 +614,7 @@ function ItemEditRow({
   isFirst,
   isLast,
   pending,
+  showMoney,
   onChange,
   onRemove,
   onMoveUp,
@@ -584,11 +624,16 @@ function ItemEditRow({
   isFirst: boolean;
   isLast: boolean;
   pending: boolean;
+  showMoney: boolean;
   onChange: (p: Partial<Item>) => void;
   onRemove: () => void;
   onMoveUp: () => void;
   onMoveDown: () => void;
 }) {
+  const [costStr, setCostStr] = useState(penceToPoundsString(item.costPence));
+  function commitCost(s: string) {
+    onChange({ costPence: poundsStringToPence(s) });
+  }
   return (
     <li className="px-3 py-3 bg-canvas/30 space-y-2">
       {/* Row 1 — what + status: itemLabel | status */}
@@ -643,18 +688,38 @@ function ItemEditRow({
           />
         </FieldLabel>
       </div>
-      {/* Row 3 — website */}
-      <FieldLabel>
-        <Label>Website</Label>
-        <input
-          type="url"
-          value={item.website ?? ""}
-          onChange={(e) => onChange({ website: e.target.value || null })}
-          disabled={pending}
-          placeholder="https://…"
-          className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2 py-1.5 text-ink-primary outline-none focus:border-moss-500"
-        />
-      </FieldLabel>
+      {/* Row 3 — website | cost (cost gated by showMoney) */}
+      <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-start">
+        <FieldLabel className={showMoney ? "sm:col-span-8" : "sm:col-span-12"}>
+          <Label>Website</Label>
+          <input
+            type="url"
+            value={item.website ?? ""}
+            onChange={(e) => onChange({ website: e.target.value || null })}
+            disabled={pending}
+            placeholder="https://…"
+            className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2 py-1.5 text-ink-primary outline-none focus:border-moss-500"
+          />
+        </FieldLabel>
+        {showMoney && (
+          <FieldLabel className="sm:col-span-4">
+            <Label>Cost</Label>
+            <div className="relative">
+              <span className="absolute left-2 top-1/2 -translate-y-1/2 text-ink-tertiary text-sm pointer-events-none">£</span>
+              <input
+                type="text"
+                inputMode="decimal"
+                value={costStr}
+                onChange={(e) => setCostStr(e.target.value)}
+                onBlur={(e) => commitCost(e.target.value)}
+                disabled={pending}
+                placeholder="0.00"
+                className="w-full text-sm bg-surface border border-border-soft rounded-sm pl-5 pr-2 py-1.5 text-ink-primary outline-none focus:border-moss-500 tabular-nums"
+              />
+            </div>
+          </FieldLabel>
+        )}
+      </div>
       {/* Row 4 — reorder/remove */}
       <div className="flex items-center justify-end gap-1 pt-1">
         <button

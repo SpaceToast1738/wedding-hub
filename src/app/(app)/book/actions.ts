@@ -2913,6 +2913,9 @@ const outfitItemPayloadSchema = z.object({
   // alreadyOwned boolean folded into status = "Already own".
   status: z.string().max(40).nullable(),
   notes: z.string().max(2000).nullable(),
+  // v1.93.1: optional per-item cost in pence. Additive tracking —
+  // card-level costPence still drives the linked BudgetLine.
+  costPence: z.number().int().min(0).nullable(),
 });
 
 const outfitSavePayloadSchema = z.object({
@@ -2983,6 +2986,8 @@ export async function saveOutfitCard(
             website: i.website,
             status: i.status,
             notes: i.notes,
+            // v1.93.1
+            costPence: i.costPence,
           },
         });
       }
@@ -3003,6 +3008,8 @@ export async function saveOutfitCard(
             // a placeholder so existing prod rows pre-migration don't
             // collide. The migration's ALTER drops the NOT NULL.
             personName: null,
+            // v1.93.1
+            costPence: i.costPence,
           },
         });
       }

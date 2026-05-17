@@ -123,6 +123,8 @@ type Sub = {
       // v1.78.0: paid-on-card reciprocal — payments linked to this
       // outfit-item, summed for the chip render.
       paidPence: number;
+      // v1.93.1: optional per-item cost in pence.
+      costPence: number | null;
     }>;
     files: Array<{ id: string; name: string; mimeType: string }>;
     // v1.78.0: linked BudgetLine for the auto-sync chip.

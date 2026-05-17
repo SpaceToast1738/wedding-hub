@@ -923,6 +923,13 @@ model BookOutfit {
   // / Already own). The v1.92.0 alreadyOwned boolean folded into the
   // status enum so there's a single per-item control.
   payments    Payment[]
+  // v1.93.1: optional per-item cost in pence. The card-level
+  // BookOutfitCard.costPence still drives the linked BudgetLine
+  // (v1.78.0 syncBudgetLine path is unchanged); this is additive
+  // tracking so the couple can itemise spend. View mode shows an
+  // items-total chip when set so any discrepancy with the manual
+  // card-level number is visible.
+  costPence   Int?
 }
 
 // v1.31.0: BUILD card — DIY production tracker. One card per project

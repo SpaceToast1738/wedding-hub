@@ -431,6 +431,8 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
                       status: o.status,
                       notes: o.notes,
                       order: o.order,
+                      // v1.93.1: optional per-item cost in pence.
+                      costPence: o.costPence,
                       paidPence: Math.round(
                         o.payments.reduce(
                           (sum, p) =>
