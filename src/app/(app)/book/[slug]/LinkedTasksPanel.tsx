@@ -5,6 +5,7 @@ import Link from "next/link";
 import { setTaskStatus } from "@/app/(app)/tasks/actions";
 import { AddTaskToggle, type UserOpt } from "@/app/(app)/tasks/AddTaskToggle";
 import { useBookTopics } from "./BookTopicsContext";
+import { EditTaskDialog } from "./EditTaskDialog";
 
 // v1.30.5: section-level linked tasks panel.
 // v1.71.0: + interactive status toggle + AddTaskToggle affordance.
@@ -93,6 +94,10 @@ function InlineTaskRow({
           {task.dueDate.toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
         </span>
       )}
+      {/* v1.96.3: per-row Edit affordance, parity with the card-level
+          panel. Lazy-loads the full task via loadTaskForEdit() when
+          the modal opens. */}
+      {canEdit && <EditTaskDialog taskId={task.id} taskTitle={task.title} />}
     </li>
   );
 }

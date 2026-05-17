@@ -133,12 +133,56 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
   if (section.visibility === "COUPLE_ONLY" && !user.isCouple) notFound();
 
   // v1.71.0: users list for AddTaskToggle embedded in linked-task panels.
+  // v1.96.3: also fuels the inline EditTaskDialog (per-row Edit on
+  // linked-tasks panels) via BookTopicsContext — TaskForm needs the
+  // full users list to populate the AssigneePicker chip toggles.
   const taskUsers = editable
     ? await db.user.findMany({
         orderBy: [{ isCouple: "desc" }, { name: "asc" }],
         select: { id: true, name: true, email: true },
       })
     : [];
+
+  // v1.96.3: option lists for the inline EditTaskDialog. Loaded only
+  // when the viewer can edit (no edit affordance otherwise). Three
+  // cheap queries — same shapes the /tasks + /questions pages have
+  // been loading since v1.30.5 / v1.61.0.
+  const [taskSuppliers, taskNavTags, taskGuestGroupsRaw] = editable
+    ? await Promise.all([
+        db.supplier.findMany({
+          orderBy: [{ category: "asc" }, { name: "asc" }],
+          select: { id: true, name: true, category: true },
+        }),
+        db.navTag.findMany({
+          orderBy: { order: "asc" },
+          select: { id: true, name: true, route: true },
+        }),
+        db.guestGroup.findMany({
+          orderBy: [{ order: "asc" }, { name: "asc" }],
+          select: {
+            id: true,
+            name: true,
+            colour: true,
+            _count: { select: { members: true } },
+          },
+        }),
+      ])
+    : [
+        [] as Array<{ id: string; name: string; category: string }>,
+        [] as Array<{ id: string; name: string; route: string | null }>,
+        [] as Array<{
+          id: string;
+          name: string;
+          colour: string | null;
+          _count: { members: number };
+        }>,
+      ];
+  const taskGuestGroups = taskGuestGroupsRaw.map((g) => ({
+    id: g.id,
+    name: g.name,
+    colour: g.colour,
+    memberCount: g._count.members,
+  }));
 
   // v1.78.0: budget categories for the per-card "Link to budget"
   // picker. Couple-only — the picker is hidden for non-money users.
@@ -357,6 +401,13 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
               slug: s.slug,
               sectionSlug: section.slug,
             }))}
+            // v1.96.3: full option lists for the inline EditTaskDialog
+            // so the modal's TaskForm can pre-populate every picker
+            // (assignees / supplier / topics) without a per-row fetch.
+            users={taskUsers}
+            suppliers={taskSuppliers}
+            navTags={taskNavTags}
+            guestGroups={taskGuestGroups}
           >
           <LinkedTasksPanel
             tasks={linkedTasks}

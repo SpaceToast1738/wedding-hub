@@ -31,6 +31,79 @@ const baseSchema = z.object({
 // empty values. Category field removed; the helper that wrote
 // `tags = [category]` is gone with it (Task.tags column kept for now
 // in case migrations restore semantic-category later).
+// v1.96.3: shape returned by `loadTaskForEdit` — what the inline
+// EditTaskDialog needs to seed TaskForm. Flattens the four m2m
+// relations into ID lists so TopicPicker / AssigneePicker can
+// pre-select existing chips.
+export type TaskForEdit = {
+  id: string;
+  title: string;
+  type: string;
+  status: string;
+  priority: string;
+  dueDate: Date | null;
+  notes: string | null;
+  supplierId: string | null;
+  tags: string[];
+  customFieldValues: Record<string, string | number | null> | null;
+  assigneeIds: string[];
+  bookSectionIds: string[];
+  bookSubsectionIds: string[];
+  navTagIds: string[];
+  guestGroupIds: string[];
+};
+
+/**
+ * v1.96.3: fetch a single task with every relation TaskForm needs
+ * pre-populated. Called by the inline EditTaskDialog on the Book
+ * page's linked-tasks panels when the user clicks the per-row Edit
+ * affordance — keeps the page-level query small (linked-tasks panel
+ * only selects { id, title, type, status, priority, dueDate }) while
+ * still letting the edit modal show the full form.
+ *
+ * Permission gate mirrors updateTask + setTaskStatus: TASK requires
+ * EDIT(tasks); QUESTION / DECISION require EDIT(questions). Returns
+ * null when the row is missing or the gate fails — caller renders
+ * "Couldn't load" rather than crashing.
+ */
+export async function loadTaskForEdit(id: string): Promise<TaskForEdit | null> {
+  const task = await db.task.findUnique({
+    where: { id },
+    include: {
+      assignees:       { select: { id: true } },
+      bookSections:    { select: { id: true } },
+      bookSubsections: { select: { id: true } },
+      navTags:         { select: { id: true } },
+      guestGroups:     { select: { id: true } },
+    },
+  });
+  if (!task) return null;
+  // Gate by the task's type — the polymorphic table puts tasks +
+  // questions + decisions in the same model. Pre-fix this leaked
+  // questions through the tasks permission. Matches setTaskStatus's
+  // own dispatch.
+  const gate = task.type === "TASK" ? "tasks" : "questions";
+  await requireEdit(gate);
+  return {
+    id: task.id,
+    title: task.title,
+    type: task.type,
+    status: task.status,
+    priority: task.priority,
+    dueDate: task.dueDate,
+    notes: task.notes,
+    supplierId: task.supplierId,
+    tags: task.tags,
+    customFieldValues:
+      (task.customFieldValues as unknown as Record<string, string | number | null> | null) ?? null,
+    assigneeIds:       task.assignees.map((a) => a.id),
+    bookSectionIds:    task.bookSections.map((s) => s.id),
+    bookSubsectionIds: task.bookSubsections.map((s) => s.id),
+    navTagIds:         task.navTags.map((n) => n.id),
+    guestGroupIds:     task.guestGroups.map((g) => g.id),
+  };
+}
+
 function parseAssigneeIds(formData: FormData): string[] {
   const raw = formData.getAll("assigneeIds");
   const seen = new Set<string>();

@@ -14,6 +14,7 @@ import { useState, useTransition } from "react";
 import { AddTaskToggle, type UserOpt } from "@/app/(app)/tasks/AddTaskToggle";
 import { setTaskStatus } from "@/app/(app)/tasks/actions";
 import { useBookTopics } from "./BookTopicsContext";
+import { EditTaskDialog } from "./EditTaskDialog";
 
 export type LinkedTaskRow = {
   id: string;
@@ -167,6 +168,11 @@ function CardInlineTaskRow({ task, canEdit }: { task: LinkedTaskRow; canEdit: bo
           {task.dueDate.toLocaleDateString("en-GB", { day: "2-digit", month: "short" })}
         </span>
       )}
+      {/* v1.96.3: per-row Edit. Couples can fix title / assignees /
+          topics / due date without bouncing to /tasks. Hidden in
+          read-only mode (the button is the only thing requiring the
+          edit gate; the rest of the row is a status indicator). */}
+      {canEdit && <EditTaskDialog taskId={task.id} taskTitle={task.title} />}
     </li>
   );
 }

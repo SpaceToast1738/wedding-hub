@@ -18,30 +18,55 @@
 //
 // Context avoids deep prop drilling through 14 card editors. The
 // section page renders the provider once; both panels consume it.
+//
+// v1.96.3: extended with users / suppliers / navTags / guestGroups so
+// the inline EditTaskDialog (the per-row Edit affordance on the
+// linked-tasks panels) can render TaskForm with the full option set
+// pre-populated. Same single-provider-at-page-level pattern.
 
 import { createContext, useContext, type ReactNode } from "react";
 import type {
   BookSectionOpt,
   BookSubsectionOpt,
+  NavTagOpt,
+  GuestGroupOpt,
 } from "@/app/(app)/tasks/TopicPicker";
+import type { SupplierOpt, UserOpt } from "@/app/(app)/tasks/TaskForm";
 
 type BookTopicsContextValue = {
   bookSections: BookSectionOpt[];
   bookSubsections: BookSubsectionOpt[];
+  // v1.96.3: edit-mode form options. Default to empty arrays so
+  // older consumers that only used the v1.95.1 shape (sections +
+  // subsections) keep typechecking without changes.
+  users: UserOpt[];
+  suppliers: SupplierOpt[];
+  navTags: NavTagOpt[];
+  guestGroups: GuestGroupOpt[];
 };
 
 const Ctx = createContext<BookTopicsContextValue>({
   bookSections: [],
   bookSubsections: [],
+  users: [],
+  suppliers: [],
+  navTags: [],
+  guestGroups: [],
 });
 
 export function BookTopicsProvider({
   bookSections,
   bookSubsections,
+  users,
+  suppliers,
+  navTags,
+  guestGroups,
   children,
 }: BookTopicsContextValue & { children: ReactNode }) {
   return (
-    <Ctx.Provider value={{ bookSections, bookSubsections }}>
+    <Ctx.Provider
+      value={{ bookSections, bookSubsections, users, suppliers, navTags, guestGroups }}
+    >
       {children}
     </Ctx.Provider>
   );
