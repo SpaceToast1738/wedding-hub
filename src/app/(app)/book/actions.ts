@@ -43,6 +43,9 @@ const subsectionSchema = z.object({
   title: z.string().min(1).max(120),
   body: z.string().max(20000).optional().nullable(),
   kind: z.nativeEnum(BookSubsectionKind).default(BookSubsectionKind.TEXT),
+  // v1.91.0: optional free-text category label for grouping cards on
+  // the section page (Bride / Bridesmaids / Groomsmen / etc.).
+  category: z.string().max(80).optional().nullable(),
 });
 
 export async function createBookSection(formData: FormData) {
@@ -103,6 +106,8 @@ export async function createBookSubsection(formData: FormData) {
     title: formData.get("title"),
     body: formData.get("body") || null,
     kind: formData.get("kind") ?? undefined,
+    // v1.91.0
+    category: formData.get("category") || null,
   });
   const last = await db.bookSubsection.findFirst({
     where: { sectionId: parsed.sectionId },
@@ -116,6 +121,8 @@ export async function createBookSubsection(formData: FormData) {
       body: parsed.body ?? null,
       kind: parsed.kind,
       order: (last?.order ?? -1) + 1,
+      // v1.91.0: category trimmed; empty → null.
+      category: (parsed.category?.trim() || null) ?? null,
     },
   });
   // Seed the per-kind child for non-TEXT kinds so the renderer always
@@ -175,6 +182,11 @@ export async function createBookSubsection(formData: FormData) {
     // v1.36.0: LODGING_GUIDE card seeds empty. Items added via the
     // editor's bulk-save flow.
     await db.bookLodgingCard.create({ data: { subsectionId: created.id } });
+  } else if (parsed.kind === BookSubsectionKind.DRESS_CODE) {
+    // v1.91.0: DRESS_CODE card seeds with all-null fields. Couple
+    // fills in dress code + colour / footwear / weather / accessory
+    // guidance + an optional mood-board image gallery via the editor.
+    await db.bookDressCodeCard.create({ data: { subsectionId: created.id } });
   }
   // FIELD card seeds the value bag lazily — fields stays null until
   // the user adds the first def + value.
@@ -200,8 +212,17 @@ export async function updateBookSubsection(id: string, formData: FormData) {
   // in tree, but keeps the surface non-breaking for one release).
   const rawBodyHtml = formData.get("bodyHtml");
   const rawBody = formData.get("body");
+  // v1.91.0: optional category. Posted as a separate form field by
+  // SubsectionEditor's new category input (datalist of existing
+  // categories on the section). Empty / whitespace-only ⇒ null.
+  const rawCategory = formData.get("category");
   if (!title) throw new Error("Title is required");
-  const data: { title: string; bodyHtml?: string | null; body?: string | null } = { title };
+  const data: {
+    title: string;
+    bodyHtml?: string | null;
+    body?: string | null;
+    category?: string | null;
+  } = { title };
   if (rawBodyHtml !== null) {
     const cleaned = sanitizeBookHtml(String(rawBodyHtml));
     data.bodyHtml = cleaned || null;
@@ -215,11 +236,15 @@ export async function updateBookSubsection(id: string, formData: FormData) {
     data.body = text || null;
     data.bodyHtml = text ? legacyBodyToHtml(text) : null;
   }
+  if (rawCategory !== null) {
+    const trimmed = String(rawCategory).trim();
+    data.category = trimmed.length > 0 ? trimmed.slice(0, 80) : null;
+  }
   // v1.54.0 (B3): snapshot before update so changedFields can diff
   // the title (and body shape on TEXT cards) for a useful audit row.
   const before = await db.bookSubsection.findUnique({
     where: { id },
-    select: { title: true, bodyHtml: true, body: true },
+    select: { title: true, bodyHtml: true, body: true, category: true },
   });
   const updated = await db.bookSubsection.update({
     where: { id },
@@ -231,6 +256,7 @@ export async function updateBookSubsection(id: string, formData: FormData) {
     if (before.title !== updated.title) changedFields.push("title");
     if (data.bodyHtml !== undefined && before.bodyHtml !== data.bodyHtml) changedFields.push("bodyHtml");
     if (data.body !== undefined && before.body !== data.body) changedFields.push("body");
+    if (data.category !== undefined && before.category !== data.category) changedFields.push("category");
   }
   await audit(user, {
     action: "update",
@@ -2884,6 +2910,9 @@ const outfitItemPayloadSchema = z.object({
   website: z.string().max(500).nullable(),
   status: z.string().max(40).nullable(),
   notes: z.string().max(2000).nullable(),
+  // v1.91.0: per-item "who's paying for this" override. Null inherits
+  // the card-level `paidBy` (e.g. "Couple" / "Aimee" / "Parents").
+  paidBy: z.string().max(80).nullable().optional(),
 });
 
 const outfitSavePayloadSchema = z.object({
@@ -2898,6 +2927,10 @@ const outfitSavePayloadSchema = z.object({
   fileIds: z.array(z.string().min(1).max(50)),
   notes: z.string().max(4000).nullable(),
   items: z.array(outfitItemPayloadSchema),
+  // v1.91.0: editor-depth toggle. FULL = full tracker; LIGHT =
+  // collapsed view for bridesmaids / groomsmen. Defaults to FULL on
+  // the server so existing callers stay correct.
+  trackingMode: z.enum(["FULL", "LIGHT"]).default("FULL"),
 });
 
 export type OutfitSavePayload = z.infer<typeof outfitSavePayloadSchema>;
@@ -2934,6 +2967,7 @@ export async function saveOutfitCard(
     if (JSON.stringify([...parsed.fileIds].sort()) !== JSON.stringify([...before.fileIds].sort())) {
       headerChanged.push("fileIds");
     }
+    if (parsed.trackingMode !== before.trackingMode) headerChanged.push("trackingMode");
 
     const beforeIds = new Set(before.outfits.map((i) => i.id));
     const incomingIds = new Set(
@@ -2957,6 +2991,8 @@ export async function saveOutfitCard(
           paid: parsed.paid,
           notes: parsed.notes,
           fileIds: parsed.fileIds,
+          // v1.91.0
+          trackingMode: parsed.trackingMode,
         },
       });
       if (toDelete.length > 0) {
@@ -2972,6 +3008,8 @@ export async function saveOutfitCard(
             website: i.website,
             status: i.status,
             notes: i.notes,
+            // v1.91.0
+            paidBy: i.paidBy ?? null,
           },
         });
       }
@@ -2992,6 +3030,8 @@ export async function saveOutfitCard(
             // a placeholder so existing prod rows pre-migration don't
             // collide. The migration's ALTER drops the NOT NULL.
             personName: null,
+            // v1.91.0
+            paidBy: i.paidBy ?? null,
           },
         });
       }
@@ -3776,5 +3816,188 @@ export async function uploadAndAttachOutfitFile(
     return { ok: true };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "Couldn't upload" };
+  }
+}
+
+// ─── v1.91.0: DRESS_CODE card ─────────────────────────────────────
+//
+// Single-row card (mirrors BookSetupCard shape — no item children).
+// Save payload covers the structured fields + the rich-text bodyHtml
+// + the image gallery's `fileIds`. Three file actions follow the
+// SETUP / BUILD / STAY pattern (upload-from-device, attach-existing,
+// detach). Couple-internal; no public surface yet.
+
+const dressCodeSavePayloadSchema = z.object({
+  dressCode: z.string().max(120).nullable(),
+  summary: z.string().max(600).nullable(),
+  bodyHtml: z.string().max(20000).nullable(),
+  colourGuidance: z.string().max(600).nullable(),
+  footwear: z.string().max(600).nullable(),
+  weather: z.string().max(600).nullable(),
+  accessories: z.string().max(600).nullable(),
+});
+
+export type DressCodeSavePayload = z.infer<typeof dressCodeSavePayloadSchema>;
+
+export async function saveDressCodeCard(
+  subsectionId: string,
+  payload: DressCodeSavePayload,
+): Promise<BookActionResult> {
+  const user = await requireEdit("book");
+  try {
+    const parsed = dressCodeSavePayloadSchema.parse(payload);
+    const before = await db.bookDressCodeCard.findUnique({
+      where: { subsectionId },
+      include: { subsection: true },
+    });
+    if (!before) return { ok: false, error: "Dress code card not found" };
+    // Sanitise the rich-text body the same way TEXT-card body gets
+    // sanitised so injected HTML can't leak through.
+    const cleanedBody = parsed.bodyHtml ? sanitizeBookHtml(parsed.bodyHtml) : null;
+
+    const changedFields: string[] = [];
+    if (parsed.dressCode !== before.dressCode) changedFields.push("dressCode");
+    if (parsed.summary !== before.summary) changedFields.push("summary");
+    if ((cleanedBody || null) !== (before.bodyHtml || null)) changedFields.push("bodyHtml");
+    if (parsed.colourGuidance !== before.colourGuidance) changedFields.push("colourGuidance");
+    if (parsed.footwear !== before.footwear) changedFields.push("footwear");
+    if (parsed.weather !== before.weather) changedFields.push("weather");
+    if (parsed.accessories !== before.accessories) changedFields.push("accessories");
+
+    await db.bookDressCodeCard.update({
+      where: { subsectionId },
+      data: {
+        dressCode: parsed.dressCode,
+        summary: parsed.summary,
+        bodyHtml: cleanedBody,
+        colourGuidance: parsed.colourGuidance,
+        footwear: parsed.footwear,
+        weather: parsed.weather,
+        accessories: parsed.accessories,
+      },
+    });
+    await audit(user, {
+      action: "dress-code-save",
+      entity: "BookSubsection",
+      entityId: subsectionId,
+      metadata: {
+        cardTitle: before.subsection.title,
+        dressCode: parsed.dressCode,
+        changedFields,
+      },
+    });
+    await revalidateBookSubsection(subsectionId);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Couldn't save dress code card" };
+  }
+}
+
+export async function uploadAndAttachDressCodeFile(
+  subsectionId: string,
+  formData: FormData,
+): Promise<BookActionResult> {
+  const user = await requireEdit("book");
+  try {
+    const card = await db.bookDressCodeCard.findUnique({
+      where: { subsectionId },
+      include: { subsection: true },
+    });
+    if (!card) return { ok: false, error: "Dress code card not found" };
+    const formFile = formData.get("file");
+    if (!(formFile instanceof File) || formFile.size === 0) {
+      return { ok: false, error: "No file received." };
+    }
+    const file = await uploadFileForBookCard(user, formFile);
+    const next = [...card.fileIds, file.id];
+    await db.bookDressCodeCard.update({
+      where: { subsectionId },
+      data: { fileIds: next },
+    });
+    await audit(user, {
+      action: "dress-code-file-upload",
+      entity: "BookSubsection",
+      entityId: subsectionId,
+      metadata: {
+        cardTitle: card.subsection.title,
+        fileId: file.id,
+        fileName: file.name,
+      },
+    });
+    await revalidateBookSubsection(subsectionId);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Couldn't upload" };
+  }
+}
+
+export async function attachFileToDressCodeCard(
+  subsectionId: string,
+  fileId: string,
+): Promise<BookActionResult> {
+  const user = await requireEdit("book");
+  try {
+    const card = await db.bookDressCodeCard.findUnique({
+      where: { subsectionId },
+      include: { subsection: true },
+    });
+    if (!card) return { ok: false, error: "Dress code card not found" };
+    const file = await db.file.findUnique({ where: { id: fileId } });
+    if (!file) return { ok: false, error: "File not found" };
+    if (card.fileIds.includes(fileId)) return { ok: true };
+    const next = [...card.fileIds, fileId];
+    await db.bookDressCodeCard.update({
+      where: { subsectionId },
+      data: { fileIds: next },
+    });
+    await audit(user, {
+      action: "dress-code-file-attach",
+      entity: "BookSubsection",
+      entityId: subsectionId,
+      metadata: {
+        cardTitle: card.subsection.title,
+        fileId,
+        fileName: file.name,
+      },
+    });
+    await revalidateBookSubsection(subsectionId);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Couldn't attach" };
+  }
+}
+
+export async function detachFileFromDressCodeCard(
+  subsectionId: string,
+  fileId: string,
+): Promise<BookActionResult> {
+  const user = await requireEdit("book");
+  try {
+    const card = await db.bookDressCodeCard.findUnique({
+      where: { subsectionId },
+      include: { subsection: true },
+    });
+    if (!card) return { ok: false, error: "Dress code card not found" };
+    if (!card.fileIds.includes(fileId)) return { ok: true };
+    const file = await db.file.findUnique({ where: { id: fileId } });
+    const next = card.fileIds.filter((id) => id !== fileId);
+    await db.bookDressCodeCard.update({
+      where: { subsectionId },
+      data: { fileIds: next },
+    });
+    await audit(user, {
+      action: "dress-code-file-detach",
+      entity: "BookSubsection",
+      entityId: subsectionId,
+      metadata: {
+        cardTitle: card.subsection.title,
+        fileId,
+        fileName: file?.name ?? null,
+      },
+    });
+    await revalidateBookSubsection(subsectionId);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Couldn't detach" };
   }
 }

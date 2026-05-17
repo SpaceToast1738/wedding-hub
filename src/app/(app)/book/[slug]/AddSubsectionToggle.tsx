@@ -15,7 +15,16 @@ import { createBookSubsection } from "../actions";
 // Pill-row picker for 5 kinds reads cleanly. If we ever cross 6+
 // types, switch to a modal with icons + descriptions.
 
-export function AddSubsectionToggle({ sectionId }: { sectionId: string }) {
+export function AddSubsectionToggle({
+  sectionId,
+  existingCategories = [],
+}: {
+  sectionId: string;
+  // v1.91.0: existing categories on this section (distinct list)
+  // surface as a datalist on the category input. Empty array = no
+  // datalist (free typing only).
+  existingCategories?: string[];
+}) {
   const [open, setOpen] = useState(false);
   const [kind, setKind] = useState<BookCardKind>("TEXT");
   const [pending, startTransition] = useTransition();
@@ -84,6 +93,27 @@ export function AddSubsectionToggle({ sectionId }: { sectionId: string }) {
           </label>
           <Input name="slug" required pattern="[a-z0-9-]+" placeholder="cocktail-menu" />
         </div>
+      </div>
+      {/* v1.91.0: optional category — groups cards on the section
+          page under category headers. Free text + datalist of
+          existing categories on this section. Blank = uncategorised
+          (lands in the first group on the page). */}
+      <div>
+        <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">
+          Category <span className="text-ink-tertiary normal-case font-normal">(optional — groups cards on the page)</span>
+        </label>
+        <Input
+          name="category"
+          list="book-subsection-category-options"
+          placeholder="e.g. Bride / Bridesmaids / Groomsmen"
+        />
+        {existingCategories.length > 0 && (
+          <datalist id="book-subsection-category-options">
+            {existingCategories.map((c) => (
+              <option key={c} value={c} />
+            ))}
+          </datalist>
+        )}
       </div>
       {/* TEXT cards still accept an initial body inline. Other kinds
           start empty — you build them up in their dedicated UI. */}

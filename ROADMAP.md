@@ -34,6 +34,7 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
+| **v1.91.0** | 2026-05-14 | [New DRESS_CODE card kind + OUTFIT-card flexibility + subsection categorisation. User: "We currently have clothing and accessories in detail for where we are making the purchases, but we don't have anything for tracking if bridesmaids, groomsmen have made their purchases etc — Also general clothing guidance for any guests asking. Could we plan out some new cards, maybe also start to categorise the cards…". Three coordinated changes: (1) **OUTFIT card flexibility** — new `BookOutfitCard.trackingMode` enum (`FULL / LIGHT`); LIGHT collapses the editor + read view to "items + status + per-item paidBy" only (hides fitting / alterations / pickup / cost / gallery) so bridesmaid / groomsman cards don't need the deep tracker. New `BookOutfit.paidBy` free-text override per item ("Aimee" / "Couple" / "Parents") so a bridesmaid card can carry mixed responsibility (Dress: Aimee, Bouquet: Couple); chip in view mode falls back to card-level paidBy with `(inh.)` italic suffix. (2) **DRESS_CODE card kind** — new `BookDressCodeCard` model + new `BookSubsectionKind.DRESS_CODE`. Single-row card with structured fields (dress code label, summary, colour guidance, footwear, weather, accessories) + rich-text `bodyHtml` + image gallery. Couple-internal reference. (3) **Subsection categorisation** — `BookSubsection.category` (nullable, indexed); cards on the section page group under uppercase category headers ("BRIDE" / "BRIDESMAIDS" / "GROOMSMEN"). `CardChrome` + `SubsectionEditor` get inline category inputs with datalist autofill from existing categories on the section; `AddSubsectionToggle` gains a category field on create. New server actions `saveDressCodeCard` + `attachFileToDressCodeCard` / `detachFileFromDressCodeCard` / `uploadAndAttachDressCodeFile`; `createBookSubsection` seeds the DRESS_CODE row + persists category; `updateBookSubsection` round-trips category. OUTFIT → Budget sync (v1.78.0) unchanged: card-level `costPence` continues to drive the linked `BudgetLine.estimated` on save. Per-item Payment links (v1.75.0 `Payment.bookOutfitId`) unchanged. Migration `20260515000000_dress_code_outfit_modes_categories` is additive — `trackingMode` defaults to FULL, `paidBy` + `category` start null.](#2026-05-14--v1910--dress-code--outfit-modes--card-categories) |
 | **v1.90.1** | 2026-05-14 | [Questions / Decisions edit form gets the Topics picker (parity with Tasks). User: "They don't have the same edit screen". On `/questions`, the inline edit row's `TaskForm` was missing the Topics multi-select (Book sections / Book pages / Nav tags / Guest groups) — `+ New` via `AddTaskToggle` had it because the page only piped the option lists into the create form, not the edit form. Two coordinated fixes in `questions/page.tsx` + `QuestionsClient.tsx`: (1) the task query now `include`s the four m2m relations so each row carries its existing topic-link IDs; (2) the option lists + ID arrays are threaded through `QuestionsClient → Section → Row → TaskForm`. `TaskForm`'s existing guard (`bookSections.length > 0 || …`) now sees non-empty lists and renders the picker, pre-selected with the row's existing links. Save path uses the existing `updateTask` + `parseTopicKeys` — no server changes. No schema; relations exist since v1.30.5 / v1.51.0 / v1.61.0.](#2026-05-14--v1901--questions-edit-form-parity) |
 | **v1.90.0** | 2026-05-14 | [Today page polish — cross-module strip no longer leaves blank columns + Recent activity gets entity badges + initials chips. User: "Can we make this look better?" Two render fixes on `/today`: (1) `TodayCrossModuleStrip` switched from a fixed `grid-cols-3` to `auto-fit minmax(280px, 1fr)`, with empty widgets filtered before render — pre-fix, when only Open Decisions had data, the lone card sat alone in column 1 with two empty grid cells reserving column 2+3 space. (2) `RecentActivityFeed` rewrote from a uniform-grey-text list into a scannable two-row column: colour-coded entity glyph badges on the left (£ for Payment / Budget, ✓ for Task, ♥ for Guest / Household, ◆ for Supplier, ❧ for Book, ♪ for Songs, 📎 for File, etc.), monospace `time-ago` column, the formatted sentence, and a trailing initials avatar chip with the actor's full name in the title attr. `divide-y` separators + subtle hover so consecutive entries don't blur together.](#2026-05-14--v1900--today-page-polish) |
 | **v1.89.2** | 2026-05-14 | [Folder name on receipt list + grouped picker. User: "Add the folder name to receipts". The receipts panel on /payments showed bare filenames so files with similar names across folders ("invoice.pdf" in Payment receipts vs Catering) were indistinguishable. Now each attached receipt renders the folder as a muted uppercase prefix chip ("PAYMENT RECEIPTS · invoice.pdf"); the "Attach existing file" disclosure groups files under sticky folder headers; the inline grid's `📎 Pick existing` popover does the same. Page query selects `folder` + orders by `folder asc, name asc` so groups arrive pre-sorted. No schema; `File.folder` already exists.](#2026-05-14--v1892--folder-name-on-receipts) |
@@ -928,6 +929,47 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-05-14 · v1.91.0 — Dress-code + outfit modes + card categories
+
+User: *"We currently have clothing and accessories in detail for where we are making the purchases, but we don't have anything for tracking if bridesmaids, groomsmen have made their purchases etc — Also general clothing guidance for any guests asking. Could we plan out some new cards, maybe also start to categorise the cards, can we also identify how the detailed clothing view works with the current budgets and payments page."*
+
+Three coordinated additions, picked via clarifying questions.
+
+**1. OUTFIT card flexibility (no new card kind).** New `BookOutfitCard.trackingMode` (`FULL | LIGHT` enum, FULL default). FULL keeps the existing tracker for Bryony / Jamie. LIGHT collapses both view + edit to **items + status + per-item paidBy** only — fitting / alterations / pickup / card-level cost / photo gallery all hide. Data is preserved across mode flips so a card can drill back into FULL.
+
+New `BookOutfit.paidBy` (free text, nullable) overrides the card-level `paidBy`. Lets a bridesmaid OUTFIT card carry mixed responsibility — "Dress: Aimee" while "Bouquet: Couple". View-mode chip falls back to the card-level value with an `(inh.)` italic suffix (matches the v1.86.0 fund-chip convention). Edit-mode uses a text input with a datalist of common values (Self / Couple / Parents / Other).
+
+**2. New DRESS_CODE card kind.** `BookSubsectionKind.DRESS_CODE` + new `BookDressCodeCard` model (single-row, mirrors `BookSetupCard` shape). Fields:
+
+- `dressCode` — primary label ("Smart casual" / "Black tie")
+- `summary` — one-line headline
+- `bodyHtml` — Tiptap-authored long-form guidance (sanitised on save)
+- `colourGuidance` — "Please avoid white / ivory"
+- `footwear` — "Comfortable shoes — ceremony on grass"
+- `weather` — "Outdoor in September — bring layers"
+- `accessories` — "Hats welcome / no fascinators"
+- `fileIds` — mood-board images via the standard `<ImageGallery>` (v1.63.0)
+
+Couple-internal reference. The couple uses it as a script for answering guest questions. No public surface yet (deferred). Four new server actions (`saveDressCodeCard`, `attachFileToDressCodeCard`, `detachFileFromDressCodeCard`, `uploadAndAttachDressCodeFile`) mirror the SETUP / STAY pattern. `createBookSubsection` seeds the per-kind row alongside.
+
+**3. Subsection categorisation.** New `BookSubsection.category` (nullable text, indexed). Cards on `/book/[slug]` render under uppercase category headers (`BRIDE`, `BRIDESMAIDS`, `GROOMSMEN`, `Uncategorised`) — the page query orders by `(category, order, title)` so groups arrive pre-sorted. Header-on-change render avoids restructuring the existing per-card map (so v1.87.0 reorder still works).
+
+`CardChrome` + `SubsectionEditor` both get inline category inputs (dashed-underline text input, datalist of existing categories on the section, onBlur save). `AddSubsectionToggle` gains a category field on create. `BookOutfitCard` threads the props through to `CardChrome` so OUTFIT cards have the same inline category UX. Other card editors will pick it up as a follow-up; the **server-side grouping + create-time UI already works for every card kind**.
+
+**OUTFIT → Budget + Payments wiring (unchanged from v1.78.0):**
+- `BookOutfitCard.budgetLineId` FK + `saveOutfitCard` calls `syncBudgetLine` on every save → linked `BudgetLine.estimated` mirrors `card.costPence`.
+- `Payment.bookOutfitId` per-item link → "📎 £X paid" chip on each item row in the editor.
+- Card-level `paid: boolean` is a separate manual flag — payments don't auto-tick it.
+- v1.91 keeps this loop intact. Per-item `paidBy` is **display-only** (doesn't change which items contribute to the linked BudgetLine). A follow-up could add per-item `costPence` so the budget sync sums only `paidBy === "Couple"` items.
+
+**Migration `20260515000000_dress_code_outfit_modes_categories`** — additive:
+- New `DRESS_CODE` enum value on `BookSubsectionKind` + new `BookDressCodeCard` table.
+- New `OutfitTrackingMode` enum + `BookOutfitCard.trackingMode` (default FULL).
+- New `BookOutfit.paidBy` (nullable).
+- New `BookSubsection.category` (nullable) + index.
+
+No backfill needed; existing rows stay correct.
 
 ### 2026-05-14 · v1.90.1 — Questions edit form parity
 

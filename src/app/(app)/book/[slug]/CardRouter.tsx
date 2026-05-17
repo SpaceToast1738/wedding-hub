@@ -12,6 +12,7 @@ import { BookRecipeCard } from "./BookRecipeCard";
 import { BookSetupCard } from "./BookSetupCard";
 import { BookShotListCard } from "./BookShotListCard";
 import { BookStayCard } from "./BookStayCard";
+import { BookDressCodeCard } from "./BookDressCodeCard";
 import { SubsectionEditor } from "./SubsectionEditor";
 import { setTaskStatus } from "@/app/(app)/tasks/actions";
 import { AddTaskToggle, type UserOpt } from "@/app/(app)/tasks/AddTaskToggle";
@@ -41,7 +42,10 @@ type Sub = {
   bodyHtml: string | null;
   fields: unknown;
   visibility: "EVERYONE" | "COUPLE_ONLY";
-  kind: "TEXT" | "FIELD" | "RECIPE" | "SHOT_LIST" | "OUTFIT" | "BUILD" | "MENU" | "BAR" | "SETUP" | "LEGAL" | "STAY" | "LODGING_GUIDE";
+  // v1.91.0: optional grouping label rendered as a chip in CardChrome
+  // / SubsectionEditor + a section-page group header.
+  category: string | null;
+  kind: "TEXT" | "FIELD" | "RECIPE" | "SHOT_LIST" | "OUTFIT" | "BUILD" | "MENU" | "BAR" | "SETUP" | "LEGAL" | "STAY" | "LODGING_GUIDE" | "DRESS_CODE";
   fieldDefs: Array<{
     id: string;
     label: string;
@@ -120,10 +124,14 @@ type Sub = {
       // v1.78.0: paid-on-card reciprocal — payments linked to this
       // outfit-item, summed for the chip render.
       paidPence: number;
+      // v1.91.0: per-item paidBy override (null inherits card-level).
+      paidBy: string | null;
     }>;
     files: Array<{ id: string; name: string; mimeType: string }>;
     // v1.78.0: linked BudgetLine for the auto-sync chip.
     budgetLine: { id: string; description: string; category: { id: string; name: string } } | null;
+    // v1.91.0: tracking-mode toggle (FULL / LIGHT).
+    trackingMode: "FULL" | "LIGHT";
   } | null;
   // v1.32.0: MENU card eager-loaded data + server-computed live counts.
   menuCard: {
@@ -269,6 +277,19 @@ type Sub = {
       order: number;
     }>;
   } | null;
+  // v1.91.0: DRESS_CODE card eager-loaded data.
+  dressCodeCard: {
+    id: string;
+    dressCode: string | null;
+    summary: string | null;
+    bodyHtml: string | null;
+    colourGuidance: string | null;
+    footwear: string | null;
+    weather: string | null;
+    accessories: string | null;
+    fileIds: string[];
+    files: Array<{ id: string; name: string; mimeType: string }>;
+  } | null;
   // v1.31.0: BUILD card eager-loaded data.
   // v1.31.1: + budgetLineId + budgetLine snapshot.
   // v1.78.0: + paidPence per material (sum of linked Payment.amount).
@@ -337,6 +358,7 @@ export function CardRouter({
   budgetCategories = [],
   linkedTasks = [],
   users = [],
+  existingCategories = [],
 }: {
   sub: Sub;
   canEdit: boolean;
@@ -351,8 +373,11 @@ export function CardRouter({
   budgetCategories?: Array<{ id: string; name: string }>;
   linkedTasks?: LinkedTaskRow[];
   users?: UserOpt[];
+  /** v1.91.0: distinct subsection categories on this section for the
+   *  CardChrome / SubsectionEditor inline category input autofill. */
+  existingCategories?: string[];
 }) {
-  const body = renderCardBody(sub, canEdit, isCouple, showMoney, budgetCategories);
+  const body = renderCardBody(sub, canEdit, isCouple, showMoney, budgetCategories, existingCategories);
   // v1.51.0: inline panel renders directly below every kind's body.
   // v1.71.0: always shown when canEdit (so "Add task" is available).
   return (
@@ -377,6 +402,7 @@ function renderCardBody(
   showMoney: boolean,
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   budgetCategories: Array<{ id: string; name: string }>,
+  existingCategories: string[],
 ) {
   // v1.78.0: budgetCategories is loaded by the page and passed
   // through here for the per-card "Link to budget" pickers (MENU /
@@ -394,9 +420,12 @@ function renderCardBody(
             body: sub.body,
             bodyHtml: sub.bodyHtml,
             visibility: sub.visibility,
+            // v1.91.0
+            category: sub.category ?? null,
           }}
           canEdit={canEdit}
           isCouple={isCouple}
+          existingCategories={existingCategories}
         />
       );
     case "FIELD":
@@ -460,6 +489,7 @@ function renderCardBody(
         notes: null,
         items: [],
         files: [],
+        trackingMode: "FULL" as const,
       };
       return (
         <BookOutfitCardEditor
@@ -483,8 +513,12 @@ function renderCardBody(
             fileIds: oc.fileIds,
             notes: oc.notes,
             items: oc.items,
+            trackingMode: oc.trackingMode ?? "FULL",
           }}
           files={oc.files}
+          // v1.91.0
+          category={sub.category ?? null}
+          existingCategories={existingCategories}
         />
       );
     }
@@ -717,6 +751,45 @@ function renderCardBody(
           canEdit={canEdit}
           isCouple={isCouple}
           card={{ id: lg.id, notes: lg.notes, items: lg.items }}
+        />
+      );
+    }
+    case "DRESS_CODE": {
+      // v1.91.0: couple-internal dress-code reference card. Defensive
+      // defaults when the per-kind row hasn't been seeded (shouldn't
+      // happen — createBookSubsection seeds it — but consistent with
+      // every other branch's fallback shape).
+      const dc = sub.dressCodeCard ?? {
+        id: "",
+        dressCode: null,
+        summary: null,
+        bodyHtml: null,
+        colourGuidance: null,
+        footwear: null,
+        weather: null,
+        accessories: null,
+        fileIds: [],
+        files: [],
+      };
+      return (
+        <BookDressCodeCard
+          subsectionId={sub.id}
+          slug={sub.slug}
+          title={sub.title}
+          visibility={sub.visibility}
+          canEdit={canEdit}
+          card={{
+            id: dc.id,
+            dressCode: dc.dressCode,
+            summary: dc.summary,
+            bodyHtml: dc.bodyHtml,
+            colourGuidance: dc.colourGuidance,
+            footwear: dc.footwear,
+            weather: dc.weather,
+            accessories: dc.accessories,
+            fileIds: dc.fileIds,
+          }}
+          files={dc.files}
         />
       );
     }
