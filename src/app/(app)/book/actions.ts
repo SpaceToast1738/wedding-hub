@@ -4414,7 +4414,10 @@ export async function reorderWeddingPartyItems(
   }
 }
 
-const VALID_CELL_STATUSES = ["NEED", "HAVE", "ALREADY_OWN", "N_A"] as const;
+// v1.95.3: ORDERED inserted between NEED and HAVE — "we've placed
+// the order but it isn't in our hands yet". Doesn't count as a done
+// state in the BookWeddingPartyCard rollup.
+const VALID_CELL_STATUSES = ["NEED", "ORDERED", "HAVE", "ALREADY_OWN", "N_A"] as const;
 const cellSchema = z.object({
   status: z.enum(VALID_CELL_STATUSES),
   notes: z.string().max(2000).nullable().optional(),

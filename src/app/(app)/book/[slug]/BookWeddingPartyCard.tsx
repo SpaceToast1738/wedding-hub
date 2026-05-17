@@ -31,7 +31,11 @@ import {
   setWeddingPartyCell,
 } from "../actions";
 
-type Status = "NEED" | "HAVE" | "ALREADY_OWN" | "N_A";
+// v1.95.3: ORDERED added between NEED and HAVE — "we've placed the
+// order but it isn't in our hands yet". Doesn't count as "sorted" in
+// the rollup (the v1.92.0 sortedCount filter still requires HAVE /
+// ALREADY_OWN / N_A) — ordered items are in-progress, not done.
+type Status = "NEED" | "ORDERED" | "HAVE" | "ALREADY_OWN" | "N_A";
 
 type Member = { id: string; name: string; role: string | null; order: number };
 type Item = { id: string; label: string; notes: string | null; order: number };
@@ -64,6 +68,14 @@ const STATUS_META: Record<Status, { glyph: string; label: string; tone: string }
     label: "Need",
     tone: "bg-canvas border-border-soft text-ink-tertiary",
   },
+  ORDERED: {
+    // v1.95.3: marigold tone matches the "in-progress" pill the
+    // tasks panel uses for OPEN — visually distinct from HAVE's
+    // moss "done" tone so the matrix reads at a glance.
+    glyph: "→",
+    label: "Ordered",
+    tone: "bg-marigold-100/40 border-marigold-700/30 text-marigold-700",
+  },
   HAVE: {
     glyph: "✓",
     label: "Have",
@@ -81,7 +93,7 @@ const STATUS_META: Record<Status, { glyph: string; label: string; tone: string }
   },
 };
 
-const STATUSES: Status[] = ["NEED", "HAVE", "ALREADY_OWN", "N_A"];
+const STATUSES: Status[] = ["NEED", "ORDERED", "HAVE", "ALREADY_OWN", "N_A"];
 
 // Build a quick (memberId, itemId) → cell lookup; missing cells
 // default to NEED.

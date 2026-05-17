@@ -34,6 +34,7 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
+| **v1.95.3** | 2026-05-17 | [Add ORDERED status to WEDDING_PARTY matrix dropdown. User: "Add orderd status to wedding party dropdown." Pre-fix the matrix cells offered four states: NEED (default / sparse) → HAVE → ALREADY_OWN → N_A. No way to capture "we've placed the order but it isn't in our hands yet" — a beat that matters for bridesmaid/groomsman accessories which arrive between order and the event. New `ORDERED` slot inserted between NEED and HAVE: marigold tone (matches the "in-progress" pill the tasks panel uses for OPEN — visually distinct from HAVE's moss "done" tone), `→` glyph. Persists as an explicit cell row (only NEED + no-notes collapses to absence in the sparse-storage convention, which still holds). **Doesn't count as "sorted"** in the v1.92.0 `sortedCount` rollup — the chip filter still requires `HAVE / ALREADY_OWN / N_A` so ordered items show as "in progress, not done yet". `Status` type union, `STATUS_META`, `STATUSES` order array (UI + select option order), and the server-side `VALID_CELL_STATUSES` zod allowlist all extended. No schema migration (status was always a free `String` column). 586 tests green.](#2026-05-17--v1953--ordered-status-on-wedding-party-matrix) |
 | **v1.95.2** | 2026-05-17 | [Equal-height cards on the section grid + wider container. User: "Where pages differ in sizes make the white space match, header at the top, footer at the bottom content in the middle, also widen the whole thing." After v1.95.0 turned `/book/[slug]` into a 2-column grid, side-by-side cards of different heights left the shorter card at its natural height with empty grid-row background showing below it — the row stretched to the taller card but the shorter card didn't fill it. Now: (1) Grid wrapper div switches from `space-y-1` (static block flow) to `flex flex-col gap-1 h-full` so it fills the row's stretched height. (2) `CardChrome` `<article>` adds `flex flex-col flex-1` — fills the wrapper's available height. Content `{children}` wraps in `<div className="flex-1">` so the body absorbs any extra row space; the linked-tasks panel + action footer get pushed to the article's bottom. Empty space falls between the natural end of the content and the linked-tasks panel — header at top, footer at bottom, content in the middle just as the user asked. (3) `SubsectionEditor` (TEXT cards path) gets the same flex treatment for consistency. (4) Container widened from `max-w-5xl` (1024 px) to `max-w-7xl` (1280 px) — narrow side-by-side cards at 5xl were noticeably cramped on wide screens. No schema, no actions changed.](#2026-05-17--v1952--equal-height-cards--wider-grid) |
 | **v1.95.1** | 2026-05-17 | [Fix silently broken Topics autofill on inline task creation from `/book/[slug]`. User: "When creating a task inline with a page, or an item can we autofill the topic according to the location its being created from?" Found a bug: `LinkedTasksPanel` (section level) and `CardLinkedTasksPanel` (card level) both passed `defaultBookSectionIds` / `defaultBookSubsectionIds` to `AddTaskToggle` but **didn't pass the option lists** (`bookSections` / `bookSubsections`). `TaskForm` gates `TopicPicker` rendering on `bookSections.length > 0 || bookSubsections.length > 0 || …` — so the picker never rendered, and because the picker is what emits the hidden `topicKeys` inputs, the IDs never made it into formData. Tasks were getting created with no topics linked. Fix: new `BookTopicsContext` client provider mounted once in `/book/[slug]/page.tsx` carrying `bookSections = [{section}]` + `bookSubsections = section.subsections.map(...)`. Both panels now wrap `AddTaskToggle` in thin context-consumers (`AddTaskToggleWithTopics` / `AddCardTaskToggle`) that pull the lists from context, so the `TopicPicker` renders pre-populated with the right section / card already chip-selected. Context avoids prop-drilling through 14 card editors / `CardChrome` / `CardLinkedTasksPanel`. No schema, no actions changed.](#2026-05-17--v1951--fix-topics-autofill) |
 | **v1.95.0** | 2026-05-17 | [Two-column layout on the Wedding Book section page + per-card column-span toggle. User: "In the book section, can we have a two columns, and the option for pages to either use 1 or both columns." `/book/[slug]` previously stacked every card in a single column inside a `max-w-3xl` container — works for OUTFIT / TEXT but wastes a lot of horizontal space on wide cards like WEDDING_PARTY (matrix), MENU (long course lists), BUILD (materials + sessions). New schema column `BookSubsection.wide Boolean @default(false)` (migration `20260517100000_book_subsection_wide`) flags individual cards for column-spanning. New server action `setBookSubsectionWide(id, wide)` flips the flag (same `requireEdit("book")` gate as reorder — layout is cosmetic so no couple-tier restriction). New `SubsectionWidthToggle` client component renders a `⇆ / ⇤⇥` icon button in the same action-row as the existing reorder ▲/▼ buttons; `SubsectionReorderControls` lost its outer flex wrapper so both controls compose into one shared row owned by the page. `/book/[slug]/page.tsx` widened from `max-w-3xl` → `max-w-5xl`, the subsection map is wrapped in `grid grid-cols-1 md:grid-cols-2 gap-4`, and each subsection wrapper gets `md:col-span-2` when `wide=true` so it spans both columns. Below the `md` breakpoint everything stacks into a single column so phones still get a readable layout. Existing cards default to narrow — no layout shift on migration. 586 tests stay green.](#2026-05-17--v1950--two-column-section-grid) |
@@ -941,6 +942,34 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-05-17 · v1.95.3 — Ordered status on WEDDING_PARTY matrix
+
+User: "Add orderd status to wedding party dropdown."
+
+The matrix cells offered four states since v1.92.0: NEED (default / sparse) → HAVE → ALREADY_OWN → N_A. Missing the "we've placed the order but it isn't in our hands yet" beat — useful for bridesmaid / groomsman accessories that get ordered weeks in advance and arrive piecewise. Pre-fix the couple either left those cells on NEED (wrong: order's already happened) or jumped them to HAVE (wrong: not in hand yet).
+
+**New `ORDERED` slot** inserted between `NEED` and `HAVE` in the lifecycle:
+
+```
+NEED  →  ORDERED  →  HAVE  /  ALREADY_OWN  /  N_A
+```
+
+- Tone: `bg-marigold-100/40 border-marigold-700/30 text-marigold-700` — matches the "in-progress" pill the tasks panel uses for OPEN. Visually distinct from HAVE's moss "done" tone so the matrix reads at a glance.
+- Glyph: `→` (forward arrow — implies "in transit").
+- Label: "Ordered".
+
+**Rollup behaviour.** The v1.92.0 `sortedCount` filter (`HAVE / ALREADY_OWN / N_A`) **does not include `ORDERED`** — ordered cells stay counted as "in progress, not done yet". A matrix with everyone's dress ordered but none received still reads "0 of N sorted" — which matches the couple's mental model: we haven't actually solved any of those rows until the items show up.
+
+**Storage.** `BookWeddingPartyCell.status` was always a free `String` column (not an enum), so no schema migration. The sparse-cell convention is unchanged: `NEED + no notes ⇒ delete the row`. `ORDERED` persists as an explicit cell row, same as any non-NEED status.
+
+**Wiring touched:**
+- `Status` type union — added `ORDERED`.
+- `STATUS_META` — added `{ glyph: "→", label: "Ordered", tone: "..." }` entry.
+- `STATUSES` array — UI + select option order rebuilt as `["NEED", "ORDERED", "HAVE", "ALREADY_OWN", "N_A"]`.
+- Server action `VALID_CELL_STATUSES` zod allowlist — same five-tuple.
+
+586 tests stay green; typecheck + build green.
 
 ### 2026-05-17 · v1.95.2 — Equal-height cards + wider grid
 
