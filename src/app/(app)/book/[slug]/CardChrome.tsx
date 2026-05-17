@@ -105,9 +105,15 @@ export function CardChrome({
   }
 
   return (
+    // v1.95.2: flex-col + flex-1 so the article grows to fill the
+    // grid wrapper's row height. Pre-fix when one of a 2-col-row's
+    // cards was tall, the shorter one stayed at its natural height
+    // and the row's background showed empty space below. Now the
+    // article fills the row and the inner `flex-1` content wrap
+    // pushes the linked-tasks panel + action footer to the bottom.
     <article
       id={slug}
-      className="bg-surface border border-border-soft rounded-md shadow-sm p-5 scroll-mt-24"
+      className="bg-surface border border-border-soft rounded-md shadow-sm p-5 scroll-mt-24 flex flex-col flex-1"
     >
       <div className="flex items-start gap-2 mb-3">
         {canEdit ? (
@@ -130,7 +136,12 @@ export function CardChrome({
           </span>
         )}
       </div>
-      {children}
+      {/* v1.95.2: content body grows to absorb any extra row height,
+          pushing the linked-tasks panel + footer below it. Internal
+          per-kind layout (space-y, grids) renders naturally at the
+          top of this wrapper; the empty space ends up between the
+          end of the content and the linked-tasks panel. */}
+      <div className="flex-1">{children}</div>
       {/* v1.92.0: linked-tasks panel rendered inside the card so it
           reads as part of the card, not a separate appendage. Renders
           when the panel has anything to show (tasks or the +Task button). */}

@@ -309,10 +309,10 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
       />
       <div className="flex-1 overflow-auto">
         {/* v1.95.0: container widened from max-w-3xl to max-w-5xl so
-            the 2-column card grid below has room to breathe. The
-            anchor row / linked tasks panel / back link still read
-            naturally at the wider width (they're left-aligned text). */}
-        <div className="max-w-5xl mx-auto p-4 sm:p-6 space-y-4">
+            the 2-column card grid below has room to breathe.
+            v1.95.2: bumped again to max-w-7xl (1280 px) — two side-by-
+            side cards at 5xl were noticeably cramped on wide screens. */}
+        <div className="max-w-7xl mx-auto p-4 sm:p-6 space-y-4">
           <Link href="/book" className="text-xs text-moss-500 hover:underline inline-block">← Wedding Book</Link>
 
           {/* On-page anchor row — quick jumps for long sections.
@@ -569,7 +569,13 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
                 <div
                   key={s.id}
                   className={[
-                    "space-y-1",
+                    // v1.95.2: flex-col + h-full so the card article
+                    // grows to fill the grid row height when adjacent
+                    // cards stretch the row. Replaces space-y-1 (which
+                    // implies static block flow) with explicit flex
+                    // gap so the action-row + article can compose
+                    // vertically and the article gets flex-1 inside.
+                    "flex flex-col gap-1 h-full",
                     sRaw.wide ? "md:col-span-2" : "",
                   ].join(" ")}
                 >

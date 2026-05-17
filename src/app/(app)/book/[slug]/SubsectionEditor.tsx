@@ -120,7 +120,10 @@ export function SubsectionEditor({
   }
 
   return (
-    <article id={sub.slug} className="bg-surface border border-border-soft rounded-md shadow-sm p-5 scroll-mt-24">
+    // v1.95.2: flex-col + flex-1 mirrors the CardChrome treatment so
+    // TEXT cards also stretch to fill the 2-col grid row height with
+    // their footer pinned to the bottom.
+    <article id={sub.slug} className="bg-surface border border-border-soft rounded-md shadow-sm p-5 scroll-mt-24 flex flex-col flex-1">
       <div className="flex items-start gap-2 mb-2">
         {editing ? (
           <Input
@@ -141,18 +144,23 @@ export function SubsectionEditor({
           </span>
         )}
       </div>
-      {editing ? (
-        <RichTextEditor
-          value={bodyHtml}
-          onChange={setBodyHtml}
-          disabled={pending}
-          placeholder="Notes…"
-        />
-      ) : initialHtml ? (
-        <RichTextRead html={initialHtml} />
-      ) : (
-        <p className="text-sm text-ink-tertiary italic">—</p>
-      )}
+      {/* v1.95.2: body wrapped in flex-1 so it absorbs row-stretch
+          space, keeping the linked-tasks panel + action footer at
+          the bottom of the article. */}
+      <div className="flex-1">
+        {editing ? (
+          <RichTextEditor
+            value={bodyHtml}
+            onChange={setBodyHtml}
+            disabled={pending}
+            placeholder="Notes…"
+          />
+        ) : initialHtml ? (
+          <RichTextRead html={initialHtml} />
+        ) : (
+          <p className="text-sm text-ink-tertiary italic">—</p>
+        )}
+      </div>
       {/* v1.92.0: linked-tasks panel rendered inside the card so it
           reads as part of the card, not a separate appendage. */}
       {(linkedTasks.length > 0 || canEdit) && (
