@@ -333,58 +333,89 @@ function ViewBody({
           <p className="text-xs text-ink-tertiary italic">No items yet.</p>
         ) : (
           <ul className="divide-y divide-border-soft border border-border-soft rounded-md text-sm">
-            {card.items.map((item) => (
-              <li key={item.id} className="px-3 py-2 flex items-baseline gap-2 flex-wrap">
-                <span className="font-medium text-ink-primary">{item.itemLabel}</span>
-                {item.description && (
-                  <span className="text-xs text-ink-secondary truncate">{item.description}</span>
-                )}
-                {item.supplier && (
-                  <span className="text-[10px] text-ink-tertiary"> · {item.supplier}</span>
-                )}
-                {item.website && (
-                  <a
-                    href={item.website}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-[10px] text-moss-700 hover:underline ml-1"
-                  >
-                    Link ↗
-                  </a>
-                )}
-                <span className="ml-auto flex-shrink-0 flex items-center gap-1.5">
-                  {/* v1.93.1: per-item cost chip — muted by default
-                      so it doesn't compete visually with paid /
-                      status pills. Hidden when not set. */}
-                  {item.costPence != null && (
-                    <span
-                      className="text-[10px] text-ink-secondary tabular-nums"
-                      title={`Item cost: £${(item.costPence / 100).toFixed(2)}`}
-                    >
-                      £{(item.costPence / 100).toFixed(2)}
+            {card.items.map((item) => {
+              // v1.93.2: status pill always renders. Null status falls
+              // back to "Planned" — items always have a position in
+              // the lifecycle, so the pill should always communicate
+              // it. Encourages the user to update status as items
+              // progress.
+              const statusLabel = item.status ?? "Planned";
+              const statusTone = STATUS_TONE[statusLabel] ?? STATUS_TONE.Planned;
+              const hasMeta = !!item.description || !!item.supplier || !!item.website;
+              return (
+                <li key={item.id} className="px-3 py-2.5 space-y-1">
+                  {/* Row 1: label (left) — status + cost + paid pills (right) */}
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-medium text-ink-primary flex-1 min-w-0">
+                      {item.itemLabel || (
+                        <span className="italic text-ink-tertiary">Untitled item</span>
+                      )}
                     </span>
+                    <span className="flex items-center gap-1.5 flex-shrink-0">
+                      {/* v1.93.1: per-item cost chip — muted by default
+                          so it doesn't compete visually with paid /
+                          status pills. Hidden when not set. */}
+                      {item.costPence != null && (
+                        <span
+                          className="text-[10px] text-ink-secondary tabular-nums"
+                          title={`Item cost: £${(item.costPence / 100).toFixed(2)}`}
+                        >
+                          £{(item.costPence / 100).toFixed(2)}
+                        </span>
+                      )}
+                      {/* v1.78.0: paid-on-item reciprocal chip. Renders
+                          next to the status pill when this item has
+                          received payments. */}
+                      {item.paidPence != null && item.paidPence > 0 && (
+                        <span
+                          className="text-[10px] text-moss-700 bg-moss-50 border border-moss-300 rounded-full px-2 py-0.5"
+                          title={`Paid £${(item.paidPence / 100).toFixed(2)}`}
+                        >
+                          📎 £{(item.paidPence / 100).toFixed(2)}
+                        </span>
+                      )}
+                      <span
+                        className={`text-[10px] uppercase tracking-wider rounded-full px-2 py-0.5 border ${statusTone}`}
+                      >
+                        {statusLabel}
+                      </span>
+                    </span>
+                  </div>
+                  {/* Row 2: description · supplier · website link. Only
+                      renders when at least one field is set, so empty
+                      items collapse to a clean single line. */}
+                  {hasMeta && (
+                    <div className="text-xs text-ink-secondary flex items-baseline gap-1.5 flex-wrap">
+                      {item.description && <span>{item.description}</span>}
+                      {item.description && item.supplier && (
+                        <span aria-hidden className="text-ink-tertiary">·</span>
+                      )}
+                      {item.supplier && (
+                        <span className="text-ink-tertiary">{item.supplier}</span>
+                      )}
+                      {item.website && (
+                        <a
+                          href={item.website}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-moss-700 hover:underline"
+                        >
+                          Link ↗
+                        </a>
+                      )}
+                    </div>
                   )}
-                  {/* v1.78.0: paid-on-item reciprocal chip. Renders
-                      next to the status pill when this item has
-                      received payments. */}
-                  {item.paidPence != null && item.paidPence > 0 && (
-                    <span
-                      className="text-[10px] text-moss-700 bg-moss-50 border border-moss-300 rounded-full px-2 py-0.5"
-                      title={`Paid £${(item.paidPence / 100).toFixed(2)}`}
-                    >
-                      📎 £{(item.paidPence / 100).toFixed(2)}
-                    </span>
+                  {/* Row 3: per-item notes (v1.93.2). Italic muted,
+                      whitespace-preserving so quick measurements /
+                      reminders read cleanly. */}
+                  {item.notes && (
+                    <p className="text-xs text-ink-tertiary italic whitespace-pre-wrap pt-0.5">
+                      {item.notes}
+                    </p>
                   )}
-                  {item.status ? (
-                    <span
-                      className={`text-[10px] uppercase tracking-wider rounded-full px-2 py-0.5 border ${STATUS_TONE[item.status] ?? STATUS_TONE.Planned}`}
-                    >
-                      {item.status}
-                    </span>
-                  ) : null}
-                </span>
-              </li>
-            ))}
+                </li>
+              );
+            })}
           </ul>
         )}
       </div>
@@ -720,7 +751,22 @@ function ItemEditRow({
           </FieldLabel>
         )}
       </div>
-      {/* Row 4 — reorder/remove */}
+      {/* Row 4 — notes (v1.93.2: per-item notes — measurements,
+          tailoring chats, anything that doesn't fit the structured
+          fields). Card-level notes still cover whole-outfit
+          observations. */}
+      <FieldLabel>
+        <Label>Notes</Label>
+        <textarea
+          value={item.notes ?? ""}
+          onChange={(e) => onChange({ notes: e.target.value || null })}
+          disabled={pending}
+          rows={2}
+          placeholder="e.g. waist taken in 1.5cm, due back 12 Sept"
+          className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2 py-1.5 text-ink-primary outline-none focus:border-moss-500 resize-y"
+        />
+      </FieldLabel>
+      {/* Row 5 — reorder/remove */}
       <div className="flex items-center justify-end gap-1 pt-1">
         <button
           type="button"
