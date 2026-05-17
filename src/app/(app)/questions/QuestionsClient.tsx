@@ -20,7 +20,8 @@ type Q = {
   type: string;
   status: string;
   priority: string;
-  assigneeId: string | null;
+  // v1.96.0: multi-assignee — flat list of user IDs from the m2m.
+  assigneeIds: string[];
   dueDate: Date | null;
   questionAnswer: string | null;
   notes?: string | null;
@@ -213,7 +214,11 @@ function Row({
   const [pending, startTransition] = useTransition();
   const confirm = useConfirm();
 
-  const a = q.assigneeId ? usersById.get(q.assigneeId) : null;
+  // v1.96.0: render the first assignee in the chip (most common
+  // case still has 0 or 1). Multi-assignee row indicator is shown
+  // as a "+N" suffix when there's more than one.
+  const primaryAssignee = q.assigneeIds[0] ? usersById.get(q.assigneeIds[0]) : null;
+  const extraAssigneeCount = Math.max(0, q.assigneeIds.length - 1);
   const priorityBucket =
     q.priority === "URGENT" || q.priority === "HIGH"
       ? "HIGH"
@@ -250,9 +255,10 @@ function Row({
             type: q.type,
             priority: q.priority,
             status: q.status,
-            assigneeId: q.assigneeId,
+            // v1.96.0: multi-assignee.
+            assigneeIds: q.assigneeIds,
             dueDate: isoForInput(q.dueDate),
-            category: q.tags?.[0] ?? "",
+            // v1.96.0: Category field dropped from TaskForm.
             notes: q.notes ?? "",
             bookSectionIds:    q.bookSectionIds,
             bookSubsectionIds: q.bookSubsectionIds,
@@ -293,11 +299,12 @@ function Row({
         >
           {q.title}
         </span>
-        {a && (
+        {primaryAssignee && (
           <span className="flex items-center gap-1 flex-shrink-0">
-            <Avatar name={a.name ?? a.email} size={18} />
+            <Avatar name={primaryAssignee.name ?? primaryAssignee.email} size={18} />
             <span className="text-xs text-ink-tertiary">
-              {(a.name ?? a.email).split(" ")[0]}
+              {(primaryAssignee.name ?? primaryAssignee.email).split(" ")[0]}
+              {extraAssigneeCount > 0 ? ` +${extraAssigneeCount}` : ""}
             </span>
           </span>
         )}

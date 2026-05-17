@@ -27,6 +27,9 @@ export default async function QuestionsPage() {
         bookSubsections: { select: { id: true } },
         navTags:         { select: { id: true } },
         guestGroups:     { select: { id: true } },
+        // v1.96.0: multi-assignee — include the m2m so the inline
+        // edit form pre-selects the existing assignee chips.
+        assignees:       { select: { id: true } },
       },
     }),
     db.user.findMany({ orderBy: [{ isCouple: "desc" }, { name: "asc" }] }),
@@ -128,7 +131,8 @@ export default async function QuestionsPage() {
           type: q.type,
           status: q.status,
           priority: q.priority,
-          assigneeId: q.assigneeId,
+          // v1.96.0: multi-assignee — flatten the m2m to an ID list.
+          assigneeIds: q.assignees.map((a) => a.id),
           dueDate: q.dueDate,
           questionAnswer: q.questionAnswer,
           notes: q.notes,

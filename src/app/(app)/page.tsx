@@ -56,6 +56,9 @@ export default async function TodayPage() {
         bookSections: { select: { title: true } },
         bookSubsections: { select: { title: true } },
         navTags: { select: { name: true } },
+        // v1.96.0: multi-assignee — include the assignees relation so
+        // the "My next tasks" filter can match against any of them.
+        assignees: { select: { id: true } },
       },
     }),
     // v1.19.0: total non-archived task count for the "See all N tasks →"
@@ -226,12 +229,18 @@ export default async function TodayPage() {
             // If after all that the list is still empty (user genuinely
             // has nothing assigned + nothing unassigned), fall through
             // to the next 5 dated tasks so the section is still useful.
-            const mineDated = allOpenTasks.filter((t) => t.assigneeId === userId && t.dueDate);
-            const mineUndated = allOpenTasks.filter((t) => t.assigneeId === userId && !t.dueDate);
-            const orphanDated = allOpenTasks.filter((t) => !t.assigneeId && t.dueDate);
-            const orphanUndated = allOpenTasks.filter((t) => !t.assigneeId && !t.dueDate);
+            // v1.96.0: multi-assignee. "Assigned to me" = userId is
+            // in the task's assignees list. "Unassigned" = empty list.
+            const isMine = (t: { assignees: { id: string }[] }) =>
+              t.assignees.some((a) => a.id === userId);
+            const isOrphan = (t: { assignees: { id: string }[] }) =>
+              t.assignees.length === 0;
+            const mineDated = allOpenTasks.filter((t) => isMine(t) && t.dueDate);
+            const mineUndated = allOpenTasks.filter((t) => isMine(t) && !t.dueDate);
+            const orphanDated = allOpenTasks.filter((t) => isOrphan(t) && t.dueDate);
+            const orphanUndated = allOpenTasks.filter((t) => isOrphan(t) && !t.dueDate);
             const otherDated = allOpenTasks.filter(
-              (t) => t.assigneeId && t.assigneeId !== userId && t.dueDate,
+              (t) => !isMine(t) && !isOrphan(t) && t.dueDate,
             );
             let myTasks = [
               ...mineDated,

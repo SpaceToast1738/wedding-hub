@@ -187,8 +187,12 @@ function AddTaskToggleWithTopics({
       bookSections={bookSections}
       bookSubsections={bookSubsections}
       defaultBookSectionIds={[sectionId]}
-      buttonLabel="+ Task"
-      showType={false}
+      // v1.96.0: surface the Task/Question/Decision picker on the
+      // section-level panel so couples can capture Q&D inline
+      // without bouncing to /questions. Button stays generic so
+      // it reads for all three types.
+      buttonLabel="+ New"
+      showType={true}
     />
   );
 }

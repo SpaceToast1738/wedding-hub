@@ -41,6 +41,10 @@ export default async function TasksPage({
         },
         navTags: { select: { id: true, name: true } },
         guestGroups: { select: { id: true, name: true, colour: true } },
+        // v1.96.0: multi-assignee m2m — needed by TaskList for the
+        // "mine" filter, by TaskRow for the "+N" suffix, and by
+        // TaskDrawer to seed the chip toggles.
+        assignees: { select: { id: true } },
       },
     }),
     db.user.findMany({ orderBy: [{ isCouple: "desc" }, { name: "asc" }] }),

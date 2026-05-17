@@ -34,6 +34,7 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
+| **v1.96.0** | 2026-05-17 | [Multi-assignee tasks + drop category + Q&D from Book panels. User: "Allow tasks to be assigned to multiple people. Remove the category option in tasks. Edit tasks from their linked screen aswell as the tasks page. Allow Questions & Decisions to be made on the item screen too." Three of four asks land in this release; edit-from-linked-screen is queued for v1.96.1. **Schema migration `20260517200000_task_multi_assignee_drop_category`**: implicit-m2m `_TaskAssignees` junction replaces the singular `Task.assigneeId`. Existing rows backfill (`assigneeId` → one junction row) before the column drops, so no data is lost. **Server actions**: `createTask` / `updateTask` accept repeated `assigneeIds` form inputs (TopicPicker-style; `__touched__` marker distinguishes "set to empty" from "field not posted"). Category field + `tags = [category]` write dropped from both. **TaskForm**: single-select assignee `<select>` swapped for a chip-toggle multi-select (`AssigneePicker`). Category input + COMMON_CATEGORIES const + datalist gone. **TaskDrawer**: same — chip-toggle multi-assignee replaces the single select; Category field removed; subtitle no longer renders the category suffix. **Readers updated across 13 files** to render `task.assignees[0]` as primary chip with `+N` overflow suffix when multiple: `/` (Today's "My next tasks" group-by-me filter), `/glance`, `/questions` + QuestionsClient, `/tasks` + TaskBoard + TaskList + TaskRow + TaskDrawer, plus the audit/nudge digest pipeline (`nudge-digest.TaskRow.assignees`, `nudge-actions.ts` select shape). **Book panels — Q&D inline**: `LinkedTasksPanel` + `CardLinkedTasksPanel` switch from `showType={false}` / `"+ Task"` to `showType={true}` / `"+ New"`. The TaskForm's Type picker (Task / Question / Decision) is now visible in the modal so couples can capture Q&D from any Book section page or any card without bouncing to `/questions`. The linked-tasks-panel query already selected `type` and rendered the `Q` / `D` glyphs, so Q&D show up in the same list. **586 tests stay green.**](#2026-05-17--v1960--multi-assignee--category-removal--qd-inline) |
 | **v1.95.4** | 2026-05-17 | [Fix TEXT-card body disappearing on save + harden CardChrome title rename. User: "Block text is not displaying after being saved." Screenshots showed a TEXT card ("Rings") with content typed in the editor (H2 headings + paragraphs + tel-link) reverting to the empty-body "—" placeholder after clicking Save changes. Two coordinated fixes: (1) `SubsectionEditor.save()` adds an explicit `router.refresh()` after the `updateBookSubsection` await. Pre-fix `revalidatePath` inside the action invalidated the server cache but didn't always synchronously refresh the calling client component when the action was awaited inside `startTransition` — so `setEditing(false)` flipped the view to read-mode with the stale (pre-save) `sub.bodyHtml` prop, rendering the "—" fallback. `router.refresh()` forces a fresh server fetch before the view-mode flip. (2) `CardChrome.saveTitle()` dropped its `fd.set("body", "")` line. Pre-fix this sent `updateBookSubsection` into the legacy-body branch and wiped both `body` AND `bodyHtml` columns on every title rename. Harmless for the non-TEXT kinds that currently use CardChrome (their body columns are already null), but a footgun the moment any new kind ever ended up routing both flows. Title-only saves now leave the body columns untouched. No schema, no actions changed. 586 tests green.](#2026-05-17--v1954--fix-text-card-body-disappearing) |
 | **v1.95.3** | 2026-05-17 | [Add ORDERED status to WEDDING_PARTY matrix dropdown. User: "Add orderd status to wedding party dropdown." Pre-fix the matrix cells offered four states: NEED (default / sparse) → HAVE → ALREADY_OWN → N_A. No way to capture "we've placed the order but it isn't in our hands yet" — a beat that matters for bridesmaid/groomsman accessories which arrive between order and the event. New `ORDERED` slot inserted between NEED and HAVE: marigold tone (matches the "in-progress" pill the tasks panel uses for OPEN — visually distinct from HAVE's moss "done" tone), `→` glyph. Persists as an explicit cell row (only NEED + no-notes collapses to absence in the sparse-storage convention, which still holds). **Doesn't count as "sorted"** in the v1.92.0 `sortedCount` rollup — the chip filter still requires `HAVE / ALREADY_OWN / N_A` so ordered items show as "in progress, not done yet". `Status` type union, `STATUS_META`, `STATUSES` order array (UI + select option order), and the server-side `VALID_CELL_STATUSES` zod allowlist all extended. No schema migration (status was always a free `String` column). 586 tests green.](#2026-05-17--v1953--ordered-status-on-wedding-party-matrix) |
 | **v1.95.2** | 2026-05-17 | [Equal-height cards on the section grid + wider container. User: "Where pages differ in sizes make the white space match, header at the top, footer at the bottom content in the middle, also widen the whole thing." After v1.95.0 turned `/book/[slug]` into a 2-column grid, side-by-side cards of different heights left the shorter card at its natural height with empty grid-row background showing below it — the row stretched to the taller card but the shorter card didn't fill it. Now: (1) Grid wrapper div switches from `space-y-1` (static block flow) to `flex flex-col gap-1 h-full` so it fills the row's stretched height. (2) `CardChrome` `<article>` adds `flex flex-col flex-1` — fills the wrapper's available height. Content `{children}` wraps in `<div className="flex-1">` so the body absorbs any extra row space; the linked-tasks panel + action footer get pushed to the article's bottom. Empty space falls between the natural end of the content and the linked-tasks panel — header at top, footer at bottom, content in the middle just as the user asked. (3) `SubsectionEditor` (TEXT cards path) gets the same flex treatment for consistency. (4) Container widened from `max-w-5xl` (1024 px) to `max-w-7xl` (1280 px) — narrow side-by-side cards at 5xl were noticeably cramped on wide screens. No schema, no actions changed.](#2026-05-17--v1952--equal-height-cards--wider-grid) |
@@ -943,6 +944,67 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-05-17 · v1.96.0 — Multi-assignee + category removal + Q&D inline
+
+User: "Allow tasks to be assigned to multiple people. Remove the category option in tasks. Edit tasks from their linked screen aswell as the tasks page. Allow Questions & Decisions to be made on the item screen too."
+
+Three of the four asks ship in this release. Edit-from-linked-screen is queued for v1.96.1 — needs a focused design pass for the modal-vs-drawer pattern and the per-task data-load path, didn't want to half-bake it on top of an already-large schema migration.
+
+**Schema migration `20260517200000_task_multi_assignee_drop_category`:**
+```sql
+CREATE TABLE "_TaskAssignees" (
+  "A" TEXT NOT NULL, "B" TEXT NOT NULL,
+  CONSTRAINT "_TaskAssignees_AB_unique" UNIQUE ("A", "B"),
+  CONSTRAINT "_TaskAssignees_A_fkey" FOREIGN KEY ("A") REFERENCES "Task"("id") ON DELETE CASCADE,
+  CONSTRAINT "_TaskAssignees_B_fkey" FOREIGN KEY ("B") REFERENCES "User"("id") ON DELETE CASCADE
+);
+CREATE INDEX "_TaskAssignees_B_index" ON "_TaskAssignees"("B");
+INSERT INTO "_TaskAssignees" ("A", "B")
+SELECT "id", "assigneeId" FROM "Task" WHERE "assigneeId" IS NOT NULL
+ON CONFLICT DO NOTHING;
+ALTER TABLE "Task" DROP COLUMN "assigneeId";
+```
+Implicit-Prisma m2m naming (`_TaskAssignees("A","B")` with A=Task, B=User) so the schema reads `assignees User[] @relation("TaskAssignees")` / `assignedTasks Task[]` and Prisma manages inserts. Backfill is idempotent via `ON CONFLICT DO NOTHING`.
+
+**Server actions** (`src/app/(app)/tasks/actions.ts`):
+- `baseSchema` drops `assigneeId` + `category` zod fields.
+- New `parseAssigneeIds(formData)` helper: reads repeated `formData.getAll("assigneeIds")` entries, skips the `__touched__` marker, dedupes.
+- `createTask`: persists `assignees: { connect: assigneeIds.map(...) }`. No more `tags = [category]`.
+- `updateTask`: gates the m2m write on `formData.has("assigneeIds")` (mirrors the topicKeys/hasTopicKeys pattern) so partial updates don't blank the assignee list. Audit `changedFields` updates to compare sorted ID arrays.
+- Category persistence path removed everywhere; `Task.tags` column kept in the DB for now (no migration needed) since dropping it would require backfill of the field's only legitimate use case (which never materialised).
+
+**TaskForm + TaskDrawer**:
+- `TaskForm` single `<select name="assigneeId">` → new `AssigneePicker` chip toggle. One hidden `<input type="hidden" name="assigneeIds" value="__touched__">` always emits so the server can distinguish empty-list from field-not-posted. One additional hidden input per selected user-id.
+- `TaskForm` drops the entire Category `<input>` + COMMON_CATEGORIES const + datalist.
+- `TaskDrawer` same — chip-toggle multi-assignee inline-edit; Category section deleted; subtitle no longer renders `· {category}` suffix.
+- `Initial` type: `assigneeId?: string | null` → `assigneeIds?: string[]`. `category?` field removed.
+
+**Reader updates (13 files):**
+- `/` page: include `assignees: { select: { id: true } }`. The "My next tasks" `mineDated` / `mineUndated` / `orphanDated` / `orphanUndated` filters switch from `t.assigneeId === userId` / `!t.assigneeId` to `t.assignees.some(a => a.id === userId)` / `t.assignees.length === 0`.
+- `/glance`: `OR: [{ assigneeId: userId }, { assigneeId: null }]` → `OR: [{ assignees: { some: { id: userId } } }, { assignees: { none: {} } }]`.
+- `/questions` + `QuestionsClient`: include `assignees`, flatten to `assigneeIds: string[]`. Display chip shows first assignee + `+N` suffix.
+- `/tasks` + `TaskBoard` + `TaskList` + `TaskRow` + `TaskDrawer`: same shape change; group-by-assignee bucket includes the task under every assignee's section; sort-by-assignee uses the first assignee's name.
+- `nudge-digest.ts` + `nudge-actions.ts`: `TaskRow.assigneeId: string | null` → `TaskRow.assignees: { id: string }[]`. Select shape updated.
+- `seed.ts` + `actions.ts` quick-capture + `suppliers/actions.ts` follow-up + `tasks/import/actions.ts` CSV-import: every `db.task.create({ data: { assigneeId: x } })` switched to `assignees: x ? { connect: [{ id: x }] } : undefined`.
+
+**Display convention.** For tasks with multiple assignees we render the first one as the primary chip and append `+N` for the rest — keeps the row dense and predictable. The drawer's full chip list shows everyone. Group-by-assignee in `/tasks` puts the task under every assignee's section (joint task = appears for both owners).
+
+**Book panels — Q&D inline:**
+- `LinkedTasksPanel` (section level) + `CardLinkedTasksPanel` (card level) both switch `showType={false}` → `showType={true}` on their `AddTaskToggle` invocation. Button label `"+ Task"` → `"+ New"` so it reads truthfully for all three types.
+- The modal's existing `TaskForm` already renders Type / Priority / Status / Due in a grid when `showType=true`; couples can now pick Task / Question / Decision inline.
+- The panel's linked-tasks query already selected `type` and the row-renderer already showed `Q` / `D` glyphs (v1.92.0), so created Q&D land in the same list with no extra wiring.
+- Couples no longer have to bounce to `/questions` to capture "what flowers does Aimee want?" on the bridesmaid outfit card.
+
+**Verification:**
+- `npx tsc --noEmit`, `npm test` (586 passing), `npm run build` — all green.
+- Manual: open `/tasks`, click a task → drawer now shows chip-toggle Assignees; toggle two on; save; row shows "Jamie +1" in the assignee column. Switch group-by to Assignee — task appears under both Jamie's and Bryony's sections.
+- Manual: `/book/clothing` → "+ New" on either the section panel or any card → modal shows Task / Question / Decision picker; create a Question; reload — Question appears in the same linked panel with a `Q` glyph.
+- Manual: existing rows that had a single assignee pre-migration display correctly after the backfill.
+
+**Deferred to v1.96.1:** Edit-from-linked-screen — add a per-row "Edit" affordance on `CardInlineTaskRow` / `InlineTaskRow` that opens a modal with the full TaskForm. Needs a `loadTaskForEdit(id)` server action + suppliers/users threaded through `BookTopicsContext`. Tractable but didn't want to ship half-baked.
+
+**Out of scope:** Renaming the `Task.tags` column — kept as-is in case a future semantic-category feature wants to reuse it; the migration churn isn't worth it just to drop an unused column.
 
 ### 2026-05-17 · v1.95.4 — Fix TEXT-card body disappearing on save
 

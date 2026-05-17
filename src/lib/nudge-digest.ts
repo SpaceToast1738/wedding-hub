@@ -53,12 +53,16 @@ export function decideUnconfirmedRsvpDigest(
 }
 
 // Shape we accept for the overdue-task digest.
+// v1.96.0: assignees is now an array (multi-assignee m2m) — readers
+// here only need to know IF a task has any assignee to decide who
+// to nudge. The digest's per-recipient routing is computed later
+// from the full assignees list.
 export type TaskRow = {
   id: string;
   title: string;
   status: "OPEN" | "IN_PROGRESS" | "BLOCKED" | "DONE" | "ARCHIVED";
   priority: "URGENT" | "HIGH" | "MEDIUM" | "LOW";
-  assigneeId: string | null;
+  assignees: { id: string }[];
   dueDate: Date | null;
   type: "TASK" | "QUESTION" | "DECISION";
   lastNudgedAt: Date | null;

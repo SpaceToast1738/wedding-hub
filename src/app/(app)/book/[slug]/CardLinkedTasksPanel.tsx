@@ -93,8 +93,11 @@ function AddCardTaskToggle({
       bookSections={bookSections}
       bookSubsections={bookSubsections}
       defaultBookSubsectionIds={[subsectionId]}
-      buttonLabel="+ Task"
-      showType={false}
+      // v1.96.0: surface the Task/Question/Decision picker so couples
+      // can capture Q&D inline on a card without bouncing to
+      // /questions. Button stays generic to read for all three types.
+      buttonLabel="+ New"
+      showType={true}
     />
   );
 }

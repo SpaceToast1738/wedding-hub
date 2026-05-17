@@ -19,7 +19,8 @@ type Task = {
   type: string;
   status: string;
   priority: string;
-  assigneeId: string | null;
+  // v1.96.0: multi-assignee — replaces singular assigneeId.
+  assignees: Array<{ id: string }>;
   dueDate: Date | null;
   tags: string[];
   notes: string | null;
@@ -216,7 +217,10 @@ export function TaskList({
       if (filter === "all") {
         if (t.status === "ARCHIVED") return false;
       } else if (filter === "mine") {
-        if (t.assigneeId !== currentUserId) return false;
+        // v1.96.0: multi-assignee — "mine" matches when the current
+        // user is in the assignees list (still the most common case
+        // is 0 or 1 assignee, but supports co-owned tasks now).
+        if (!t.assignees.some((a) => a.id === currentUserId)) return false;
         if (t.status === "DONE" || t.status === "ARCHIVED") return false;
       } else if (filter === "questions") {
         if (t.type !== "QUESTION" && t.type !== "DECISION") return false;
@@ -253,8 +257,12 @@ export function TaskList({
         break;
       case "assignee":
         list.sort((a, b) => {
-          const an = a.assigneeId ? usersById.get(a.assigneeId)?.name ?? "" : "~";
-          const bn = b.assigneeId ? usersById.get(b.assigneeId)?.name ?? "" : "~";
+          // v1.96.0: sort by the first assignee's name. Tasks with
+          // no assignees sink to the bottom via "~".
+          const aFirst = a.assignees[0];
+          const bFirst = b.assignees[0];
+          const an = aFirst ? usersById.get(aFirst.id)?.name ?? "" : "~";
+          const bn = bFirst ? usersById.get(bFirst.id)?.name ?? "" : "~";
           return an.localeCompare(bn);
         });
         break;
@@ -297,12 +305,17 @@ export function TaskList({
     for (const t of sorted) {
       switch (groupKey) {
         case "assignee": {
-          if (t.assigneeId) {
-            const u = usersById.get(t.assigneeId);
-            const label = u?.name ?? u?.email ?? "Unknown";
-            bump(`u:${t.assigneeId}`, label, t, 0);
-          } else {
+          // v1.96.0: multi-assignee. Tasks with multiple assignees
+          // appear under every assignee's bucket; unassigned tasks
+          // bucket separately.
+          if (t.assignees.length === 0) {
             bump("u:null", "Unassigned", t, 1);
+          } else {
+            for (const a of t.assignees) {
+              const u = usersById.get(a.id);
+              const label = u?.name ?? u?.email ?? "Unknown";
+              bump(`u:${a.id}`, label, t, 0);
+            }
           }
           break;
         }
@@ -510,13 +523,24 @@ export function TaskList({
                     )}
                     <ol>
                       {g.tasks.map((t) => {
-                        const assignee = t.assigneeId ? usersById.get(t.assigneeId) : null;
+                        // v1.96.0: multi-assignee — show first assignee's
+                        // name, with a `+N` suffix when others are also
+                        // on the task.
+                        const firstId = t.assignees[0]?.id;
+                        const first = firstId ? usersById.get(firstId) : null;
+                        const extra = Math.max(0, t.assignees.length - 1);
+                        const baseName = first?.name ?? first?.email ?? null;
+                        const assigneeName = baseName
+                          ? extra > 0
+                            ? `${baseName} +${extra}`
+                            : baseName
+                          : null;
                         return (
                           <TaskRow
                             key={t.id}
                             task={t}
                             canEdit={canEdit}
-                            assigneeName={assignee?.name ?? assignee?.email ?? null}
+                            assigneeName={assigneeName}
                             onOpen={() => setOpenTaskId(t.id)}
                           />
                         );

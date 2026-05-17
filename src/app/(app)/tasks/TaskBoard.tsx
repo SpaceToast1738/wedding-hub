@@ -12,7 +12,8 @@ type Task = {
   type: string;
   status: string;
   priority: string;
-  assigneeId: string | null;
+  // v1.96.0: multi-assignee.
+  assignees: Array<{ id: string }>;
   dueDate: Date | null;
   tags: string[];
 };
@@ -74,12 +75,17 @@ export function TaskBoard({
               </div>
               <ul className="flex flex-col gap-2">
                 {(grouped[c.id] ?? []).map((t) => {
-                  const assignee = t.assigneeId ? usersById.get(t.assigneeId) : null;
+                  // v1.96.0: multi-assignee — show first; card has
+                  // its own "+N" indicator when more exist.
+                  const firstId = t.assignees[0]?.id;
+                  const assignee = firstId ? usersById.get(firstId) ?? null : null;
+                  const extraCount = Math.max(0, t.assignees.length - 1);
                   return (
                     <BoardCard
                       key={t.id}
                       task={t}
-                      assignee={assignee ?? null}
+                      assignee={assignee}
+                      extraAssigneeCount={extraCount}
                       canEdit={canEdit}
                     />
                   );
@@ -101,10 +107,14 @@ export function TaskBoard({
 function BoardCard({
   task,
   assignee,
+  extraAssigneeCount,
   canEdit,
 }: {
   task: Task;
   assignee: UserOpt | null;
+  // v1.96.0: when the task has 2+ assignees, show a `+N` chip next
+  // to the primary avatar.
+  extraAssigneeCount: number;
   canEdit: boolean;
 }) {
   const [pending, startTransition] = useTransition();
@@ -144,7 +154,14 @@ function BoardCard({
           ))}
           <span className="flex-1" />
           {assignee && (
-            <Avatar name={assignee.name ?? assignee.email} size={18} />
+            <span className="flex items-center gap-0.5">
+              <Avatar name={assignee.name ?? assignee.email} size={18} />
+              {extraAssigneeCount > 0 && (
+                <span className="text-[10px] text-ink-tertiary tabular-nums">
+                  +{extraAssigneeCount}
+                </span>
+              )}
+            </span>
           )}
         </div>
       )}

@@ -12,7 +12,10 @@ type Task = {
   type: string;
   status: string;
   priority: string;
-  assigneeId: string | null;
+  // v1.96.0: multi-assignee — parent passes a derived assigneeName
+  // string for display; this row just needs the array length to
+  // know the task exists (so id-only is fine).
+  assignees: Array<{ id: string }>;
   dueDate: Date | null;
   tags: string[];
   notes: string | null;

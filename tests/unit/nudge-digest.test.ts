@@ -31,7 +31,7 @@ function taskRow(overrides: Partial<TaskRow> = {}): TaskRow {
     title: "Book registrar",
     status: "OPEN",
     priority: "MEDIUM",
-    assigneeId: null,
+    assignees: [],
     dueDate: new Date(NOW.getTime() - 24 * 60 * 60 * 1000), // 1 day overdue
     type: "TASK",
     lastNudgedAt: null,

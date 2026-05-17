@@ -19,13 +19,30 @@ const baseSchema = z.object({
   type: z.nativeEnum(TaskType).default(TaskType.TASK),
   priority: z.nativeEnum(Priority).default(Priority.MEDIUM),
   status: z.nativeEnum(TaskStatus).default(TaskStatus.OPEN),
-  assigneeId: z.string().optional().nullable(),
   dueDate: z.string().optional().nullable(),
-  category: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
   // v1.28.0: optional supplier link.
   supplierId: z.string().optional().nullable(),
 });
+
+// v1.96.0: assignees moved from singular `assigneeId` (single-select)
+// to multi-select `assigneeIds[]`. The form posts repeated
+// `name="assigneeIds"` inputs; this helper extracts the unique non-
+// empty values. Category field removed; the helper that wrote
+// `tags = [category]` is gone with it (Task.tags column kept for now
+// in case migrations restore semantic-category later).
+function parseAssigneeIds(formData: FormData): string[] {
+  const raw = formData.getAll("assigneeIds");
+  const seen = new Set<string>();
+  for (const v of raw) {
+    const s = String(v).trim();
+    // Form emits a `__touched__` marker so the server can distinguish
+    // an empty-list assignment from "field not posted" — ignore it
+    // when extracting actual IDs.
+    if (s && s !== "__touched__") seen.add(s);
+  }
+  return [...seen];
+}
 
 function parseDue(v: FormDataEntryValue | null): Date | null {
   if (!v) return null;
@@ -47,25 +64,28 @@ export async function createTask(formData: FormData) {
     type: formData.get("type") || TaskType.TASK,
     priority: formData.get("priority") || Priority.MEDIUM,
     status: formData.get("status") || TaskStatus.OPEN,
-    assigneeId: formData.get("assigneeId") || null,
     dueDate: formData.get("dueDate") || null,
-    category: formData.get("category") || null,
     notes: formData.get("notes") || null,
     supplierId: formData.get("supplierId") || null,
   });
   const { bookSectionIds, bookSubsectionIds, navTagIds, guestGroupIds } = parseTopicKeys(formData);
-  const tags = parsed.category ? [parsed.category] : [];
+  // v1.96.0: assigneeIds[] (multi). category dropped — was previously
+  // persisted as the single-element `tags` array. The `tags` column
+  // stays in the schema for now but no UI writes to it on create.
+  const assigneeIds = parseAssigneeIds(formData);
   const created = await db.task.create({
     data: {
       title: parsed.title,
       type: parsed.type,
       priority: parsed.priority,
       status: parsed.status,
-      assigneeId: parsed.assigneeId || null,
       dueDate: parseDue(parsed.dueDate ?? null),
-      tags,
       notes: parsed.notes ?? null,
       supplierId: parsed.supplierId || null,
+      // v1.96.0: multi-assignee connect.
+      assignees: assigneeIds.length
+        ? { connect: assigneeIds.map((id) => ({ id })) }
+        : undefined,
       // v1.30.5: m2m connect for the two topic relations.
       bookSections: bookSectionIds.length
         ? { connect: bookSectionIds.map((id) => ({ id })) }
@@ -97,6 +117,7 @@ export async function createTask(formData: FormData) {
       title: parsed.title,
       type: parsed.type,
       supplierId: parsed.supplierId || null,
+      assigneeIds,
       bookSectionIds,
       bookSubsectionIds,
       navTagIds,
@@ -116,24 +137,29 @@ export async function updateTask(id: string, formData: FormData) {
     type: formData.get("type") ?? undefined,
     priority: formData.get("priority") ?? undefined,
     status: formData.get("status") ?? undefined,
-    assigneeId: formData.get("assigneeId") ?? undefined,
     dueDate: formData.get("dueDate") ?? undefined,
-    category: formData.get("category") ?? undefined,
     notes: formData.get("notes") ?? undefined,
     supplierId: formData.get("supplierId") ?? undefined,
   });
   const { bookSectionIds, bookSubsectionIds, navTagIds, guestGroupIds, hasTopicKeys } = parseTopicKeys(formData);
+  // v1.96.0: assigneeIds[] is treated as a "set the whole list" payload,
+  // mirroring the topic-keys pattern. Posted only when the form
+  // explicitly emits the field — `null`-check protects partial updates
+  // from blanking the assignee list.
+  const hasAssigneeKeys = formData.has("assigneeIds");
+  const assigneeIds = hasAssigneeKeys ? parseAssigneeIds(formData) : [];
 
   const data: Record<string, unknown> = {};
   if (parsed.title !== undefined) data.title = parsed.title;
   if (parsed.type !== undefined) data.type = parsed.type;
   if (parsed.priority !== undefined) data.priority = parsed.priority;
   if (parsed.status !== undefined) data.status = parsed.status;
-  if (parsed.assigneeId !== undefined) data.assigneeId = parsed.assigneeId || null;
   if (parsed.dueDate !== undefined) data.dueDate = parseDue(parsed.dueDate ?? null);
-  if (parsed.category !== undefined) data.tags = parsed.category ? [parsed.category] : [];
   if (parsed.notes !== undefined) data.notes = parsed.notes ?? null;
   if (parsed.supplierId !== undefined) data.supplierId = parsed.supplierId || null;
+  if (hasAssigneeKeys) {
+    data.assignees = { set: assigneeIds.map((aid) => ({ id: aid })) };
+  }
   // v1.30.5: m2m `set:` replaces the relation entirely so the picker
   // can both add and remove links. Only run when the form posted any
   // topicKeys at all (`hasTopicKeys`); otherwise this is a partial
@@ -155,9 +181,8 @@ export async function updateTask(id: string, formData: FormData) {
       type: true,
       status: true,
       priority: true,
-      assigneeId: true,
+      assignees: { select: { id: true } },
       dueDate: true,
-      tags: true,
       notes: true,
       supplierId: true,
       bookSections: { select: { id: true } },
@@ -175,16 +200,15 @@ export async function updateTask(id: string, formData: FormData) {
     if (parsed.type !== undefined && parsed.type !== before.type) changedFields.push("type");
     if (parsed.status !== undefined && parsed.status !== before.status) changedFields.push("status");
     if (parsed.priority !== undefined && parsed.priority !== before.priority) changedFields.push("priority");
-    if (parsed.assigneeId !== undefined && (parsed.assigneeId || null) !== before.assigneeId) changedFields.push("assigneeId");
+    if (hasAssigneeKeys) {
+      const oldAids = before.assignees.map((a) => a.id).sort().join(",");
+      const newAids = assigneeIds.slice().sort().join(",");
+      if (oldAids !== newAids) changedFields.push("assignees");
+    }
     if (parsed.dueDate !== undefined) {
       const newDue = parseDue(parsed.dueDate ?? null)?.getTime() ?? null;
       const oldDue = before.dueDate?.getTime() ?? null;
       if (newDue !== oldDue) changedFields.push("dueDate");
-    }
-    if (parsed.category !== undefined) {
-      const newCat = parsed.category || null;
-      const oldCat = before.tags[0] ?? null;
-      if (newCat !== oldCat) changedFields.push("category");
     }
     if (parsed.notes !== undefined && (parsed.notes ?? null) !== before.notes) changedFields.push("notes");
     if (parsed.supplierId !== undefined && (parsed.supplierId || null) !== before.supplierId) changedFields.push("supplierId");

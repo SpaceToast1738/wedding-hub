@@ -83,7 +83,9 @@ export async function quickCapture(input: QuickCaptureInput): Promise<
       type: taskType,
       status: TaskStatus.OPEN,
       priority: Priority.MEDIUM,
-      assigneeId: user.id,
+      // v1.96.0: assignees m2m. Quick-capture auto-assigns to the
+      // current user so the task lands "with them" by default.
+      assignees: { connect: [{ id: user.id }] },
     },
   });
   await audit(user, {

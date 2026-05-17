@@ -113,7 +113,13 @@ async function seedSampleTasks() {
     const exists = await db.task.findFirst({ where: { title: t.title } });
     if (exists) continue;
     await db.task.create({
-      data: { ...t, type: TaskType.TASK, status: TaskStatus.OPEN, assigneeId: jamie.id },
+      // v1.96.0: assignees switched from singular assigneeId to m2m.
+      data: {
+        ...t,
+        type: TaskType.TASK,
+        status: TaskStatus.OPEN,
+        assignees: { connect: [{ id: jamie.id }] },
+      },
     });
   }
   console.log(`  ✓ ${samples.length} sample tasks`);

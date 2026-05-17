@@ -16,7 +16,8 @@ type Task = {
   type: string;
   status: string;
   priority: string;
-  assigneeId: string | null;
+  // v1.96.0: multi-assignee.
+  assignees: Array<{ id: string }>;
   dueDate: Date | null;
   tags: string[];
   notes: string | null;
@@ -93,9 +94,13 @@ export function TaskDrawer({
   const [type, setType] = useState(task.type);
   const [status, setStatus] = useState(task.status);
   const [priority, setPriority] = useState(task.priority);
-  const [assigneeId, setAssigneeId] = useState(task.assigneeId ?? "");
+  // v1.96.0: multi-assignee — track a Set of IDs locally, post each
+  // as a repeated `assigneeIds` input on save.
+  const initialAssigneeIds = task.assignees.map((a) => a.id).sort();
+  const [assigneeIds, setAssigneeIds] = useState<string[]>(initialAssigneeIds);
   const [dueDate, setDueDate] = useState(isoForInput(task.dueDate) ?? "");
-  const [category, setCategory] = useState(task.tags[0] ?? "");
+  // v1.96.0: Category field removed. The tags column stays in the DB
+  // but the drawer no longer reads or writes it.
   const [notes, setNotes] = useState(task.notes ?? "");
   const [supplierId, setSupplierId] = useState(task.supplierId ?? "");
   // v1.30.5: m2m selections live as ID arrays. The TopicPicker emits
@@ -128,9 +133,8 @@ export function TaskDrawer({
     type !== task.type ||
     status !== task.status ||
     priority !== task.priority ||
-    (assigneeId || null) !== (task.assigneeId ?? null) ||
+    assigneeIds.slice().sort().join(",") !== initialAssigneeIds.join(",") ||
     dueDate !== (isoForInput(task.dueDate) ?? "") ||
-    category !== (task.tags[0] ?? "") ||
     notes !== (task.notes ?? "") ||
     (supplierId || null) !== (task.supplierId ?? null) ||
     bookSectionIds.slice().sort().join(",") !== initialBookSectionIds.join(",") ||
@@ -148,9 +152,13 @@ export function TaskDrawer({
     fd.set("type", type);
     fd.set("status", status);
     fd.set("priority", priority);
-    fd.set("assigneeId", assigneeId);
+    // v1.96.0: multi-assignee — emit one input per ID plus a touched
+    // marker so the server can distinguish "set to empty" from
+    // "field not posted". Mirrors the TopicPicker pattern.
+    fd.set("assigneeIds", "__touched__");
+    for (const id of assigneeIds) fd.append("assigneeIds", id);
     fd.set("dueDate", dueDate);
-    fd.set("category", category);
+    // v1.96.0: Category field dropped — no longer written on save.
     fd.set("notes", notes);
     fd.set("supplierId", supplierId);
     // v1.30.5: emit one topicKeys entry per selected ID (FormData
@@ -192,7 +200,9 @@ export function TaskDrawer({
     });
   }
 
-  const assignee = users.find((u) => u.id === task.assigneeId);
+  // v1.96.0: multi-assignee — read-only chips iterate task.assignees
+  // directly (see the Assignees field below). No top-level `assignee`
+  // helper needed; the per-row Avatar lookup happens inline.
 
   return (
     <>
@@ -224,8 +234,8 @@ export function TaskDrawer({
               </h2>
             )}
             <div className="text-xs text-ink-tertiary mt-0.5">
+              {/* v1.96.0: category subtitle removed alongside the field. */}
               {task.type === "TASK" ? "Task" : task.type === "QUESTION" ? "Question" : "Decision"}
-              {category && ` · ${category}`}
             </div>
           </div>
           <button
@@ -331,26 +341,59 @@ export function TaskDrawer({
           <div className="grid grid-cols-2 gap-4">
             <div>
               <strong className="block text-[10px] uppercase tracking-wider text-ink-tertiary font-bold mb-1.5">
-                Assignee
+                Assignees
               </strong>
               {canEdit ? (
-                <select
-                  value={assigneeId}
-                  onChange={(e) => setAssigneeId(e.target.value)}
-                  className="w-full text-sm bg-surface text-ink-primary border border-border-soft rounded-sm px-2 py-1 outline-none focus:border-moss-500"
-                >
-                  <option value="">— unassigned —</option>
-                  {users.map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {u.name ?? u.email}
-                    </option>
-                  ))}
-                </select>
-              ) : assignee ? (
-                <span className="inline-flex items-center gap-1.5 text-sm text-ink-primary">
-                  <Avatar name={assignee.name ?? assignee.email} size={20} />
-                  {assignee.name ?? assignee.email}
-                </span>
+                // v1.96.0: multi-assignee chip toggle.
+                <div className="flex flex-wrap gap-1.5">
+                  {users.length === 0 ? (
+                    <span className="text-xs text-ink-tertiary italic">
+                      No users available.
+                    </span>
+                  ) : (
+                    users.map((u) => {
+                      const isOn = assigneeIds.includes(u.id);
+                      return (
+                        <button
+                          key={u.id}
+                          type="button"
+                          onClick={() =>
+                            setAssigneeIds((prev) =>
+                              isOn
+                                ? prev.filter((id) => id !== u.id)
+                                : [...prev, u.id],
+                            )
+                          }
+                          aria-pressed={isOn}
+                          className={[
+                            "text-[11px] px-2.5 py-1 rounded-full border transition-colors",
+                            isOn
+                              ? "bg-moss-500 text-white border-moss-500"
+                              : "bg-canvas text-ink-secondary border-border-soft hover:border-moss-300",
+                          ].join(" ")}
+                        >
+                          {u.name ?? u.email}
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+              ) : task.assignees.length > 0 ? (
+                <div className="flex flex-wrap items-center gap-2">
+                  {task.assignees.map((a) => {
+                    const u = users.find((x) => x.id === a.id);
+                    if (!u) return null;
+                    return (
+                      <span
+                        key={a.id}
+                        className="inline-flex items-center gap-1.5 text-sm text-ink-primary"
+                      >
+                        <Avatar name={u.name ?? u.email} size={20} />
+                        {u.name ?? u.email}
+                      </span>
+                    );
+                  })}
+                </div>
               ) : (
                 <span className="text-sm text-ink-tertiary italic">—</span>
               )}
@@ -374,22 +417,9 @@ export function TaskDrawer({
             </div>
           </div>
 
-          <div>
-            <strong className="block text-[10px] uppercase tracking-wider text-ink-tertiary font-bold mb-1.5">
-              Category
-            </strong>
-            {canEdit ? (
-              <input
-                type="text"
-                value={category}
-                onChange={(e) => setCategory(e.target.value)}
-                placeholder="e.g. Budget, Groom Prep, Admin"
-                className="w-full text-sm bg-surface text-ink-primary border border-border-soft rounded-sm px-2 py-1 outline-none focus:border-moss-500"
-              />
-            ) : (
-              <span className="text-sm text-ink-primary">{category || <span className="text-ink-tertiary italic">—</span>}</span>
-            )}
-          </div>
+          {/* v1.96.0: Category section removed. The single-string
+              tag the field wrote was never grouped/filtered elsewhere
+              in the app — dead UX. */}
 
           {/* v1.28.0: optional supplier link. Only rendered when the
               parent passes a non-empty suppliers array — keeps fresh

@@ -12,19 +12,19 @@ const TYPES = ["TASK", "QUESTION", "DECISION"] as const;
 const PRIORITIES = ["LOW", "MEDIUM", "HIGH", "URGENT"] as const;
 const STATUSES = ["OPEN", "IN_PROGRESS", "WAITING", "DONE", "ARCHIVED"] as const;
 
-const COMMON_CATEGORIES = [
-  "Admin", "Legal", "Bride Prep", "Groom Prep",
-  "Bridesmaid Prep", "Groomsmen Prep", "Best Man", "Maid of Honour", "Budget",
-];
+// v1.96.0: COMMON_CATEGORIES + the Category input dropped. The
+// previous Category field wrote a single-element `tags` array
+// that the rest of the app didn't actually read or group by —
+// dead UX without dropping any real functionality.
 
 export type Initial = {
   title?: string;
   type?: string;
   priority?: string;
   status?: string;
-  assigneeId?: string | null;
+  // v1.96.0: array of user-ids for multi-assignee.
+  assigneeIds?: string[];
   dueDate?: string;
-  category?: string;
   notes?: string;
   // v1.28.0: optional supplier link.
   supplierId?: string | null;
@@ -139,22 +139,16 @@ export function TaskForm({
           <Input type="date" name="dueDate" defaultValue={initial?.dueDate ?? ""} />
         </div>
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <div>
-          <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">Assignee</label>
-          <select name="assigneeId" defaultValue={initial?.assigneeId ?? ""} className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2 py-1.5 text-ink-primary outline-none">
-            <option value="">— unassigned —</option>
-            {users.map((u) => <option key={u.id} value={u.id}>{u.name ?? u.email}</option>)}
-          </select>
-        </div>
-        <div>
-          <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">Category</label>
-          <input name="category" defaultValue={initial?.category ?? ""} list="task-categories" placeholder="e.g. Admin"
-            className="w-full text-sm bg-surface text-ink-primary border border-border-soft rounded-sm px-2.5 py-1.5 outline-none focus:border-moss-500" />
-          <datalist id="task-categories">
-            {COMMON_CATEGORIES.map((c) => <option key={c} value={c} />)}
-          </datalist>
-        </div>
+      {/* v1.96.0: multi-assignee chip picker replaces the
+          single-select. Couple co-owning a task ("buy rings" =
+          both Jamie + Bryony) was previously impossible. Category
+          field dropped — never read elsewhere in the app. */}
+      <div>
+        <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">Assignees</label>
+        <AssigneePicker
+          users={users}
+          initialIds={initial?.assigneeIds ?? []}
+        />
       </div>
       {/* v1.28.0: Supplier link (single-select). */}
       {suppliers.length > 0 && (
@@ -215,5 +209,72 @@ export function TaskForm({
         </div>
       )}
     </form>
+  );
+}
+
+// v1.96.0: chip-style multi-assignee picker. Renders one hidden
+// `<input name="assigneeIds" value={userId}>` per selected user, so
+// the server action's `formData.getAll("assigneeIds")` pulls the
+// full list (matching the topicKeys + cellSchema patterns used
+// elsewhere in the app). Always emits at least the marker input so
+// the action's `formData.has("assigneeIds")` returns true even when
+// the picker is empty — that lets "set the list to empty" round-trip
+// distinct from "field wasn't posted".
+function AssigneePicker({
+  users,
+  initialIds,
+}: {
+  users: UserOpt[];
+  initialIds: string[];
+}) {
+  const [selected, setSelected] = useState<Set<string>>(
+    () => new Set(initialIds),
+  );
+
+  function toggle(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  return (
+    <div>
+      <div className="flex flex-wrap gap-1.5">
+        {users.length === 0 ? (
+          <span className="text-xs text-ink-tertiary italic">No users available.</span>
+        ) : (
+          users.map((u) => {
+            const isOn = selected.has(u.id);
+            const label = u.name ?? u.email;
+            return (
+              <button
+                key={u.id}
+                type="button"
+                onClick={() => toggle(u.id)}
+                className={[
+                  "text-xs px-2.5 py-1 rounded-full border transition-colors",
+                  isOn
+                    ? "bg-moss-500 text-white border-moss-500"
+                    : "bg-canvas text-ink-secondary border-border-soft hover:border-moss-300",
+                ].join(" ")}
+                aria-pressed={isOn}
+              >
+                {label}
+              </button>
+            );
+          })
+        )}
+      </div>
+      {/* Marker hidden input — guarantees `formData.has("assigneeIds")`
+          even when nothing is selected, so the server can distinguish
+          "explicitly empty" from "field not posted". */}
+      <input type="hidden" name="assigneeIds" value="__touched__" />
+      {[...selected].map((id) => (
+        <input key={id} type="hidden" name="assigneeIds" value={id} />
+      ))}
+    </div>
   );
 }

@@ -40,6 +40,9 @@ model User {
   // of wedding guests, not app users).
   permissionGroups PermissionGroup[] @relation("PermissionGroupMembers")
   invitesSent   Invite[]     @relation("InvitesSent")
+  // v1.96.0: Task ↔ User m2m for multi-assignee. Replaces the
+  // singular `assigneeId` column previously held on Task.
+  assignedTasks Task[]       @relation("TaskAssignees")
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
 
@@ -258,7 +261,10 @@ model Task {
   type         TaskType    @default(TASK)
   status       TaskStatus  @default(OPEN)
   priority     Priority    @default(MEDIUM)
-  assigneeId   String?
+  // v1.96.0: multi-assignee. Pre-fix `assigneeId String?` could only
+  // hold one user; the couple co-owning a task forced one off the
+  // chip. Junction `_TaskAssignees` (Prisma-implicit) replaces it.
+  assignees    User[]      @relation("TaskAssignees")
   dueDate      DateTime?
   notes        String?     @db.Text
   decisionAnswer String?   @db.Text

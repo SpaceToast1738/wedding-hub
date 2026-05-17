@@ -147,7 +147,12 @@ export default async function AtAGlancePage() {
       where: {
         type: "TASK",
         status: { in: ["OPEN", "IN_PROGRESS", "WAITING"] },
-        OR: [{ assigneeId: user.id }, { assigneeId: null }],
+        // v1.96.0: assignees m2m. "Assigned to me OR unassigned"
+        // becomes "some assignee is me OR no assignees at all".
+        OR: [
+          { assignees: { some: { id: user.id } } },
+          { assignees: { none: {} } },
+        ],
       },
       orderBy: [{ dueDate: "asc" }, { createdAt: "asc" }],
       take: 4,

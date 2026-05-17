@@ -361,7 +361,12 @@ export async function createSupplierCommunication(formData: FormData) {
           status: TaskStatus[taskData.status],
           priority: Priority[taskData.priority],
           dueDate: taskData.dueDate,
-          assigneeId: taskData.assigneeId,
+          // v1.96.0: assignees m2m. Supplier follow-up tasks
+          // historically had a single owner; preserve that intent
+          // by connecting one user when the caller supplies one.
+          assignees: taskData.assigneeId
+            ? { connect: [{ id: taskData.assigneeId }] }
+            : undefined,
           tags: taskData.tags,
         },
       });

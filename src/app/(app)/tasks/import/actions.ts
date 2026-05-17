@@ -230,7 +230,9 @@ export async function commitTaskImport(input: {
         priority: Priority[p.priority],
         status: TaskStatus[p.status],
         dueDate: p.dueDate ? new Date(p.dueDate) : null,
-        assigneeId,
+        // v1.96.0: assignees m2m. CSV import is still single-assignee
+        // (one email column); preserve that intent by connecting one.
+        assignees: assigneeId ? { connect: [{ id: assigneeId }] } : undefined,
         tags: p.tags,
         notes: p.notes,
       },
