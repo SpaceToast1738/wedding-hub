@@ -289,8 +289,11 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
         <div className="max-w-3xl mx-auto p-4 sm:p-6 space-y-4">
           <Link href="/book" className="text-xs text-moss-500 hover:underline inline-block">← Wedding Book</Link>
 
-          {/* On-page anchor row — quick jumps for long sections. */}
-          {section.subsections.length > 1 && (
+          {/* On-page anchor row — quick jumps for long sections.
+              v1.92.2: threshold bumped from >1 to >4 so 2-4-card
+              sections don't carry a redundant "titles row" above
+              cards that are visible on the same screen anyway. */}
+          {section.subsections.length > 4 && (
             <nav className="flex flex-wrap gap-1.5" aria-label="On this page">
               <span className="text-[10px] font-bold text-ink-tertiary uppercase tracking-wider self-center mr-1">
                 On this page

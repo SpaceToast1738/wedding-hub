@@ -226,17 +226,36 @@ export function BookOutfitCardEditor({
       linkedTasks={linkedTasks}
       users={users}
     >
-      {/* Person header */}
-      <div className="mb-4 flex items-baseline gap-2 flex-wrap">
-        <span className="text-base font-semibold text-ink-primary">
-          {card.personName || <span className="text-ink-tertiary italic">No name set</span>}
-        </span>
-        {card.role && (
-          <span className="text-[11px] uppercase tracking-wider rounded-full px-2 py-0.5 bg-canvas border border-border-soft text-ink-tertiary">
-            {card.role}
-          </span>
-        )}
-      </div>
+      {/* v1.92.2: person header — only show when the personName adds
+          new information that isn't already in the card title (e.g.
+          card titled "Bryonys Outfit" with personName "Bryony" hides
+          the header to avoid the duplicate-title look). The role chip
+          always shows on its own line when set, so BRIDE / GROOM /
+          BEST MAN tags aren't lost. */}
+      {(() => {
+        const nameSet = (card.personName ?? "").trim();
+        const nameRedundant =
+          nameSet.length > 0 &&
+          title.toLowerCase().includes(nameSet.toLowerCase());
+        if (!nameSet && !card.role) return null;
+        return (
+          <div className="mb-4 flex items-baseline gap-2 flex-wrap">
+            {nameSet && !nameRedundant && (
+              <span className="text-base font-semibold text-ink-primary">
+                {nameSet}
+              </span>
+            )}
+            {!nameSet && (
+              <span className="text-sm text-ink-tertiary italic">No name set</span>
+            )}
+            {card.role && (
+              <span className="text-[11px] uppercase tracking-wider rounded-full px-2 py-0.5 bg-canvas border border-border-soft text-ink-tertiary">
+                {card.role}
+              </span>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Stats strip */}
       <div className={`grid grid-cols-2 ${showMoney ? "sm:grid-cols-4" : "sm:grid-cols-3"} gap-2 mb-4`}>
