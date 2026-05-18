@@ -698,6 +698,11 @@ model BookSubsection {
   // false = single column; true = spans both columns. Default false
   // so the layout doesn't shift for existing rows on migration.
   wide       Boolean     @default(false)
+  // v1.96.4: per-card photo gallery thumbnail size. 'sm' / 'md' /
+  // 'lg' control the <ImageGallery> grid columns + thumbnail size.
+  // String (not enum) so future sizes are migration-free. Default
+  // 'md' matches the v1.63.0 baseline.
+  photoSize  String      @default("md")
   // C1 (v1.14.0): per-page audience override. Mirrors FileVisibility.
   // Couple-only pages are filtered out for non-couple users at read
   // time. Default EVERYONE so existing rows remain visible.

@@ -33,6 +33,8 @@ export function CardChrome({
   children,
   linkedTasks = [],
   users = [],
+  actions,
+  hideHousekeeping = false,
 }: {
   subsectionId: string;
   slug: string;
@@ -51,6 +53,14 @@ export function CardChrome({
   // omit the panel.
   linkedTasks?: LinkedTaskRow[];
   users?: UserOpt[];
+  // v1.96.4: per-kind action buttons (Edit / Cancel + Save). Rendered
+  // on the right of the chrome footer alongside Make-couple-only /
+  // Delete so the card has a single action row, not two.
+  actions?: ReactNode;
+  // v1.96.4: hide the housekeeping buttons (Make couple-only +
+  // Delete) — useful for transient edit-mode states where they
+  // don't belong.
+  hideHousekeeping?: boolean;
 }) {
   const [title, setTitle] = useState(initialTitle);
   const [savedTitle, setSavedTitle] = useState(initialTitle);
@@ -160,16 +170,26 @@ export function CardChrome({
           users={users}
         />
       )}
-      {canEdit && (
-        <div className="flex justify-end gap-1 mt-3 pt-3 border-t border-border-soft">
-          {isCouple && (
+      {/* v1.96.4: footer combines housekeeping (Make couple-only +
+          Delete) with the per-kind action slot (Edit / Cancel + Save)
+          on a single row. Pre-fix each editor rendered its own Edit
+          row above this footer — two rows where one would do. The
+          `hideHousekeeping` flag suppresses Make-couple-only + Delete
+          during transient states (edit mode) so the visual focus
+          stays on Cancel / Save. */}
+      {canEdit && (!hideHousekeeping || actions) && (
+        <div className="flex items-center justify-end gap-1 mt-3 pt-3 border-t border-border-soft">
+          {!hideHousekeeping && isCouple && (
             <Button variant="ghost" size="sm" onClick={toggleVisibility} disabled={pending}>
               {vis === "COUPLE_ONLY" ? "Make public" : "Make couple-only"}
             </Button>
           )}
-          <Button variant="ghost" size="sm" onClick={onDelete} disabled={pending}>
-            Delete
-          </Button>
+          {!hideHousekeeping && (
+            <Button variant="ghost" size="sm" onClick={onDelete} disabled={pending}>
+              Delete
+            </Button>
+          )}
+          {actions}
         </div>
       )}
     </article>

@@ -468,6 +468,43 @@ export async function setBookSubsectionWide(
   return { ok: true };
 }
 
+// v1.96.4: per-card photo gallery size. Sibling to setBookSubsectionWide
+// — same access tier (book-edit, no couple gate), same audit shape,
+// same idempotent no-op guard. Surfaces as a S/M/L toggle in
+// <ImageGallery> when the parent card wires it up.
+const PHOTO_SIZES = ["sm", "md", "lg"] as const;
+type PhotoSize = (typeof PHOTO_SIZES)[number];
+
+export async function setBookSubsectionPhotoSize(
+  id: string,
+  size: PhotoSize,
+): Promise<BookActionResult> {
+  if (!PHOTO_SIZES.includes(size)) {
+    return { ok: false, error: "Invalid size" };
+  }
+  const user = await requireEdit("book");
+  const before = await db.bookSubsection.findUnique({
+    where: { id },
+    select: { photoSize: true, title: true, section: { select: { slug: true } } },
+  });
+  if (!before) return { ok: false, error: "Card not found" };
+  if (before.photoSize === size) return { ok: true }; // no-op
+  await db.bookSubsection.update({ where: { id }, data: { photoSize: size } });
+  await audit(user, {
+    action: "update",
+    entity: "BookSubsection",
+    entityId: id,
+    metadata: {
+      changedFields: ["photoSize"],
+      title: before.title,
+      photoSizeBefore: before.photoSize,
+      photoSizeAfter: size,
+    },
+  });
+  revalidatePath(`/book/${before.section.slug}`);
+  return { ok: true };
+}
+
 // v1.24.0: same gate, applied at the BookSection level so the couple
 // can hide a whole section (not just individual pages). Mirrors the
 // subsection action above 1:1.

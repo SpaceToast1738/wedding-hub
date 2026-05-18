@@ -35,6 +35,17 @@ export type GalleryFile = {
   mimeType: string;
 };
 
+// v1.96.4: per-card thumbnail size. Three buckets cover the use case
+// (compact reference shots / default / gallery-prominent hero photo)
+// without a slider widget.
+export type GallerySize = "sm" | "md" | "lg";
+
+const SIZE_GRID_CLASSES: Record<GallerySize, string> = {
+  sm: "grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-1.5",
+  md: "grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2",
+  lg: "grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3",
+};
+
 export function isImageMime(mime: string): boolean {
   return mime.startsWith(IMAGE_MIME_PREFIX);
 }
@@ -50,6 +61,8 @@ export function ImageGallery({
   emptyHint = "No photos attached.",
   uploadLabel = "+ Upload photo",
   attachLabel = "+ Attach existing",
+  size = "md",
+  onSizeChange,
 }: {
   fileIds: string[];
   /** All files the current user can see — passed from the page loader.
@@ -68,6 +81,13 @@ export function ImageGallery({
   emptyHint?: string;
   uploadLabel?: string;
   attachLabel?: string;
+  /** v1.96.4: per-card thumbnail size. Defaults to "md" to match
+   *  the v1.63.0 baseline. */
+  size?: GallerySize;
+  /** v1.96.4: when provided, renders the S/M/L toggle above the grid.
+   *  Caller wires this to a server action (e.g. setBookSubsectionPhotoSize)
+   *  + router.refresh() so the new size persists across reloads. */
+  onSizeChange?: (next: GallerySize) => void;
 }) {
   const filesById = new Map(files.map((f) => [f.id, f]));
   const attached: GalleryFile[] = fileIds
@@ -139,10 +159,39 @@ export function ImageGallery({
         />
       )}
 
+      {/* v1.96.4: S/M/L toggle. Only rendered when canEdit + a
+          handler is supplied — read-only viewers see the gallery at
+          the persisted size with no control chrome. */}
+      {canEdit && onSizeChange && (
+        <div className="flex items-center justify-end gap-0.5 -mt-1">
+          {(["sm", "md", "lg"] as const).map((s) => {
+            const active = s === size;
+            return (
+              <button
+                key={s}
+                type="button"
+                onClick={() => onSizeChange(s)}
+                disabled={pending || active}
+                aria-pressed={active}
+                title={`Photo size: ${s === "sm" ? "small" : s === "md" ? "medium" : "large"}`}
+                className={[
+                  "text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded-sm border transition-colors",
+                  active
+                    ? "bg-moss-500 text-white border-moss-500"
+                    : "bg-canvas text-ink-tertiary border-border-soft hover:border-moss-300 hover:text-ink-secondary",
+                ].join(" ")}
+              >
+                {s.toUpperCase()}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       {attached.length === 0 ? (
         <p className="text-xs text-ink-tertiary italic">{emptyHint}</p>
       ) : (
-        <ul className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+        <ul className={`grid ${SIZE_GRID_CLASSES[size]}`}>
           {attached.map((f) => {
             const isImage = isImageMime(f.mimeType);
             return (

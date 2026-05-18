@@ -34,6 +34,7 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
+| **v1.96.4** | 2026-05-18 | [OUTFIT card layout polish — resizable photos + stats tiles + single action row. User: "Can we make the photo display size customisable. Some of the spacing seems like it can be tightened up, the edit button doesnt need a row to itself. 0 of 2 sorted and the item prices could be spread out too, maybe have a box of their own?" Three coordinated UX fixes. **(1) Per-card photo size.** New schema column `BookSubsection.photoSize String @default("md")` (migration `20260518000000_book_subsection_photo_size`, additive). `<ImageGallery>` gains `size: "sm" \| "md" \| "lg"` + `onSizeChange` props; grid columns scale (`grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-1.5` for sm → `grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3` for lg). S/M/L toggle pill row renders above the thumb grid when `canEdit && onSizeChange`. New `setBookSubsectionPhotoSize(id, size)` server action — same access tier + audit shape as v1.95.0's `setBookSubsectionWide`. **(2) Edit lifted to chrome footer.** `CardChrome` gains an `actions?: ReactNode` slot + `hideHousekeeping?: boolean`. `BookOutfitCard` drops its own inline Edit-row div and passes `actions={editing ? Cancel + Save : Edit}` + `hideHousekeeping={editing}` to CardChrome. View-mode footer becomes `[Make couple-only] [Delete] [Edit]` (one row instead of two); edit-mode footer becomes `[Cancel] [Save changes]` (housekeeping hidden so the transient state stays focused). **(3) Stats tiles.** Replaced the flat `"0 of 2 sorted · £400 budget · items total: £159"` meta line with a 3-column tile grid. New inline `StatTile` helper — bordered box with small uppercase label + bold value. Tiles render conditionally so a no-money card shows only the Sorted tile. Other 13 card editors keep their inline Edit rows for now — pattern established on OUTFIT, mechanical follow-up to migrate them. 586 tests stay green.](#2026-05-18--v1964--outfit-card-layout-polish) |
 | **v1.96.3** | 2026-05-17 | [Edit tasks from Book linked-tasks panels. User: "I want to be able to edit tasks from this screen too" — closes the v1.96.0 deferred ask. Pre-fix the linked-tasks panels on `/book/[slug]` (section level + per-card) could create + status-toggle tasks but offered no way to edit title / assignees / due date / topics / notes / supplier link without bouncing to `/tasks`. Now each row gets a small "Edit" affordance that opens a modal containing the full `TaskForm`. Wiring: (1) New `loadTaskForEdit(id)` server action returns the task with all four m2m relations flattened to ID lists (assignees / bookSections / bookSubsections / navTags / guestGroups) — gated by the task's own type so QUESTION/DECISION rows require EDIT(questions). Lazy-fetched on click rather than per-row at page load. (2) `BookTopicsContext` extended with `users` / `suppliers` / `navTags` / `guestGroups` so TaskForm's pickers pre-populate without per-row queries. (3) `/book/[slug]/page.tsx` loads the three extra option lists (only when editable) + threads through the provider. (4) New `EditTaskDialog` client component handles open → loadTaskForEdit → render TaskForm → updateTask + `router.refresh()` (v1.95.4 pattern). Type picker visible so couples can convert TASK ↔ QUESTION ↔ DECISION inline. (5) Wired into both `CardInlineTaskRow` + `InlineTaskRow`. No schema migration. 586 tests stay green.](#2026-05-17--v1963--edit-tasks-from-book-panels) |
 | **v1.96.2** | 2026-05-17 | [Hotfix — repair the v1.96.0 multi-assignee migration that rolled back in prod. Caddy started returning 502s when the web container hit a `prisma migrate deploy` failure loop: `Error: P3009 — The '20260517200000_task_multi_assignee_drop_category' migration started at 2026-05-17 20:45:34 UTC failed`. Root cause: `Task.assigneeId` was declared as `String?` with no Prisma relation back to User, so the column never had a DB-level FK. Historical rows with `assigneeId` pointing at a long-deleted user were tolerated silently — but the v1.96.0 backfill `INSERT INTO "_TaskAssignees" SELECT id, assigneeId FROM Task WHERE assigneeId IS NOT NULL` violated the new junction's `_TaskAssignees_B_fkey` to User and aborted the whole transaction. Fix rewrites the same migration SQL in-place to be idempotent + orphan-safe: `DROP TABLE IF EXISTS "_TaskAssignees"` clears any partial state, the backfill adds `AND EXISTS (SELECT 1 FROM "User" WHERE id = assigneeId)` so orphan rows silently lose their stale assignment, and `ALTER … DROP COLUMN IF EXISTS` tolerates the column having already been dropped by a partial run. **One-time operator recovery on prod**: `docker compose --env-file .env exec db psql -U "$POSTGRES_USER" "$POSTGRES_DB" -c "DELETE FROM \"_prisma_migrations\" WHERE migration_name = '20260517200000_task_multi_assignee_drop_category';"` to clear the failed-attempt record, then Pull & Up. The re-applied (idempotent) SQL completes cleanly. No new functionality; pure recovery release.](#2026-05-17--v1962--hotfix-v1960-migration-orphans) |
 | **v1.96.1** | 2026-05-17 | [TEXT cards get a photo gallery. User: "Allow photos on the 'text' panel." OUTFIT / DRESS_CODE / BUILD / STAY / LODGING_GUIDE cards have shipped `<ImageGallery>` since v1.63.0, but TEXT — the most flexible card kind — was photo-less. New `BookSubsection.fileIds String[] @default([])` column (migration `20260517300000_book_text_file_ids`, additive — no backfill needed since the default is empty). Three new server actions mirror the OUTFIT triple-action pattern: `attachFileToTextCard` / `detachFileFromTextCard` / `uploadAndAttachTextFile`, each gating on `requireEdit("book")` + emitting `text-file-attach` / `-detach` / `-upload` audit rows. `SubsectionEditor` gains the existing `<ImageGallery>` component — same drop-in used by OUTFIT — rendered below the rich-text body. Visible in edit mode + view mode (when files attached). `CardRouter`'s `Sub` type gains `fileIds: string[]`; a new top-level `files` prop on `CardRouter` threads the full file list down for the TEXT photo-attach picker. `/book/[slug]/page.tsx` extends the `needFiles` predicate to include `hasText` so the bulk file fetch runs for TEXT-containing sections too. No breaking changes — non-TEXT kinds keep their per-kind fileIds columns untouched. 586 tests stay green.](#2026-05-17--v1961--text-card-photos) |
@@ -947,6 +948,79 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-05-18 · v1.96.4 — OUTFIT card layout polish
+
+User: "Can we make the photo display size customisable. Some of the spacing seems like it can be tightened up, the edit button doesnt need a row to itself. 0 of 2 sorted and the item prices could be spread out too, maybe have a box of their own?"
+
+Three coordinated UX fixes on the OUTFIT card (visible in `Bryonys Outfit` / `Jamies Outfit` / `Rings` screenshots). Establishes the `CardChrome.actions` slot pattern + the per-card `photoSize` data model; rest of the 13 card editors stay on their inline-Edit pattern for now.
+
+**1. Per-card photo size.**
+
+Migration `20260518000000_book_subsection_photo_size`:
+```sql
+ALTER TABLE "BookSubsection" ADD COLUMN "photoSize" TEXT NOT NULL DEFAULT 'md';
+```
+
+`String` (not enum) so future buckets are migration-free. Default `'md'` matches the v1.63.0 baseline — unmigrated cards render identically.
+
+`<ImageGallery>` extended:
+- New `size?: "sm" | "md" | "lg"` prop (default `"md"`).
+- New `onSizeChange?` prop — when provided, renders an S/M/L pill toggle above the thumb grid.
+- Grid columns scale per size: `sm` → `grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-1.5` (compact, ~80 px thumbs), `md` → `grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2` (current default ~130 px), `lg` → `grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3` (~200 px gallery-style thumbs).
+
+New `setBookSubsectionPhotoSize(id, size)` server action — same shape as v1.95.0's `setBookSubsectionWide`: `requireEdit("book")` gate (no couple-tier — purely cosmetic), idempotent no-op when `before.photoSize === size`, v1.30.5 audit metadata with `changedFields + photoSizeBefore + photoSizeAfter`, `revalidatePath(/book/<slug>)`. Input validated against the `["sm","md","lg"]` const allowlist.
+
+`BookOutfitCard` wires up: `changePhotoSize(next)` handler calls the action + `router.refresh()` (v1.95.4 pattern); passes `size={card.photoSize} onSizeChange={changePhotoSize}` into the gallery; `CardData` type gains `photoSize: "sm" | "md" | "lg"`.
+
+**2. Edit button lifted into chrome footer.**
+
+`CardChrome` extended:
+- New `actions?: ReactNode` slot — rendered on the right of the chrome footer.
+- New `hideHousekeeping?: boolean` — when true, suppresses Make-couple-only + Delete.
+
+Footer becomes a single row with both housekeeping and the per-kind action:
+```tsx
+{canEdit && (!hideHousekeeping || actions) && (
+  <div className="flex items-center justify-end gap-1 mt-3 pt-3 border-t border-border-soft">
+    {!hideHousekeeping && isCouple && <Button>Make couple-only</Button>}
+    {!hideHousekeeping && <Button>Delete</Button>}
+    {actions}
+  </div>
+)}
+```
+
+`BookOutfitCard` drops its own inline Edit-row block (the `<div className="flex … mt-4 pt-3 border-t">` that wrapped Edit / Cancel + Save). The buttons move into the `<CardChrome actions={…}>` prop:
+- View mode: `actions = <Button variant="primary">Edit</Button>`, `hideHousekeeping = false` → footer reads `[Make couple-only] [Delete] [Edit]`.
+- Edit mode: `actions = <><Button ghost>Cancel</Button><Button primary>Save changes</Button></>`, `hideHousekeeping = true` → footer reads `[Cancel] [Save changes]`. Transient state stays visually focused on the pending change instead of competing with housekeeping.
+
+**3. Stats tiles.**
+
+Replaced the flat `text-[11px] text-ink-tertiary mb-4 flex` meta line with a 3-column tile grid. New `StatTile` helper:
+
+```tsx
+function StatTile({ label, value, title }: { label: string; value: string; title?: string }) {
+  return (
+    <div className="bg-canvas border border-border-soft rounded-md px-3 py-2" title={title}>
+      <div className="text-[9px] uppercase tracking-wider text-ink-tertiary font-bold">{label}</div>
+      <div className="text-sm font-semibold text-ink-primary tabular-nums">{value}</div>
+    </div>
+  );
+}
+```
+
+Rendered as `<div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-4">` with three conditional tiles:
+- **Sorted** — always rendered. Value: `"—"` when itemCount is 0, otherwise `"3 / 5"`.
+- **Budget** — only when `showMoney && card.costPence != null`. Value: formatted GBP.
+- **Items total** — only when `showMoney` AND at least one item has `costPence` set. Value: formatted GBP sum. `title` attr explains the relationship to the manual Budget tile.
+
+**Threading.** `CardRouter.Sub` gains `photoSize: string`. The OUTFIT case narrows the string to the `"sm" | "md" | "lg"` union with a defensive `'md'` fallback. `/book/[slug]/page.tsx` `findUnique` already returns all scalars, so `sub.photoSize` flows through without a query change.
+
+**Verification:**
+- `npx prisma generate`, `npx tsc --noEmit`, `npm test` (586 passing), `npm run build` — all green.
+- Manual: open Bryonys Outfit (no item costs, no card budget) → see one tile `Sorted 0/2`. Jamies Outfit (£159 in item costs) → two tiles `Sorted 0/2 | Items total £159`. Footer reads `Make couple-only · Delete · Edit` on one row. Click Edit → switches to `Cancel · Save changes`. Click an S/M/L pill above the photo grid → thumbs resize, reload — size persists.
+
+**Out of scope:** Migrating the other 13 card editors (DRESS_CODE / FIELD / RECIPE / SETUP / STAY / BUILD / MENU / BAR / LEGAL / LODGING_GUIDE / SHOT_LIST / WEDDING_PARTY / TEXT-via-SubsectionEditor) to the `CardChrome.actions` slot. Pattern is established + tested on OUTFIT; mechanical migration of the rest is a follow-up. Photo-size toggle on the other cards that use ImageGallery (TEXT / DRESS_CODE / SETUP / BUILD / STAY / LODGING_GUIDE) — gallery accepts the prop, but until each editor threads `card.photoSize + onSizeChange`, their galleries stay at the default `"md"`. Follow-up.
 
 ### 2026-05-17 · v1.96.3 — Edit tasks from Book panels
 

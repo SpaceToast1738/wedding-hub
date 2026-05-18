@@ -1,15 +1,17 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { notify } from "@/lib/notify";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
-import { ImageGallery } from "@/components/ui/ImageGallery";
+import { ImageGallery, type GallerySize } from "@/components/ui/ImageGallery";
 import {
   attachFileToOutfitCard,
   detachFileFromOutfitCard,
   uploadAndAttachOutfitFile,
   saveOutfitCard,
+  setBookSubsectionPhotoSize,
   type OutfitSavePayload,
 } from "../actions";
 import { outfitRollups } from "@/lib/book-cards";
@@ -82,6 +84,10 @@ type CardData = {
   notes: string | null;
   fileIds: string[];
   items: Item[];
+  // v1.96.4: per-card photo gallery size. Persisted on
+  // BookSubsection.photoSize; flows in via the page → CardRouter
+  // → BookOutfitCard prop chain.
+  photoSize: "sm" | "md" | "lg";
 };
 
 type OutfitCardEditorProps = {
@@ -188,6 +194,18 @@ export function BookOutfitCardEditor({
     });
   }
 
+  // v1.96.4: router refresh after photo-size action so the gallery
+  // re-renders against the new BookSubsection.photoSize without
+  // requiring a full navigation.
+  const router = useRouter();
+  function changePhotoSize(next: GallerySize) {
+    startTransition(async () => {
+      const res = await setBookSubsectionPhotoSize(subsectionId, next);
+      if (res.ok) router.refresh();
+      else notify("error", res.error);
+    });
+  }
+
   return (
     <CardChrome
       subsectionId={subsectionId}
@@ -199,6 +217,31 @@ export function BookOutfitCardEditor({
       kindBadge="Outfit"
       linkedTasks={linkedTasks}
       users={users}
+      // v1.96.4: housekeeping (Make couple-only + Delete) hidden in
+      // edit mode — keeps Cancel / Save visually focused on the
+      // pending change. Edit / Cancel / Save lift to CardChrome's
+      // footer slot so the card no longer carries two action rows.
+      hideHousekeeping={editing}
+      actions={
+        canEdit
+          ? editing
+            ? (
+              <>
+                <Button variant="ghost" size="sm" onClick={cancel} disabled={pending}>
+                  Cancel
+                </Button>
+                <Button variant="primary" size="sm" onClick={save} disabled={pending}>
+                  Save changes
+                </Button>
+              </>
+            )
+            : (
+              <Button variant="primary" size="sm" onClick={() => setEditing(true)}>
+                Edit
+              </Button>
+            )
+          : undefined
+      }
     >
       {/* v1.92.2: person header — only show when the personName adds
           new information that isn't already in the card title (e.g.
@@ -231,38 +274,42 @@ export function BookOutfitCardEditor({
         );
       })()}
 
-      {/* v1.93.0: tiny meta line — items progress + (when showMoney) cost.
-          v1.93.1: + items-total chip when at least one item has its
-          own cost set. Discrepancy with the manual card-level budget
-          is visible at a glance. */}
+      {/* v1.96.4: stats tiles replace the v1.93.x flat meta line.
+          Each independent number — sorted progress, card-level
+          budget, per-item items-total — gets its own bordered box,
+          rendered conditionally so a no-money card just shows the
+          Sorted tile. Three columns max; auto-wraps on narrow
+          viewports via the responsive grid. */}
       {(() => {
         const itemsTotalPence = card.items.reduce(
           (sum, i) => sum + (i.costPence ?? 0),
           0,
         );
         const anyItemCost = card.items.some((i) => i.costPence != null);
+        const showBudget = showMoney && card.costPence != null;
+        const showItemsTotal = showMoney && anyItemCost;
         return (
-          <div className="text-[11px] text-ink-tertiary mb-4 flex items-center gap-2 flex-wrap">
-            <span>
-              {r.itemCount === 0
-                ? "No items yet"
-                : `${r.collectedCount} of ${r.itemCount} sorted`}
-            </span>
-            {showMoney && card.costPence != null && (
-              <>
-                <span aria-hidden>·</span>
-                <span>{formatGBPFromPence(card.costPence)} budget</span>
-              </>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-4">
+            <StatTile
+              label="Sorted"
+              value={
+                r.itemCount === 0
+                  ? "—"
+                  : `${r.collectedCount} / ${r.itemCount}`
+              }
+            />
+            {showBudget && (
+              <StatTile
+                label="Budget"
+                value={formatGBPFromPence(card.costPence!)}
+              />
             )}
-            {showMoney && anyItemCost && (
-              <>
-                <span aria-hidden>·</span>
-                <span
-                  title="Sum of per-item costs. The card-level budget above stays manual — set it to whatever the linked budget line should track."
-                >
-                  items total: {formatGBPFromPence(itemsTotalPence)}
-                </span>
-              </>
+            {showItemsTotal && (
+              <StatTile
+                label="Items total"
+                value={formatGBPFromPence(itemsTotalPence)}
+                title="Sum of per-item costs. The card-level budget tile stays manual — set it to whatever the linked budget line should track."
+              />
             )}
           </div>
         );
@@ -271,28 +318,45 @@ export function BookOutfitCardEditor({
       {editing ? (
         <EditBody draft={draft} setDraft={setDraft} pending={pending} showMoney={showMoney} />
       ) : (
-        <ViewBody card={card} subsectionId={subsectionId} files={files} canEdit={canEdit} pending={pending} onAttach={attach} onDetach={detach} />
-      )}
-
-      {canEdit && (
-        <div className="flex items-center justify-end gap-2 mt-4 pt-3 border-t border-border-soft">
-          {editing ? (
-            <>
-              <Button variant="ghost" size="sm" onClick={cancel} disabled={pending}>
-                Cancel
-              </Button>
-              <Button variant="primary" size="sm" onClick={save} disabled={pending}>
-                Save changes
-              </Button>
-            </>
-          ) : (
-            <Button variant="primary" size="sm" onClick={() => setEditing(true)}>
-              Edit
-            </Button>
-          )}
-        </div>
+        <ViewBody
+          card={card}
+          subsectionId={subsectionId}
+          files={files}
+          canEdit={canEdit}
+          pending={pending}
+          onAttach={attach}
+          onDetach={detach}
+          onSizeChange={changePhotoSize}
+        />
       )}
     </CardChrome>
+  );
+}
+
+// v1.96.4: small bordered stat tile, used for the Sorted / Budget /
+// Items-total trio above the body. Optional `title` populates the
+// browser tooltip (e.g. for the items-total disambiguation).
+function StatTile({
+  label,
+  value,
+  title,
+}: {
+  label: string;
+  value: string;
+  title?: string;
+}) {
+  return (
+    <div
+      className="bg-canvas border border-border-soft rounded-md px-3 py-2"
+      title={title}
+    >
+      <div className="text-[9px] uppercase tracking-wider text-ink-tertiary font-bold">
+        {label}
+      </div>
+      <div className="text-sm font-semibold text-ink-primary tabular-nums">
+        {value}
+      </div>
+    </div>
   );
 }
 
@@ -310,6 +374,7 @@ function ViewBody({
   pending,
   onAttach,
   onDetach,
+  onSizeChange,
 }: {
   card: CardData;
   /** v1.63.0: needed for the upload-and-attach action. */
@@ -319,6 +384,9 @@ function ViewBody({
   pending: boolean;
   onAttach: (fileId: string) => void;
   onDetach: (fileId: string) => void;
+  /** v1.96.4: per-card photo size handler — wires through to
+   *  setBookSubsectionPhotoSize via the parent BookOutfitCardEditor. */
+  onSizeChange: (next: GallerySize) => void;
 }) {
   return (
     <div className="space-y-4">
@@ -443,6 +511,9 @@ function ViewBody({
           }}
           onAttach={onAttach}
           onDetach={onDetach}
+          // v1.96.4: per-card gallery size + the S/M/L toggle.
+          size={card.photoSize}
+          onSizeChange={onSizeChange}
         />
       </div>
 

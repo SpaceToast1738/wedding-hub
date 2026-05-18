@@ -49,6 +49,9 @@ type Sub = {
   // BookSubsection (sibling to body / bodyHtml); ignored for non-
   // TEXT kinds which use their own per-kind fileIds columns.
   fileIds: string[];
+  // v1.96.4: per-card photo gallery size. Persisted on
+  // BookSubsection.photoSize; default 'md' from the schema.
+  photoSize: string;
   fields: unknown;
   visibility: "EVERYONE" | "COUPLE_ONLY";
   kind: "TEXT" | "FIELD" | "RECIPE" | "SHOT_LIST" | "OUTFIT" | "BUILD" | "MENU" | "BAR" | "SETUP" | "LEGAL" | "STAY" | "LODGING_GUIDE" | "DRESS_CODE" | "WEDDING_PARTY";
@@ -540,6 +543,14 @@ function renderCardBody(
             fileIds: oc.fileIds,
             notes: oc.notes,
             items: oc.items,
+            // v1.96.4: per-card photo gallery size lives on
+            // BookSubsection (sibling to wide / fileIds). Narrow the
+            // string from the DB to the typed union; fallback to
+            // "md" defends against unexpected values.
+            photoSize:
+              sub.photoSize === "sm" || sub.photoSize === "lg"
+                ? sub.photoSize
+                : "md",
           }}
           files={oc.files}
           linkedTasks={linkedTasks}
