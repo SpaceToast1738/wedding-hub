@@ -34,6 +34,7 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
+| **v1.97.0** | 2026-05-18 | [Book card design pass — photos to the top, three display modes, edit-only management, role chip inline. User: "I dont like the 'bride' chip being on its own row, only display size editing in its own screen. Move images to the top of the card, & only show image management in the edit screen, have options to make an image a header or gallery or slideshow. Lets think about the design of these cards." **(1) Three photo display modes.** New schema columns `photoDisplay TEXT NOT NULL DEFAULT 'gallery'`, `headerFileId TEXT`, `slideshowAuto BOOLEAN NOT NULL DEFAULT false` on BookSubsection (migration `20260518100000_book_photo_display_modes`). `<ImageGallery>` pivots from a single grid to a mode-router that picks one of three sub-renderers: `GalleryGrid` (v1.96.4 default, with S/M/L sizing + a ★ pin button per thumb to promote it to header), `HeaderHero` (16:9 hero image picked from `headerFileId`, placeholder + prompt when not pinned), `SlideshowCarousel` (one image at a time, prev/next + dot indicators + per-card Auto/Manual toggle). New `setBookSubsectionPhotoDisplay` / `setBookSubsectionHeaderFileId` / `setBookSubsectionSlideshowAuto` server actions mirror v1.96.4's `setBookSubsectionPhotoSize` (book-edit gate, audit metadata, idempotent no-op). Pin action validates the file is actually attached so a dangling hero is impossible. **(2) Edit-only management.** New `editMode` prop on `<ImageGallery>` is the single gate for every management affordance (S/M/L toggle, upload, attach picker, detach ×, display picker, ★ pin, Auto toggle). View-mode readers see only the photos. **(3) Photos move to top of card.** New `mediaBlock` slot on `CardChrome` renders between the title row and the body children. Per-kind editors lift their gallery into this slot. **(4) Role chip inline with title.** New `headerChips` slot on `CardChrome` renders alongside the kindBadge in the title row. OUTFIT's BRIDE/GROOM chip lifts here; the person+role sub-row deleted entirely (the v1.92.2 redundant-name suppression already hid it in the common case). **(5) SubsectionEditor migrated to CardChrome.** TEXT cards drop their bespoke `<article>` chrome / title input / footer in favour of CardChrome's. Title is now inline-editable on blur (parity with every other kind). Body save posts only `bodyHtml` (no more `title` clobber). Edit / Cancel / Save lift to `CardChrome.actions`. New `kindBadge="Notes"` surfaces. Wired on OUTFIT + TEXT (v1.97.0); other 5 ImageGallery-using kinds (DRESS_CODE / SETUP / BUILD / STAY / LODGING_GUIDE) inherit the gallery prop surface but their editors still need to thread the three new fields — mechanical follow-up. 586 tests stay green.](#2026-05-18--v1970--card-design-pass) |
 | **v1.96.5** | 2026-05-18 | [Photo-size S/M/L toggle on TEXT cards. User: "I cant edit the ring image size" — flagged the v1.96.4 limitation where the gallery resize was wired only into BookOutfitCard. SubsectionEditor (the TEXT card path) reads `sub.photoSize` from `BookSubsection` (the v1.96.4 schema column) and passes it as `size` to `<ImageGallery>` along with an `onSizeChange` handler that calls `setBookSubsectionPhotoSize` + `router.refresh()`. Mirrors the v1.96.4 OUTFIT wiring exactly — same defensive `'md'` fallback for unexpected DB values, same v1.95.4 refresh pattern. `CardRouter` TEXT case threads `sub.photoSize` into the constructed `Sub` payload. No schema migration. Other 5 ImageGallery-using card kinds (DRESS_CODE / SETUP / BUILD / STAY / LODGING_GUIDE) still inherit the default `'md'` until each editor is migrated — mechanical follow-up. 586 tests stay green.](#2026-05-18--v1965--text-card-photo-size-toggle) |
 | **v1.96.4** | 2026-05-18 | [OUTFIT card layout polish — resizable photos + stats tiles + single action row. User: "Can we make the photo display size customisable. Some of the spacing seems like it can be tightened up, the edit button doesnt need a row to itself. 0 of 2 sorted and the item prices could be spread out too, maybe have a box of their own?" Three coordinated UX fixes. **(1) Per-card photo size.** New schema column `BookSubsection.photoSize String @default("md")` (migration `20260518000000_book_subsection_photo_size`, additive). `<ImageGallery>` gains `size: "sm" \| "md" \| "lg"` + `onSizeChange` props; grid columns scale (`grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-1.5` for sm → `grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3` for lg). S/M/L toggle pill row renders above the thumb grid when `canEdit && onSizeChange`. New `setBookSubsectionPhotoSize(id, size)` server action — same access tier + audit shape as v1.95.0's `setBookSubsectionWide`. **(2) Edit lifted to chrome footer.** `CardChrome` gains an `actions?: ReactNode` slot + `hideHousekeeping?: boolean`. `BookOutfitCard` drops its own inline Edit-row div and passes `actions={editing ? Cancel + Save : Edit}` + `hideHousekeeping={editing}` to CardChrome. View-mode footer becomes `[Make couple-only] [Delete] [Edit]` (one row instead of two); edit-mode footer becomes `[Cancel] [Save changes]` (housekeeping hidden so the transient state stays focused). **(3) Stats tiles.** Replaced the flat `"0 of 2 sorted · £400 budget · items total: £159"` meta line with a 3-column tile grid. New inline `StatTile` helper — bordered box with small uppercase label + bold value. Tiles render conditionally so a no-money card shows only the Sorted tile. Other 13 card editors keep their inline Edit rows for now — pattern established on OUTFIT, mechanical follow-up to migrate them. 586 tests stay green.](#2026-05-18--v1964--outfit-card-layout-polish) |
 | **v1.96.3** | 2026-05-17 | [Edit tasks from Book linked-tasks panels. User: "I want to be able to edit tasks from this screen too" — closes the v1.96.0 deferred ask. Pre-fix the linked-tasks panels on `/book/[slug]` (section level + per-card) could create + status-toggle tasks but offered no way to edit title / assignees / due date / topics / notes / supplier link without bouncing to `/tasks`. Now each row gets a small "Edit" affordance that opens a modal containing the full `TaskForm`. Wiring: (1) New `loadTaskForEdit(id)` server action returns the task with all four m2m relations flattened to ID lists (assignees / bookSections / bookSubsections / navTags / guestGroups) — gated by the task's own type so QUESTION/DECISION rows require EDIT(questions). Lazy-fetched on click rather than per-row at page load. (2) `BookTopicsContext` extended with `users` / `suppliers` / `navTags` / `guestGroups` so TaskForm's pickers pre-populate without per-row queries. (3) `/book/[slug]/page.tsx` loads the three extra option lists (only when editable) + threads through the provider. (4) New `EditTaskDialog` client component handles open → loadTaskForEdit → render TaskForm → updateTask + `router.refresh()` (v1.95.4 pattern). Type picker visible so couples can convert TASK ↔ QUESTION ↔ DECISION inline. (5) Wired into both `CardInlineTaskRow` + `InlineTaskRow`. No schema migration. 586 tests stay green.](#2026-05-17--v1963--edit-tasks-from-book-panels) |
@@ -949,6 +950,82 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-05-18 · v1.97.0 — Card design pass
+
+User: "I dont like the 'bride' chip being on its own row, only display size editing in its own screen. Move images to the top of the card, & only show image management in the edit screen, have options to make an image a header or gallery or slideshow. Lets think about the design of these cards."
+
+Five coordinated structural changes to the Book card. Touches schema, the shared ImageGallery component, CardChrome's prop surface, BookOutfitCard layout, and migrates SubsectionEditor from its bespoke `<article>` chrome to CardChrome.
+
+**Clarifying questions** the user resolved before implementation:
+- **Slideshow advance**: per-card Auto / Manual toggle. Default Manual.
+- **Header default**: placeholder + prompt — no silent "first photo wins".
+- **Display-mode picker scope**: every gallery-using card gets all three modes.
+
+**1. Schema migration `20260518100000_book_photo_display_modes`:**
+```sql
+ALTER TABLE "BookSubsection" ADD COLUMN "photoDisplay" TEXT NOT NULL DEFAULT 'gallery';
+ALTER TABLE "BookSubsection" ADD COLUMN "headerFileId" TEXT;
+ALTER TABLE "BookSubsection" ADD COLUMN "slideshowAuto" BOOLEAN NOT NULL DEFAULT false;
+```
+Additive — safe defaults so v1.96.x rows render identically. `gallery` mode matches the v1.96 baseline; no pin + manual advance is the no-surprise default.
+
+**2. Server actions** (`src/app/(app)/book/actions.ts`):
+
+Three new helpers, all next to v1.96.4's `setBookSubsectionPhotoSize`. Each: `requireEdit("book")` gate, idempotent no-op when the new value matches `before`, v1.30.5 audit metadata with before/after snapshots, `revalidatePath(/book/<slug>)`.
+
+- `setBookSubsectionPhotoDisplay(id, "gallery" | "header" | "slideshow")`
+- `setBookSubsectionHeaderFileId(id, fileId | null)` — additionally validates the supplied fileId is in the union of `BookSubsection.fileIds` (TEXT) ∪ every per-kind `fileIds` (OUTFIT / DRESS_CODE / SETUP / BUILD / STAY). LodgingCard intentionally omitted from the union — no fileIds column.
+- `setBookSubsectionSlideshowAuto(id, boolean)`
+
+**3. `<ImageGallery>` refactor.** Becomes a mode-router with three private sub-renderers + an `editMode` gate that controls every piece of management chrome:
+
+- `GalleryGrid` — v1.96.4 grid with S/M/L sizing. Edit mode additionally renders a ★ button per thumb (top-left, marigold when pinned) that calls `onHeaderPin(f.id)` to promote it to header.
+- `HeaderHero` — single image at `w-full aspect-[16/9] object-cover rounded-md`. Picks `headerFileId` if attached + image-MIME; otherwise renders the dashed-border placeholder with a "Pick a header image" prompt + edit-mode-only "★ a thumbnail in Gallery mode" hint.
+- `SlideshowCarousel` — single image at a time at the same 16:9, dot indicator below + prev/next arrows on hover. When `slideshowAuto && !hovered`, a 4-second interval advances; hover pauses.
+
+Above the mode-router (when `canEdit && editMode`): the display-mode picker (3-button pill row). The size toggle still renders only in `gallery` mode. The Auto/Manual toggle only renders in `slideshow` mode. Upload + Attach controls render below the mode-router.
+
+Pre-v1.97.0 `canEdit` gated management chrome; v1.97.0 introduces `editMode` as the per-render flag so callers can show management only when the surrounding card is in edit mode. Old callers that didn't pass `editMode` default to view-mode chrome (no management), which is the desired safer default.
+
+**4. `CardChrome` slots.** Two new optional props:
+
+- `headerChips?: ReactNode` — rendered inline in the title row between the title and the kindBadge. Per-kind editors pass their kind-specific chip(s) here (e.g. OUTFIT's BRIDE/GROOM role chip).
+- `mediaBlock?: ReactNode` — rendered between the title row and the body children. Where the photo gallery lives. Hidden when not provided so cards without photos render unchanged.
+
+Title-row flex changed from `items-start` to `items-center` so chips align nicely on one line; added `flex-wrap` so a long title + many chips can still gracefully wrap on narrow viewports.
+
+**5. `BookOutfitCard`** changes:
+
+- The standalone person+role `<div className="mb-4 flex items-baseline gap-2 flex-wrap">` block is **deleted**. Role chip lifts into `CardChrome.headerChips`. Person name dropped entirely — v1.92.2 already hid it in the common redundant-name case; the rare non-redundant case is rare enough that dropping it removes a bit of clutter at low cost.
+- Gallery lifts into `CardChrome.mediaBlock` so photos render at the top of the card. `editMode={editing}` gates all management chrome on the surrounding card's edit state.
+- Three new handlers wired to the three new server actions (`changePhotoDisplay`, `pinHeader`, `toggleSlideshowAuto`) — all use the `startTransition` + `router.refresh()` pattern (v1.95.4) so the gallery re-renders against the new DB state without a full navigation.
+- `CardData` type gains `photoDisplay: GalleryDisplay`, `headerFileId: string | null`, `slideshowAuto: boolean`.
+- `ViewBody` becomes minimal — just receives `card` now, since the gallery + management props all moved out.
+
+**6. `SubsectionEditor` migrated to CardChrome.** Pre-v1.97.0 TEXT cards carried their own bespoke `<article>` chrome + title input + footer because the v1.37.0 title-rename UX (only-in-edit-mode) didn't match CardChrome's inline-save-on-blur pattern. v1.97.0 closes the divergence:
+
+- Title now handled by CardChrome (inline, saves on blur).
+- Make couple-only + Delete handled by CardChrome's footer.
+- Edit / Cancel / Save lift to `CardChrome.actions` (parity with OUTFIT v1.96.4).
+- Photos lift to `CardChrome.mediaBlock`.
+- New `kindBadge="Notes"` shows in the title row.
+- Body save posts ONLY `bodyHtml` — title is owned by CardChrome's inline save now and shouldn't be clobbered by the body action.
+
+The v1.95.4 router-refresh-after-save pattern is preserved.
+
+**7. `CardRouter`** — `Sub` type gains the three new fields; both TEXT and OUTFIT cases narrow `photoDisplay` to the union with a defensive `"gallery"` fallback, mirroring the v1.96.5 `photoSize` pattern.
+
+**Out of scope** (follow-ups):
+
+- **Other 5 gallery-using kinds** (DRESS_CODE / SETUP / BUILD / STAY / LODGING_GUIDE) inherit the new prop surface but their editors still need to thread the three new fields + move their gallery into `mediaBlock` + wire the three new handlers + adopt `actions`. ~30 lines per editor; mechanical follow-up.
+- **Photo reorder** (drag handles inside the gallery). Particularly useful for slideshow mode. v1.97.1 candidate.
+- **Per-image captions.** File name is the caption surface today; out of scope for this release.
+
+**Verification:**
+- `npx prisma generate`, `npx tsc --noEmit`, `npm test` (586 passing), `npm run build` — all green.
+- Manual: open Bryonys Outfit → title row reads `Bryonys Outfit · BRIDE · OUTFIT` on one line; no sub-row underneath. Photos render at the top of the card with no management chrome visible. Click Edit → S/M/L + display-mode picker surfaces. Switch to header mode without a pin → "Pick a header image" placeholder renders. Switch back to gallery, ★ a thumb, switch to header → hero renders.
+- Manual TEXT card (Rings): title now CardChrome-inline (editable on blur). Photo block at the top. Edit / Save in CardChrome's footer alongside Make couple-only / Delete (which hide during edit).
 
 ### 2026-05-18 · v1.96.5 — TEXT card photo-size toggle
 

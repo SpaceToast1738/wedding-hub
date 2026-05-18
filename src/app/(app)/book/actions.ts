@@ -505,6 +505,133 @@ export async function setBookSubsectionPhotoSize(
   return { ok: true };
 }
 
+// v1.97.0: photo display mode — gallery (default) / header / slideshow.
+// Sibling of setBookSubsectionPhotoSize; same book-edit gate, audit
+// shape, idempotent no-op guard.
+const PHOTO_DISPLAYS = ["gallery", "header", "slideshow"] as const;
+type PhotoDisplay = (typeof PHOTO_DISPLAYS)[number];
+
+export async function setBookSubsectionPhotoDisplay(
+  id: string,
+  display: PhotoDisplay,
+): Promise<BookActionResult> {
+  if (!PHOTO_DISPLAYS.includes(display)) {
+    return { ok: false, error: "Invalid display mode" };
+  }
+  const user = await requireEdit("book");
+  const before = await db.bookSubsection.findUnique({
+    where: { id },
+    select: { photoDisplay: true, title: true, section: { select: { slug: true } } },
+  });
+  if (!before) return { ok: false, error: "Card not found" };
+  if (before.photoDisplay === display) return { ok: true };
+  await db.bookSubsection.update({ where: { id }, data: { photoDisplay: display } });
+  await audit(user, {
+    action: "update",
+    entity: "BookSubsection",
+    entityId: id,
+    metadata: {
+      changedFields: ["photoDisplay"],
+      title: before.title,
+      photoDisplayBefore: before.photoDisplay,
+      photoDisplayAfter: display,
+    },
+  });
+  revalidatePath(`/book/${before.section.slug}`);
+  return { ok: true };
+}
+
+// v1.97.0: pin one of the card's attached photos as the hero shown in
+// `header` display mode. Pass null to unpin (returns the card to the
+// "Pick a header image" placeholder). Validates that the fileId is
+// actually attached to this card — covers both the BookSubsection
+// fileIds column (TEXT cards, v1.96.1) AND any per-kind fileIds the
+// caller-side card data carries (OUTFIT / DRESS_CODE / SETUP / BUILD
+// / STAY / LODGING_GUIDE all have their own fileIds arrays). We
+// gather the union here so a pinned header can't dangle.
+export async function setBookSubsectionHeaderFileId(
+  id: string,
+  fileId: string | null,
+): Promise<BookActionResult> {
+  const user = await requireEdit("book");
+  const before = await db.bookSubsection.findUnique({
+    where: { id },
+    select: {
+      headerFileId: true,
+      title: true,
+      fileIds: true,
+      section: { select: { slug: true } },
+      // LodgingCard intentionally omitted — no fileIds column. The
+      // map / image data on lodging lives elsewhere and doesn't
+      // participate in the gallery.
+      outfitCard: { select: { fileIds: true } },
+      dressCodeCard: { select: { fileIds: true } },
+      setupCard: { select: { fileIds: true } },
+      buildCard: { select: { fileIds: true } },
+      stayCard: { select: { fileIds: true } },
+    },
+  });
+  if (!before) return { ok: false, error: "Card not found" };
+  if (fileId != null) {
+    const attached = new Set<string>([
+      ...before.fileIds,
+      ...(before.outfitCard?.fileIds ?? []),
+      ...(before.dressCodeCard?.fileIds ?? []),
+      ...(before.setupCard?.fileIds ?? []),
+      ...(before.buildCard?.fileIds ?? []),
+      ...(before.stayCard?.fileIds ?? []),
+    ]);
+    if (!attached.has(fileId)) {
+      return { ok: false, error: "That photo isn't attached to this card" };
+    }
+  }
+  if (before.headerFileId === fileId) return { ok: true };
+  await db.bookSubsection.update({ where: { id }, data: { headerFileId: fileId } });
+  await audit(user, {
+    action: "update",
+    entity: "BookSubsection",
+    entityId: id,
+    metadata: {
+      changedFields: ["headerFileId"],
+      title: before.title,
+      headerFileIdBefore: before.headerFileId,
+      headerFileIdAfter: fileId,
+    },
+  });
+  revalidatePath(`/book/${before.section.slug}`);
+  return { ok: true };
+}
+
+// v1.97.0: per-card slideshow auto-advance toggle. Only consulted when
+// photoDisplay = 'slideshow'. Layout-cosmetic so no couple-tier gate
+// — same access tier as setBookSubsectionPhotoSize / -Display.
+export async function setBookSubsectionSlideshowAuto(
+  id: string,
+  auto: boolean,
+): Promise<BookActionResult> {
+  const user = await requireEdit("book");
+  const before = await db.bookSubsection.findUnique({
+    where: { id },
+    select: { slideshowAuto: true, title: true, section: { select: { slug: true } } },
+  });
+  if (!before) return { ok: false, error: "Card not found" };
+  if (before.slideshowAuto === auto) return { ok: true };
+  await db.bookSubsection.update({ where: { id }, data: { slideshowAuto: auto } });
+  await audit(user, {
+    action: "update",
+    entity: "BookSubsection",
+    entityId: id,
+    metadata: {
+      changedFields: ["slideshowAuto"],
+      title: before.title,
+      slideshowAutoBefore: before.slideshowAuto,
+      slideshowAutoAfter: auto,
+    },
+  });
+  revalidatePath(`/book/${before.section.slug}`);
+  return { ok: true };
+}
+
 // v1.24.0: same gate, applied at the BookSection level so the couple
 // can hide a whole section (not just individual pages). Mirrors the
 // subsection action above 1:1.

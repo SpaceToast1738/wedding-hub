@@ -35,6 +35,8 @@ export function CardChrome({
   users = [],
   actions,
   hideHousekeeping = false,
+  headerChips,
+  mediaBlock,
 }: {
   subsectionId: string;
   slug: string;
@@ -61,6 +63,15 @@ export function CardChrome({
   // Delete) — useful for transient edit-mode states where they
   // don't belong.
   hideHousekeeping?: boolean;
+  // v1.97.0: kind-specific chip(s) rendered inline in the title row
+  // alongside the kindBadge and the 🔒 Couple chip. e.g. OUTFIT
+  // passes the BRIDE / GROOM / BEST MAN role chip here so it sits
+  // next to the title instead of on its own sub-line.
+  headerChips?: ReactNode;
+  // v1.97.0: media slot rendered between the title row and the body
+  // children. Where the card's photo gallery lives. Hidden when not
+  // provided so cards without photos render unchanged.
+  mediaBlock?: ReactNode;
 }) {
   const [title, setTitle] = useState(initialTitle);
   const [savedTitle, setSavedTitle] = useState(initialTitle);
@@ -132,18 +143,21 @@ export function CardChrome({
       id={slug}
       className="bg-surface border border-border-soft rounded-md shadow-sm p-5 scroll-mt-24 flex flex-col flex-1"
     >
-      <div className="flex items-start gap-2 mb-3">
+      <div className="flex items-center gap-2 mb-3 flex-wrap">
         {canEdit ? (
           <Input
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             onBlur={saveTitle}
             disabled={pending}
-            className="!text-base !font-semibold !border-transparent hover:!border-border-soft focus:!border-moss-500 !p-1 flex-1"
+            className="!text-base !font-semibold !border-transparent hover:!border-border-soft focus:!border-moss-500 !p-1 flex-1 min-w-0"
           />
         ) : (
-          <h3 className="text-base font-semibold text-ink-primary flex-1">{title}</h3>
+          <h3 className="text-base font-semibold text-ink-primary flex-1 min-w-0">{title}</h3>
         )}
+        {/* v1.97.0: kind-specific chips (e.g. BRIDE / GROOM on OUTFIT)
+            sit inline with the title instead of on their own sub-row. */}
+        {headerChips}
         <span className="text-[10px] uppercase tracking-wider text-ink-tertiary border border-border-soft rounded-full px-2 py-0.5 flex-shrink-0">
           {kindBadge}
         </span>
@@ -153,6 +167,11 @@ export function CardChrome({
           </span>
         )}
       </div>
+      {/* v1.97.0: media slot — photos render at the top of the card
+          (above stats / items / notes / linked-tasks). Hidden when
+          the caller doesn't pass anything so non-gallery cards
+          render unchanged. */}
+      {mediaBlock && <div className="mb-4">{mediaBlock}</div>}
       {/* v1.95.2: content body grows to absorb any extra row height,
           pushing the linked-tasks panel + footer below it. Internal
           per-kind layout (space-y, grids) renders naturally at the

@@ -52,6 +52,12 @@ type Sub = {
   // v1.96.4: per-card photo gallery size. Persisted on
   // BookSubsection.photoSize; default 'md' from the schema.
   photoSize: string;
+  // v1.97.0: photo display mode (gallery / header / slideshow) +
+  // mode-specific knobs. Live on BookSubsection alongside fileIds /
+  // photoSize / wide. Default 'gallery' / null / false.
+  photoDisplay: string;
+  headerFileId: string | null;
+  slideshowAuto: boolean;
   fields: unknown;
   visibility: "EVERYONE" | "COUPLE_ONLY";
   kind: "TEXT" | "FIELD" | "RECIPE" | "SHOT_LIST" | "OUTFIT" | "BUILD" | "MENU" | "BAR" | "SETUP" | "LEGAL" | "STAY" | "LODGING_GUIDE" | "DRESS_CODE" | "WEDDING_PARTY";
@@ -465,6 +471,14 @@ function renderCardBody(
               sub.photoSize === "sm" || sub.photoSize === "lg"
                 ? sub.photoSize
                 : "md",
+            // v1.97.0: display mode + header pin + slideshow auto.
+            // Same defensive narrowing pattern as photoSize.
+            photoDisplay:
+              sub.photoDisplay === "header" || sub.photoDisplay === "slideshow"
+                ? sub.photoDisplay
+                : "gallery",
+            headerFileId: sub.headerFileId,
+            slideshowAuto: sub.slideshowAuto,
           }}
           canEdit={canEdit}
           isCouple={isCouple}
@@ -559,6 +573,13 @@ function renderCardBody(
               sub.photoSize === "sm" || sub.photoSize === "lg"
                 ? sub.photoSize
                 : "md",
+            // v1.97.0: display mode + pinned header + slideshow auto.
+            photoDisplay:
+              sub.photoDisplay === "header" || sub.photoDisplay === "slideshow"
+                ? sub.photoDisplay
+                : "gallery",
+            headerFileId: sub.headerFileId,
+            slideshowAuto: sub.slideshowAuto,
           }}
           files={oc.files}
           linkedTasks={linkedTasks}

@@ -5,13 +5,16 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { notify } from "@/lib/notify";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
-import { ImageGallery, type GallerySize } from "@/components/ui/ImageGallery";
+import { ImageGallery, type GalleryDisplay, type GallerySize } from "@/components/ui/ImageGallery";
 import {
   attachFileToOutfitCard,
   detachFileFromOutfitCard,
   uploadAndAttachOutfitFile,
   saveOutfitCard,
+  setBookSubsectionHeaderFileId,
+  setBookSubsectionPhotoDisplay,
   setBookSubsectionPhotoSize,
+  setBookSubsectionSlideshowAuto,
   type OutfitSavePayload,
 } from "../actions";
 import { outfitRollups } from "@/lib/book-cards";
@@ -87,7 +90,12 @@ type CardData = {
   // v1.96.4: per-card photo gallery size. Persisted on
   // BookSubsection.photoSize; flows in via the page → CardRouter
   // → BookOutfitCard prop chain.
-  photoSize: "sm" | "md" | "lg";
+  photoSize: GallerySize;
+  // v1.97.0: display mode + mode-specific knobs. All persisted on
+  // BookSubsection; threading mirrors photoSize.
+  photoDisplay: GalleryDisplay;
+  headerFileId: string | null;
+  slideshowAuto: boolean;
 };
 
 type OutfitCardEditorProps = {
@@ -205,6 +213,29 @@ export function BookOutfitCardEditor({
       else notify("error", res.error);
     });
   }
+  // v1.97.0: three new handlers for the gallery's mode router. Same
+  // refresh-after-action pattern as changePhotoSize above.
+  function changePhotoDisplay(next: GalleryDisplay) {
+    startTransition(async () => {
+      const res = await setBookSubsectionPhotoDisplay(subsectionId, next);
+      if (res.ok) router.refresh();
+      else notify("error", res.error);
+    });
+  }
+  function pinHeader(fileId: string | null) {
+    startTransition(async () => {
+      const res = await setBookSubsectionHeaderFileId(subsectionId, fileId);
+      if (res.ok) router.refresh();
+      else notify("error", res.error);
+    });
+  }
+  function toggleSlideshowAuto(auto: boolean) {
+    startTransition(async () => {
+      const res = await setBookSubsectionSlideshowAuto(subsectionId, auto);
+      if (res.ok) router.refresh();
+      else notify("error", res.error);
+    });
+  }
 
   return (
     <CardChrome
@@ -217,6 +248,55 @@ export function BookOutfitCardEditor({
       kindBadge="Outfit"
       linkedTasks={linkedTasks}
       users={users}
+      // v1.97.0: role chip moves into the chrome's title row so it
+      // sits next to "Bryonys Outfit" instead of on a separate
+      // sub-row. Person name dropped from the body entirely — v1.92.2
+      // already hid it in the common case where it's redundant with
+      // the title; with the role-chip migration there's no remaining
+      // useful sub-line content.
+      headerChips={
+        card.role ? (
+          <span className="text-[10px] uppercase tracking-wider rounded-full px-2 py-0.5 bg-canvas border border-border-soft text-ink-tertiary flex-shrink-0">
+            {card.role}
+          </span>
+        ) : null
+      }
+      // v1.97.0: photo gallery lifts to the chrome's media slot so it
+      // renders at the top of the card (above stats / items / notes)
+      // rather than below the body. ImageGallery's editMode flag
+      // gates all management chrome on `editing` — view-mode readers
+      // see photos with no controls.
+      mediaBlock={
+        <>
+          <strong className="block text-[11px] uppercase tracking-wider text-ink-tertiary font-bold mb-1.5">
+            Photos ({card.fileIds.length})
+          </strong>
+          <ImageGallery
+            fileIds={card.fileIds}
+            files={files}
+            canEdit={canEdit}
+            pending={pending}
+            onUpload={async (file) => {
+              const fd = new FormData();
+              fd.set("file", file);
+              const res = await uploadAndAttachOutfitFile(subsectionId, fd);
+              if (res.ok) notify("success", "Photo uploaded");
+              else notify("error", res.error);
+            }}
+            onAttach={attach}
+            onDetach={detach}
+            size={card.photoSize}
+            onSizeChange={changePhotoSize}
+            display={card.photoDisplay}
+            headerFileId={card.headerFileId}
+            slideshowAuto={card.slideshowAuto}
+            editMode={editing}
+            onDisplayChange={changePhotoDisplay}
+            onHeaderPin={pinHeader}
+            onSlideshowAutoChange={toggleSlideshowAuto}
+          />
+        </>
+      }
       // v1.96.4: housekeeping (Make couple-only + Delete) hidden in
       // edit mode — keeps Cancel / Save visually focused on the
       // pending change. Edit / Cancel / Save lift to CardChrome's
@@ -243,36 +323,11 @@ export function BookOutfitCardEditor({
           : undefined
       }
     >
-      {/* v1.92.2: person header — only show when the personName adds
-          new information that isn't already in the card title (e.g.
-          card titled "Bryonys Outfit" with personName "Bryony" hides
-          the header to avoid the duplicate-title look). The role chip
-          always shows on its own line when set, so BRIDE / GROOM /
-          BEST MAN tags aren't lost. */}
-      {(() => {
-        const nameSet = (card.personName ?? "").trim();
-        const nameRedundant =
-          nameSet.length > 0 &&
-          title.toLowerCase().includes(nameSet.toLowerCase());
-        if (!nameSet && !card.role) return null;
-        return (
-          <div className="mb-4 flex items-baseline gap-2 flex-wrap">
-            {nameSet && !nameRedundant && (
-              <span className="text-base font-semibold text-ink-primary">
-                {nameSet}
-              </span>
-            )}
-            {!nameSet && (
-              <span className="text-sm text-ink-tertiary italic">No name set</span>
-            )}
-            {card.role && (
-              <span className="text-[11px] uppercase tracking-wider rounded-full px-2 py-0.5 bg-canvas border border-border-soft text-ink-tertiary">
-                {card.role}
-              </span>
-            )}
-          </div>
-        );
-      })()}
+      {/* v1.97.0: person+role sub-line removed — role chip moves
+          into CardChrome's title row via the headerChips slot; the
+          person name was already hidden in the common redundant
+          case by v1.92.2, and the rare not-redundant case is rare
+          enough that we drop it rather than carry an empty container. */}
 
       {/* v1.96.4: stats tiles replace the v1.93.x flat meta line.
           Each independent number — sorted progress, card-level
@@ -318,16 +373,7 @@ export function BookOutfitCardEditor({
       {editing ? (
         <EditBody draft={draft} setDraft={setDraft} pending={pending} showMoney={showMoney} />
       ) : (
-        <ViewBody
-          card={card}
-          subsectionId={subsectionId}
-          files={files}
-          canEdit={canEdit}
-          pending={pending}
-          onAttach={attach}
-          onDetach={detach}
-          onSizeChange={changePhotoSize}
-        />
+        <ViewBody card={card} />
       )}
     </CardChrome>
   );
@@ -366,28 +412,10 @@ function StatTile({
 
 // ── View body ────────────────────────────────────────────────────
 
-function ViewBody({
-  card,
-  subsectionId,
-  files,
-  canEdit,
-  pending,
-  onAttach,
-  onDetach,
-  onSizeChange,
-}: {
-  card: CardData;
-  /** v1.63.0: needed for the upload-and-attach action. */
-  subsectionId: string;
-  files: Array<{ id: string; name: string; mimeType: string }>;
-  canEdit: boolean;
-  pending: boolean;
-  onAttach: (fileId: string) => void;
-  onDetach: (fileId: string) => void;
-  /** v1.96.4: per-card photo size handler — wires through to
-   *  setBookSubsectionPhotoSize via the parent BookOutfitCardEditor. */
-  onSizeChange: (next: GallerySize) => void;
-}) {
+// v1.97.0: photo gallery + its props lifted out of ViewBody — they
+// now live on CardChrome's mediaBlock slot. ViewBody is just the
+// items list + notes block.
+function ViewBody({ card }: { card: CardData }) {
   return (
     <div className="space-y-4">
       {/* Items */}
@@ -488,34 +516,8 @@ function ViewBody({
         )}
       </div>
 
-      {/* Photos — v1.63.0: replaced the bespoke chip rendering with
-          the shared <ImageGallery> component. Now actually shows the
-          photos as photos (thumbnails) instead of "📎 dress-fitting.jpg"
-          text links. + Upload button uploads-and-attaches in one
-          step from a phone's camera roll. */}
-      <div>
-        <strong className="block text-[11px] uppercase tracking-wider text-ink-tertiary font-bold mb-1.5">
-          Photos ({card.fileIds.length})
-        </strong>
-        <ImageGallery
-          fileIds={card.fileIds}
-          files={files}
-          canEdit={canEdit}
-          pending={pending}
-          onUpload={async (file) => {
-            const fd = new FormData();
-            fd.set("file", file);
-            const res = await uploadAndAttachOutfitFile(subsectionId, fd);
-            if (res.ok) notify("success", "Photo uploaded");
-            else notify("error", res.error);
-          }}
-          onAttach={onAttach}
-          onDetach={onDetach}
-          // v1.96.4: per-card gallery size + the S/M/L toggle.
-          size={card.photoSize}
-          onSizeChange={onSizeChange}
-        />
-      </div>
+      {/* v1.97.0: Photos block moved up to CardChrome's mediaBlock
+          slot so it renders at the top of the card. */}
 
       {card.notes && (
         <div>

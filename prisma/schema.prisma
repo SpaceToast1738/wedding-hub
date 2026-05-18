@@ -703,6 +703,18 @@ model BookSubsection {
   // String (not enum) so future sizes are migration-free. Default
   // 'md' matches the v1.63.0 baseline.
   photoSize  String      @default("md")
+  // v1.97.0: photo display mode — gallery (default) / header / slideshow.
+  // Controls which sub-renderer ImageGallery picks. String (not enum)
+  // so future modes are migration-free. `gallery` matches v1.96.x.
+  photoDisplay  String   @default("gallery")
+  // Only consulted when photoDisplay = 'header'. Null = render the
+  // "Pick a header image" placeholder + edit-mode prompt rather than
+  // silently defaulting to "first attached photo wins".
+  headerFileId  String?
+  // Only consulted when photoDisplay = 'slideshow'. true = auto-advance
+  // every 4s with hover-pause, false = manual prev/next only. Per-card
+  // toggle in edit mode.
+  slideshowAuto Boolean  @default(false)
   // C1 (v1.14.0): per-page audience override. Mirrors FileVisibility.
   // Couple-only pages are filtered out for non-couple users at read
   // time. Default EVERYONE so existing rows remain visible.
