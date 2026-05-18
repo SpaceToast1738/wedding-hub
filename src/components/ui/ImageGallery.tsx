@@ -132,12 +132,12 @@ type Props = {
   display?: GalleryDisplay;
   /** v1.97.0: pinned hero image id. v1.99.4: presence of a pin (non-
    *  null + still attached) is what enables the hero — no separate
-   *  display mode. */
+   *  display mode. v1.99.6: ImageGallery uses this for two things
+   *  only — (a) excluding the pinned image from the body section so
+   *  it doesn't double-render, (b) lighting up the ★ on the pinned
+   *  thumb. The hero itself renders via <GalleryHero /> mounted in
+   *  CardChrome's mediaBlock slot. */
   headerFileId?: string | null;
-  /** v1.99.4: 9-point hero position (object-position). */
-  headerPosition?: HeaderPosition;
-  /** v1.99.4: hero position picker handler. */
-  onHeaderPositionChange?: (next: HeaderPosition) => void;
   /** v1.97.0: per-card slideshow auto-advance (slideshow mode only). */
   slideshowAuto?: boolean;
   /** v1.97.0: edit-mode gate. When false, all management chrome
@@ -170,8 +170,6 @@ export function ImageGallery({
   onSizeChange,
   display = "gallery",
   headerFileId = null,
-  headerPosition = "c",
-  onHeaderPositionChange,
   slideshowAuto = false,
   editMode = false,
   onDisplayChange,
@@ -268,19 +266,17 @@ export function ImageGallery({
         />
       )}
 
-      {/* v1.99.4: HERO. Only renders when there's a valid pin. Hero is
-          additive — body section still renders below. */}
-      {hero && (
-        <HeaderHero
-          hero={hero}
-          position={headerPosition}
-          editMode={showChrome}
-          pending={pending}
-          onOpenLightbox={setLightboxId}
-          onPositionChange={onHeaderPositionChange}
-          onUnpin={() => onHeaderPin?.(null)}
-        />
-      )}
+      {/* v1.99.4 / v1.99.6: HERO render USED to live here, between the
+          ModePicker chrome and the body section. v1.99.6 lifts it OUT
+          of ImageGallery so each editor can mount the hero in
+          CardChrome's `mediaBlock` slot — that pins it to the top of
+          the card regardless of where the user reorders the "photos"
+          component in the v1.99.0 ReorderableCardBody registry. The
+          `hero` resolution above still runs because the body sub-
+          renderers use it to (a) dedupe the pinned image out of the
+          body list and (b) light up the ★ button on the pinned thumb.
+          See `<GalleryHero />` (exported below) for the standalone
+          render. */}
 
       {/* v1.99.4: BODY. Routes between gallery / slideshow / mosaic.
           Suppressed in view mode when there are no body files — avoids
@@ -729,31 +725,54 @@ function MosaicMasonry({
   );
 }
 
-// ── Sub-renderer: Header hero (additive in v1.99.4) ─────────────────
+// ── Standalone: GalleryHero (top-of-card hero, v1.99.6) ─────────────
+//
+// v1.99.6: lifted OUT of ImageGallery and exported as a standalone
+// component so each editor can mount the hero in CardChrome's
+// `mediaBlock` slot — pins it to the top of the card, irrespective
+// of where the user reorders the "photos" component in the v1.99.0
+// ReorderableCardBody registry. Pre-v1.99.6 the hero rendered inside
+// ImageGallery, so wherever the photos component sat in the layout
+// the hero went too. The body gallery (gallery / slideshow / mosaic)
+// still lives in the photos component and reorders freely; only the
+// hero is fixed at the top.
+//
+// Self-contained lightbox state so the hero can be mounted away from
+// the body ImageGallery (which has its own lightbox covering body
+// thumbnails). Two lightboxes in the same card are fine — the user
+// clicks one image, sees that image fullscreen, done.
 
-function HeaderHero({
-  hero,
+export function GalleryHero({
+  file,
   position,
-  editMode,
-  pending,
-  onOpenLightbox,
+  editMode = false,
+  pending = false,
   onPositionChange,
   onUnpin,
 }: {
-  hero: GalleryFile;
+  file: GalleryFile;
   position: HeaderPosition;
-  editMode: boolean;
-  pending: boolean;
-  onOpenLightbox: (id: string) => void;
+  editMode?: boolean;
+  pending?: boolean;
   onPositionChange?: (next: HeaderPosition) => void;
-  onUnpin: () => void;
+  onUnpin?: () => void;
 }) {
+  const [lightbox, setLightbox] = useState(false);
+  useEffect(() => {
+    if (!lightbox) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setLightbox(false);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [lightbox]);
+
   // v1.98.1: fixed 260 px height (pre-fix the hero used `aspect-[16/9]`
-  // which made the height depend on the card's width — wide cards
-  // got tall heroes that pushed the body well below the fold).
-  // Bottom-fade via CSS mask so the image visually melts into the
-  // body content below rather than ending in a hard rectangle edge.
-  // `webkitMaskImage` mirror keeps Safari happy.
+  // which made height depend on card width — wide cards got tall
+  // heroes that pushed the body well below the fold).
+  // v1.99.4: bottom-fade via CSS mask so the image visually melts into
+  // the body content below. `webkitMaskImage` mirror keeps Safari happy.
+  // v1.99.4: objectPosition driven by the 9-point position grid.
   const fadeStyle = {
     maskImage:
       "linear-gradient(to bottom, black 0%, black 75%, transparent 100%)",
@@ -761,46 +780,79 @@ function HeaderHero({
       "linear-gradient(to bottom, black 0%, black 75%, transparent 100%)",
     objectPosition: POSITION_CSS[position],
   } as const;
+
   return (
-    <div className="relative">
-      <button
-        type="button"
-        onClick={() => onOpenLightbox(hero.id)}
-        className="block w-full h-[260px] overflow-hidden rounded-md bg-canvas focus:outline-none"
-        title={hero.name}
-      >
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={`/api/files/${hero.id}`}
-          alt={hero.name}
-          loading="lazy"
-          className="w-full h-full object-cover"
-          style={fadeStyle}
-        />
-      </button>
-      {/* v1.99.4: edit-mode hero overlay — 9-point position grid +
-          unpin shortcut. Positioned bottom-right with backdrop-blur
-          so it stays legible across image content. */}
-      {editMode && onPositionChange && (
-        <div className="absolute bottom-3 right-3 flex items-center gap-2">
-          <PositionGrid
-            value={position}
-            onChange={onPositionChange}
-            pending={pending}
+    <>
+      <div className="relative">
+        <button
+          type="button"
+          onClick={() => setLightbox(true)}
+          className="block w-full h-[260px] overflow-hidden rounded-md bg-canvas focus:outline-none"
+          title={file.name}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={`/api/files/${file.id}`}
+            alt={file.name}
+            loading="lazy"
+            className="w-full h-full object-cover"
+            style={fadeStyle}
+          />
+        </button>
+        {/* v1.99.4: edit-mode hero overlay — 9-point position grid +
+            unpin shortcut. Positioned bottom-right with backdrop-blur
+            so it stays legible across image content. */}
+        {editMode && onPositionChange && (
+          <div className="absolute bottom-3 right-3 flex items-center gap-2">
+            <PositionGrid
+              value={position}
+              onChange={onPositionChange}
+              pending={pending}
+            />
+            {onUnpin && (
+              <button
+                type="button"
+                onClick={onUnpin}
+                disabled={pending}
+                title="Unpin header (un-favourite)"
+                aria-label="Unpin header"
+                className="w-8 h-8 rounded-full bg-surface/90 backdrop-blur-sm border border-border-soft text-marigold-700 hover:text-ink-primary hover:bg-surface leading-none text-sm shadow-sm flex items-center justify-center"
+              >
+                ★
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+      {lightbox && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Photo: ${file.name}`}
+          className="fixed inset-0 z-[600] bg-black/85 flex items-center justify-center p-4"
+          onClick={() => setLightbox(false)}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={`/api/files/${file.id}`}
+            alt={file.name}
+            className="max-w-full max-h-full object-contain shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
           />
           <button
             type="button"
-            onClick={onUnpin}
-            disabled={pending}
-            title="Unpin header (un-favourite)"
-            aria-label="Unpin header"
-            className="w-8 h-8 rounded-full bg-surface/90 backdrop-blur-sm border border-border-soft text-marigold-700 hover:text-ink-primary hover:bg-surface leading-none text-sm shadow-sm flex items-center justify-center"
+            onClick={() => setLightbox(false)}
+            className="absolute top-4 right-4 text-white/80 hover:text-white text-2xl leading-none w-10 h-10 rounded-full bg-black/40 hover:bg-black/60 flex items-center justify-center"
+            aria-label="Close lightbox"
           >
-            ★
+            ×
           </button>
+          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 text-white/70 text-xs bg-black/40 rounded-md px-3 py-1">
+            {file.name}
+          </div>
         </div>
       )}
-    </div>
+    </>
   );
 }
 

@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { RichTextEditor, RichTextRead } from "@/components/ui/RichTextEditor";
 import {
+  GalleryHero,
   ImageGallery,
   type GalleryDisplay,
   type GallerySize,
@@ -233,6 +234,29 @@ export function BookDressCodeCard({
         )}
       </div>
 
+      {/* v1.99.6: hero pinned to the top of the card. Mirrors the
+          CardChrome.mediaBlock pattern used by the 5 kinds that
+          render via CardChrome; DRESS_CODE uses a bespoke <article>
+          and so renders the hero inline here. */}
+      {(() => {
+        if (!card.headerFileId) return null;
+        if (!card.fileIds.includes(card.headerFileId)) return null;
+        const heroFile = files.find((f) => f.id === card.headerFileId);
+        if (!heroFile || !heroFile.mimeType.startsWith("image/")) return null;
+        return (
+          <div className="mb-4">
+            <GalleryHero
+              file={heroFile}
+              position={card.headerPosition}
+              editMode={editing}
+              pending={pending}
+              onPositionChange={changeHeaderPosition}
+              onUnpin={() => pinHeader(null)}
+            />
+          </div>
+        );
+      })()}
+
       {editing ? (
         <div className="space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -355,12 +379,10 @@ export function BookDressCodeCard({
             size={card.photoSize}
             display={card.photoDisplay}
             headerFileId={card.headerFileId}
-            headerPosition={card.headerPosition}
             slideshowAuto={card.slideshowAuto}
             onSizeChange={changePhotoSize}
             onDisplayChange={changePhotoDisplay}
             onHeaderPin={pinHeader}
-            onHeaderPositionChange={changeHeaderPosition}
             onSlideshowAutoChange={toggleSlideshowAuto}
             onUpload={async (file) => {
               const fd = new FormData();

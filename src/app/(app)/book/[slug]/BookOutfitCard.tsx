@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { notify } from "@/lib/notify";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import {
+  GalleryHero,
   ImageGallery,
   type GalleryDisplay,
   type GallerySize,
@@ -315,14 +316,31 @@ export function BookOutfitCardEditor({
           </span>
         ) : null
       }
-      // v1.99.0: photo gallery moved OUT of CardChrome.mediaBlock and
-      // INTO the per-card component registry so it participates in
-      // the reorder/hide UX. mediaBlock slot is deprecated and no
-      // longer passed.
+      // v1.99.6: hero ("favourited" image) renders via CardChrome's
+      // mediaBlock slot — pins it to the top of the card. The body
+      // gallery / slideshow / mosaic still lives inside the v1.99.0
+      // photos component in ReorderableCardBody (reorderable). Hero
+      // resolution: file must be attached AND must be an image MIME.
       // v1.96.4: housekeeping (Make couple-only + Delete) hidden in
       // edit mode — keeps Cancel / Save visually focused on the
       // pending change. Edit / Cancel / Save lift to CardChrome's
       // footer slot so the card no longer carries two action rows.
+      mediaBlock={(() => {
+        if (!card.headerFileId) return undefined;
+        if (!card.fileIds.includes(card.headerFileId)) return undefined;
+        const heroFile = files.find((f) => f.id === card.headerFileId);
+        if (!heroFile || !heroFile.mimeType.startsWith("image/")) return undefined;
+        return (
+          <GalleryHero
+            file={heroFile}
+            position={card.headerPosition}
+            editMode={editing}
+            pending={pending}
+            onPositionChange={changeHeaderPosition}
+            onUnpin={() => pinHeader(null)}
+          />
+        );
+      })()}
       hideHousekeeping={editing}
       actions={
         canEdit
@@ -385,12 +403,10 @@ export function BookOutfitCardEditor({
                   onSizeChange={changePhotoSize}
                   display={card.photoDisplay}
                   headerFileId={card.headerFileId}
-                  headerPosition={card.headerPosition}
                   slideshowAuto={card.slideshowAuto}
                   editMode={editing}
                   onDisplayChange={changePhotoDisplay}
                   onHeaderPin={pinHeader}
-                  onHeaderPositionChange={changeHeaderPosition}
                   onSlideshowAutoChange={toggleSlideshowAuto}
                 />
               </>

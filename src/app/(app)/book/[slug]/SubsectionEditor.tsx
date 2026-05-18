@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { RichTextEditor, RichTextRead } from "@/components/ui/RichTextEditor";
 import {
+  GalleryHero,
   ImageGallery,
   type GalleryDisplay,
   type GallerySize,
@@ -250,12 +251,10 @@ export function SubsectionEditor({
           onSizeChange={changePhotoSize}
           display={photoDisplay}
           headerFileId={sub.headerFileId ?? null}
-          headerPosition={sub.headerPosition ?? "c"}
           slideshowAuto={sub.slideshowAuto ?? false}
           editMode={editing}
           onDisplayChange={changePhotoDisplay}
           onHeaderPin={pinHeader}
-          onHeaderPositionChange={changeHeaderPosition}
           onSlideshowAutoChange={toggleSlideshowAuto}
         />
       </>
@@ -300,6 +299,24 @@ export function SubsectionEditor({
       kindBadge="Notes"
       linkedTasks={linkedTasks}
       users={users}
+      // v1.99.6: hero pinned to the top of the card via mediaBlock.
+      mediaBlock={(() => {
+        const headerId = sub.headerFileId;
+        if (!headerId) return undefined;
+        if (!fileIds.includes(headerId)) return undefined;
+        const heroFile = files.find((f) => f.id === headerId);
+        if (!heroFile || !heroFile.mimeType.startsWith("image/")) return undefined;
+        return (
+          <GalleryHero
+            file={heroFile}
+            position={sub.headerPosition ?? "c"}
+            editMode={editing}
+            pending={pending}
+            onPositionChange={changeHeaderPosition}
+            onUnpin={() => pinHeader(null)}
+          />
+        );
+      })()}
       hideHousekeeping={editing}
       actions={
         canEdit

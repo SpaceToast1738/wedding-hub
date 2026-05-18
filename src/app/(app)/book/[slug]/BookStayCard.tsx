@@ -20,6 +20,7 @@ import {
 import { stayRollups } from "@/lib/book-cards";
 import { CardChrome } from "./CardChrome";
 import {
+  GalleryHero,
   ImageGallery,
   type GalleryDisplay,
   type GallerySize,
@@ -202,6 +203,23 @@ export function BookStayCard({
       canEdit={canEdit}
       isCouple={isCouple}
       kindBadge="Stay"
+      // v1.99.6: hero pinned to the top of the card via mediaBlock.
+      mediaBlock={(() => {
+        if (!card.headerFileId) return undefined;
+        if (!card.fileIds.includes(card.headerFileId)) return undefined;
+        const heroFile = files.find((f) => f.id === card.headerFileId);
+        if (!heroFile || !heroFile.mimeType.startsWith("image/")) return undefined;
+        return (
+          <GalleryHero
+            file={heroFile}
+            position={card.headerPosition}
+            editMode={editing}
+            pending={pending}
+            onPositionChange={changeHeaderPosition}
+            onUnpin={() => pinHeader(null)}
+          />
+        );
+      })()}
     >
       {/* Property header */}
       <div className="mb-4 flex items-baseline gap-2 flex-wrap">
@@ -296,7 +314,6 @@ export function BookStayCard({
           onSizeChange={changePhotoSize}
           onDisplayChange={changePhotoDisplay}
           onHeaderPin={pinHeader}
-          onHeaderPositionChange={changeHeaderPosition}
           onSlideshowAutoChange={toggleSlideshowAuto}
           onUpload={async (file) => {
             const fd = new FormData();
@@ -371,7 +388,6 @@ function ViewBody({
   onSizeChange,
   onDisplayChange,
   onHeaderPin,
-  onHeaderPositionChange,
   onSlideshowAutoChange,
 }: {
   card: CardData;
@@ -388,7 +404,6 @@ function ViewBody({
   onSizeChange: (next: GallerySize) => void;
   onDisplayChange: (next: GalleryDisplay) => void;
   onHeaderPin: (fileId: string | null) => void;
-  onHeaderPositionChange: (next: HeaderPosition) => void;
   onSlideshowAutoChange: (next: boolean) => void;
 }) {
   void subsectionId;
@@ -444,12 +459,10 @@ function ViewBody({
             size={card.photoSize}
             display={card.photoDisplay}
             headerFileId={card.headerFileId}
-            headerPosition={card.headerPosition}
             slideshowAuto={card.slideshowAuto}
             onSizeChange={onSizeChange}
             onDisplayChange={onDisplayChange}
             onHeaderPin={onHeaderPin}
-            onHeaderPositionChange={onHeaderPositionChange}
             onSlideshowAutoChange={onSlideshowAutoChange}
             onUpload={onUpload}
             onAttach={onAttach}

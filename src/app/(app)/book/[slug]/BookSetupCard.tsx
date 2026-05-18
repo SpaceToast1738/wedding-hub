@@ -23,6 +23,7 @@ import { setupRollups } from "@/lib/book-cards";
 import { CardChrome } from "./CardChrome";
 import { FieldLabel, Label, newRowId } from "./bookCardUi";
 import {
+  GalleryHero,
   ImageGallery,
   type GalleryDisplay,
   type GallerySize,
@@ -232,12 +233,10 @@ export function BookSetupCard({
         size={card.photoSize}
         display={card.photoDisplay}
         headerFileId={card.headerFileId}
-        headerPosition={card.headerPosition}
         slideshowAuto={card.slideshowAuto}
         onSizeChange={changePhotoSize}
         onDisplayChange={changePhotoDisplay}
         onHeaderPin={pinHeader}
-        onHeaderPositionChange={changeHeaderPosition}
         onSlideshowAutoChange={toggleSlideshowAuto}
         onUpload={async (file) => {
           const fd = new FormData();
@@ -371,6 +370,23 @@ export function BookSetupCard({
       canEdit={canEdit}
       isCouple={isCouple}
       kindBadge="Setup"
+      // v1.99.6: hero pinned to the top of the card via mediaBlock.
+      mediaBlock={(() => {
+        if (!card.headerFileId) return undefined;
+        if (!card.fileIds.includes(card.headerFileId)) return undefined;
+        const heroFile = files.find((f) => f.id === card.headerFileId);
+        if (!heroFile || !heroFile.mimeType.startsWith("image/")) return undefined;
+        return (
+          <GalleryHero
+            file={heroFile}
+            position={card.headerPosition}
+            editMode={editing}
+            pending={pending}
+            onPositionChange={changeHeaderPosition}
+            onUnpin={() => pinHeader(null)}
+          />
+        );
+      })()}
       hideHousekeeping={editing}
       actions={
         canEdit
