@@ -635,6 +635,98 @@ export async function setBookSubsectionSlideshowAuto(
   return { ok: true };
 }
 
+// v1.99.0: per-card body component reorder. Stored as an ordered
+// array of component IDs on BookSubsection.componentOrder. Empty =
+// "use the kind's default order". The renderer is permissive about
+// stale / unknown IDs (it ignores them), so adding new components to
+// a kind in a future release doesn't require migrating saved orders.
+//
+// Light validation only — the per-kind component registry is a client
+// concern, so the server doesn't whitelist IDs. Just enforces array
+// length + string shape to keep the column tidy.
+export async function setBookSubsectionComponentOrder(
+  id: string,
+  order: string[],
+): Promise<BookActionResult> {
+  if (!Array.isArray(order) || order.length > 50) {
+    return { ok: false, error: "Invalid order" };
+  }
+  for (const v of order) {
+    if (typeof v !== "string" || v.length === 0 || v.length > 60) {
+      return { ok: false, error: "Invalid component id" };
+    }
+  }
+  const user = await requireEdit("book");
+  const before = await db.bookSubsection.findUnique({
+    where: { id },
+    select: { componentOrder: true, title: true, section: { select: { slug: true } } },
+  });
+  if (!before) return { ok: false, error: "Card not found" };
+  if (
+    before.componentOrder.length === order.length &&
+    before.componentOrder.every((v, i) => v === order[i])
+  ) {
+    return { ok: true }; // no-op
+  }
+  await db.bookSubsection.update({ where: { id }, data: { componentOrder: order } });
+  await audit(user, {
+    action: "update",
+    entity: "BookSubsection",
+    entityId: id,
+    metadata: {
+      changedFields: ["componentOrder"],
+      title: before.title,
+      componentOrderBefore: before.componentOrder,
+      componentOrderAfter: order,
+    },
+  });
+  revalidatePath(`/book/${before.section.slug}`);
+  return { ok: true };
+}
+
+// v1.99.0: toggle a single component's visibility on a card. The set
+// of hidden IDs lives in BookSubsection.hiddenComponents — adding /
+// removing one entry at a time keeps the action surface small. The
+// renderer has a per-kind `alwaysVisible` guard for components that
+// shouldn't be hidden (e.g. WEDDING_PARTY's matrix); this action
+// doesn't enforce that because the guard lives in the per-kind
+// registry, which the server doesn't see.
+export async function setBookSubsectionComponentHidden(
+  id: string,
+  componentId: string,
+  hidden: boolean,
+): Promise<BookActionResult> {
+  if (typeof componentId !== "string" || !componentId || componentId.length > 60) {
+    return { ok: false, error: "Invalid component id" };
+  }
+  const user = await requireEdit("book");
+  const before = await db.bookSubsection.findUnique({
+    where: { id },
+    select: { hiddenComponents: true, title: true, section: { select: { slug: true } } },
+  });
+  if (!before) return { ok: false, error: "Card not found" };
+  const has = before.hiddenComponents.includes(componentId);
+  if (hidden === has) return { ok: true }; // no-op
+  const next = hidden
+    ? [...before.hiddenComponents, componentId]
+    : before.hiddenComponents.filter((c) => c !== componentId);
+  await db.bookSubsection.update({ where: { id }, data: { hiddenComponents: next } });
+  await audit(user, {
+    action: "update",
+    entity: "BookSubsection",
+    entityId: id,
+    metadata: {
+      changedFields: ["hiddenComponents"],
+      title: before.title,
+      componentId,
+      hiddenBefore: has,
+      hiddenAfter: hidden,
+    },
+  });
+  revalidatePath(`/book/${before.section.slug}`);
+  return { ok: true };
+}
+
 // v1.24.0: same gate, applied at the BookSection level so the couple
 // can hide a whole section (not just individual pages). Mirrors the
 // subsection action above 1:1.

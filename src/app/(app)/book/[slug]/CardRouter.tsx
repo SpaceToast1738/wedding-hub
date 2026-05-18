@@ -58,6 +58,10 @@ type Sub = {
   photoDisplay: string;
   headerFileId: string | null;
   slideshowAuto: boolean;
+  // v1.99.0: per-card body layout — order of component IDs +
+  // hidden-component IDs. Empty arrays = use the kind's default.
+  componentOrder: string[];
+  hiddenComponents: string[];
   fields: unknown;
   visibility: "EVERYONE" | "COUPLE_ONLY";
   kind: "TEXT" | "FIELD" | "RECIPE" | "SHOT_LIST" | "OUTFIT" | "BUILD" | "MENU" | "BAR" | "SETUP" | "LEGAL" | "STAY" | "LODGING_GUIDE" | "DRESS_CODE" | "WEDDING_PARTY";
@@ -481,6 +485,9 @@ function renderCardBody(
                 : "gallery",
             headerFileId: sub.headerFileId,
             slideshowAuto: sub.slideshowAuto,
+            // v1.99.0: per-card body layout.
+            componentOrder: sub.componentOrder,
+            hiddenComponents: sub.hiddenComponents,
           }}
           canEdit={canEdit}
           isCouple={isCouple}
@@ -584,6 +591,9 @@ function renderCardBody(
                 : "gallery",
             headerFileId: sub.headerFileId,
             slideshowAuto: sub.slideshowAuto,
+            // v1.99.0: per-card body layout.
+            componentOrder: sub.componentOrder,
+            hiddenComponents: sub.hiddenComponents,
           }}
           files={oc.files}
           linkedTasks={linkedTasks}

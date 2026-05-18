@@ -14,6 +14,8 @@ import { legacyBodyToHtml } from "@/lib/sanitize-book-html";
 import {
   attachFileToTextCard,
   detachFileFromTextCard,
+  setBookSubsectionComponentHidden,
+  setBookSubsectionComponentOrder,
   setBookSubsectionHeaderFileId,
   setBookSubsectionPhotoDisplay,
   setBookSubsectionPhotoSize,
@@ -23,6 +25,7 @@ import {
 } from "../actions";
 import { CardChrome } from "./CardChrome";
 import type { LinkedTaskRow } from "./CardLinkedTasksPanel";
+import { ReorderableCardBody, type CardComponent } from "./ReorderableCardBody";
 import type { UserOpt } from "@/app/(app)/tasks/AddTaskToggle";
 
 // v1.37.0: TEXT cards switched to a Tiptap WYSIWYG. The editor authors
@@ -65,6 +68,9 @@ type Sub = {
   photoDisplay?: GalleryDisplay;
   headerFileId?: string | null;
   slideshowAuto?: boolean;
+  // v1.99.0: per-card body layout.
+  componentOrder?: string[];
+  hiddenComponents?: string[];
 };
 
 export function SubsectionEditor({
@@ -169,6 +175,22 @@ export function SubsectionEditor({
       else notify("error", res.error);
     });
   }
+  // v1.99.0: per-card body layout handlers — same shape as
+  // BookOutfitCard, dispatched against the shared server actions.
+  function reorderComponents(next: string[]) {
+    startTransition(async () => {
+      const res = await setBookSubsectionComponentOrder(sub.id, next);
+      if (res.ok) router.refresh();
+      else notify("error", res.error);
+    });
+  }
+  function toggleComponentHidden(componentId: string, hidden: boolean) {
+    startTransition(async () => {
+      const res = await setBookSubsectionComponentHidden(sub.id, componentId, hidden);
+      if (res.ok) router.refresh();
+      else notify("error", res.error);
+    });
+  }
   function attachFile(fileId: string) {
     startTransition(async () => {
       const res = await attachFileToTextCard(sub.id, fileId);
@@ -224,6 +246,34 @@ export function SubsectionEditor({
       </>
     ) : null;
 
+  // v1.99.0: TEXT-card component registry. Two sections — photos +
+  // body. The user can reorder them and hide photos; body is
+  // alwaysVisible (a TEXT card without body content is empty
+  // chrome). Photos lift out of CardChrome.mediaBlock into the
+  // registry — mediaBlock prop no longer passed.
+  const bodyNode = editing ? (
+    <RichTextEditor
+      value={bodyHtml}
+      onChange={setBodyHtml}
+      disabled={pending}
+      placeholder="Notes…"
+    />
+  ) : initialHtml ? (
+    <RichTextRead html={initialHtml} />
+  ) : (
+    <p className="text-sm text-ink-tertiary italic">—</p>
+  );
+  const components: CardComponent[] = [];
+  if (mediaBlock) {
+    components.push({ id: "photos", label: "Photos", node: mediaBlock });
+  }
+  components.push({
+    id: "body",
+    label: "Body",
+    node: bodyNode,
+    alwaysVisible: true,
+  });
+
   return (
     <CardChrome
       subsectionId={sub.id}
@@ -235,7 +285,6 @@ export function SubsectionEditor({
       kindBadge="Notes"
       linkedTasks={linkedTasks}
       users={users}
-      mediaBlock={mediaBlock}
       hideHousekeeping={editing}
       actions={
         canEdit
@@ -263,18 +312,15 @@ export function SubsectionEditor({
           : undefined
       }
     >
-      {editing ? (
-        <RichTextEditor
-          value={bodyHtml}
-          onChange={setBodyHtml}
-          disabled={pending}
-          placeholder="Notes…"
-        />
-      ) : initialHtml ? (
-        <RichTextRead html={initialHtml} />
-      ) : (
-        <p className="text-sm text-ink-tertiary italic">—</p>
-      )}
+      <ReorderableCardBody
+        components={components}
+        savedOrder={sub.componentOrder ?? []}
+        hiddenIds={sub.hiddenComponents ?? []}
+        editMode={editing}
+        pending={pending}
+        onReorder={reorderComponents}
+        onToggleHidden={toggleComponentHidden}
+      />
     </CardChrome>
   );
 }

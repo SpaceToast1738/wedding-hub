@@ -703,6 +703,12 @@ model BookSubsection {
   // String (not enum) so future sizes are migration-free. Default
   // 'md' matches the v1.63.0 baseline.
   photoSize  String      @default("md")
+  // v1.99.0: per-card body layout. componentOrder = explicit display
+  // order of component IDs; empty = use the kind's hard-coded default.
+  // hiddenComponents = component IDs to suppress entirely (with an
+  // `alwaysVisible` per-kind guard in the renderer for required ones).
+  componentOrder    String[]  @default([])
+  hiddenComponents  String[]  @default([])
   // v1.97.0: photo display mode — gallery (default) / header / slideshow.
   // Controls which sub-renderer ImageGallery picks. String (not enum)
   // so future modes are migration-free. `gallery` matches v1.96.x.

@@ -12,12 +12,15 @@ import {
   detachFileFromOutfitCard,
   uploadAndAttachOutfitFile,
   saveOutfitCard,
+  setBookSubsectionComponentHidden,
+  setBookSubsectionComponentOrder,
   setBookSubsectionHeaderFileId,
   setBookSubsectionPhotoDisplay,
   setBookSubsectionPhotoSize,
   setBookSubsectionSlideshowAuto,
   type OutfitSavePayload,
 } from "../actions";
+import { ReorderableCardBody, type CardComponent } from "./ReorderableCardBody";
 import { outfitRollups } from "@/lib/book-cards";
 import { CardChrome } from "./CardChrome";
 import type { LinkedTaskRow } from "./CardLinkedTasksPanel";
@@ -97,6 +100,9 @@ type CardData = {
   photoDisplay: GalleryDisplay;
   headerFileId: string | null;
   slideshowAuto: boolean;
+  // v1.99.0: per-card body layout.
+  componentOrder: string[];
+  hiddenComponents: string[];
 };
 
 type OutfitCardEditorProps = {
@@ -248,6 +254,26 @@ export function BookOutfitCardEditor({
       else notify("error", res.error);
     });
   }
+  // v1.99.0: reorder + hide handlers — server-action wrappers
+  // following the v1.96.4 photo-size pattern.
+  function reorderComponents(next: string[]) {
+    startTransition(async () => {
+      const res = await setBookSubsectionComponentOrder(subsectionId, next);
+      if (res.ok) router.refresh();
+      else notify("error", res.error);
+    });
+  }
+  function toggleComponentHidden(componentId: string, hidden: boolean) {
+    startTransition(async () => {
+      const res = await setBookSubsectionComponentHidden(
+        subsectionId,
+        componentId,
+        hidden,
+      );
+      if (res.ok) router.refresh();
+      else notify("error", res.error);
+    });
+  }
 
   return (
     <CardChrome
@@ -273,42 +299,10 @@ export function BookOutfitCardEditor({
           </span>
         ) : null
       }
-      // v1.97.0: photo gallery lifts to the chrome's media slot so it
-      // renders at the top of the card (above stats / items / notes)
-      // rather than below the body. ImageGallery's editMode flag
-      // gates all management chrome on `editing` — view-mode readers
-      // see photos with no controls.
-      mediaBlock={
-        <>
-          <strong className="block text-[11px] uppercase tracking-wider text-ink-tertiary font-bold mb-1.5">
-            Photos ({card.fileIds.length})
-          </strong>
-          <ImageGallery
-            fileIds={card.fileIds}
-            files={files}
-            canEdit={canEdit}
-            pending={pending}
-            onUpload={async (file) => {
-              const fd = new FormData();
-              fd.set("file", file);
-              const res = await uploadAndAttachOutfitFile(subsectionId, fd);
-              if (res.ok) notify("success", "Photo uploaded");
-              else notify("error", res.error);
-            }}
-            onAttach={attach}
-            onDetach={detach}
-            size={card.photoSize}
-            onSizeChange={changePhotoSize}
-            display={card.photoDisplay}
-            headerFileId={card.headerFileId}
-            slideshowAuto={card.slideshowAuto}
-            editMode={editing}
-            onDisplayChange={changePhotoDisplay}
-            onHeaderPin={pinHeader}
-            onSlideshowAutoChange={toggleSlideshowAuto}
-          />
-        </>
-      }
+      // v1.99.0: photo gallery moved OUT of CardChrome.mediaBlock and
+      // INTO the per-card component registry so it participates in
+      // the reorder/hide UX. mediaBlock slot is deprecated and no
+      // longer passed.
       // v1.96.4: housekeeping (Make couple-only + Delete) hidden in
       // edit mode — keeps Cancel / Save visually focused on the
       // pending change. Edit / Cancel / Save lift to CardChrome's
@@ -335,18 +329,11 @@ export function BookOutfitCardEditor({
           : undefined
       }
     >
-      {/* v1.97.0: person+role sub-line removed — role chip moves
-          into CardChrome's title row via the headerChips slot; the
-          person name was already hidden in the common redundant
-          case by v1.92.2, and the rare not-redundant case is rare
-          enough that we drop it rather than carry an empty container. */}
-
-      {/* v1.96.4: stats tiles replace the v1.93.x flat meta line.
-          Each independent number — sorted progress, card-level
-          budget, per-item items-total — gets its own bordered box,
-          rendered conditionally so a no-money card just shows the
-          Sorted tile. Three columns max; auto-wraps on narrow
-          viewports via the responsive grid. */}
+      {/* v1.99.0: body sections live in a per-card component registry.
+          Default order: photos → stats → body (items + notes). The
+          user can reorder + hide via the ↑/↓/👁 controls in edit mode
+          (see ReorderableCardBody). v1.97.0's photo+stats placements
+          are now defaults, not fixed positions. */}
       {(() => {
         const itemsTotalPence = card.items.reduce(
           (sum, i) => sum + (i.costPence ?? 0),
@@ -355,38 +342,96 @@ export function BookOutfitCardEditor({
         const anyItemCost = card.items.some((i) => i.costPence != null);
         const showBudget = showMoney && card.costPence != null;
         const showItemsTotal = showMoney && anyItemCost;
+        const components: CardComponent[] = [
+          {
+            id: "photos",
+            label: "Photos",
+            node: (
+              <>
+                <strong className="block text-[11px] uppercase tracking-wider text-ink-tertiary font-bold mb-1.5">
+                  Photos ({card.fileIds.length})
+                </strong>
+                <ImageGallery
+                  fileIds={card.fileIds}
+                  files={files}
+                  canEdit={canEdit}
+                  pending={pending}
+                  onUpload={async (file) => {
+                    const fd = new FormData();
+                    fd.set("file", file);
+                    const res = await uploadAndAttachOutfitFile(subsectionId, fd);
+                    if (res.ok) notify("success", "Photo uploaded");
+                    else notify("error", res.error);
+                  }}
+                  onAttach={attach}
+                  onDetach={detach}
+                  size={card.photoSize}
+                  onSizeChange={changePhotoSize}
+                  display={card.photoDisplay}
+                  headerFileId={card.headerFileId}
+                  slideshowAuto={card.slideshowAuto}
+                  editMode={editing}
+                  onDisplayChange={changePhotoDisplay}
+                  onHeaderPin={pinHeader}
+                  onSlideshowAutoChange={toggleSlideshowAuto}
+                />
+              </>
+            ),
+          },
+          {
+            id: "stats",
+            label: "Stats",
+            node: (
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                <StatTile
+                  label="Sorted"
+                  value={
+                    r.itemCount === 0
+                      ? "—"
+                      : `${r.collectedCount} / ${r.itemCount}`
+                  }
+                />
+                {showBudget && (
+                  <StatTile
+                    label="Budget"
+                    value={formatGBPFromPence(card.costPence!)}
+                  />
+                )}
+                {showItemsTotal && (
+                  <StatTile
+                    label="Items total"
+                    value={formatGBPFromPence(itemsTotalPence)}
+                    title="Sum of per-item costs. The card-level budget tile stays manual — set it to whatever the linked budget line should track."
+                  />
+                )}
+              </div>
+            ),
+          },
+          {
+            id: "body",
+            label: "Items & notes",
+            // alwaysVisible — the body is the OUTFIT card's main
+            // content; hiding it leaves a card with chrome only.
+            alwaysVisible: true,
+            node: editing ? (
+              <EditBody draft={draft} setDraft={setDraft} pending={pending} showMoney={showMoney} />
+            ) : (
+              <ViewBody card={card} />
+            ),
+          },
+        ];
         return (
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-4">
-            <StatTile
-              label="Sorted"
-              value={
-                r.itemCount === 0
-                  ? "—"
-                  : `${r.collectedCount} / ${r.itemCount}`
-              }
-            />
-            {showBudget && (
-              <StatTile
-                label="Budget"
-                value={formatGBPFromPence(card.costPence!)}
-              />
-            )}
-            {showItemsTotal && (
-              <StatTile
-                label="Items total"
-                value={formatGBPFromPence(itemsTotalPence)}
-                title="Sum of per-item costs. The card-level budget tile stays manual — set it to whatever the linked budget line should track."
-              />
-            )}
-          </div>
+          <ReorderableCardBody
+            components={components}
+            savedOrder={card.componentOrder}
+            hiddenIds={card.hiddenComponents}
+            editMode={editing}
+            pending={pending}
+            onReorder={reorderComponents}
+            onToggleHidden={toggleComponentHidden}
+          />
         );
       })()}
-
-      {editing ? (
-        <EditBody draft={draft} setDraft={setDraft} pending={pending} showMoney={showMoney} />
-      ) : (
-        <ViewBody card={card} />
-      )}
     </CardChrome>
   );
 }
