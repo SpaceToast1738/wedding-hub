@@ -11,6 +11,7 @@
 // No giant draft state — matches the /seating reception table pattern.
 
 import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { MentionableTextarea } from "@/components/ui/MentionableTextarea";
@@ -19,6 +20,7 @@ import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { CardChrome } from "./CardChrome";
 import type { LinkedTaskRow } from "./CardLinkedTasksPanel";
 import type { UserOpt } from "@/app/(app)/tasks/AddTaskToggle";
+import { ReorderableCardBody, type CardComponent } from "./ReorderableCardBody";
 import {
   saveWeddingPartyCardHeader,
   createWeddingPartyMember,
@@ -30,6 +32,8 @@ import {
   deleteWeddingPartyItem,
   reorderWeddingPartyItems,
   setWeddingPartyCell,
+  setBookSubsectionComponentHidden,
+  setBookSubsectionComponentOrder,
 } from "../actions";
 
 // v1.95.3: ORDERED added between NEED and HAVE — "we've placed the
@@ -49,6 +53,9 @@ type CardData = {
   members: Member[];
   items: Item[];
   cells: Cell[];
+  // v1.99.1: per-card body layout.
+  componentOrder: string[];
+  hiddenComponents: string[];
 };
 
 type Props = {
@@ -121,6 +128,11 @@ export function BookWeddingPartyCard({
   const [savedGroupLabel, setSavedGroupLabel] = useState(card.groupLabel ?? "");
   const [notes, setNotes] = useState(card.notes ?? "");
   const [savedNotes, setSavedNotes] = useState(card.notes ?? "");
+  // v1.99.1: this editor uses inline-save (no view/edit toggle), so
+  // the reorder/hide chrome is gated by a small "Customise layout"
+  // button instead of an editing flag.
+  const [layoutEditing, setLayoutEditing] = useState(false);
+  const router = useRouter();
   const confirm = useConfirm();
 
   // Local optimistic snapshots of the matrix so cell clicks feel
@@ -176,52 +188,62 @@ export function BookWeddingPartyCard({
     });
   }
 
+  // v1.99.1: per-card body layout handlers.
+  function reorderComponents(next: string[]) {
+    startTransition(async () => {
+      const res = await setBookSubsectionComponentOrder(subsectionId, next);
+      if (res.ok) router.refresh();
+      else notify("error", res.error);
+    });
+  }
+  function toggleComponentHidden(componentId: string, hidden: boolean) {
+    startTransition(async () => {
+      const res = await setBookSubsectionComponentHidden(subsectionId, componentId, hidden);
+      if (res.ok) router.refresh();
+      else notify("error", res.error);
+    });
+  }
+
   // Rollup for the read-mode summary chip.
   const totalCells = card.members.length * card.items.length;
   const sortedCount = optimisticCells.filter(
     (c) => c.status === "HAVE" || c.status === "ALREADY_OWN" || c.status === "N_A",
   ).length;
 
-  return (
-    <CardChrome
-      subsectionId={subsectionId}
-      slug={slug}
-      initialTitle={title}
-      visibility={visibility}
-      canEdit={canEdit}
-      isCouple={isCouple}
-      kindBadge="Wedding party"
-      linkedTasks={linkedTasks}
-      users={users}
-    >
-      <div className="space-y-4">
-        {/* Header row — group label + summary chip. */}
-        <div className="flex items-baseline justify-between gap-3 flex-wrap">
-          {canEdit ? (
-            <Input
-              value={groupLabel}
-              onChange={(e) => setGroupLabel(e.target.value)}
-              onBlur={saveHeader}
-              placeholder="e.g. Bridesmaids / Groomsmen / Flower girls"
-              disabled={pending}
-              className="!text-sm !font-semibold flex-1 max-w-sm"
-            />
-          ) : savedGroupLabel ? (
-            <span className="text-sm font-semibold text-ink-primary">{savedGroupLabel}</span>
-          ) : (
-            <span className="text-sm text-ink-tertiary italic">No group name set</span>
-          )}
-          {totalCells > 0 && (
-            <span className="text-[11px] text-ink-tertiary">
-              {sortedCount} of {totalCells} sorted · {card.members.length} {card.members.length === 1 ? "person" : "people"} · {card.items.length} {card.items.length === 1 ? "item" : "items"}
-            </span>
-          )}
-        </div>
+  // v1.99.1: matrix + notes lifted into the per-card component
+  // registry. Header row (group label + summary chip) is intrinsic
+  // chrome and stays outside the registry — it identifies the card
+  // rather than being a component of its body.
+  const headerRow = (
+    <div className="flex items-baseline justify-between gap-3 flex-wrap">
+      {canEdit ? (
+        <Input
+          value={groupLabel}
+          onChange={(e) => setGroupLabel(e.target.value)}
+          onBlur={saveHeader}
+          placeholder="e.g. Bridesmaids / Groomsmen / Flower girls"
+          disabled={pending}
+          className="!text-sm !font-semibold flex-1 max-w-sm"
+        />
+      ) : savedGroupLabel ? (
+        <span className="text-sm font-semibold text-ink-primary">{savedGroupLabel}</span>
+      ) : (
+        <span className="text-sm text-ink-tertiary italic">No group name set</span>
+      )}
+      {totalCells > 0 && (
+        <span className="text-[11px] text-ink-tertiary">
+          {sortedCount} of {totalCells} sorted · {card.members.length} {card.members.length === 1 ? "person" : "people"} · {card.items.length} {card.items.length === 1 ? "item" : "items"}
+        </span>
+      )}
+    </div>
+  );
 
-        {/* v1.92.1: matrix flipped on user feedback — people as rows
-            (typical bridal parties = 4-5 people but only 3-4 items, so
-            fewer columns avoids horizontal scroll cutting off names). */}
-        {card.members.length === 0 || card.items.length === 0 ? (
+  const matrixNode = (
+    <div className="space-y-3">
+      {/* v1.92.1: matrix flipped on user feedback — people as rows
+          (typical bridal parties = 4-5 people but only 3-4 items, so
+          fewer columns avoids horizontal scroll cutting off names). */}
+      {card.members.length === 0 || card.items.length === 0 ? (
           <p className="text-xs text-ink-tertiary italic">
             {canEdit
               ? "Add at least one person and one item to start tracking."
@@ -352,44 +374,94 @@ export function BookWeddingPartyCard({
           </div>
         )}
 
-        {/* Add-row + Add-column buttons. */}
-        {canEdit && (
-          <div className="flex flex-wrap gap-2">
-            <Button variant="ghost" size="sm" onClick={addMember} disabled={pending}>
-              + Add person (row)
-            </Button>
-            <Button variant="ghost" size="sm" onClick={addItem} disabled={pending}>
-              + Add item (column)
-            </Button>
-          </div>
-        )}
+      {/* Add-row + Add-column buttons. */}
+      {canEdit && (
+        <div className="flex flex-wrap gap-2">
+          <Button variant="ghost" size="sm" onClick={addMember} disabled={pending}>
+            + Add person (row)
+          </Button>
+          <Button variant="ghost" size="sm" onClick={addItem} disabled={pending}>
+            + Add item (column)
+          </Button>
+        </div>
+      )}
+    </div>
+  );
 
-        {/* Card-level notes. */}
-        {canEdit ? (
-          <div>
-            <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">
-              Notes
-            </label>
-            <MentionableTextarea
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              onBlur={saveHeader}
-              rows={2}
-              disabled={pending}
-              placeholder="Anything worth remembering about the group — colour scheme, suppliers, gift list."
-              className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2.5 py-1.5 text-ink-primary outline-none focus:border-moss-500 resize-y"
-            />
-          </div>
-        ) : (
-          savedNotes && (
-            <div>
-              <strong className="block text-[10px] uppercase tracking-wider text-ink-tertiary font-bold mb-1">
-                Notes
-              </strong>
-              <p className="text-sm text-ink-secondary whitespace-pre-wrap">{savedNotes}</p>
-            </div>
-          )
-        )}
+  const notesNode = canEdit ? (
+    <div>
+      <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">
+        Notes
+      </label>
+      <MentionableTextarea
+        value={notes}
+        onChange={(e) => setNotes(e.target.value)}
+        onBlur={saveHeader}
+        rows={2}
+        disabled={pending}
+        placeholder="Anything worth remembering about the group — colour scheme, suppliers, gift list."
+        className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2.5 py-1.5 text-ink-primary outline-none focus:border-moss-500 resize-y"
+      />
+    </div>
+  ) : savedNotes ? (
+    <div>
+      <strong className="block text-[10px] uppercase tracking-wider text-ink-tertiary font-bold mb-1">
+        Notes
+      </strong>
+      <p className="text-sm text-ink-secondary whitespace-pre-wrap">{savedNotes}</p>
+    </div>
+  ) : (
+    <p className="text-xs text-ink-tertiary italic">No notes.</p>
+  );
+
+  const components: CardComponent[] = [
+    {
+      id: "matrix",
+      label: "Matrix",
+      node: matrixNode,
+      // Hiding the matrix leaves a WEDDING_PARTY card with nothing
+      // tracked — empty chrome. Keep it pinned.
+      alwaysVisible: true,
+    },
+    { id: "notes", label: "Notes", node: notesNode },
+  ];
+
+  return (
+    <CardChrome
+      subsectionId={subsectionId}
+      slug={slug}
+      initialTitle={title}
+      visibility={visibility}
+      canEdit={canEdit}
+      isCouple={isCouple}
+      kindBadge="Wedding party"
+      linkedTasks={linkedTasks}
+      users={users}
+      hideHousekeeping={layoutEditing}
+      actions={
+        canEdit ? (
+          <Button
+            variant={layoutEditing ? "primary" : "ghost"}
+            size="sm"
+            onClick={() => setLayoutEditing((v) => !v)}
+            disabled={pending}
+          >
+            {layoutEditing ? "Done" : "↕ Layout"}
+          </Button>
+        ) : undefined
+      }
+    >
+      <div className="space-y-4">
+        {headerRow}
+        <ReorderableCardBody
+          components={components}
+          savedOrder={card.componentOrder}
+          hiddenIds={card.hiddenComponents}
+          editMode={layoutEditing}
+          pending={pending}
+          onReorder={reorderComponents}
+          onToggleHidden={toggleComponentHidden}
+        />
       </div>
     </CardChrome>
   );

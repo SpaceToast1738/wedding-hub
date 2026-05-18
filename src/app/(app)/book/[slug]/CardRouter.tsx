@@ -731,6 +731,9 @@ function renderCardBody(
             notes: sc.notes,
             items: sc.items,
             fileIds: sc.fileIds ?? [],
+            // v1.99.1: per-card body layout.
+            componentOrder: sub.componentOrder,
+            hiddenComponents: sub.hiddenComponents,
           }}
           supplierNames={sc.supplierNames}
           files={sc.files ?? []}
@@ -868,6 +871,9 @@ function renderCardBody(
               status: c.status as "NEED" | "HAVE" | "ALREADY_OWN" | "N_A",
               notes: c.notes,
             })),
+            // v1.99.1: per-card body layout.
+            componentOrder: sub.componentOrder,
+            hiddenComponents: sub.hiddenComponents,
           }}
           linkedTasks={linkedTasks}
           users={users}

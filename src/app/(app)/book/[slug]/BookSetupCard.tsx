@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { MentionableTextarea } from "@/components/ui/MentionableTextarea";
 import { notify } from "@/lib/notify";
@@ -9,12 +10,15 @@ import {
   attachFileToSetupCard,
   detachFileFromSetupCard,
   uploadAndAttachSetupFile,
+  setBookSubsectionComponentHidden,
+  setBookSubsectionComponentOrder,
   type SetupSavePayload,
 } from "../actions";
 import { setupRollups } from "@/lib/book-cards";
 import { CardChrome } from "./CardChrome";
 import { FieldLabel, Label, newRowId } from "./bookCardUi";
 import { ImageGallery } from "@/components/ui/ImageGallery";
+import { ReorderableCardBody, type CardComponent } from "./ReorderableCardBody";
 
 // v1.33.0: SETUP card editor — per-space spatial walkthrough.
 // View / Edit flow mirrors v1.31.1 BUILD + v1.32.0 MENU/BAR.
@@ -22,6 +26,16 @@ import { ImageGallery } from "@/components/ui/ImageGallery";
 // plan column. `source` autocompletes from existing Supplier names
 // (string match, no FK — matches the v1.30.5 cross-module-reference
 // convention).
+//
+// v1.99.1: body migrated to <ReorderableCardBody>. Components split:
+//   - photos   — gallery (canEdit gates the management chrome)
+//   - stats    — space / setup time / owner / progress tiles (view)
+//                or the three header inputs (edit)
+//   - items    — read-only table (view) or editable item list (edit)
+//   - notes    — view paragraph or edit textarea
+// All four are hide-able; in edit mode the per-section ↑/↓/👁 strip
+// from ReorderableCardBody lets the couple shuffle them around or
+// suppress one from view mode.
 
 const PRESET_SPACES = ["Ceremony room", "Drinks reception", "Reception room", "Evening setup", "Pack-down"];
 
@@ -48,6 +62,9 @@ type CardData = {
   items: Item[];
   /** v1.63.0: photo gallery — File ids attached to this card. */
   fileIds: string[];
+  /** v1.99.1: per-card body layout. */
+  componentOrder: string[];
+  hiddenComponents: string[];
 };
 
 type SetupCardProps = {
@@ -79,6 +96,7 @@ export function BookSetupCard({
   const [pending, startTransition] = useTransition();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(() => buildDraft(card));
+  const router = useRouter();
   // v1.98.1: gated on !editing — see BookOutfitCard for the bug
   // context (router.refresh during edit mode wipes the draft).
   useEffect(() => {
@@ -126,7 +144,157 @@ export function BookSetupCard({
     });
   }
 
+  // v1.99.1: reorder + hide handlers wired identically to OUTFIT.
+  function reorderComponents(next: string[]) {
+    startTransition(async () => {
+      const res = await setBookSubsectionComponentOrder(subsectionId, next);
+      if (res.ok) router.refresh();
+      else notify("error", res.error);
+    });
+  }
+  function toggleComponentHidden(componentId: string, hidden: boolean) {
+    startTransition(async () => {
+      const res = await setBookSubsectionComponentHidden(subsectionId, componentId, hidden);
+      if (res.ok) router.refresh();
+      else notify("error", res.error);
+    });
+  }
+
   const r = setupRollups({ items: editing ? draft.items : card.items });
+
+  // v1.99.1: per-card component registry.
+  const photosNode = (
+    <>
+      <strong className="block text-[10px] uppercase tracking-wider text-ink-tertiary font-bold mb-1">
+        Photos ({card.fileIds.length})
+      </strong>
+      <ImageGallery
+        fileIds={card.fileIds}
+        files={files}
+        canEdit={canEdit}
+        pending={pending}
+        onUpload={async (file) => {
+          const fd = new FormData();
+          fd.set("file", file);
+          const res = await uploadAndAttachSetupFile(subsectionId, fd);
+          if (res.ok) notify("success", "Photo uploaded");
+          else notify("error", res.error);
+        }}
+        onAttach={(fileId) => {
+          startTransition(async () => {
+            const res = await attachFileToSetupCard(subsectionId, fileId);
+            if (res.ok) notify("success", "Photo attached");
+            else notify("error", res.error);
+          });
+        }}
+        onDetach={(fileId) => {
+          startTransition(async () => {
+            const res = await detachFileFromSetupCard(subsectionId, fileId);
+            if (res.ok) notify("success", "Photo detached");
+            else notify("error", res.error);
+          });
+        }}
+      />
+    </>
+  );
+
+  const statsNode = editing ? (
+    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      <Field label="Space" hint="The physical area this card covers.">
+        <input
+          value={draft.space}
+          onChange={(e) => setDraft({ ...draft, space: e.target.value })}
+          disabled={pending}
+          list="setup-spaces"
+          placeholder="e.g. Ceremony room"
+          className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2 py-1.5 text-ink-primary outline-none focus:border-moss-500"
+        />
+        <datalist id="setup-spaces">
+          {PRESET_SPACES.map((s) => (
+            <option key={s} value={s} />
+          ))}
+        </datalist>
+      </Field>
+      <Field label="Setup starts at" hint="Free text — clock time on the day.">
+        <input
+          value={draft.setupStartsAt}
+          onChange={(e) => setDraft({ ...draft, setupStartsAt: e.target.value })}
+          disabled={pending}
+          placeholder="e.g. 10:00am"
+          className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2 py-1.5 text-ink-primary outline-none focus:border-moss-500"
+        />
+      </Field>
+      <Field label="Owner" hint="Who's leading the setup for this space.">
+        <input
+          value={draft.setupOwner}
+          onChange={(e) => setDraft({ ...draft, setupOwner: e.target.value })}
+          disabled={pending}
+          placeholder="e.g. Paintbox Blooms · Bridesmaids"
+          className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2 py-1.5 text-ink-primary outline-none focus:border-moss-500"
+        />
+      </Field>
+    </div>
+  ) : (
+    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+      <Stat label="Space" value={card.space ?? "—"} />
+      <Stat label="Setup at" value={card.setupStartsAt ?? "—"} />
+      <Stat label="Owner" value={card.setupOwner ?? "—"} />
+      <Stat
+        label="Progress"
+        value={
+          r.itemCount === 0
+            ? "—"
+            : `${r.percentPacked}% pack · ${r.percentPlaced}% place`
+        }
+      />
+    </div>
+  );
+
+  const itemsNode = editing ? (
+    <ItemsEditBody
+      draft={draft}
+      setDraft={setDraft}
+      pending={pending}
+      supplierNames={supplierNames}
+    />
+  ) : (
+    <ItemsViewBody card={card} />
+  );
+
+  const notesNode = editing ? (
+    <Field label="Notes" hint="Anything the team should know — access codes, parking, on-call contact.">
+      <MentionableTextarea
+        value={draft.notes}
+        onChange={(e) => setDraft({ ...draft, notes: e.target.value })}
+        disabled={pending}
+        rows={3}
+        placeholder="e.g. Side door access from 9:30am. Parking via main car park."
+        className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2 py-1.5 text-ink-primary outline-none focus:border-moss-500 resize-y"
+      />
+    </Field>
+  ) : card.notes ? (
+    <div>
+      <strong className="block text-[10px] uppercase tracking-wider text-ink-tertiary font-bold mb-1">
+        Notes
+      </strong>
+      <p className="text-sm text-ink-secondary whitespace-pre-wrap">{card.notes}</p>
+    </div>
+  ) : (
+    <p className="text-xs text-ink-tertiary italic">No notes.</p>
+  );
+
+  const components: CardComponent[] = [];
+  if (canEdit || card.fileIds.length > 0) {
+    components.push({ id: "photos", label: "Photos", node: photosNode });
+  }
+  components.push({ id: "stats", label: "Stats", node: statsNode });
+  components.push({
+    id: "items",
+    label: "Items",
+    node: itemsNode,
+    alwaysVisible: true,
+  });
+  components.push({ id: "notes", label: "Notes", node: notesNode });
 
   return (
     <CardChrome
@@ -137,183 +305,96 @@ export function BookSetupCard({
       canEdit={canEdit}
       isCouple={isCouple}
       kindBadge="Setup"
+      hideHousekeeping={editing}
+      actions={
+        canEdit
+          ? editing
+            ? (
+              <>
+                <Button variant="ghost" size="sm" onClick={cancel} disabled={pending}>
+                  Cancel
+                </Button>
+                <Button variant="primary" size="sm" onClick={save} disabled={pending}>
+                  Save changes
+                </Button>
+              </>
+            )
+            : (
+              <Button variant="primary" size="sm" onClick={() => setEditing(true)}>
+                Edit
+              </Button>
+            )
+          : undefined
+      }
     >
-      {/* Header stats */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
-        <Stat label="Space" value={card.space ?? "—"} />
-        <Stat label="Setup at" value={card.setupStartsAt ?? "—"} />
-        <Stat label="Owner" value={card.setupOwner ?? "—"} />
-        <Stat
-          label="Progress"
-          value={
-            r.itemCount === 0
-              ? "—"
-              : `${r.percentPacked}% pack · ${r.percentPlaced}% place`
-          }
-        />
-      </div>
-
-      {editing ? (
-        <EditBody
-          draft={draft}
-          setDraft={setDraft}
-          pending={pending}
-          supplierNames={supplierNames}
-        />
-      ) : (
-        <ViewBody
-          card={card}
-          subsectionId={subsectionId}
-          canEdit={canEdit}
-          pending={pending}
-          files={files}
-          onUpload={async (file) => {
-            const fd = new FormData();
-            fd.set("file", file);
-            const res = await uploadAndAttachSetupFile(subsectionId, fd);
-            if (res.ok) notify("success", "Photo uploaded");
-            else notify("error", res.error);
-          }}
-          onAttach={(fileId) => {
-            startTransition(async () => {
-              const res = await attachFileToSetupCard(subsectionId, fileId);
-              if (res.ok) notify("success", "Photo attached");
-              else notify("error", res.error);
-            });
-          }}
-          onDetach={(fileId) => {
-            startTransition(async () => {
-              const res = await detachFileFromSetupCard(subsectionId, fileId);
-              if (res.ok) notify("success", "Photo detached");
-              else notify("error", res.error);
-            });
-          }}
-        />
-      )}
-
-      {canEdit && (
-        <div className="flex items-center justify-end gap-2 mt-4 pt-3 border-t border-border-soft">
-          {editing ? (
-            <>
-              <Button variant="ghost" size="sm" onClick={cancel} disabled={pending}>
-                Cancel
-              </Button>
-              <Button variant="primary" size="sm" onClick={save} disabled={pending}>
-                Save changes
-              </Button>
-            </>
-          ) : (
-            <Button variant="primary" size="sm" onClick={() => setEditing(true)}>
-              Edit
-            </Button>
-          )}
-        </div>
-      )}
+      <ReorderableCardBody
+        components={components}
+        savedOrder={card.componentOrder}
+        hiddenIds={card.hiddenComponents}
+        editMode={editing}
+        pending={pending}
+        onReorder={reorderComponents}
+        onToggleHidden={toggleComponentHidden}
+      />
     </CardChrome>
   );
 }
 
-// ── View body ────────────────────────────────────────────────────
+// ── View body — items table only (other sections live alongside) ─
 
-function ViewBody({
-  card,
-  subsectionId,
-  canEdit,
-  pending,
-  files,
-  onUpload,
-  onAttach,
-  onDetach,
-}: {
-  card: CardData;
-  subsectionId: string;
-  canEdit: boolean;
-  pending: boolean;
-  files: Array<{ id: string; name: string; mimeType: string }>;
-  onUpload: (file: File) => Promise<void>;
-  onAttach: (fileId: string) => void;
-  onDetach: (fileId: string) => void;
-}) {
-  void subsectionId;
+function ItemsViewBody({ card }: { card: CardData }) {
   if (card.items.length === 0) {
     return <p className="text-xs text-ink-tertiary italic">No items yet.</p>;
   }
   return (
-    <div className="space-y-3">
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-[10px] uppercase tracking-wider text-ink-tertiary font-bold border-b border-border-soft">
-              <Th align="left">Item</Th>
-              <Th align="right">Qty</Th>
-              <Th align="left">Location</Th>
-              <Th align="left">Source</Th>
-              <Th align="center">Packed</Th>
-              <Th align="center">Placed</Th>
-              <Th align="left">Pack-down</Th>
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="text-[10px] uppercase tracking-wider text-ink-tertiary font-bold border-b border-border-soft">
+            <Th align="left">Item</Th>
+            <Th align="right">Qty</Th>
+            <Th align="left">Location</Th>
+            <Th align="left">Source</Th>
+            <Th align="center">Packed</Th>
+            <Th align="center">Placed</Th>
+            <Th align="left">Pack-down</Th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-border-soft">
+          {card.items.map((item) => (
+            <tr key={item.id}>
+              <td className="py-1.5 px-2 text-ink-primary">{item.name}</td>
+              <td className="py-1.5 px-2 text-ink-secondary tabular-nums text-right">
+                {item.quantity ?? ""}
+              </td>
+              <td className="py-1.5 px-2 text-ink-secondary">{item.location ?? ""}</td>
+              <td className="py-1.5 px-2 text-ink-secondary">
+                {item.source ?? ""}
+                {item.website && (
+                  <a href={item.website} target="_blank" rel="noopener noreferrer" className="text-[10px] text-moss-700 hover:underline ml-1">Link ↗</a>
+                )}
+              </td>
+              <td className="py-1.5 px-2 text-center">
+                {item.packed ? (
+                  <span className="text-moss-700" aria-label="packed">●</span>
+                ) : (
+                  <span className="text-ink-tertiary/40">○</span>
+                )}
+              </td>
+              <td className="py-1.5 px-2 text-center">
+                {item.placed ? (
+                  <span className="text-moss-700" aria-label="placed">●</span>
+                ) : (
+                  <span className="text-ink-tertiary/40">○</span>
+                )}
+              </td>
+              <td className="py-1.5 px-2 text-ink-secondary text-xs">
+                {item.packDownPlan ?? ""}
+              </td>
             </tr>
-          </thead>
-          <tbody className="divide-y divide-border-soft">
-            {card.items.map((item) => (
-              <tr key={item.id}>
-                <td className="py-1.5 px-2 text-ink-primary">{item.name}</td>
-                <td className="py-1.5 px-2 text-ink-secondary tabular-nums text-right">
-                  {item.quantity ?? ""}
-                </td>
-                <td className="py-1.5 px-2 text-ink-secondary">{item.location ?? ""}</td>
-                <td className="py-1.5 px-2 text-ink-secondary">
-                  {item.source ?? ""}
-                  {item.website && (
-                    <a href={item.website} target="_blank" rel="noopener noreferrer" className="text-[10px] text-moss-700 hover:underline ml-1">Link ↗</a>
-                  )}
-                </td>
-                <td className="py-1.5 px-2 text-center">
-                  {item.packed ? (
-                    <span className="text-moss-700" aria-label="packed">●</span>
-                  ) : (
-                    <span className="text-ink-tertiary/40">○</span>
-                  )}
-                </td>
-                <td className="py-1.5 px-2 text-center">
-                  {item.placed ? (
-                    <span className="text-moss-700" aria-label="placed">●</span>
-                  ) : (
-                    <span className="text-ink-tertiary/40">○</span>
-                  )}
-                </td>
-                <td className="py-1.5 px-2 text-ink-secondary text-xs">
-                  {item.packDownPlan ?? ""}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      {/* v1.63.0: photo gallery — space layouts, "before" shots, etc. */}
-      {(card.fileIds.length > 0 || canEdit) && (
-        <div className="pt-2">
-          <strong className="block text-[10px] uppercase tracking-wider text-ink-tertiary font-bold mb-1">
-            Photos ({card.fileIds.length})
-          </strong>
-          <ImageGallery
-            fileIds={card.fileIds}
-            files={files}
-            canEdit={canEdit}
-            pending={pending}
-            onUpload={onUpload}
-            onAttach={onAttach}
-            onDetach={onDetach}
-          />
-        </div>
-      )}
-      {card.notes && (
-        <div className="pt-2">
-          <strong className="block text-[10px] uppercase tracking-wider text-ink-tertiary font-bold mb-1">
-            Notes
-          </strong>
-          <p className="text-sm text-ink-secondary whitespace-pre-wrap">{card.notes}</p>
-        </div>
-      )}
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -328,7 +409,7 @@ function Th({ align, children }: { align: "left" | "right" | "center"; children:
   );
 }
 
-// ── Edit body ────────────────────────────────────────────────────
+// ── Edit body — items list only ──────────────────────────────────
 
 type Draft = {
   space: string;
@@ -348,7 +429,7 @@ function buildDraft(card: CardData): Draft {
   };
 }
 
-function EditBody({
+function ItemsEditBody({
   draft,
   setDraft,
   pending,
@@ -359,9 +440,6 @@ function EditBody({
   pending: boolean;
   supplierNames: string[];
 }) {
-  function patch(p: Partial<Draft>) {
-    setDraft({ ...draft, ...p });
-  }
   function patchItem(idx: number, p: Partial<Item>) {
     const next = [...draft.items];
     next[idx] = { ...next[idx]!, ...p };
@@ -400,88 +478,37 @@ function EditBody({
   }
 
   return (
-    <div className="space-y-4">
-      {/* Header fields */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <Field label="Space" hint="The physical area this card covers.">
-          <input
-            value={draft.space}
-            onChange={(e) => patch({ space: e.target.value })}
-            disabled={pending}
-            list="setup-spaces"
-            placeholder="e.g. Ceremony room"
-            className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2 py-1.5 text-ink-primary outline-none focus:border-moss-500"
-          />
-          <datalist id="setup-spaces">
-            {PRESET_SPACES.map((s) => (
-              <option key={s} value={s} />
-            ))}
-          </datalist>
-        </Field>
-        <Field label="Setup starts at" hint="Free text — clock time on the day.">
-          <input
-            value={draft.setupStartsAt}
-            onChange={(e) => patch({ setupStartsAt: e.target.value })}
-            disabled={pending}
-            placeholder="e.g. 10:00am"
-            className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2 py-1.5 text-ink-primary outline-none focus:border-moss-500"
-          />
-        </Field>
-        <Field label="Owner" hint="Who's leading the setup for this space.">
-          <input
-            value={draft.setupOwner}
-            onChange={(e) => patch({ setupOwner: e.target.value })}
-            disabled={pending}
-            placeholder="e.g. Paintbox Blooms · Bridesmaids"
-            className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2 py-1.5 text-ink-primary outline-none focus:border-moss-500"
-          />
-        </Field>
+    <div>
+      <div className="flex items-baseline justify-between mb-1.5">
+        <strong className="text-[11px] uppercase tracking-wider text-ink-tertiary font-bold">
+          Items ({draft.items.length})
+        </strong>
+        <Button variant="ghost" size="sm" onClick={addItem} disabled={pending}>
+          + Add item
+        </Button>
       </div>
-
-      {/* Items */}
-      <div>
-        <div className="flex items-baseline justify-between mb-1.5">
-          <strong className="text-[11px] uppercase tracking-wider text-ink-tertiary font-bold">
-            Items ({draft.items.length})
-          </strong>
-          <Button variant="ghost" size="sm" onClick={addItem} disabled={pending}>
-            + Add item
-          </Button>
-        </div>
-        {draft.items.length === 0 ? (
-          <p className="text-xs text-ink-tertiary italic">
-            Add what gets put where in this space — the venue coordinator and best man will work off this list.
-          </p>
-        ) : (
-          <ul className="divide-y divide-border-soft border border-border-soft rounded-md">
-            {draft.items.map((item, idx) => (
-              <ItemEditRow
-                key={item.id}
-                item={item}
-                isFirst={idx === 0}
-                isLast={idx === draft.items.length - 1}
-                pending={pending}
-                supplierNames={supplierNames}
-                onChange={(p) => patchItem(idx, p)}
-                onRemove={() => removeItem(idx)}
-                onMoveUp={() => moveItem(idx, -1)}
-                onMoveDown={() => moveItem(idx, 1)}
-              />
-            ))}
-          </ul>
-        )}
-      </div>
-
-      <Field label="Notes" hint="Anything the team should know — access codes, parking, on-call contact.">
-        <MentionableTextarea
-          value={draft.notes}
-          onChange={(e) => patch({ notes: e.target.value })}
-          disabled={pending}
-          rows={3}
-          placeholder="e.g. Side door access from 9:30am. Parking via main car park."
-          className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2 py-1.5 text-ink-primary outline-none focus:border-moss-500 resize-y"
-        />
-      </Field>
+      {draft.items.length === 0 ? (
+        <p className="text-xs text-ink-tertiary italic">
+          Add what gets put where in this space — the venue coordinator and best man will work off this list.
+        </p>
+      ) : (
+        <ul className="divide-y divide-border-soft border border-border-soft rounded-md">
+          {draft.items.map((item, idx) => (
+            <ItemEditRow
+              key={item.id}
+              item={item}
+              isFirst={idx === 0}
+              isLast={idx === draft.items.length - 1}
+              pending={pending}
+              supplierNames={supplierNames}
+              onChange={(p) => patchItem(idx, p)}
+              onRemove={() => removeItem(idx)}
+              onMoveUp={() => moveItem(idx, -1)}
+              onMoveDown={() => moveItem(idx, 1)}
+            />
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
@@ -608,7 +635,7 @@ function ItemEditRow({
             <span className="text-ink-secondary">Placed</span>
           </label>
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex gap-1">
           <button
             type="button"
             onClick={onMoveUp}
@@ -642,17 +669,15 @@ function ItemEditRow({
   );
 }
 
-// ── Shared layout helpers ────────────────────────────────────────
+// ── Small helpers ─────────────────────────────────────────────────
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="bg-canvas/40 border border-border-soft rounded-md px-3 py-2">
-      <div className="text-[10px] uppercase tracking-wider text-ink-tertiary font-bold">
+    <div className="bg-canvas border border-border-soft rounded-md px-3 py-2">
+      <div className="text-[9px] uppercase tracking-wider text-ink-tertiary font-bold">
         {label}
       </div>
-      <div className="text-sm text-ink-primary tabular-nums truncate font-medium">
-        {value || "—"}
-      </div>
+      <div className="text-sm font-semibold text-ink-primary tabular-nums">{value}</div>
     </div>
   );
 }
@@ -667,14 +692,10 @@ function Field({
   children: React.ReactNode;
 }) {
   return (
-    <div>
-      <label className="block text-[10px] uppercase tracking-wider text-ink-tertiary font-bold mb-1">
-        {label}
-      </label>
+    <FieldLabel>
+      <Label>{label}</Label>
       {children}
-      {hint && <p className="mt-1 text-[11px] text-ink-tertiary">{hint}</p>}
-    </div>
+      {hint && <span className="block text-[10px] text-ink-tertiary mt-0.5">{hint}</span>}
+    </FieldLabel>
   );
 }
-
-// FieldLabel + Label imported from `./bookCardUi` (v1.34.0).
