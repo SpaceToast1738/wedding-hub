@@ -86,14 +86,17 @@ function InlineTaskRow({
       ].join(" ")}>
         {task.title}
       </span>
-      <span className={`text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded-md border flex-shrink-0 ${statusClass(optimisticStatus)}`}>
-        {statusLabel(optimisticStatus)}
-      </span>
+      {/* v1.99.5: date moved BEFORE the status pill so the scannable
+          "when is this due" reads first; the status pill sits at the
+          row's right edge as the trailing summary. */}
       {task.dueDate && (
         <span className="text-[10px] text-ink-tertiary tabular-nums flex-shrink-0">
           {task.dueDate.toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
         </span>
       )}
+      <span className={`text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded-md border flex-shrink-0 ${statusClass(optimisticStatus)}`}>
+        {statusLabel(optimisticStatus)}
+      </span>
       {/* v1.96.3: per-row Edit affordance, parity with the card-level
           panel. Lazy-loads the full task via loadTaskForEdit() when
           the modal opens. */}

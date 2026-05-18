@@ -161,14 +161,17 @@ function CardInlineTaskRow({ task, canEdit }: { task: LinkedTaskRow; canEdit: bo
       <span className={`flex-1 min-w-0 truncate text-sm ${isDone ? "text-ink-tertiary line-through" : "text-ink-primary"}`}>
         {task.title}
       </span>
-      <span className={`text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded-md border flex-shrink-0 ${statusClass(optimisticStatus)}`}>
-        {statusLabel(optimisticStatus)}
-      </span>
+      {/* v1.99.5: date moved BEFORE the status pill so the scannable
+          "when is this due" reads first; the status (OPEN/DONE/etc.)
+          sits at the row's right edge as the trailing summary. */}
       {task.dueDate && (
         <span className="text-[10px] text-ink-tertiary tabular-nums whitespace-nowrap flex-shrink-0">
           {task.dueDate.toLocaleDateString("en-GB", { day: "2-digit", month: "short" })}
         </span>
       )}
+      <span className={`text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded-md border flex-shrink-0 ${statusClass(optimisticStatus)}`}>
+        {statusLabel(optimisticStatus)}
+      </span>
       {/* v1.96.3: per-row Edit. Couples can fix title / assignees /
           topics / due date without bouncing to /tasks. Hidden in
           read-only mode (the button is the only thing requiring the
