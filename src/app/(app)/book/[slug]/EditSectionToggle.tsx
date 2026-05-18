@@ -1,11 +1,13 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { AddNewModal } from "@/components/ui/AddNewModal";
+import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { notify } from "@/lib/notify";
-import { updateBookSection } from "../actions";
+import { deleteBookSection, updateBookSection } from "../actions";
 
 // v1.94.0: title + subtitle edit for an existing section. Slug stays
 // stable (URLs are public-shareable + couple's muscle memory survives
@@ -13,6 +15,13 @@ import { updateBookSection } from "../actions";
 // re-create + reorder if they wanted to fix a typo. Now both edit
 // inline via this modal, surfaced as an "Edit details" button next to
 // "+ New card" in the /book/[slug] header.
+//
+// v1.99.8: section delete also lives here. The deleteBookSection
+// server action shipped in v1.4.0 but never had a UI surface — pre-
+// fix the only way to remove a section was via Prisma Studio. The
+// "Delete section" button sits on the left of the modal footer with
+// danger tone; on confirm it dispatches deleteBookSection + bounces
+// the user to /book (the section page they're on is about to 404).
 export function EditSectionToggle({
   id,
   initialTitle,
@@ -25,6 +34,35 @@ export function EditSectionToggle({
   const [open, setOpen] = useState(false);
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const router = useRouter();
+  const confirm = useConfirm();
+
+  async function onDelete() {
+    if (
+      !(await confirm({
+        title: `Delete section "${initialTitle}"?`,
+        body: "All cards inside this section will be deleted too. This can't be undone.",
+        confirmLabel: "Delete section",
+        tone: "danger",
+      }))
+    ) {
+      return;
+    }
+    startTransition(async () => {
+      try {
+        await deleteBookSection(id);
+        // The current page (/book/<slug>) is now stale — navigate to
+        // the overview before Next.js tries to re-render against a
+        // missing row.
+        router.push("/book");
+      } catch (err) {
+        notify(
+          "error",
+          err instanceof Error ? err.message : "Couldn't delete section",
+        );
+      }
+    });
+  }
 
   return (
     <>
@@ -84,24 +122,40 @@ export function EditSectionToggle({
             </div>
           </div>
           {error && <p className="text-xs text-danger mt-2">{error}</p>}
-          <div className="flex gap-2 justify-end mt-3">
+          {/* v1.99.8: footer = [Delete] (left) / [Cancel] [Save] (right).
+              Mirrors the destructive-vs-confirm split used by CardChrome
+              and the v1.84/85 budget category edit modal: destructive
+              action stays visually distant from the primary CTA. */}
+          <div className="flex gap-2 items-center mt-3">
             <Button
               type="button"
               variant="ghost"
               size="sm"
-              onClick={() => setOpen(false)}
+              onClick={onDelete}
               disabled={pending}
+              className="text-danger hover:bg-danger/10"
             >
-              Cancel
+              Delete section
             </Button>
-            <Button
-              type="submit"
-              variant="primary"
-              size="sm"
-              disabled={pending}
-            >
-              {pending ? "Saving…" : "Save"}
-            </Button>
+            <div className="flex gap-2 ml-auto">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setOpen(false)}
+                disabled={pending}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                variant="primary"
+                size="sm"
+                disabled={pending}
+              >
+                {pending ? "Saving…" : "Save"}
+              </Button>
+            </div>
           </div>
         </form>
       </AddNewModal>
