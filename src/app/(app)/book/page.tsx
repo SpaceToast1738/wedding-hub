@@ -84,21 +84,28 @@ const DEFAULT_META = {
 };
 
 // v1.94.1: variety in the card colours for non-canonical sections.
-// Pre-fix every custom section fell through to DEFAULT_META.accent
-// (`bg-canvas`, plain white), so the /book grid felt washed-out
-// whenever the couple authored more than the 7 canonical slugs.
-// Three accents = the existing canonical rotation; deterministic
-// hashing keeps the choice stable across renders + reorders.
-const FALLBACK_ACCENTS = ["bg-moss-100", "bg-moss-50", "bg-marigold-100"] as const;
-function hashSlug(slug: string): number {
-  let h = 0;
-  for (let i = 0; i < slug.length; i++) {
-    h = (h * 31 + slug.charCodeAt(i)) | 0;
-  }
-  return Math.abs(h);
-}
-function fallbackAccentFor(slug: string): string {
-  return FALLBACK_ACCENTS[hashSlug(slug) % FALLBACK_ACCENTS.length]!;
+// Originally a slug-hash rotation kept the colour stable per slug,
+// but the hash didn't know about neighbours — so the user could end
+// up with three same-colour cards in a row.
+//
+// v1.99.7: switched to a deterministic POSITION-based rotation. The
+// section at index 0 gets accent A, index 1 gets B, index 2 gets C,
+// then it wraps. This guarantees that no two horizontally-adjacent
+// cards (in any column count) ever share a colour, which is the
+// visual alternation the user asked for. Canonical-slug accent
+// overrides in SECTION_META also retire — the rotation is the
+// single source of truth for card backgrounds.
+//
+// Trade-off: re-ordering sections (▲/▼ buttons) shifts the colour
+// of each card. Acceptable — the alternation property is the
+// dominant visual concern, and re-ordering is rare.
+const ACCENT_ROTATION = [
+  "bg-moss-100",
+  "bg-marigold-100",
+  "bg-moss-50",
+] as const;
+function accentFor(idx: number): string {
+  return ACCENT_ROTATION[idx % ACCENT_ROTATION.length]!;
 }
 
 // v1.94.1: keyword-inferred glyph for custom sections. Pre-fix
@@ -189,16 +196,17 @@ export default async function BookHubPage() {
               }}
             >
               {sections.map((s, idx) => {
-                // v1.94.1: canonical slugs win exact-match; custom
-                // slugs synthesise a meta from the new hash-rotated
-                // accent + keyword-inferred glyph helpers so the grid
-                // stays visually varied no matter what the couple
-                // names a section.
+                // v1.94.1 / v1.99.7: glyph + description come from
+                // SECTION_META (canonical slugs) or the keyword-
+                // inferred fallback. Accent is ALWAYS position-driven
+                // via `accentFor(idx)` so the grid alternates cleanly
+                // — pre-v1.99.7 the slug-hash sometimes clustered 3
+                // same-colour cards in a row.
                 const canonical = SECTION_META[s.slug];
-                const meta = canonical ?? {
-                  accent: fallbackAccentFor(s.slug),
-                  glyph: fallbackGlyphFor(s.slug, s.title),
-                  description: DEFAULT_META.description,
+                const meta = {
+                  accent: accentFor(idx),
+                  glyph: canonical?.glyph ?? fallbackGlyphFor(s.slug, s.title),
+                  description: canonical?.description ?? DEFAULT_META.description,
                 };
                 const isPhoto = s.slug === "photography";
                 const subtitle = isPhoto
