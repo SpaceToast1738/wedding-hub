@@ -7,7 +7,12 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { notify } from "@/lib/notify";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
-import { ImageGallery } from "@/components/ui/ImageGallery";
+import {
+  ImageGallery,
+  type GalleryDisplay,
+  type GallerySize,
+  type HeaderPosition,
+} from "@/components/ui/ImageGallery";
 import {
   copyBuildMaterialsToBudget,
   createBuildSession,
@@ -18,6 +23,11 @@ import {
   attachFileToBuildCard,
   detachFileFromBuildCard,
   uploadAndAttachBuildFile,
+  setBookSubsectionHeaderFileId,
+  setBookSubsectionHeaderPosition,
+  setBookSubsectionPhotoDisplay,
+  setBookSubsectionPhotoSize,
+  setBookSubsectionSlideshowAuto,
   type BuildSavePayload,
 } from "../actions";
 import { buildRollups, type BuildCardShape } from "@/lib/book-cards";
@@ -99,6 +109,12 @@ type CardData = {
   sessions: Session[];
   /** v1.63.0: photo gallery — File ids attached to this card. */
   fileIds: string[];
+  /** v1.99.4: gallery layout props (live on BookSubsection). */
+  photoSize: GallerySize;
+  photoDisplay: GalleryDisplay;
+  headerFileId: string | null;
+  headerPosition: HeaderPosition;
+  slideshowAuto: boolean;
 };
 
 type BuildCardProps = {
@@ -175,6 +191,43 @@ export function BookBuildCard({
   function cancel() {
     setDraft(buildDraft(card));
     setEditing(false);
+  }
+
+  // v1.99.4: gallery handlers — same router.refresh pattern as OUTFIT.
+  function changePhotoSize(next: GallerySize) {
+    startTransition(async () => {
+      const res = await setBookSubsectionPhotoSize(subsectionId, next);
+      if (res.ok) router.refresh();
+      else notify("error", res.error);
+    });
+  }
+  function changePhotoDisplay(next: GalleryDisplay) {
+    startTransition(async () => {
+      const res = await setBookSubsectionPhotoDisplay(subsectionId, next);
+      if (res.ok) router.refresh();
+      else notify("error", res.error);
+    });
+  }
+  function pinHeader(fileId: string | null) {
+    startTransition(async () => {
+      const res = await setBookSubsectionHeaderFileId(subsectionId, fileId);
+      if (res.ok) router.refresh();
+      else notify("error", res.error);
+    });
+  }
+  function changeHeaderPosition(next: HeaderPosition) {
+    startTransition(async () => {
+      const res = await setBookSubsectionHeaderPosition(subsectionId, next);
+      if (res.ok) router.refresh();
+      else notify("error", res.error);
+    });
+  }
+  function toggleSlideshowAuto(auto: boolean) {
+    startTransition(async () => {
+      const res = await setBookSubsectionSlideshowAuto(subsectionId, auto);
+      if (res.ok) router.refresh();
+      else notify("error", res.error);
+    });
   }
 
   function save() {
@@ -341,10 +394,16 @@ export function BookBuildCard({
           card={card}
           subsectionId={subsectionId}
           canEdit={canEdit}
+          editing={editing}
           pending={pending}
           startTransition={startTransition}
           showMoney={showMoney}
           files={files}
+          onSizeChange={changePhotoSize}
+          onDisplayChange={changePhotoDisplay}
+          onHeaderPin={pinHeader}
+          onHeaderPositionChange={changeHeaderPosition}
+          onSlideshowAutoChange={toggleSlideshowAuto}
         />
       )}
 
@@ -462,18 +521,31 @@ function ViewBody({
   card,
   subsectionId,
   canEdit,
+  editing,
   pending,
   startTransition,
   showMoney,
   files,
+  onSizeChange,
+  onDisplayChange,
+  onHeaderPin,
+  onHeaderPositionChange,
+  onSlideshowAutoChange,
 }: {
   card: CardData;
   subsectionId: string;
   canEdit: boolean;
+  /** v1.99.4: edit gate for the gallery management chrome. */
+  editing: boolean;
   pending: boolean;
   startTransition: (cb: () => void) => void;
   showMoney: boolean;
   files: Array<{ id: string; name: string; mimeType: string }>;
+  onSizeChange: (next: GallerySize) => void;
+  onDisplayChange: (next: GalleryDisplay) => void;
+  onHeaderPin: (fileId: string | null) => void;
+  onHeaderPositionChange: (next: HeaderPosition) => void;
+  onSlideshowAutoChange: (next: boolean) => void;
 }) {
   return (
     <>
@@ -567,6 +639,17 @@ function ViewBody({
             files={files}
             canEdit={canEdit}
             pending={pending}
+            editMode={editing}
+            size={card.photoSize}
+            display={card.photoDisplay}
+            headerFileId={card.headerFileId}
+            headerPosition={card.headerPosition}
+            slideshowAuto={card.slideshowAuto}
+            onSizeChange={onSizeChange}
+            onDisplayChange={onDisplayChange}
+            onHeaderPin={onHeaderPin}
+            onHeaderPositionChange={onHeaderPositionChange}
+            onSlideshowAutoChange={onSlideshowAutoChange}
             onUpload={async (file) => {
               const fd = new FormData();
               fd.set("file", file);

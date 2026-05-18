@@ -12,12 +12,22 @@ import {
   uploadAndAttachSetupFile,
   setBookSubsectionComponentHidden,
   setBookSubsectionComponentOrder,
+  setBookSubsectionHeaderFileId,
+  setBookSubsectionHeaderPosition,
+  setBookSubsectionPhotoDisplay,
+  setBookSubsectionPhotoSize,
+  setBookSubsectionSlideshowAuto,
   type SetupSavePayload,
 } from "../actions";
 import { setupRollups } from "@/lib/book-cards";
 import { CardChrome } from "./CardChrome";
 import { FieldLabel, Label, newRowId } from "./bookCardUi";
-import { ImageGallery } from "@/components/ui/ImageGallery";
+import {
+  ImageGallery,
+  type GalleryDisplay,
+  type GallerySize,
+  type HeaderPosition,
+} from "@/components/ui/ImageGallery";
 import { ReorderableCardBody, type CardComponent } from "./ReorderableCardBody";
 
 // v1.33.0: SETUP card editor — per-space spatial walkthrough.
@@ -65,6 +75,12 @@ type CardData = {
   /** v1.99.1: per-card body layout. */
   componentOrder: string[];
   hiddenComponents: string[];
+  /** v1.99.4: gallery layout props (live on BookSubsection). */
+  photoSize: GallerySize;
+  photoDisplay: GalleryDisplay;
+  headerFileId: string | null;
+  headerPosition: HeaderPosition;
+  slideshowAuto: boolean;
 };
 
 type SetupCardProps = {
@@ -144,6 +160,45 @@ export function BookSetupCard({
     });
   }
 
+  // v1.99.4: gallery handlers — v1.95.4 router.refresh pattern, all
+  // five v1.97.0 + v1.99.4 server actions wired so the gallery feels
+  // identical across kinds.
+  function changePhotoSize(next: GallerySize) {
+    startTransition(async () => {
+      const res = await setBookSubsectionPhotoSize(subsectionId, next);
+      if (res.ok) router.refresh();
+      else notify("error", res.error);
+    });
+  }
+  function changePhotoDisplay(next: GalleryDisplay) {
+    startTransition(async () => {
+      const res = await setBookSubsectionPhotoDisplay(subsectionId, next);
+      if (res.ok) router.refresh();
+      else notify("error", res.error);
+    });
+  }
+  function pinHeader(fileId: string | null) {
+    startTransition(async () => {
+      const res = await setBookSubsectionHeaderFileId(subsectionId, fileId);
+      if (res.ok) router.refresh();
+      else notify("error", res.error);
+    });
+  }
+  function changeHeaderPosition(next: HeaderPosition) {
+    startTransition(async () => {
+      const res = await setBookSubsectionHeaderPosition(subsectionId, next);
+      if (res.ok) router.refresh();
+      else notify("error", res.error);
+    });
+  }
+  function toggleSlideshowAuto(auto: boolean) {
+    startTransition(async () => {
+      const res = await setBookSubsectionSlideshowAuto(subsectionId, auto);
+      if (res.ok) router.refresh();
+      else notify("error", res.error);
+    });
+  }
+
   // v1.99.1: reorder + hide handlers wired identically to OUTFIT.
   function reorderComponents(next: string[]) {
     startTransition(async () => {
@@ -173,6 +228,17 @@ export function BookSetupCard({
         files={files}
         canEdit={canEdit}
         pending={pending}
+        editMode={editing}
+        size={card.photoSize}
+        display={card.photoDisplay}
+        headerFileId={card.headerFileId}
+        headerPosition={card.headerPosition}
+        slideshowAuto={card.slideshowAuto}
+        onSizeChange={changePhotoSize}
+        onDisplayChange={changePhotoDisplay}
+        onHeaderPin={pinHeader}
+        onHeaderPositionChange={changeHeaderPosition}
+        onSlideshowAutoChange={toggleSlideshowAuto}
         onUpload={async (file) => {
           const fd = new FormData();
           fd.set("file", file);

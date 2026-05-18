@@ -508,10 +508,12 @@ export async function setBookSubsectionPhotoSize(
   return { ok: true };
 }
 
-// v1.97.0: photo display mode — gallery (default) / header / slideshow.
-// Sibling of setBookSubsectionPhotoSize; same book-edit gate, audit
-// shape, idempotent no-op guard.
-const PHOTO_DISPLAYS = ["gallery", "header", "slideshow"] as const;
+// v1.97.0: photo display mode.
+// v1.99.4: dropped "header" — header is now additive, controlled by
+// headerFileId being non-null, not a body display mode. Added "mosaic"
+// (Pinterest-style masonry). Sibling of setBookSubsectionPhotoSize;
+// same book-edit gate, audit shape, idempotent no-op guard.
+const PHOTO_DISPLAYS = ["gallery", "slideshow", "mosaic"] as const;
 type PhotoDisplay = (typeof PHOTO_DISPLAYS)[number];
 
 export async function setBookSubsectionPhotoDisplay(
@@ -629,6 +631,47 @@ export async function setBookSubsectionSlideshowAuto(
       title: before.title,
       slideshowAutoBefore: before.slideshowAuto,
       slideshowAutoAfter: auto,
+    },
+  });
+  revalidatePath(`/book/${before.section.slug}`);
+  return { ok: true };
+}
+
+// v1.99.4: 9-point header positioning. Maps to CSS object-position
+// at render time. Sibling of setBookSubsectionPhotoSize / -Display /
+// -SlideshowAuto — same book-edit gate, audit shape, idempotent
+// no-op guard.
+const HEADER_POSITIONS = [
+  "tl", "t", "tr",
+  "l",  "c", "r",
+  "bl", "b", "br",
+] as const;
+type HeaderPosition = (typeof HEADER_POSITIONS)[number];
+
+export async function setBookSubsectionHeaderPosition(
+  id: string,
+  position: HeaderPosition,
+): Promise<BookActionResult> {
+  if (!HEADER_POSITIONS.includes(position)) {
+    return { ok: false, error: "Invalid header position" };
+  }
+  const user = await requireEdit("book");
+  const before = await db.bookSubsection.findUnique({
+    where: { id },
+    select: { headerPosition: true, title: true, section: { select: { slug: true } } },
+  });
+  if (!before) return { ok: false, error: "Card not found" };
+  if (before.headerPosition === position) return { ok: true }; // no-op
+  await db.bookSubsection.update({ where: { id }, data: { headerPosition: position } });
+  await audit(user, {
+    action: "update",
+    entity: "BookSubsection",
+    entityId: id,
+    metadata: {
+      changedFields: ["headerPosition"],
+      title: before.title,
+      headerPositionBefore: before.headerPosition,
+      headerPositionAfter: position,
     },
   });
   revalidatePath(`/book/${before.section.slug}`);

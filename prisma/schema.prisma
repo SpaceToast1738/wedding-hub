@@ -709,14 +709,24 @@ model BookSubsection {
   // `alwaysVisible` per-kind guard in the renderer for required ones).
   componentOrder    String[]  @default([])
   hiddenComponents  String[]  @default([])
-  // v1.97.0: photo display mode — gallery (default) / header / slideshow.
-  // Controls which sub-renderer ImageGallery picks. String (not enum)
-  // so future modes are migration-free. `gallery` matches v1.96.x.
+  // v1.97.0: photo body-section mode.
+  // v1.99.4: 'header' dropped as a body mode (header is now additive,
+  // controlled by headerFileId being non-null) and 'mosaic' added.
+  // Values: 'gallery' (default — thumb grid) / 'slideshow' (carousel)
+  // / 'mosaic' (Pinterest-style masonry). String (not enum) so future
+  // modes are migration-free.
   photoDisplay  String   @default("gallery")
-  // Only consulted when photoDisplay = 'header'. Null = render the
-  // "Pick a header image" placeholder + edit-mode prompt rather than
-  // silently defaulting to "first attached photo wins".
+  // v1.99.4: tied "favourite = header" model. When non-null, the
+  // referenced file renders as a hero image ABOVE the body section
+  // (the body still shows whatever photoDisplay picks, minus the
+  // pinned file to avoid duplication). Pre-v1.99.4 this was only
+  // consulted when photoDisplay='header'; now it's the single switch
+  // for hero rendering.
   headerFileId  String?
+  // v1.99.4: 9-point header positioning. Values: tl|t|tr|l|c|r|bl|b|br.
+  // Maps to CSS object-position at render time. Default 'center'
+  // preserves pre-fix centred crop.
+  headerPosition String  @default("center")
   // Only consulted when photoDisplay = 'slideshow'. true = auto-advance
   // every 4s with hover-pause, false = manual prev/next only. Per-card
   // toggle in edit mode.

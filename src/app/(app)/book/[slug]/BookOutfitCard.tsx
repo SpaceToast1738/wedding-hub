@@ -5,7 +5,12 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { notify } from "@/lib/notify";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
-import { ImageGallery, type GalleryDisplay, type GallerySize } from "@/components/ui/ImageGallery";
+import {
+  ImageGallery,
+  type GalleryDisplay,
+  type GallerySize,
+  type HeaderPosition,
+} from "@/components/ui/ImageGallery";
 import { MentionableTextarea } from "@/components/ui/MentionableTextarea";
 import {
   attachFileToOutfitCard,
@@ -15,6 +20,7 @@ import {
   setBookSubsectionComponentHidden,
   setBookSubsectionComponentOrder,
   setBookSubsectionHeaderFileId,
+  setBookSubsectionHeaderPosition,
   setBookSubsectionPhotoDisplay,
   setBookSubsectionPhotoSize,
   setBookSubsectionSlideshowAuto,
@@ -99,6 +105,8 @@ type CardData = {
   // BookSubsection; threading mirrors photoSize.
   photoDisplay: GalleryDisplay;
   headerFileId: string | null;
+  // v1.99.4: 9-point hero position.
+  headerPosition: HeaderPosition;
   slideshowAuto: boolean;
   // v1.99.0: per-card body layout.
   componentOrder: string[];
@@ -247,6 +255,14 @@ export function BookOutfitCardEditor({
       else notify("error", res.error);
     });
   }
+  // v1.99.4: 9-point hero positioning handler — same refresh pattern.
+  function changeHeaderPosition(next: HeaderPosition) {
+    startTransition(async () => {
+      const res = await setBookSubsectionHeaderPosition(subsectionId, next);
+      if (res.ok) router.refresh();
+      else notify("error", res.error);
+    });
+  }
   function toggleSlideshowAuto(auto: boolean) {
     startTransition(async () => {
       const res = await setBookSubsectionSlideshowAuto(subsectionId, auto);
@@ -369,10 +385,12 @@ export function BookOutfitCardEditor({
                   onSizeChange={changePhotoSize}
                   display={card.photoDisplay}
                   headerFileId={card.headerFileId}
+                  headerPosition={card.headerPosition}
                   slideshowAuto={card.slideshowAuto}
                   editMode={editing}
                   onDisplayChange={changePhotoDisplay}
                   onHeaderPin={pinHeader}
+                  onHeaderPositionChange={changeHeaderPosition}
                   onSlideshowAutoChange={toggleSlideshowAuto}
                 />
               </>

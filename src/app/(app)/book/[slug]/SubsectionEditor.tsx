@@ -8,6 +8,7 @@ import {
   ImageGallery,
   type GalleryDisplay,
   type GallerySize,
+  type HeaderPosition,
 } from "@/components/ui/ImageGallery";
 import { notify } from "@/lib/notify";
 import { legacyBodyToHtml } from "@/lib/sanitize-book-html";
@@ -17,6 +18,7 @@ import {
   setBookSubsectionComponentHidden,
   setBookSubsectionComponentOrder,
   setBookSubsectionHeaderFileId,
+  setBookSubsectionHeaderPosition,
   setBookSubsectionPhotoDisplay,
   setBookSubsectionPhotoSize,
   setBookSubsectionSlideshowAuto,
@@ -67,6 +69,8 @@ type Sub = {
   // v1.97.0: display mode + mode-specific knobs (header pin / autoplay).
   photoDisplay?: GalleryDisplay;
   headerFileId?: string | null;
+  // v1.99.4: 9-point hero position.
+  headerPosition?: HeaderPosition;
   slideshowAuto?: boolean;
   // v1.99.0: per-card body layout.
   componentOrder?: string[];
@@ -168,6 +172,15 @@ export function SubsectionEditor({
       else notify("error", res.error);
     });
   }
+  // v1.99.4: 9-point hero positioning handler — same router.refresh
+  // pattern as the v1.97.0 cluster above.
+  function changeHeaderPosition(next: HeaderPosition) {
+    startTransition(async () => {
+      const res = await setBookSubsectionHeaderPosition(sub.id, next);
+      if (res.ok) router.refresh();
+      else notify("error", res.error);
+    });
+  }
   function toggleSlideshowAuto(auto: boolean) {
     startTransition(async () => {
       const res = await setBookSubsectionSlideshowAuto(sub.id, auto);
@@ -237,10 +250,12 @@ export function SubsectionEditor({
           onSizeChange={changePhotoSize}
           display={photoDisplay}
           headerFileId={sub.headerFileId ?? null}
+          headerPosition={sub.headerPosition ?? "c"}
           slideshowAuto={sub.slideshowAuto ?? false}
           editMode={editing}
           onDisplayChange={changePhotoDisplay}
           onHeaderPin={pinHeader}
+          onHeaderPositionChange={changeHeaderPosition}
           onSlideshowAutoChange={toggleSlideshowAuto}
         />
       </>

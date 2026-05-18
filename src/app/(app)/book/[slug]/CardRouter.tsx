@@ -14,7 +14,26 @@ import { BookStayCard } from "./BookStayCard";
 import { BookDressCodeCard } from "./BookDressCodeCard";
 import { BookWeddingPartyCard } from "./BookWeddingPartyCard";
 import { SubsectionEditor } from "./SubsectionEditor";
+import type { GalleryDisplay, GallerySize, HeaderPosition } from "@/components/ui/ImageGallery";
 import type { UserOpt } from "@/app/(app)/tasks/AddTaskToggle";
+
+// v1.99.4: shared narrowing helpers — server returns these gallery
+// columns as plain strings; the typed unions live in the ImageGallery
+// module. Each helper falls through to a safe default for unexpected
+// values (defensive against rogue DB values or pre-migration rows).
+function narrowSize(v: string): GallerySize {
+  return v === "xs" || v === "sm" || v === "lg" || v === "xl" ? v : "md";
+}
+function narrowDisplay(v: string): GalleryDisplay {
+  return v === "slideshow" || v === "mosaic" ? v : "gallery";
+}
+function narrowHeaderPosition(v: string): HeaderPosition {
+  return v === "tl" || v === "t" || v === "tr" ||
+         v === "l"  || v === "r" ||
+         v === "bl" || v === "b" || v === "br"
+    ? v
+    : "c";
+}
 // v1.92.0: re-export so existing imports (`import { LinkedTaskRow }
 // from "./CardRouter"`) continue to compile; the canonical location
 // is now CardLinkedTasksPanel.tsx.
@@ -52,11 +71,14 @@ type Sub = {
   // v1.96.4: per-card photo gallery size. Persisted on
   // BookSubsection.photoSize; default 'md' from the schema.
   photoSize: string;
-  // v1.97.0: photo display mode (gallery / header / slideshow) +
-  // mode-specific knobs. Live on BookSubsection alongside fileIds /
-  // photoSize / wide. Default 'gallery' / null / false.
+  // v1.97.0 / v1.99.4: photo body-section mode (gallery / slideshow /
+  // mosaic — "header" dropped, header is additive via headerFileId)
+  // and mode-specific knobs. Live on BookSubsection alongside
+  // fileIds / photoSize / wide.
   photoDisplay: string;
   headerFileId: string | null;
+  // v1.99.4: 9-point hero positioning (tl|t|tr|l|c|r|bl|b|br).
+  headerPosition: string;
   slideshowAuto: boolean;
   // v1.99.0: per-card body layout — order of component IDs +
   // hidden-component IDs. Empty arrays = use the kind's default.
@@ -472,18 +494,12 @@ function renderCardBody(
             // GallerySize union with a defensive 'md' fallback —
             // matches the OUTFIT case below.
             // v1.98.1: union widened to xs / sm / md / lg / xl.
-            photoSize:
-              sub.photoSize === "xs" || sub.photoSize === "sm" ||
-              sub.photoSize === "lg" || sub.photoSize === "xl"
-                ? sub.photoSize
-                : "md",
-            // v1.97.0: display mode + header pin + slideshow auto.
-            // Same defensive narrowing pattern as photoSize.
-            photoDisplay:
-              sub.photoDisplay === "header" || sub.photoDisplay === "slideshow"
-                ? sub.photoDisplay
-                : "gallery",
+            photoSize: narrowSize(sub.photoSize),
+            // v1.97.0 / v1.99.4: body mode (gallery/slideshow/mosaic)
+            // + hero pin + 9-point hero position + slideshow auto.
+            photoDisplay: narrowDisplay(sub.photoDisplay),
             headerFileId: sub.headerFileId,
+            headerPosition: narrowHeaderPosition(sub.headerPosition),
             slideshowAuto: sub.slideshowAuto,
             // v1.99.0: per-card body layout.
             componentOrder: sub.componentOrder,
@@ -574,22 +590,13 @@ function renderCardBody(
             fileIds: oc.fileIds,
             notes: oc.notes,
             items: oc.items,
-            // v1.96.4: per-card photo gallery size lives on
-            // BookSubsection (sibling to wide / fileIds). Narrow the
-            // string from the DB to the typed union; fallback to
-            // "md" defends against unexpected values.
-            // v1.98.1: union widened to xs / sm / md / lg / xl.
-            photoSize:
-              sub.photoSize === "xs" || sub.photoSize === "sm" ||
-              sub.photoSize === "lg" || sub.photoSize === "xl"
-                ? sub.photoSize
-                : "md",
-            // v1.97.0: display mode + pinned header + slideshow auto.
-            photoDisplay:
-              sub.photoDisplay === "header" || sub.photoDisplay === "slideshow"
-                ? sub.photoDisplay
-                : "gallery",
+            // v1.96.4 / v1.99.4: gallery props live on BookSubsection
+            // (sibling to wide / fileIds). Narrow via the v1.99.4
+            // shared helpers defined at the top of this module.
+            photoSize: narrowSize(sub.photoSize),
+            photoDisplay: narrowDisplay(sub.photoDisplay),
             headerFileId: sub.headerFileId,
+            headerPosition: narrowHeaderPosition(sub.headerPosition),
             slideshowAuto: sub.slideshowAuto,
             // v1.99.0: per-card body layout.
             componentOrder: sub.componentOrder,
@@ -734,6 +741,12 @@ function renderCardBody(
             // v1.99.1: per-card body layout.
             componentOrder: sub.componentOrder,
             hiddenComponents: sub.hiddenComponents,
+            // v1.99.4: gallery props — full v1.97.0 + v1.99.4 surface.
+            photoSize: narrowSize(sub.photoSize),
+            photoDisplay: narrowDisplay(sub.photoDisplay),
+            headerFileId: sub.headerFileId,
+            headerPosition: narrowHeaderPosition(sub.headerPosition),
+            slideshowAuto: sub.slideshowAuto,
           }}
           supplierNames={sc.supplierNames}
           files={sc.files ?? []}
@@ -770,7 +783,18 @@ function renderCardBody(
           canEdit={canEdit}
           isCouple={isCouple}
           showMoney={showMoney}
-          card={bc}
+          // v1.99.4: gallery props threaded through alongside the
+          // build-card payload. `bc` is spread + augmented so its
+          // existing fields (materials / sessions / fileIds / files /
+          // budgetLine) pass through unchanged.
+          card={{
+            ...bc,
+            photoSize: narrowSize(sub.photoSize),
+            photoDisplay: narrowDisplay(sub.photoDisplay),
+            headerFileId: sub.headerFileId,
+            headerPosition: narrowHeaderPosition(sub.headerPosition),
+            slideshowAuto: sub.slideshowAuto,
+          }}
           files={bc.files}
         />
       );
@@ -816,6 +840,12 @@ function renderCardBody(
             guestIds: sc.guestIds,
             notes: sc.notes,
             fileIds: sc.fileIds ?? [],
+            // v1.99.4: gallery props.
+            photoSize: narrowSize(sub.photoSize),
+            photoDisplay: narrowDisplay(sub.photoDisplay),
+            headerFileId: sub.headerFileId,
+            headerPosition: narrowHeaderPosition(sub.headerPosition),
+            slideshowAuto: sub.slideshowAuto,
           }}
           guests={sc.guests}
           files={sc.files ?? []}
@@ -914,6 +944,12 @@ function renderCardBody(
             weather: dc.weather,
             accessories: dc.accessories,
             fileIds: dc.fileIds,
+            // v1.99.4: gallery props.
+            photoSize: narrowSize(sub.photoSize),
+            photoDisplay: narrowDisplay(sub.photoDisplay),
+            headerFileId: sub.headerFileId,
+            headerPosition: narrowHeaderPosition(sub.headerPosition),
+            slideshowAuto: sub.slideshowAuto,
           }}
           files={dc.files}
           linkedTasks={linkedTasks}

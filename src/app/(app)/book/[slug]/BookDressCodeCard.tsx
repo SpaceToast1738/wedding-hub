@@ -11,16 +11,27 @@
 // detach / upload paths.
 
 import { useEffect, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { RichTextEditor, RichTextRead } from "@/components/ui/RichTextEditor";
-import { ImageGallery } from "@/components/ui/ImageGallery";
+import {
+  ImageGallery,
+  type GalleryDisplay,
+  type GallerySize,
+  type HeaderPosition,
+} from "@/components/ui/ImageGallery";
 import { notify } from "@/lib/notify";
 import {
   saveDressCodeCard,
   attachFileToDressCodeCard,
   detachFileFromDressCodeCard,
   uploadAndAttachDressCodeFile,
+  setBookSubsectionHeaderFileId,
+  setBookSubsectionHeaderPosition,
+  setBookSubsectionPhotoDisplay,
+  setBookSubsectionPhotoSize,
+  setBookSubsectionSlideshowAuto,
   type DressCodeSavePayload,
 } from "../actions";
 import { CardLinkedTasksPanel, type LinkedTaskRow } from "./CardLinkedTasksPanel";
@@ -36,6 +47,13 @@ type CardData = {
   weather: string | null;
   accessories: string | null;
   fileIds: string[];
+  // v1.99.4: gallery layout props live on BookSubsection — threaded
+  // by CardRouter alongside the per-kind payload.
+  photoSize: GallerySize;
+  photoDisplay: GalleryDisplay;
+  headerFileId: string | null;
+  headerPosition: HeaderPosition;
+  slideshowAuto: boolean;
 };
 
 type Props = {
@@ -79,6 +97,47 @@ export function BookDressCodeCard({
 }: Props) {
   const [editing, setEditing] = useState(false);
   const [pending, startTransition] = useTransition();
+  const router = useRouter();
+
+  // v1.99.4: gallery handlers — same v1.95.4 router.refresh after
+  // action pattern as OUTFIT / TEXT. Each persists a BookSubsection
+  // column owned by the page chrome (not the per-kind card payload),
+  // hence the subsectionId-keyed calls.
+  function changePhotoSize(next: GallerySize) {
+    startTransition(async () => {
+      const res = await setBookSubsectionPhotoSize(subsectionId, next);
+      if (res.ok) router.refresh();
+      else notify("error", res.error);
+    });
+  }
+  function changePhotoDisplay(next: GalleryDisplay) {
+    startTransition(async () => {
+      const res = await setBookSubsectionPhotoDisplay(subsectionId, next);
+      if (res.ok) router.refresh();
+      else notify("error", res.error);
+    });
+  }
+  function pinHeader(fileId: string | null) {
+    startTransition(async () => {
+      const res = await setBookSubsectionHeaderFileId(subsectionId, fileId);
+      if (res.ok) router.refresh();
+      else notify("error", res.error);
+    });
+  }
+  function changeHeaderPosition(next: HeaderPosition) {
+    startTransition(async () => {
+      const res = await setBookSubsectionHeaderPosition(subsectionId, next);
+      if (res.ok) router.refresh();
+      else notify("error", res.error);
+    });
+  }
+  function toggleSlideshowAuto(auto: boolean) {
+    startTransition(async () => {
+      const res = await setBookSubsectionSlideshowAuto(subsectionId, auto);
+      if (res.ok) router.refresh();
+      else notify("error", res.error);
+    });
+  }
 
   // Draft state — held locally so cancel reverts without round-trips.
   const [draft, setDraft] = useState({
@@ -257,32 +316,6 @@ export function BookDressCodeCard({
               />
             </div>
           </div>
-          {/* Image gallery — mood-board photos. Threaded through the
-              three standard server actions. */}
-          <ImageGallery
-            fileIds={card.fileIds}
-            files={files}
-            canEdit={canEdit}
-            pending={pending}
-            onUpload={async (file) => {
-              const fd = new FormData();
-              fd.set("file", file);
-              const res = await uploadAndAttachDressCodeFile(subsectionId, fd);
-              if (!res.ok) notify("error", res.error);
-            }}
-            onAttach={(fileId) => {
-              startTransition(async () => {
-                const res = await attachFileToDressCodeCard(subsectionId, fileId);
-                if (!res.ok) notify("error", res.error);
-              });
-            }}
-            onDetach={(fileId) => {
-              startTransition(async () => {
-                const res = await detachFileFromDressCodeCard(subsectionId, fileId);
-                if (!res.ok) notify("error", res.error);
-              });
-            }}
-          />
         </div>
       ) : (
         <div className="space-y-3">
@@ -303,16 +336,51 @@ export function BookDressCodeCard({
               <FieldRow label="Accessories" value={card.accessories} />
             </div>
           )}
-          {card.fileIds.length > 0 && (
-            <ImageGallery
-              fileIds={card.fileIds}
-              files={files}
-              canEdit={false}
-              pending={false}
-              onAttach={() => undefined}
-              onDetach={() => undefined}
-            />
-          )}
+        </div>
+      )}
+      {/* v1.99.4: gallery hoisted out of the view/edit split. The
+          gallery's own editMode prop hides management chrome in view
+          mode; mode picker / size toggle / star-pin only appear when
+          editing. Pre-fix this lived twice (one rich edit instance,
+          one read-only view instance) which meant view mode ignored
+          the v1.97.0 photoDisplay choice. */}
+      {(card.fileIds.length > 0 || (canEdit && editing)) && (
+        <div className="mt-3">
+          <ImageGallery
+            fileIds={card.fileIds}
+            files={files}
+            canEdit={canEdit}
+            pending={pending}
+            editMode={editing}
+            size={card.photoSize}
+            display={card.photoDisplay}
+            headerFileId={card.headerFileId}
+            headerPosition={card.headerPosition}
+            slideshowAuto={card.slideshowAuto}
+            onSizeChange={changePhotoSize}
+            onDisplayChange={changePhotoDisplay}
+            onHeaderPin={pinHeader}
+            onHeaderPositionChange={changeHeaderPosition}
+            onSlideshowAutoChange={toggleSlideshowAuto}
+            onUpload={async (file) => {
+              const fd = new FormData();
+              fd.set("file", file);
+              const res = await uploadAndAttachDressCodeFile(subsectionId, fd);
+              if (!res.ok) notify("error", res.error);
+            }}
+            onAttach={(fileId) => {
+              startTransition(async () => {
+                const res = await attachFileToDressCodeCard(subsectionId, fileId);
+                if (!res.ok) notify("error", res.error);
+              });
+            }}
+            onDetach={(fileId) => {
+              startTransition(async () => {
+                const res = await detachFileFromDressCodeCard(subsectionId, fileId);
+                if (!res.ok) notify("error", res.error);
+              });
+            }}
+          />
         </div>
       )}
 
