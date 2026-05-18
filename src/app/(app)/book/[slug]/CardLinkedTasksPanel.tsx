@@ -134,7 +134,7 @@ function CardInlineTaskRow({ task, canEdit }: { task: LinkedTaskRow; canEdit: bo
 
   return (
     <li className="px-3 py-1.5 flex items-center gap-2">
-      {canEdit ? (
+      {canEdit && (
         <button
           type="button"
           onClick={toggle}
@@ -152,11 +152,12 @@ function CardInlineTaskRow({ task, canEdit }: { task: LinkedTaskRow; canEdit: bo
             </svg>
           )}
         </button>
-      ) : (
-        <span className="text-[10px] font-mono text-ink-tertiary w-4 text-center">
-          {task.type === "QUESTION" ? "Q" : task.type === "DECISION" ? "D" : "·"}
-        </span>
       )}
+      {/* v1.99.2: type identifier renders in BOTH modes so couples
+          editing the card can still tell tasks / questions / decisions
+          apart at a glance. Pre-v1.99.2 this was an either-or with the
+          checkbox — useful for read-only viewers, invisible to editors. */}
+      <TaskTypeBadge type={task.type} />
       <span className={`flex-1 min-w-0 truncate text-sm ${isDone ? "text-ink-tertiary line-through" : "text-ink-primary"}`}>
         {task.title}
       </span>
@@ -174,5 +175,45 @@ function CardInlineTaskRow({ task, canEdit }: { task: LinkedTaskRow; canEdit: bo
           edit gate; the rest of the row is a status indicator). */}
       {canEdit && <EditTaskDialog taskId={task.id} taskTitle={task.title} />}
     </li>
+  );
+}
+
+// v1.99.2: shared identifier chip for task / question / decision rows.
+// Tone-coded so the three kinds read at a glance even in dense lists:
+//   - TASK     → muted (it's the default; no signal needed)
+//   - QUESTION → marigold ("needs answer" — matches the in-progress pill)
+//   - DECISION → info-blue ("needs deciding" — distinct from questions)
+// Width-locked to keep the title column aligned across rows of mixed
+// types. Kept inline here (and duplicated in LinkedTasksPanel) because
+// extracting to a shared lib for two callers + one tiny function isn't
+// worth the indirection.
+function TaskTypeBadge({ type }: { type: string }) {
+  if (type === "QUESTION") {
+    return (
+      <span
+        className="flex-shrink-0 text-[9px] font-bold uppercase tracking-wider px-1 py-0.5 rounded-sm border bg-marigold-100/60 border-marigold-700/30 text-marigold-700 w-[22px] text-center"
+        title="Question"
+      >
+        Q
+      </span>
+    );
+  }
+  if (type === "DECISION") {
+    return (
+      <span
+        className="flex-shrink-0 text-[9px] font-bold uppercase tracking-wider px-1 py-0.5 rounded-sm border bg-info/10 border-info/30 text-info w-[22px] text-center"
+        title="Decision"
+      >
+        D
+      </span>
+    );
+  }
+  return (
+    <span
+      className="flex-shrink-0 text-[9px] font-bold uppercase tracking-wider px-1 py-0.5 rounded-sm border bg-canvas border-border-soft text-ink-tertiary w-[22px] text-center"
+      title="Task"
+    >
+      T
+    </span>
   );
 }

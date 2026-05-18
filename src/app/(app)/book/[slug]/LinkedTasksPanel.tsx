@@ -56,7 +56,7 @@ function InlineTaskRow({
 
   return (
     <li className="flex items-baseline gap-2 px-3 py-1.5 text-xs">
-      {canEdit ? (
+      {canEdit && (
         <button
           type="button"
           onClick={toggle}
@@ -75,11 +75,11 @@ function InlineTaskRow({
             </svg>
           )}
         </button>
-      ) : (
-        <span className="text-[10px] font-bold text-ink-tertiary uppercase tracking-wider w-14 flex-shrink-0">
-          {task.type === "TASK" ? "Task" : task.type === "QUESTION" ? "Q" : "Decision"}
-        </span>
       )}
+      {/* v1.99.2: type badge renders in BOTH modes (was either-or with
+          the checkbox pre-v1.99.2 — editors lost the identifier when
+          the row went interactive). */}
+      <TaskTypeBadge type={task.type} />
       <span className={[
         "flex-1 min-w-0 truncate",
         isDone ? "text-ink-tertiary line-through" : "text-ink-primary",
@@ -199,5 +199,39 @@ function AddTaskToggleWithTopics({
       buttonLabel="+ New"
       showType={true}
     />
+  );
+}
+
+// v1.99.2: same T/Q/D identifier chip as CardLinkedTasksPanel. Kept
+// inline (rather than extracted to a shared module) — two callers,
+// 30 lines of tone classes — indirection wouldn't pay back.
+function TaskTypeBadge({ type }: { type: string }) {
+  if (type === "QUESTION") {
+    return (
+      <span
+        className="flex-shrink-0 text-[9px] font-bold uppercase tracking-wider px-1 py-0.5 rounded-sm border bg-marigold-100/60 border-marigold-700/30 text-marigold-700 w-[22px] text-center"
+        title="Question"
+      >
+        Q
+      </span>
+    );
+  }
+  if (type === "DECISION") {
+    return (
+      <span
+        className="flex-shrink-0 text-[9px] font-bold uppercase tracking-wider px-1 py-0.5 rounded-sm border bg-info/10 border-info/30 text-info w-[22px] text-center"
+        title="Decision"
+      >
+        D
+      </span>
+    );
+  }
+  return (
+    <span
+      className="flex-shrink-0 text-[9px] font-bold uppercase tracking-wider px-1 py-0.5 rounded-sm border bg-canvas border-border-soft text-ink-tertiary w-[22px] text-center"
+      title="Task"
+    >
+      T
+    </span>
   );
 }
