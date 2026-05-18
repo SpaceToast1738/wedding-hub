@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { Button } from "@/components/ui/Button";
+import { MentionableTextarea } from "@/components/ui/MentionableTextarea";
 import { notify } from "@/lib/notify";
 import {
   saveSetupCard,
@@ -470,7 +471,7 @@ function EditBody({
       </div>
 
       <Field label="Notes" hint="Anything the team should know — access codes, parking, on-call contact.">
-        <textarea
+        <MentionableTextarea
           value={draft.notes}
           onChange={(e) => patch({ notes: e.target.value })}
           disabled={pending}

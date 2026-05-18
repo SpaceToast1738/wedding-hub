@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { Button } from "@/components/ui/Button";
+import { MentionableTextarea } from "@/components/ui/MentionableTextarea";
 import { notify } from "@/lib/notify";
 import { updateSeatingChecklist, updateSeatingNotes } from "./actions";
 
@@ -42,7 +43,7 @@ export function NotesContent({
     <div className="p-3">
       {canEdit ? (
         <>
-          <textarea
+          <MentionableTextarea
             value={value}
             onChange={(e) => setValue(e.target.value)}
             rows={4}

@@ -3,6 +3,7 @@
 import { useEffect, useState, useTransition } from "react";
 import { Avatar } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
+import { MentionableTextarea } from "@/components/ui/MentionableTextarea";
 import { notify } from "@/lib/notify";
 import { isoForInput } from "@/lib/format";
 import { deleteTask, updateTask } from "./actions";
@@ -487,7 +488,7 @@ export function TaskDrawer({
               Notes
             </strong>
             {canEdit ? (
-              <textarea
+              <MentionableTextarea
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
                 placeholder="Add more detail…"

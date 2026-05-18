@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { Button } from "@/components/ui/Button";
+import { MentionableTextarea } from "@/components/ui/MentionableTextarea";
 import { notify } from "@/lib/notify";
 import { saveBarCard, type BarSavePayload } from "../actions";
 import { barItemTotalPence, barRollups, type BarRollups } from "@/lib/book-cards";
@@ -568,7 +569,7 @@ function EditBody({
       </div>
 
       <Field label="Notes" hint="Any caveats — alcohol-free options, kids' drinks, glass count.">
-        <textarea
+        <MentionableTextarea
           value={draft.notes}
           onChange={(e) => patch({ notes: e.target.value })}
           disabled={pending}

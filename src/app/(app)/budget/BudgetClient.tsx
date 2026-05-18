@@ -4,6 +4,7 @@ import { useEffect, useState, useTransition } from "react";
 import type { FundSource, PerHeadSource } from "@prisma/client";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
+import { MentionableTextarea } from "@/components/ui/MentionableTextarea";
 import { formatMoneyDecimal } from "@/lib/format";
 import { applyMinimum, computeActual, computeCompositeActual, computeCompositePaid, computeEstimated, computePaid, isManualOverride, sumOfPayments, type BudgetFundFilter } from "@/lib/budget";
 import { effectiveFundForComponent, effectiveFundForPayment, formatFundChip, FUND_KEYS, resolveFundLabels, type FundKey, type FundLabels } from "@/lib/funds";
@@ -1608,7 +1609,7 @@ function ComponentForm({
         <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">
           Notes (optional)
         </label>
-        <textarea
+        <MentionableTextarea
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
           rows={2}
@@ -1882,7 +1883,7 @@ function NewLineForm({
             : `Actual is computed from ${paymentsCount} payment${paymentsCount === 1 ? "" : "s"} (£${(paymentsSum ?? 0).toFixed(2)}). Set a value to pin a manual override.`}
         </p>
       )}
-      <textarea name="notes" defaultValue={initial?.notes ?? ""} rows={2} placeholder="Notes (optional)"
+      <MentionableTextarea name="notes" defaultValue={initial?.notes ?? ""} rows={2} placeholder="Notes (optional)"
         className="w-full text-xs bg-surface text-ink-primary border border-border-soft rounded-sm px-2.5 py-1.5 outline-none focus:border-moss-500" />
       {error && <p className="text-xs text-danger">{error}</p>}
       <div className="flex gap-2 justify-end">

@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { Button } from "@/components/ui/Button";
+import { MentionableTextarea } from "@/components/ui/MentionableTextarea";
 import { notify } from "@/lib/notify";
 import { recipeRollups } from "@/lib/book-cards";
 import { saveRecipeCard, type RecipeSavePayload } from "../actions";
@@ -464,7 +465,7 @@ function EditBody({
                   <span className="text-[10px] text-ink-tertiary tabular-nums w-5 flex-shrink-0 mt-1.5">
                     {i + 1}.
                   </span>
-                  <textarea
+                  <MentionableTextarea
                     value={s.instruction}
                     onChange={(e) => patchStep(i, { instruction: e.target.value })}
                     placeholder="e.g. Stir over ice"
@@ -541,7 +542,7 @@ function EditBody({
       </div>
       <FieldLabel>
         <Label>Notes</Label>
-        <textarea
+        <MentionableTextarea
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
           placeholder="Garnish, allergens, swaps…"

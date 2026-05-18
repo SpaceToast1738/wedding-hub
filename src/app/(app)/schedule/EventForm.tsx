@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
+import { MentionableTextarea } from "@/components/ui/MentionableTextarea";
 
 export type UserOpt = { id: string; name: string | null; email: string };
 export type GroupOpt = { ref: string; name: string; memberCount: number };
@@ -239,7 +240,7 @@ export function EventForm({
         <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">
           Notes
         </label>
-        <textarea
+        <MentionableTextarea
           name="notes"
           defaultValue={initial?.notes ?? ""}
           rows={3}

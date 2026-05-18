@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
+import { MentionableTextarea } from "@/components/ui/MentionableTextarea";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
@@ -822,7 +823,7 @@ function EditBody({
       {/* Notes */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <Field label="Prototype notes" hint="What worked, what to change before producing.">
-          <textarea
+          <MentionableTextarea
             value={draft.prototypeNotes}
             onChange={(e) => patch({ prototypeNotes: e.target.value })}
             disabled={pending}
@@ -832,7 +833,7 @@ function EditBody({
           />
         </Field>
         <Field label="Notes" hint="Anything else worth remembering.">
-          <textarea
+          <MentionableTextarea
             value={draft.notes}
             onChange={(e) => patch({ notes: e.target.value })}
             disabled={pending}

@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { Button } from "@/components/ui/Button";
+import { MentionableTextarea } from "@/components/ui/MentionableTextarea";
 import { notify } from "@/lib/notify";
 import { updateCeremonySeating } from "../actions";
 import { reorderGuestGroup } from "../../settings/guest-group-actions";
@@ -147,7 +148,7 @@ export function CeremonyClient({
               Notes
             </label>
             {canEdit ? (
-              <textarea
+              <MentionableTextarea
                 value={config.notes}
                 onChange={(e) => setConfig((c) => ({ ...c, notes: e.target.value }))}
                 rows={3}

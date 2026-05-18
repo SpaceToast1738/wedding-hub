@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/Button";
+import { MentionableTextarea } from "@/components/ui/MentionableTextarea";
 import { Input } from "@/components/ui/Input";
 import {
   createSupplierContact,
@@ -307,7 +308,7 @@ function ContractsSection({
             <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">
               Notes
             </label>
-            <textarea
+            <MentionableTextarea
               name="notes"
               rows={2}
               placeholder="Coverage, deliverables, conditions…"
@@ -442,7 +443,7 @@ function CommunicationsSection({
             <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">
               Summary
             </label>
-            <textarea
+            <MentionableTextarea
               name="summary"
               rows={3}
               required

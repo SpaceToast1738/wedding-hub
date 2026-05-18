@@ -13,6 +13,7 @@
 import { useState, useTransition } from "react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
+import { MentionableTextarea } from "@/components/ui/MentionableTextarea";
 import { notify } from "@/lib/notify";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { CardChrome } from "./CardChrome";
@@ -369,7 +370,7 @@ export function BookWeddingPartyCard({
             <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">
               Notes
             </label>
-            <textarea
+            <MentionableTextarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               onBlur={saveHeader}

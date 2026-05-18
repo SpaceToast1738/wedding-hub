@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { Button } from "@/components/ui/Button";
+import { MentionableTextarea } from "@/components/ui/MentionableTextarea";
 import { answerQuestion } from "@/app/(app)/tasks/actions";
 
 export function AnswerForm({
@@ -23,7 +24,7 @@ export function AnswerForm({
 
   return (
     <div className="mt-2 pl-6 space-y-2">
-      <textarea
+      <MentionableTextarea
         value={value}
         onChange={(e) => setValue(e.target.value)}
         rows={2}

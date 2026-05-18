@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState, useTransition } from "react";
 import { Button } from "@/components/ui/Button";
+import { MentionableTextarea } from "@/components/ui/MentionableTextarea";
 import { notify } from "@/lib/notify";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import {
@@ -533,7 +534,7 @@ function EditBody({
 
       <FieldLabel>
         <Label>Notes</Label>
-        <textarea
+        <MentionableTextarea
           value={draft.notes}
           onChange={(e) => patch({ notes: e.target.value })}
           disabled={pending}

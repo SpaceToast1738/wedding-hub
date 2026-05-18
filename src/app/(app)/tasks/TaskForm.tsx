@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { CustomFieldsBlock } from "@/components/ui/CustomFieldsBlock";
+import { MentionableTextarea } from "@/components/ui/MentionableTextarea";
 import type { CustomFieldDef } from "@/lib/custom-fields";
 import { setTaskCustomField } from "./actions";
 import { TopicPicker, type BookSectionOpt, type BookSubsectionOpt, type NavTagOpt, type GuestGroupOpt } from "./TopicPicker";
@@ -189,7 +190,7 @@ export function TaskForm({
       )}
       <div>
         <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">Notes</label>
-        <textarea name="notes" defaultValue={initial?.notes ?? ""} rows={3}
+        <MentionableTextarea name="notes" defaultValue={initial?.notes ?? ""} rows={3}
           className="w-full text-sm bg-surface text-ink-primary border border-border-soft rounded-sm px-2.5 py-1.5 outline-none focus:border-moss-500" />
       </div>
       {error && <p className="text-xs text-danger">{error}</p>}

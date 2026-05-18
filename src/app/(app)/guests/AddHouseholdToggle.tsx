@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
+import { MentionableTextarea } from "@/components/ui/MentionableTextarea";
 import { AddNewModal } from "@/components/ui/AddNewModal";
 import { createHousehold } from "./actions";
 
@@ -47,7 +48,7 @@ export function AddHouseholdToggle() {
               <option value="BOTH">Both</option>
             </select>
           </div>
-          <textarea
+          <MentionableTextarea
             name="notes"
             rows={2}
             placeholder="Notes (optional)"

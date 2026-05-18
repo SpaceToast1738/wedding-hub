@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { Button } from "@/components/ui/Button";
+import { MentionableTextarea } from "@/components/ui/MentionableTextarea";
 import { notify } from "@/lib/notify";
 import { saveLodgingCard, type LodgingSavePayload } from "../actions";
 import { lodgingRollups } from "@/lib/book-cards";
@@ -273,7 +274,7 @@ function EditBody({
     <div className="space-y-4">
       <FieldLabel>
         <Label>Card-level notes (intro text)</Label>
-        <textarea
+        <MentionableTextarea
           value={draft.notes}
           onChange={(e) => patch({ notes: e.target.value })}
           disabled={pending}

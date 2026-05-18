@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
+import { MentionableTextarea } from "@/components/ui/MentionableTextarea";
 import { AddNewModal } from "@/components/ui/AddNewModal";
 import { BOOK_CARD_KIND_META, BOOK_CARD_KINDS, type BookCardKind } from "@/lib/book-cards";
 import { slugify } from "@/lib/slugify";
@@ -106,7 +107,7 @@ export function AddSubsectionToggle({
           <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">
             Body
           </label>
-          <textarea
+          <MentionableTextarea
             name="body"
             rows={4}
             className="w-full text-sm bg-surface text-ink-primary border border-border-soft rounded-sm px-2.5 py-1.5 outline-none focus:border-moss-500"

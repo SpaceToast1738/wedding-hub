@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
+import { MentionableTextarea } from "@/components/ui/MentionableTextarea";
 
 const STATUSES = ["SHORTLIST", "CONTACTED", "QUOTED", "BOOKED", "PAID", "REJECTED"] as const;
 const COMMON_CATEGORIES = [
@@ -100,7 +101,7 @@ export function SupplierForm({ initial, submitLabel = "Create", onSubmit, onCanc
       </div>
       <div>
         <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">Notes</label>
-        <textarea name="notes" defaultValue={initial?.notes ?? ""} rows={3}
+        <MentionableTextarea name="notes" defaultValue={initial?.notes ?? ""} rows={3}
           className="w-full text-sm bg-surface text-ink-primary border border-border-soft rounded-sm px-2.5 py-1.5 outline-none focus:border-moss-500"
           placeholder="Anything important to remember…" />
       </div>

@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { notify } from "@/lib/notify";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { ImageGallery, type GalleryDisplay, type GallerySize } from "@/components/ui/ImageGallery";
+import { MentionableTextarea } from "@/components/ui/MentionableTextarea";
 import {
   attachFileToOutfitCard,
   detachFileFromOutfitCard,
@@ -700,7 +701,7 @@ function EditBody({
 
       <FieldLabel>
         <Label>Notes</Label>
-        <textarea
+        <MentionableTextarea
           value={draft.notes}
           onChange={(e) => patch({ notes: e.target.value })}
           disabled={pending}
@@ -830,7 +831,7 @@ function ItemEditRow({
           observations. */}
       <FieldLabel>
         <Label>Notes</Label>
-        <textarea
+        <MentionableTextarea
           value={item.notes ?? ""}
           onChange={(e) => onChange({ notes: e.target.value || null })}
           disabled={pending}

@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
+import { MentionableTextarea } from "@/components/ui/MentionableTextarea";
 
 const STATUSES = ["DUE", "SCHEDULED", "PAID", "OVERDUE", "CANCELLED"] as const;
 
@@ -142,7 +143,7 @@ export function PaymentForm({
       />
       <div>
         <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">Notes</label>
-        <textarea name="notes" rows={2} defaultValue={initial?.notes ?? ""}
+        <MentionableTextarea name="notes" rows={2} defaultValue={initial?.notes ?? ""}
           className="w-full text-sm bg-surface text-ink-primary border border-border-soft rounded-sm px-2.5 py-1.5 outline-none focus:border-moss-500" />
       </div>
       {error && <p className="text-xs text-danger">{error}</p>}
