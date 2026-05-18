@@ -4,13 +4,32 @@
 // people as columns, each cell is a status (Need / Have / Already
 // own / N/A). Designed for "are the bridesmaids ready?" rollup.
 //
-// Cell-by-cell save model: each cell change calls setWeddingPartyCell
-// directly. Member / item add / rename / delete / reorder each call
-// their own action. Card header (groupLabel, notes) saves on blur.
+// v1.92.1: matrix flipped — people as rows, items as columns.
 //
-// No giant draft state — matches the /seating reception table pattern.
+// v1.99.1: matrix + notes lifted into the per-card component registry
+// via <ReorderableCardBody>. A "↕ Layout" toggle gated the reorder
+// chrome since the editor used inline-save throughout.
+//
+// v1.99.3: full design pass to match the v1.96.4 OUTFIT card pattern.
+// - groupLabel input dropped entirely — the CardChrome title (e.g.
+//   "Bridesmaids") already identifies the card; carrying both was
+//   redundant duplicate identity. (The DB column stays; it's just
+//   no longer surfaced. Old values aren't migrated either — the
+//   couple can ignore it.)
+// - Stats tile row added at the top: Sorted (X/Y) · People (N) ·
+//   Items (N) — same StatTile component shape as OUTFIT's Sorted /
+//   Budget / Items-total trio.
+// - View / Edit toggle. Pre-v1.99.3 the editor was inline-save: cells
+//   were dropdowns, member/item rename + reorder + delete affordances,
+//   add buttons, and notes textarea were all visible whenever canEdit.
+//   Now everything editable hides until the user clicks Edit; view
+//   mode shows pills + static names + a readonly notes paragraph.
+//   Cells still save individually on change (no draft) — Save just
+//   exits edit mode. Notes uses a draft so a half-typed edit can be
+//   cancelled. The v1.99.1 layoutEditing toggle is gone; reorder
+//   chrome rides on the new `editing` flag like every other kind.
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -77,9 +96,6 @@ const STATUS_META: Record<Status, { glyph: string; label: string; tone: string }
     tone: "bg-canvas border-border-soft text-ink-tertiary",
   },
   ORDERED: {
-    // v1.95.3: marigold tone matches the "in-progress" pill the
-    // tasks panel uses for OPEN — visually distinct from HAVE's
-    // moss "done" tone so the matrix reads at a glance.
     glyph: "→",
     label: "Ordered",
     tone: "bg-marigold-100/40 border-marigold-700/30 text-marigold-700",
@@ -103,8 +119,6 @@ const STATUS_META: Record<Status, { glyph: string; label: string; tone: string }
 
 const STATUSES: Status[] = ["NEED", "ORDERED", "HAVE", "ALREADY_OWN", "N_A"];
 
-// Build a quick (memberId, itemId) → cell lookup; missing cells
-// default to NEED.
 function cellAt(cells: Cell[], memberId: string, itemId: string): Status {
   for (const c of cells) {
     if (c.memberId === memberId && c.itemId === itemId) return c.status as Status;
@@ -124,37 +138,48 @@ export function BookWeddingPartyCard({
   users = [],
 }: Props) {
   const [pending, startTransition] = useTransition();
-  const [groupLabel, setGroupLabel] = useState(card.groupLabel ?? "");
-  const [savedGroupLabel, setSavedGroupLabel] = useState(card.groupLabel ?? "");
-  const [notes, setNotes] = useState(card.notes ?? "");
-  const [savedNotes, setSavedNotes] = useState(card.notes ?? "");
-  // v1.99.1: this editor uses inline-save (no view/edit toggle), so
-  // the reorder/hide chrome is gated by a small "Customise layout"
-  // button instead of an editing flag.
-  const [layoutEditing, setLayoutEditing] = useState(false);
+  const [editing, setEditing] = useState(false);
+  // v1.99.3: notes carry a draft so Cancel can revert. v1.98.1
+  // useEffect gate (if (!editing)) so router.refresh during edit
+  // mode doesn't wipe the draft.
+  const [notesDraft, setNotesDraft] = useState(card.notes ?? "");
+  useEffect(() => {
+    if (!editing) setNotesDraft(card.notes ?? "");
+  }, [card.notes, editing]);
   const router = useRouter();
   const confirm = useConfirm();
 
   // Local optimistic snapshots of the matrix so cell clicks feel
   // instant. Synced on each prop change.
   const [optimisticCells, setOptimisticCells] = useState<Cell[]>(card.cells);
-  // Re-sync when the underlying card prop refreshes (after revalidate).
   if (card.cells !== referenceForCells.current) {
     referenceForCells.current = card.cells;
   }
 
-  function saveHeader() {
-    const nextLabel = groupLabel.trim() || null;
-    const nextNotes = notes.trim() || null;
-    if (nextLabel === (savedGroupLabel || null) && nextNotes === (savedNotes || null)) return;
+  function cancel() {
+    setNotesDraft(card.notes ?? "");
+    setEditing(false);
+  }
+
+  function save() {
+    // Notes is the only draft-backed field; cells save themselves on
+    // click, and member / item renames save inline. If notes haven't
+    // changed, just exit edit mode.
+    const nextNotes = notesDraft.trim() || null;
+    if (nextNotes === (card.notes ?? null)) {
+      setEditing(false);
+      return;
+    }
     startTransition(async () => {
+      // groupLabel kept as-is — column still exists but the editor no
+      // longer surfaces it (v1.99.3).
       const res = await saveWeddingPartyCardHeader(subsectionId, {
-        groupLabel: nextLabel,
+        groupLabel: card.groupLabel,
         notes: nextNotes,
       });
       if (res.ok) {
-        setSavedGroupLabel(nextLabel ?? "");
-        setSavedNotes(nextNotes ?? "");
+        notify("success", "Saved");
+        setEditing(false);
       } else {
         notify("error", res.error);
       }
@@ -162,10 +187,9 @@ export function BookWeddingPartyCard({
   }
 
   function setCell(memberId: string, itemId: string, status: Status) {
-    // Optimistic update.
     setOptimisticCells((prev) => {
       const filtered = prev.filter((c) => !(c.memberId === memberId && c.itemId === itemId));
-      if (status === "NEED") return filtered; // sparse — NEED is the absence of a row
+      if (status === "NEED") return filtered;
       return [...filtered, { memberId, itemId, status, notes: null }];
     });
     startTransition(async () => {
@@ -204,178 +228,164 @@ export function BookWeddingPartyCard({
     });
   }
 
-  // Rollup for the read-mode summary chip.
+  // Rollups for the stats tiles.
   const totalCells = card.members.length * card.items.length;
   const sortedCount = optimisticCells.filter(
     (c) => c.status === "HAVE" || c.status === "ALREADY_OWN" || c.status === "N_A",
   ).length;
 
-  // v1.99.1: matrix + notes lifted into the per-card component
-  // registry. Header row (group label + summary chip) is intrinsic
-  // chrome and stays outside the registry — it identifies the card
-  // rather than being a component of its body.
-  const headerRow = (
-    <div className="flex items-baseline justify-between gap-3 flex-wrap">
-      {canEdit ? (
-        <Input
-          value={groupLabel}
-          onChange={(e) => setGroupLabel(e.target.value)}
-          onBlur={saveHeader}
-          placeholder="e.g. Bridesmaids / Groomsmen / Flower girls"
-          disabled={pending}
-          className="!text-sm !font-semibold flex-1 max-w-sm"
-        />
-      ) : savedGroupLabel ? (
-        <span className="text-sm font-semibold text-ink-primary">{savedGroupLabel}</span>
-      ) : (
-        <span className="text-sm text-ink-tertiary italic">No group name set</span>
-      )}
-      {totalCells > 0 && (
-        <span className="text-[11px] text-ink-tertiary">
-          {sortedCount} of {totalCells} sorted · {card.members.length} {card.members.length === 1 ? "person" : "people"} · {card.items.length} {card.items.length === 1 ? "item" : "items"}
-        </span>
-      )}
+  // v1.99.3: stats tiles — Sorted / People / Items — matching the
+  // OUTFIT card's tile row (v1.96.4 StatTile shape).
+  const statsNode = (
+    <div className="grid grid-cols-3 gap-2">
+      <StatTile
+        label="Sorted"
+        value={totalCells === 0 ? "—" : `${sortedCount} / ${totalCells}`}
+      />
+      <StatTile
+        label="People"
+        value={String(card.members.length)}
+      />
+      <StatTile
+        label="Items"
+        value={String(card.items.length)}
+      />
     </div>
   );
 
+  // Matrix renders pills in view mode, dropdowns in edit mode. Header
+  // affordances (rename / reorder / delete / add buttons) only render
+  // when `editing` — view mode is purely informational.
   const matrixNode = (
     <div className="space-y-3">
-      {/* v1.92.1: matrix flipped on user feedback — people as rows
-          (typical bridal parties = 4-5 people but only 3-4 items, so
-          fewer columns avoids horizontal scroll cutting off names). */}
       {card.members.length === 0 || card.items.length === 0 ? (
-          <p className="text-xs text-ink-tertiary italic">
-            {canEdit
-              ? "Add at least one person and one item to start tracking."
-              : "Nothing to track yet."}
-          </p>
-        ) : (
-          <div className="overflow-x-auto border border-border-soft rounded-md">
-            <table className="text-sm min-w-full">
-              <thead>
-                <tr className="border-b border-border-soft bg-canvas/40">
-                  <th className="px-3 py-2 text-left text-[10px] uppercase tracking-wider text-ink-tertiary font-bold w-48">
-                    Person
+        <p className="text-xs text-ink-tertiary italic">
+          {editing
+            ? "Add at least one person and one item to start tracking."
+            : "Nothing to track yet."}
+        </p>
+      ) : (
+        <div className="overflow-x-auto border border-border-soft rounded-md">
+          <table className="text-sm min-w-full">
+            <thead>
+              <tr className="border-b border-border-soft bg-canvas/40">
+                <th className="px-3 py-2 text-left text-[10px] uppercase tracking-wider text-ink-tertiary font-bold w-48">
+                  Person
+                </th>
+                {card.items.map((item, idx) => (
+                  <th key={item.id} className="px-3 py-2 text-left">
+                    <ItemHeader
+                      item={item}
+                      canEdit={editing}
+                      isFirst={idx === 0}
+                      isLast={idx === card.items.length - 1}
+                      orientation="column"
+                      onRename={(label, notes) => {
+                        startTransition(async () => {
+                          const res = await updateWeddingPartyItem(item.id, { label, notes });
+                          if (!res.ok) notify("error", res.error);
+                        });
+                      }}
+                      onDelete={async () => {
+                        if (!(await confirm({ title: `Remove ${item.label}?`, confirmLabel: "Remove", tone: "danger" }))) return;
+                        startTransition(async () => {
+                          const res = await deleteWeddingPartyItem(item.id);
+                          if (!res.ok) notify("error", res.error);
+                        });
+                      }}
+                      onMove={(direction) => {
+                        const ids = card.items.map((x) => x.id);
+                        const j = idx + (direction === "up" ? -1 : 1);
+                        if (j < 0 || j >= ids.length) return;
+                        const tmp = ids[idx]!;
+                        ids[idx] = ids[j]!;
+                        ids[j] = tmp;
+                        startTransition(async () => {
+                          const res = await reorderWeddingPartyItems(card.id, ids);
+                          if (!res.ok) notify("error", res.error);
+                        });
+                      }}
+                    />
                   </th>
-                  {card.items.map((item, idx) => (
-                    <th key={item.id} className="px-3 py-2 text-left">
-                      <ItemHeader
-                        item={item}
-                        canEdit={canEdit}
-                        isFirst={idx === 0}
-                        isLast={idx === card.items.length - 1}
-                        // v1.92.1: items are now columns — reorder uses
-                        // the "left / right" idiom (mapped to the
-                        // existing onMove("up"/"down") direction).
-                        orientation="column"
-                        onRename={(label, notes) => {
-                          startTransition(async () => {
-                            const res = await updateWeddingPartyItem(item.id, { label, notes });
-                            if (!res.ok) notify("error", res.error);
-                          });
-                        }}
-                        onDelete={async () => {
-                          if (!(await confirm({ title: `Remove ${item.label}?`, confirmLabel: "Remove", tone: "danger" }))) return;
-                          startTransition(async () => {
-                            const res = await deleteWeddingPartyItem(item.id);
-                            if (!res.ok) notify("error", res.error);
-                          });
-                        }}
-                        onMove={(direction) => {
-                          const ids = card.items.map((x) => x.id);
-                          const j = idx + (direction === "up" ? -1 : 1);
-                          if (j < 0 || j >= ids.length) return;
-                          const tmp = ids[idx]!;
-                          ids[idx] = ids[j]!;
-                          ids[j] = tmp;
-                          startTransition(async () => {
-                            const res = await reorderWeddingPartyItems(card.id, ids);
-                            if (!res.ok) notify("error", res.error);
-                          });
-                        }}
-                      />
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {card.members.map((m, idx) => (
-                  <tr key={m.id} className="border-b border-border-soft last:border-b-0">
-                    <td className="px-3 py-2 align-top w-48">
-                      <MemberHeader
-                        member={m}
-                        canEdit={canEdit}
-                        isFirst={idx === 0}
-                        isLast={idx === card.members.length - 1}
-                        // v1.92.1: people are now rows — reorder uses
-                        // the "up / down" idiom.
-                        orientation="row"
-                        onRename={(name, role) => {
-                          startTransition(async () => {
-                            const res = await updateWeddingPartyMember(m.id, { name, role });
-                            if (!res.ok) notify("error", res.error);
-                          });
-                        }}
-                        onDelete={async () => {
-                          if (!(await confirm({ title: `Remove ${m.name}?`, confirmLabel: "Remove", tone: "danger" }))) return;
-                          startTransition(async () => {
-                            const res = await deleteWeddingPartyMember(m.id);
-                            if (!res.ok) notify("error", res.error);
-                          });
-                        }}
-                        onMove={(direction) => {
-                          const ids = card.members.map((x) => x.id);
-                          const j = idx + (direction === "up" ? -1 : 1);
-                          if (j < 0 || j >= ids.length) return;
-                          const tmp = ids[idx]!;
-                          ids[idx] = ids[j]!;
-                          ids[j] = tmp;
-                          startTransition(async () => {
-                            const res = await reorderWeddingPartyMembers(card.id, ids);
-                            if (!res.ok) notify("error", res.error);
-                          });
-                        }}
-                      />
-                    </td>
-                    {card.items.map((item) => {
-                      const status = cellAt(optimisticCells, m.id, item.id);
-                      return (
-                        <td key={item.id} className="px-3 py-2 align-top">
-                          {canEdit ? (
-                            <select
-                              value={status}
-                              onChange={(e) => setCell(m.id, item.id, e.target.value as Status)}
-                              disabled={pending}
-                              className={`text-[11px] rounded-full px-2 py-0.5 border tabular-nums ${STATUS_META[status].tone}`}
-                              title={STATUS_META[status].label}
-                            >
-                              {STATUSES.map((s) => (
-                                <option key={s} value={s}>
-                                  {STATUS_META[s].glyph} {STATUS_META[s].label}
-                                </option>
-                              ))}
-                            </select>
-                          ) : (
-                            <span
-                              className={`inline-flex items-center gap-1 text-[11px] rounded-full px-2 py-0.5 border ${STATUS_META[status].tone}`}
-                              title={STATUS_META[status].label}
-                            >
-                              <span aria-hidden>{STATUS_META[status].glyph}</span>
-                              <span>{STATUS_META[status].label}</span>
-                            </span>
-                          )}
-                        </td>
-                      );
-                    })}
-                  </tr>
                 ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+              </tr>
+            </thead>
+            <tbody>
+              {card.members.map((m, idx) => (
+                <tr key={m.id} className="border-b border-border-soft last:border-b-0">
+                  <td className="px-3 py-2 align-top w-48">
+                    <MemberHeader
+                      member={m}
+                      canEdit={editing}
+                      isFirst={idx === 0}
+                      isLast={idx === card.members.length - 1}
+                      orientation="row"
+                      onRename={(name, role) => {
+                        startTransition(async () => {
+                          const res = await updateWeddingPartyMember(m.id, { name, role });
+                          if (!res.ok) notify("error", res.error);
+                        });
+                      }}
+                      onDelete={async () => {
+                        if (!(await confirm({ title: `Remove ${m.name}?`, confirmLabel: "Remove", tone: "danger" }))) return;
+                        startTransition(async () => {
+                          const res = await deleteWeddingPartyMember(m.id);
+                          if (!res.ok) notify("error", res.error);
+                        });
+                      }}
+                      onMove={(direction) => {
+                        const ids = card.members.map((x) => x.id);
+                        const j = idx + (direction === "up" ? -1 : 1);
+                        if (j < 0 || j >= ids.length) return;
+                        const tmp = ids[idx]!;
+                        ids[idx] = ids[j]!;
+                        ids[j] = tmp;
+                        startTransition(async () => {
+                          const res = await reorderWeddingPartyMembers(card.id, ids);
+                          if (!res.ok) notify("error", res.error);
+                        });
+                      }}
+                    />
+                  </td>
+                  {card.items.map((item) => {
+                    const status = cellAt(optimisticCells, m.id, item.id);
+                    return (
+                      <td key={item.id} className="px-3 py-2 align-top">
+                        {editing ? (
+                          <select
+                            value={status}
+                            onChange={(e) => setCell(m.id, item.id, e.target.value as Status)}
+                            disabled={pending}
+                            className={`text-[11px] rounded-full px-2 py-0.5 border tabular-nums ${STATUS_META[status].tone}`}
+                            title={STATUS_META[status].label}
+                          >
+                            {STATUSES.map((s) => (
+                              <option key={s} value={s}>
+                                {STATUS_META[s].glyph} {STATUS_META[s].label}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <span
+                            className={`inline-flex items-center gap-1 text-[11px] rounded-full px-2 py-0.5 border ${STATUS_META[status].tone}`}
+                            title={STATUS_META[status].label}
+                          >
+                            <span aria-hidden>{STATUS_META[status].glyph}</span>
+                            <span>{STATUS_META[status].label}</span>
+                          </span>
+                        )}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
-      {/* Add-row + Add-column buttons. */}
-      {canEdit && (
+      {/* v1.99.3: Add-row + Add-column buttons hidden in view mode. */}
+      {editing && (
         <div className="flex flex-wrap gap-2">
           <Button variant="ghost" size="sm" onClick={addMember} disabled={pending}>
             + Add person (row)
@@ -388,33 +398,37 @@ export function BookWeddingPartyCard({
     </div>
   );
 
-  const notesNode = canEdit ? (
+  const notesNode = editing ? (
     <div>
       <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">
         Notes
       </label>
       <MentionableTextarea
-        value={notes}
-        onChange={(e) => setNotes(e.target.value)}
-        onBlur={saveHeader}
+        value={notesDraft}
+        onChange={(e) => setNotesDraft(e.target.value)}
         rows={2}
         disabled={pending}
         placeholder="Anything worth remembering about the group — colour scheme, suppliers, gift list."
         className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2.5 py-1.5 text-ink-primary outline-none focus:border-moss-500 resize-y"
       />
     </div>
-  ) : savedNotes ? (
+  ) : card.notes ? (
     <div>
       <strong className="block text-[10px] uppercase tracking-wider text-ink-tertiary font-bold mb-1">
         Notes
       </strong>
-      <p className="text-sm text-ink-secondary whitespace-pre-wrap">{savedNotes}</p>
+      <p className="text-sm text-ink-secondary whitespace-pre-wrap">{card.notes}</p>
     </div>
   ) : (
     <p className="text-xs text-ink-tertiary italic">No notes.</p>
   );
 
   const components: CardComponent[] = [
+    {
+      id: "stats",
+      label: "Stats",
+      node: statsNode,
+    },
     {
       id: "matrix",
       label: "Matrix",
@@ -425,6 +439,11 @@ export function BookWeddingPartyCard({
     },
     { id: "notes", label: "Notes", node: notesNode },
   ];
+
+  // v1.99.3: silence "unused import" warnings now that the inline
+  // groupLabel input is gone — Input stays imported only because it's
+  // referenced by the MemberHeader / ItemHeader edit forms.
+  void Input;
 
   return (
     <CardChrome
@@ -437,33 +456,53 @@ export function BookWeddingPartyCard({
       kindBadge="Wedding party"
       linkedTasks={linkedTasks}
       users={users}
-      hideHousekeeping={layoutEditing}
+      hideHousekeeping={editing}
       actions={
-        canEdit ? (
-          <Button
-            variant={layoutEditing ? "primary" : "ghost"}
-            size="sm"
-            onClick={() => setLayoutEditing((v) => !v)}
-            disabled={pending}
-          >
-            {layoutEditing ? "Done" : "↕ Layout"}
-          </Button>
-        ) : undefined
+        canEdit
+          ? editing
+            ? (
+              <>
+                <Button variant="ghost" size="sm" onClick={cancel} disabled={pending}>
+                  Cancel
+                </Button>
+                <Button variant="primary" size="sm" onClick={save} disabled={pending}>
+                  Save changes
+                </Button>
+              </>
+            )
+            : (
+              <Button variant="primary" size="sm" onClick={() => setEditing(true)}>
+                Edit
+              </Button>
+            )
+          : undefined
       }
     >
-      <div className="space-y-4">
-        {headerRow}
-        <ReorderableCardBody
-          components={components}
-          savedOrder={card.componentOrder}
-          hiddenIds={card.hiddenComponents}
-          editMode={layoutEditing}
-          pending={pending}
-          onReorder={reorderComponents}
-          onToggleHidden={toggleComponentHidden}
-        />
-      </div>
+      <ReorderableCardBody
+        components={components}
+        savedOrder={card.componentOrder}
+        hiddenIds={card.hiddenComponents}
+        editMode={editing}
+        pending={pending}
+        onReorder={reorderComponents}
+        onToggleHidden={toggleComponentHidden}
+      />
     </CardChrome>
+  );
+}
+
+// v1.99.3: small bordered stat tile — copy of the helper inside
+// BookOutfitCard. Duplicated rather than extracted because the two
+// callers sit alongside each other and have minor styling drift; a
+// shared module isn't earning its keep yet.
+function StatTile({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="bg-canvas border border-border-soft rounded-md px-3 py-2">
+      <div className="text-[9px] uppercase tracking-wider text-ink-tertiary font-bold">
+        {label}
+      </div>
+      <div className="text-sm font-semibold text-ink-primary tabular-nums">{value}</div>
+    </div>
   );
 }
 
@@ -492,8 +531,6 @@ function MemberHeader({
   onRename: (name: string, role: string | null) => void;
   onDelete: () => void;
   onMove: (direction: "up" | "down") => void;
-  // v1.92.1: pick the right arrow glyphs for the move buttons —
-  // "row" headers reorder up/down, "column" headers reorder left/right.
   orientation?: "row" | "column";
 }) {
   const prevGlyph = orientation === "row" ? "▲" : "◀";
@@ -626,8 +663,6 @@ function ItemHeader({
   onRename: (label: string, notes: string | null) => void;
   onDelete: () => void;
   onMove: (direction: "up" | "down") => void;
-  // v1.92.1: items are now column headers when the matrix is flipped,
-  // so the reorder arrows need to read as left/right rather than up/down.
   orientation?: "row" | "column";
 }) {
   const prevGlyph = orientation === "row" ? "▲" : "◀";
