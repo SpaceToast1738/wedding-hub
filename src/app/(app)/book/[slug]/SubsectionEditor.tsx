@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { RichTextEditor, RichTextRead } from "@/components/ui/RichTextEditor";
-import { ImageGallery } from "@/components/ui/ImageGallery";
+import { ImageGallery, type GallerySize } from "@/components/ui/ImageGallery";
 import { notify } from "@/lib/notify";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { legacyBodyToHtml } from "@/lib/sanitize-book-html";
@@ -13,6 +13,7 @@ import {
   attachFileToTextCard,
   deleteBookSubsection,
   detachFileFromTextCard,
+  setBookSubsectionPhotoSize,
   setBookSubsectionVisibility,
   updateBookSubsection,
   uploadAndAttachTextFile,
@@ -42,6 +43,11 @@ type Sub = {
   // v1.96.1: photo gallery on TEXT cards. Default to empty array if
   // an upstream caller doesn't thread it (older callers stay safe).
   fileIds?: string[];
+  // v1.96.5: per-card gallery thumbnail size (sm / md / lg). Persisted
+  // on BookSubsection.photoSize (v1.96.4 column); the S/M/L toggle
+  // surfaces in <ImageGallery> here so TEXT cards can resize their
+  // photo block too — not just OUTFIT.
+  photoSize?: GallerySize;
 };
 
 export function SubsectionEditor({
@@ -153,6 +159,17 @@ export function SubsectionEditor({
   // UI / pending state behaves correctly; router.refresh() syncs the
   // gallery against the new `sub.fileIds` once revalidate completes.
   const fileIds = sub.fileIds ?? [];
+  // v1.96.5: gallery thumb size — mirrors the v1.96.4 OUTFIT wiring.
+  // Defensive 'md' fallback for rows pre-dating the v1.96.4 schema
+  // column (shouldn't happen post-migration, but cheap to guard).
+  const photoSize: GallerySize = sub.photoSize ?? "md";
+  function changePhotoSize(next: GallerySize) {
+    startTransition(async () => {
+      const res = await setBookSubsectionPhotoSize(sub.id, next);
+      if (res.ok) router.refresh();
+      else notify("error", res.error);
+    });
+  }
   function attachFile(fileId: string) {
     startTransition(async () => {
       const res = await attachFileToTextCard(sub.id, fileId);
@@ -237,6 +254,10 @@ export function SubsectionEditor({
               }}
               onAttach={attachFile}
               onDetach={detachFile}
+              // v1.96.5: per-card thumb size + S/M/L toggle, parity
+              // with OUTFIT's v1.96.4 wiring.
+              size={photoSize}
+              onSizeChange={changePhotoSize}
             />
           </div>
         )}

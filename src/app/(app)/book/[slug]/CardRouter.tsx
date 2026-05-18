@@ -457,6 +457,14 @@ function renderCardBody(
             visibility: sub.visibility,
             // v1.96.1: TEXT card photo gallery.
             fileIds: sub.fileIds,
+            // v1.96.5: gallery thumb size lives on BookSubsection
+            // (the v1.96.4 column). Narrow the DB string to the
+            // GallerySize union with a defensive 'md' fallback —
+            // matches the OUTFIT case below.
+            photoSize:
+              sub.photoSize === "sm" || sub.photoSize === "lg"
+                ? sub.photoSize
+                : "md",
           }}
           canEdit={canEdit}
           isCouple={isCouple}
