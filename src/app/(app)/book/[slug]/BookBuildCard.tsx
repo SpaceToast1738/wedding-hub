@@ -166,9 +166,11 @@ export function BookBuildCard({
   // ── Draft state — only relevant in edit mode. Reset whenever
   // the underlying card prop changes (after a save/revalidate).
   const [draft, setDraft] = useState(() => buildDraft(card));
+  // v1.98.1: gated on !editing — see BookOutfitCard for the bug
+  // context (router.refresh during edit mode wipes the draft).
   useEffect(() => {
-    setDraft(buildDraft(card));
-  }, [card]);
+    if (!editing) setDraft(buildDraft(card));
+  }, [card, editing]);
 
   function cancel() {
     setDraft(buildDraft(card));

@@ -134,9 +134,20 @@ export function BookOutfitCardEditor({
   const [editing, setEditing] = useState(false);
   const confirm = useConfirm();
   const [draft, setDraft] = useState(() => buildDraft(card));
+  // v1.98.1: only re-sync from the prop when NOT editing. Pre-fix the
+  // dep was [card] alone — every parent re-render hands a fresh
+  // `card` object reference (CardRouter constructs it inline), so the
+  // effect fired constantly. That was tolerable until photo-size
+  // toggles started calling `router.refresh()` mid-edit: the refresh
+  // triggered a parent re-render → new `card` ref → effect → draft
+  // wiped → user's pending edits vanished → save no-op'd because
+  // dirty became false. Gating on `!editing` keeps the draft alive
+  // through any prop churn while edit-mode is open; the
+  // editing → false transition still fires the effect, syncing the
+  // view-mode body to the freshly-saved card.
   useEffect(() => {
-    setDraft(buildDraft(card));
-  }, [card]);
+    if (!editing) setDraft(buildDraft(card));
+  }, [card, editing]);
 
   function cancel() {
     setDraft(buildDraft(card));

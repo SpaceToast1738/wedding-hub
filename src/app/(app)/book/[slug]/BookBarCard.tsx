@@ -82,9 +82,12 @@ export function BookBarCard({
   const [pending, startTransition] = useTransition();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(() => buildDraft(card));
+  // v1.98.1: gated on !editing to stop router.refresh-driven parent
+  // re-renders from wiping the in-progress draft. See BookOutfitCard
+  // for the full forensic comment.
   useEffect(() => {
-    setDraft(buildDraft(card));
-  }, [card]);
+    if (!editing) setDraft(buildDraft(card));
+  }, [card, editing]);
 
   function cancel() {
     setDraft(buildDraft(card));

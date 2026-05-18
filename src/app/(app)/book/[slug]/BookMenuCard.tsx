@@ -86,9 +86,11 @@ export function BookMenuCard({
   const [pending, startTransition] = useTransition();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(() => buildDraft(card));
+  // v1.98.1: gated on !editing — see BookOutfitCard for the bug
+  // context (router.refresh during edit mode wipes the draft).
   useEffect(() => {
-    setDraft(buildDraft(card));
-  }, [card]);
+    if (!editing) setDraft(buildDraft(card));
+  }, [card, editing]);
 
   function cancel() {
     setDraft(buildDraft(card));

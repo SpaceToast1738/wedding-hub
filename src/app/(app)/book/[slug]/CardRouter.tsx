@@ -467,8 +467,10 @@ function renderCardBody(
             // (the v1.96.4 column). Narrow the DB string to the
             // GallerySize union with a defensive 'md' fallback —
             // matches the OUTFIT case below.
+            // v1.98.1: union widened to xs / sm / md / lg / xl.
             photoSize:
-              sub.photoSize === "sm" || sub.photoSize === "lg"
+              sub.photoSize === "xs" || sub.photoSize === "sm" ||
+              sub.photoSize === "lg" || sub.photoSize === "xl"
                 ? sub.photoSize
                 : "md",
             // v1.97.0: display mode + header pin + slideshow auto.
@@ -569,8 +571,10 @@ function renderCardBody(
             // BookSubsection (sibling to wide / fileIds). Narrow the
             // string from the DB to the typed union; fallback to
             // "md" defends against unexpected values.
+            // v1.98.1: union widened to xs / sm / md / lg / xl.
             photoSize:
-              sub.photoSize === "sm" || sub.photoSize === "lg"
+              sub.photoSize === "xs" || sub.photoSize === "sm" ||
+              sub.photoSize === "lg" || sub.photoSize === "xl"
                 ? sub.photoSize
                 : "md",
             // v1.97.0: display mode + pinned header + slideshow auto.

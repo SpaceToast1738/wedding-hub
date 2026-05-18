@@ -48,13 +48,19 @@ export type GalleryFile = {
   mimeType: string;
 };
 
-export type GallerySize = "sm" | "md" | "lg";
+// v1.98.1: extended from 3 buckets (sm/md/lg) to 5 (xs/sm/md/lg/xl).
+// xs is for cards stuffed with reference photos where the couple just
+// wants to glance at the spread; xl is the "show me one shot prominently
+// in gallery mode without switching to header" lever.
+export type GallerySize = "xs" | "sm" | "md" | "lg" | "xl";
 export type GalleryDisplay = "gallery" | "header" | "slideshow";
 
 const SIZE_GRID_CLASSES: Record<GallerySize, string> = {
+  xs: "grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-1",
   sm: "grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-1.5",
   md: "grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2",
   lg: "grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3",
+  xl: "grid-cols-1 md:grid-cols-2 gap-4",
 };
 
 export function isImageMime(mime: string): boolean {
@@ -339,9 +345,16 @@ function SizeToggle({
   onChange: (next: GallerySize) => void;
   pending: boolean;
 }) {
+  const labels: Record<GallerySize, string> = {
+    xs: "extra small",
+    sm: "small",
+    md: "medium",
+    lg: "large",
+    xl: "extra large",
+  };
   return (
     <div className="flex items-center justify-end gap-0.5">
-      {(["sm", "md", "lg"] as const).map((s) => {
+      {(["xs", "sm", "md", "lg", "xl"] as const).map((s) => {
         const active = s === value;
         return (
           <button
@@ -350,7 +363,7 @@ function SizeToggle({
             onClick={() => onChange(s)}
             disabled={pending || active}
             aria-pressed={active}
-            title={`Photo size: ${s === "sm" ? "small" : s === "md" ? "medium" : "large"}`}
+            title={`Photo size: ${labels[s]}`}
             className={[
               "text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded-sm border transition-colors",
               active
@@ -544,7 +557,7 @@ function HeaderHero({
     : null;
   if (!hero) {
     return (
-      <div className="w-full aspect-[16/9] rounded-md border border-dashed border-border-soft bg-canvas flex flex-col items-center justify-center gap-1 text-center px-4">
+      <div className="w-full h-[260px] rounded-md border border-dashed border-border-soft bg-canvas flex flex-col items-center justify-center gap-1 text-center px-4">
         <span className="text-2xl">📷</span>
         <span className="text-xs text-ink-secondary font-medium">
           Pick a header image
@@ -557,11 +570,23 @@ function HeaderHero({
       </div>
     );
   }
+  // v1.98.1: fixed 260 px height (pre-fix the hero used `aspect-[16/9]`
+  // which made the height depend on the card's width — wide cards
+  // got tall heroes that pushed the body well below the fold).
+  // Bottom-fade via CSS mask so the image visually melts into the
+  // body content below rather than ending in a hard rectangle edge.
+  // `webkitMaskImage` mirror keeps Safari happy.
+  const fadeStyle = {
+    maskImage:
+      "linear-gradient(to bottom, black 0%, black 75%, transparent 100%)",
+    WebkitMaskImage:
+      "linear-gradient(to bottom, black 0%, black 75%, transparent 100%)",
+  } as const;
   return (
     <button
       type="button"
       onClick={() => onOpenLightbox(hero.id)}
-      className="block w-full aspect-[16/9] overflow-hidden rounded-md border border-border-soft bg-canvas hover:border-moss-300 focus:outline-none focus:border-moss-500"
+      className="block w-full h-[260px] overflow-hidden rounded-md bg-canvas focus:outline-none"
       title={hero.name}
     >
       {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -570,6 +595,7 @@ function HeaderHero({
         alt={hero.name}
         loading="lazy"
         className="w-full h-full object-cover"
+        style={fadeStyle}
       />
     </button>
   );

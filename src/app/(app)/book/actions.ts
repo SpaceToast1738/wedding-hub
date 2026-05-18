@@ -472,7 +472,10 @@ export async function setBookSubsectionWide(
 // — same access tier (book-edit, no couple gate), same audit shape,
 // same idempotent no-op guard. Surfaces as a S/M/L toggle in
 // <ImageGallery> when the parent card wires it up.
-const PHOTO_SIZES = ["sm", "md", "lg"] as const;
+// v1.98.1: extended from 3 buckets to 5 — xs + xl added at the
+// extremes for the "wall of reference shots" and "one prominent hero
+// in gallery mode" cases respectively.
+const PHOTO_SIZES = ["xs", "sm", "md", "lg", "xl"] as const;
 type PhotoSize = (typeof PHOTO_SIZES)[number];
 
 export async function setBookSubsectionPhotoSize(

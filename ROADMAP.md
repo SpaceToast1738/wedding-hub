@@ -34,6 +34,7 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
+| **v1.98.1** | 2026-05-18 | [Fix save-after-photo-size-change + XS/XL sizes + header fade. User: "I cant save once an image has been changed size, can you also create a set size for the header and fade it into the note block? Allow me to shuffle components of a page around. Can you add an xs and xl size." Three fixes shipped (shuffle deferred — needs its own design pass). **(1) Bug fix — save-after-toggle.** v1.96.4 introduced `router.refresh()` after each photo-size action; v1.97.0 added the same for display/pin/auto. Pre-fix BookOutfitCard's `useEffect(() => setDraft(buildDraft(card)), [card])` triggered on every parent re-render (each render constructs a fresh `card` object literal in CardRouter, so the ref always changed). Result: any router.refresh during edit mode wiped the in-progress draft → Save read `dirty=false` → no-op. Fix: gate the effect on `if (!editing)` so the draft survives prop churn while edit-mode is open; the editing→false transition still re-syncs against fresh server state. Same latent pattern fixed preemptively across 7 other card editors (BookBarCard, BookBuildCard, BookLegalCard, BookLodgingCard, BookMenuCard, BookSetupCard, BookStayCard) so they don't hit the same bug when their photo-toggles get wired in v1.97.x follow-ups. **(2) XS + XL sizes.** Photo-size toggle goes from 3 buckets (S/M/L) to 5 (XS/S/M/L/XL). XS grid: 4-6-8 cols. XL grid: 1-2 cols. Server action's allowlist + the GallerySize union + CardRouter narrowing all updated to match. **(3) Header mode fade.** Pre-fix the hero used `aspect-[16/9]` which made height vary with card width; wide cards got tall heroes that pushed the body below the fold. Now fixed `h-[260px]`. New CSS-mask bottom-fade (`linear-gradient to bottom, black 75% → transparent 100%`) makes the image visually melt into the body content rather than ending in a hard rectangle edge. **(deferred) Shuffle components.** Reordering the major sections within a card (header / photos / stats / items / notes / linked tasks) needs a design pass — per-card vs per-kind, drag handles vs ↑/↓ buttons, persistence shape. Queuing for v1.99.0. 586 tests stay green.](#2026-05-18--v1981--save-fix--xsxl--header-fade) |
 | **v1.98.0** | 2026-05-18 | [@-mention suppliers from any textarea. User: "allow me to tag a vendor by typing in any text box '@'". New shared `<MentionableTextarea>` component (drop-in replacement for `<textarea>`) listens for `@` at word-start, fetches the supplier list lazily on first trigger via a new `loadSuppliersForMention` server action, and pops a filtered dropdown. Arrow keys / Enter / Tab navigate + select; Esc / whitespace / click-outside dismiss. Selecting inserts `@SupplierName ` (with trailing space) at the cursor position. Storage is plain text — no DB migration; existing notes columns persist the string unchanged. Read-side display kept as-is for v1.98.0 (the `@SupplierName` text just sits there); a richer click-through render is a follow-up candidate. **Swept across 23 textareas** in 20 files: every Book card editor's notes field (BookOutfitCard item notes + card notes, BookBarCard, BookBuildCard, BookLegalCard, BookLodgingCard, BookMenuCard, BookRecipeCard, BookSetupCard, BookStayCard, BookWeddingPartyCard, AddSubsectionToggle body), TaskForm + TaskDrawer notes, AnswerForm, EventForm, GuestForm, AddHouseholdToggle, BudgetClient, PaymentForm, SupplierForm + SupplierDetailClient (communication log), SeatingPlanPanel + ceremony's CeremonyClient. CSV-import paste boxes (TaskImportClient / ImportClient) intentionally skipped — those aren't authoring surfaces. **Tiptap (TEXT card body)** — separate code path with its own mention extension; deferred to v1.98.1. Permission: any user with `canView("suppliers")` can mention. No schema migration. 586 tests stay green.](#2026-05-18--v1980--mention-suppliers-from-textareas) |
 | **v1.97.0** | 2026-05-18 | [Book card design pass — photos to the top, three display modes, edit-only management, role chip inline. User: "I dont like the 'bride' chip being on its own row, only display size editing in its own screen. Move images to the top of the card, & only show image management in the edit screen, have options to make an image a header or gallery or slideshow. Lets think about the design of these cards." **(1) Three photo display modes.** New schema columns `photoDisplay TEXT NOT NULL DEFAULT 'gallery'`, `headerFileId TEXT`, `slideshowAuto BOOLEAN NOT NULL DEFAULT false` on BookSubsection (migration `20260518100000_book_photo_display_modes`). `<ImageGallery>` pivots from a single grid to a mode-router that picks one of three sub-renderers: `GalleryGrid` (v1.96.4 default, with S/M/L sizing + a ★ pin button per thumb to promote it to header), `HeaderHero` (16:9 hero image picked from `headerFileId`, placeholder + prompt when not pinned), `SlideshowCarousel` (one image at a time, prev/next + dot indicators + per-card Auto/Manual toggle). New `setBookSubsectionPhotoDisplay` / `setBookSubsectionHeaderFileId` / `setBookSubsectionSlideshowAuto` server actions mirror v1.96.4's `setBookSubsectionPhotoSize` (book-edit gate, audit metadata, idempotent no-op). Pin action validates the file is actually attached so a dangling hero is impossible. **(2) Edit-only management.** New `editMode` prop on `<ImageGallery>` is the single gate for every management affordance (S/M/L toggle, upload, attach picker, detach ×, display picker, ★ pin, Auto toggle). View-mode readers see only the photos. **(3) Photos move to top of card.** New `mediaBlock` slot on `CardChrome` renders between the title row and the body children. Per-kind editors lift their gallery into this slot. **(4) Role chip inline with title.** New `headerChips` slot on `CardChrome` renders alongside the kindBadge in the title row. OUTFIT's BRIDE/GROOM chip lifts here; the person+role sub-row deleted entirely (the v1.92.2 redundant-name suppression already hid it in the common case). **(5) SubsectionEditor migrated to CardChrome.** TEXT cards drop their bespoke `<article>` chrome / title input / footer in favour of CardChrome's. Title is now inline-editable on blur (parity with every other kind). Body save posts only `bodyHtml` (no more `title` clobber). Edit / Cancel / Save lift to `CardChrome.actions`. New `kindBadge="Notes"` surfaces. Wired on OUTFIT + TEXT (v1.97.0); other 5 ImageGallery-using kinds (DRESS_CODE / SETUP / BUILD / STAY / LODGING_GUIDE) inherit the gallery prop surface but their editors still need to thread the three new fields — mechanical follow-up. 586 tests stay green.](#2026-05-18--v1970--card-design-pass) |
 | **v1.96.5** | 2026-05-18 | [Photo-size S/M/L toggle on TEXT cards. User: "I cant edit the ring image size" — flagged the v1.96.4 limitation where the gallery resize was wired only into BookOutfitCard. SubsectionEditor (the TEXT card path) reads `sub.photoSize` from `BookSubsection` (the v1.96.4 schema column) and passes it as `size` to `<ImageGallery>` along with an `onSizeChange` handler that calls `setBookSubsectionPhotoSize` + `router.refresh()`. Mirrors the v1.96.4 OUTFIT wiring exactly — same defensive `'md'` fallback for unexpected DB values, same v1.95.4 refresh pattern. `CardRouter` TEXT case threads `sub.photoSize` into the constructed `Sub` payload. No schema migration. Other 5 ImageGallery-using card kinds (DRESS_CODE / SETUP / BUILD / STAY / LODGING_GUIDE) still inherit the default `'md'` until each editor is migrated — mechanical follow-up. 586 tests stay green.](#2026-05-18--v1965--text-card-photo-size-toggle) |
@@ -951,6 +952,75 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-05-18 · v1.98.1 — Save-fix + XS/XL + header fade
+
+User: "I cant save once an image has been changed size, can you also create a set size for the header and fade it into the note block? Allow me to shuffle components of a page around. Can you add an xs and xl size."
+
+Three fixes shipped here; "shuffle components" deferred to v1.99.0 — it needs a design pass (per-card vs per-kind, drag handles vs ↑/↓ buttons, persistence shape) that doesn't fit a patch release.
+
+**1. Bug — save broken after photo-size toggle.**
+
+Root cause: the v1.96.4 `setBookSubsectionPhotoSize` action (and v1.97.0's `setBookSubsectionPhotoDisplay` / `-HeaderFileId` / `-SlideshowAuto`) calls `router.refresh()` after the server mutation. Pre-fix `BookOutfitCard` had:
+
+```ts
+useEffect(() => { setDraft(buildDraft(card)); }, [card]);
+```
+
+The `card` object is constructed inline in `CardRouter` (`card={{ id: oc.id, ... }}`) — every parent re-render produces a fresh object reference. The effect therefore fired on every parent re-render, not just when `card` semantically changed. With router.refresh now firing mid-edit (via any photo-toggle click), the cascade was:
+
+1. User clicks S/M/L (or display / pin / auto) → server action → `router.refresh()`
+2. Page re-renders → CardRouter re-renders → fresh `card` object handed to BookOutfitCardEditor
+3. useEffect fires → `setDraft(buildDraft(card))` → **wipes the in-progress draft**
+4. Save button reads `dirty=false` (draft now matches prop) → click no-ops
+
+Fix: gate the effect on `if (!editing)`:
+
+```ts
+useEffect(() => {
+  if (!editing) setDraft(buildDraft(card));
+}, [card, editing]);
+```
+
+Now the draft survives any prop churn while edit-mode is open. The `editing → false` transition (via save or cancel) still fires the effect so the view-mode body re-syncs to the freshly-saved card.
+
+**Sweep-fix across the other 7 editors** that used the same `[card]` dep pattern: `BookBarCard`, `BookBuildCard`, `BookLegalCard`, `BookLodgingCard`, `BookMenuCard`, `BookSetupCard`, `BookStayCard`. None of them currently call `router.refresh` during edit mode, but v1.97.0's out-of-scope notes flagged the other 5 gallery-using kinds for the same media-block treatment. Fixing the latent bug now is cheaper than chasing it across 7 editors during later releases. `SubsectionEditor` (TEXT cards) and `BookDressCodeCard` both use primitive-string deps already (`[sub.id, initialHtml]` / `[card.id, card.dressCode, ...]`) — same string ref after refresh, the effect doesn't fire. No fix needed there.
+
+**2. XS + XL sizes.**
+
+Photo size buckets extend from 3 (sm/md/lg) to 5 (xs/sm/md/lg/xl). The two new sizes:
+
+- **xs** — `grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-1`. ~50–70 px thumbs. For cards stuffed with reference shots where the couple just wants to glance at the spread.
+- **xl** — `grid-cols-1 md:grid-cols-2 gap-4`. ~300+ px thumbs. The "show me one shot prominently in gallery mode without switching to header" lever.
+
+`GallerySize` union widened, `SIZE_GRID_CLASSES` map gains the two new entries, `SizeToggle` renders 5 buttons, server-side `PHOTO_SIZES` allowlist mirrors the union, `CardRouter` narrowing recognises the new values with a defensive `'md'` fallback for anything unexpected.
+
+**3. Header fixed height + bottom-fade.**
+
+Pre-fix `HeaderHero` used `aspect-[16/9]`, which made height proportional to card width — wide-spanning cards got tall heroes that pushed the body below the fold. Now fixed `h-[260px]` regardless of width. Empty-state placeholder gets the same fixed height so the card doesn't reflow when a hero gets pinned.
+
+The fade-into-body effect uses a CSS mask gradient on the `<img>`:
+
+```css
+mask-image: linear-gradient(to bottom, black 0%, black 75%, transparent 100%);
+-webkit-mask-image: linear-gradient(to bottom, black 0%, black 75%, transparent 100%);
+```
+
+The bottom 25% of the image fades from full opacity to transparent so the hero visually melts into the body content rather than ending in a hard rectangle edge. Border + hover-border removed from the header button since they'd compete with the soft fade.
+
+**Verification:**
+- `npx tsc --noEmit`, `npm test` (586 passing), `npm run build` — all green.
+- Manual: open an OUTFIT card → Edit → toggle S/M/L (no draft wipe) → still in edit mode with edits intact → click Save → persists.
+- Manual: switch to header mode with a pinned image → see the 260 px tall hero with the bottom fading into the card body.
+- Manual: cycle through XS / SM / MD / LG / XL → grid columns reflow per size.
+
+**Deferred — "shuffle components of a page".** This is a bigger feature than the other three. Open questions:
+- Per-card layout (each card stores its own component order) vs per-kind (every OUTFIT looks the same)?
+- Drag handles + drag-and-drop or simple ↑/↓ buttons next to each component?
+- How does this interact with `mediaBlock` and `actions` which are CardChrome slots, not body children?
+- Schema shape — `componentOrder String[]` on BookSubsection or a per-card JSON?
+
+Queueing as v1.99.0 with a proper design pass.
 
 ### 2026-05-18 · v1.98.0 — @-mention suppliers from textareas
 
