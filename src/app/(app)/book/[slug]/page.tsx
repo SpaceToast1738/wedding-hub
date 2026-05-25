@@ -89,15 +89,6 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
           setupCard: {
             include: { items: { orderBy: { order: "asc" } } },
           },
-          // v1.34.0: LEGAL card + per-item file references.
-          legalCard: {
-            include: {
-              items: {
-                orderBy: { order: "asc" },
-                include: { file: { select: { id: true, name: true } } },
-              },
-            },
-          },
           // v1.36.0: STAY + LODGING_GUIDE cards. v1.78.0: + budgetLine.
           stayCard: {
             include: {
@@ -274,27 +265,21 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
       )
     : [];
 
-  // v1.34.0: wedding date + files list for LEGAL cards' expiry flag
-  // and per-item file picker.
-  // v1.35.0: OUTFIT cards also use the file list for the per-card
-  // photo picker — a single fetch covers both kinds when either is
-  // present.
-  const hasLegal = section.subsections.some((s) => s.kind === "LEGAL");
-  const hasOutfit = section.subsections.some((s) => s.kind === "OUTFIT");
+  // v1.35.0: OUTFIT cards use a file list for the per-card photo
+  // picker — single fetch covers them.
   // v1.96.1: TEXT cards get a photo gallery, so any section with a
   // TEXT card also needs the full file list for the attach picker.
+  // v2.0.0: LEGAL kind dropped (was UK-centric); the wedding-date
+  // passthrough + `hasLegal` predicate retired with it.
+  const hasOutfit = section.subsections.some((s) => s.kind === "OUTFIT");
   const hasText = section.subsections.some((s) => s.kind === "TEXT");
-  const needFiles = hasLegal || hasOutfit || hasText;
-  const [weddingSettings, allFiles] = needFiles
-    ? await Promise.all([
-        hasLegal ? db.weddingSettings.findUnique({ where: { id: 1 } }) : Promise.resolve(null),
-        db.file.findMany({
-          orderBy: { name: "asc" },
-          select: { id: true, name: true, mimeType: true },
-        }),
-      ])
-    : [null, [] as Array<{ id: string; name: string; mimeType: string }>];
-  const legalWeddingDate = weddingSettings?.weddingDate ?? null;
+  const needFiles = hasOutfit || hasText;
+  const allFiles = needFiles
+    ? await db.file.findMany({
+        orderBy: { name: "asc" },
+        select: { id: true, name: true, mimeType: true },
+      })
+    : ([] as Array<{ id: string; name: string; mimeType: string }>);
 
   // v1.36.0: STAY cards need a guest list for the "linked guests"
   // picker. Cheap — runs once per section, only when at least one
@@ -463,8 +448,8 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
                       ),
                     })),
                     // v1.63.0: thread the file list for the photo
-                    // gallery, mirroring the outfitCard / legalCard
-                    // pattern from v1.35.0 / v1.34.0.
+                    // gallery, mirroring the outfitCard pattern from
+                    // v1.35.0.
                     files: allFiles,
                   }
                 : null;
@@ -504,13 +489,6 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
                 : null;
               const setupCard = sRaw.setupCard
                 ? { ...sRaw.setupCard, supplierNames, files: allFiles }
-                : null;
-              const legalCard = sRaw.legalCard
-                ? {
-                    ...sRaw.legalCard,
-                    weddingDate: legalWeddingDate,
-                    files: allFiles,
-                  }
                 : null;
               // v1.35.0: shape OUTFIT data — flatten outfits → items
               // (renaming the relation), and thread the file list
@@ -605,7 +583,6 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
                 menuCard,
                 barCard,
                 setupCard,
-                legalCard,
                 outfitCard,
                 stayCard,
                 lodgingCard,

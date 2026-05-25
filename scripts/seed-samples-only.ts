@@ -37,7 +37,6 @@ import {
   seedBuildCards,
   seedFoodDrinkCards,
   seedGuestExperienceCards,
-  seedLegalSections,
   seedPhotographyCards,
   seedPostWeddingSection,
   seedVenueSpacesAndDecor,
@@ -108,7 +107,7 @@ async function main() {
   await seedVenueSpacesAndDecor();
   await seedBuildCards();
   await seedFoodDrinkCards();
-  await seedLegalSections();
+  // v2.0.0: seedLegalSections retired with LEGAL kind.
   await seedWeddingPartyPeopleAndDayof();
   await seedAccommodationCards();
   await seedPhotographyCards();

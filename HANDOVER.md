@@ -2,11 +2,23 @@
 
 A snapshot for whoever picks this up next. Pairs with [CLAUDE.md](CLAUDE.md) (durable conventions) and [ROADMAP.md](ROADMAP.md) (full changelog).
 
+## v2.0.0 — first deliberately breaking schema change (25 May 2026)
+
+**LEGAL card kind dropped.** Two flags for whoever's resuming:
+
+1. **The v2.0.0 migration is data-destructive.** `prisma/migrations/20260525000000_drop_legal_card_kind/migration.sql` runs `DELETE FROM "BookSubsection" WHERE kind = 'LEGAL'` before dropping the `BookLegalCard` + `BookLegalItem` tables. Historical content in the pre-seeded `legal-before` / `legal-day` / `legal-after` sections is gone. **Restoring a pre-v2 backup brings those rows back; re-running the migration cleans them up again.** Forward-fix only — don't try to round-trip schema state.
+2. **The seed no longer creates a Legal section.** `seedLegalSections()` retired. Section ordering renumbered: accommodation → 8, post-wedding → 9 (was 11 / 12, with `legal-before/day/after` occupying 8/9/10).
+
+The Today-dashboard "Legal deadlines" widget is also gone; only "Open decisions" remains in `TodayCrossModuleStrip`.
+
+If a future couple wants a generic (non-UK-specific) "documents" / "compliance" tracker, that's a new feature, not a restoration. Don't reach for the v1.34.0 migration as a template — the schema-typing is fine but the audit / Today-widget integration was tightly coupled to UK semantics.
+
 ## Where we are right now
 
-- **Latest version:** v1.75.0 (on `dev`, pending push)
-- **Production / `claude/main`:** at v1.74.0 (promoted 7 May 2026). The fast-forward from v1.68.0 → v1.74.0 covered v1.69 (DB invites), v1.70 (seating), v1.71 (inline tasks + website fields), v1.72 (/guests redesign), v1.73 (/songs redesign), v1.74 (inline payment add).
+- **Latest version:** v2.0.0 (on `dev`, pending push)
+- **Production / `claude/main`:** at v1.99.8 (promoted 18 May 2026 — fast-forwarded from v1.96.2 covering v1.96.3 → v1.99.8 in one batch). The v1.99.x series was the Book card design pass (shuffle/hide components, hero pinning, mosaic mode, T/Q/D chips, etc.).
 - **Standing rule:** never tag a SHA that hasn't gone green on GHA. Push to `dev` → wait for green → fast-forward `claude/main` → only then tag.
+- **Tag history quirk:** v1.96.3 → v1.99.7 shipped without immutable tags. Only v1.99.8 got tagged on `6def128`. Next tag will be v2.0.0.
 
 ## What's recently shipped
 

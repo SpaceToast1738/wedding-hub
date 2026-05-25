@@ -3,10 +3,7 @@ import { auth } from "@/auth";
 import { db } from "@/lib/db";
 import { redirect } from "next/navigation";
 import { getWeddingSettings } from "@/lib/wedding-settings";
-import {
-  nextLegalDeadlines,
-  oldestOpenDecisions,
-} from "@/lib/today-widgets";
+import { oldestOpenDecisions } from "@/lib/today-widgets";
 import { isAttendee, resolveAttendeeRefs } from "@/lib/group-members";
 import { CountdownCard } from "./CountdownCard";
 import { TodayEventsCard } from "./TodayEventsCard";
@@ -21,9 +18,11 @@ export default async function TodayPage() {
   const isCouple = session.user.isCouple === true;
   const wedding = await getWeddingSettings();
 
-  // v1.37.5 (P7b/C): three new cross-module widgets — LEGAL deadlines,
-  // OUTFIT milestones, open DECISIONs. Fetch alongside the existing
-  // queries so the page does its work in one round-trip.
+  // v1.37.5 (P7b/C): cross-module widgets — open DECISIONs.
+  // v1.93.0: OUTFIT milestones widget retired (dates moved to Tasks).
+  // v2.0.0: LEGAL deadlines widget retired (LEGAL kind dropped).
+  // Fetch alongside the existing queries so the page does its work
+  // in one round-trip.
   const [
     allOpenTasks,
     totalTaskCount,
@@ -32,7 +31,6 @@ export default async function TodayPage() {
     upcomingEvents,
     allUsers,
     customUserGroups,
-    legalCardRows,
     decisionTaskRows,
   ] = await Promise.all([
     // v1.27.2: fetch all open TASK rows (no take, no assignee filter)
@@ -95,17 +93,11 @@ export default async function TodayPage() {
     db.permissionGroup.findMany({
       include: { members: { select: { id: true } } },
     }),
-    // LEGAL cards — pull dueByDate + items.expiresAt; the Today
-    // helper folds in only what's within the window.
-    db.bookLegalCard.findMany({
-      include: {
-        items: { select: { id: true, label: true, obtained: true, expiresAt: true } },
-        subsection: { select: { slug: true, title: true, section: { select: { slug: true } } } },
-      },
-    }),
     // v1.93.0: dropped OUTFIT-cards query — the Today "Fittings &
     // pickups" widget is retired. Fitting / alterations / pickup are
     // tracked as Tasks now.
+    // v2.0.0: dropped bookLegalCard query — the Today "LEGAL
+    // deadlines" widget is retired with the LEGAL kind.
     // DECISION-type tasks — non-closed.
     db.task.findMany({
       where: {
@@ -131,26 +123,8 @@ export default async function TodayPage() {
     : [];
   const auditTotalCount = isCouple ? await db.auditLog.count() : 0;
 
-  const now = new Date();
-  const WIDGET_DAYS_AHEAD = 30;
-  const legalHits = nextLegalDeadlines(
-    legalCardRows.map((c) => ({
-      cardId: c.id,
-      cardTitle: c.subsection.title,
-      sectionSlug: c.subsection.section.slug,
-      subsectionSlug: c.subsection.slug,
-      dueByDate: c.dueByDate,
-      items: c.items.map((i) => ({
-        id: i.id,
-        label: i.label,
-        obtained: i.obtained,
-        expiresAt: i.expiresAt,
-      })),
-    })),
-    now,
-    WIDGET_DAYS_AHEAD,
-  );
   // v1.93.0: OUTFIT milestone widget retired (dates moved to Tasks).
+  // v2.0.0: LEGAL deadlines widget retired (LEGAL kind dropped).
   const decisions = oldestOpenDecisions(
     decisionTaskRows.map((t) => ({
       id: t.id,
@@ -314,14 +288,11 @@ export default async function TodayPage() {
           />
         </div>
 
-        {/* v1.37.5 (P7b/C): cross-module strip — three Wedding Book
-            roll-ups (legal deadlines / outfit milestones / open
-            decisions). Auto-hides when all three are empty so quiet
-            days don't get a blank row. */}
-        <TodayCrossModuleStrip
-          legalHits={legalHits}
-          decisions={decisions}
-        />
+        {/* v1.37.5 (P7b/C): cross-module strip — Wedding Book
+            roll-ups. v1.93.0 retired the outfit-milestones widget;
+            v2.0.0 retired the legal-deadlines widget. Only the open-
+            decisions roll-up remains. Strip auto-hides when empty. */}
+        <TodayCrossModuleStrip decisions={decisions} />
 
         {/* v1.39.1: recent-activity feed (couple-only). Reads the
             last 10 audit-log rows and renders them as human sentences

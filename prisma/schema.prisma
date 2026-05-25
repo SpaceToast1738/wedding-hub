@@ -754,9 +754,6 @@ model BookSubsection {
   // v1.33.0: SETUP card — per-space spatial walkthrough. One card
   // per physical space (Ceremony room / Reception room / etc.).
   setupCard  BookSetupCard?
-  // v1.34.0: LEGAL card — document checklist with deadlines + file
-  // attachments (e.g. Notice of Marriage, marriage cert pickup).
-  legalCard  BookLegalCard?
   // v1.36.0: STAY card — one card per accommodation booking the couple
   // pays for (bridal suite, night-before rooms, etc.).
   stayCard   BookStayCard?
@@ -799,7 +796,6 @@ enum BookSubsectionKind {
   MENU
   BAR
   SETUP
-  LEGAL
   STAY
   LODGING_GUIDE
   // v1.91.0: couple-internal dress-code reference card. Stores the
@@ -1219,42 +1215,6 @@ model BookSetupItem {
   @@index([cardId])
 }
 
-// v1.34.0: LEGAL card — document checklist with optional per-item
-// deadlines + file attachments. One card per coherent deadline
-// group: Notice of Marriage, Required documents, Marriage cert
-// pickup, Name change checklist, etc.
-model BookLegalCard {
-  id               String          @id @default(cuid())
-  subsectionId     String          @unique
-  subsection       BookSubsection  @relation(fields: [subsectionId], references: [id], onDelete: Cascade)
-  regulator        String?         // "Warwickshire Registrar"
-  regulatorContact String?         // free text — phone, email, address
-  dueByDate        DateTime?
-  notes            String?         @db.Text
-  items            BookLegalItem[]
-}
-
-model BookLegalItem {
-  id          String          @id @default(cuid())
-  cardId      String
-  card        BookLegalCard   @relation(fields: [cardId], references: [id], onDelete: Cascade)
-  label       String          // "Notice of Marriage — Jamie"
-  requiredFor String?         // "Bride" | "Groom" | "Both" | "Witness"
-  obtained    Boolean         @default(false)
-  obtainedAt  DateTime?
-  expiresAt   DateTime?
-  // Optional file attachment — reuses the existing File model so
-  // we get the existing 25 MB cap, signed download, and visibility
-  // gates for free.
-  fileId      String?
-  file        File?           @relation(fields: [fileId], references: [id], onDelete: SetNull)
-  notes       String?
-  order       Int             @default(0)
-
-  @@index([cardId])
-  @@index([fileId])
-}
-
 // v1.36.0 (P6): STAY card — one card per booking the couple pays for
 // (bridal suite, night-before rooms, etc.). Distinct from LODGING_GUIDE
 // which is reference data for guests.
@@ -1566,10 +1526,6 @@ model File {
   visibility   FileVisibility     @default(EVERYONE)
   uploadedById String?
   contracts    SupplierContract[]
-  // v1.34.0: legal items can attach a file (Notice of Marriage scan,
-  // marriage cert PDF, witness ID copies). SetNull on delete — files
-  // outlive their item link.
-  bookLegalItems BookLegalItem[]
   /// v1.67.0: back-relation to Guest profile picture. Named relation
   /// so Prisma can disambiguate this from any future File→Guest
   /// links (e.g. attached scans).

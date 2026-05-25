@@ -47,11 +47,6 @@ const SECTION_META: Record<
     glyph: "🎉",
     description: "Pixel Party, table games, photo booth, favours",
   },
-  "legal-admin": {
-    accent: "bg-moss-50",
-    glyph: "📜",
-    description: "Notice of marriage, documents, witnesses",
-  },
   accommodation: {
     accent: "bg-marigold-100",
     glyph: "🛏",
@@ -122,7 +117,6 @@ function fallbackGlyphFor(slug: string, title: string): string {
   if (hay.includes("song") || hay.includes("music") || hay.includes("dj") || hay.includes("band")) return "🎵";
   if (hay.includes("schedule") || hay.includes("timeline") || hay.includes("day-of") || hay.includes("day of")) return "🗓";
   if (hay.includes("photo") || hay.includes("video")) return "📷";
-  if (hay.includes("legal") || hay.includes("licen") || hay.includes("notice") || hay.includes("document")) return "📜";
   if (hay.includes("food") || hay.includes("drink") || hay.includes("menu") || hay.includes("bar") || hay.includes("cake") || hay.includes("catering")) return "🍽";
   if (hay.includes("clothing") || hay.includes("outfit") || hay.includes("dress") || hay.includes("attire") || hay.includes("accessor")) return "👗";
   if (hay.includes("wedding party") || hay.includes("wedding-party") || hay.includes("bridesmaid") || hay.includes("groomsman") || hay.includes("best man") || hay.includes("maid of honour")) return "👰";
@@ -162,7 +156,6 @@ export default async function BookHubPage() {
   const LEGACY_SLUGS = new Set([
     "wedding-party",
     "venue",
-    "legal-admin",
     "ceremony",
     "reception",
     "logistics",

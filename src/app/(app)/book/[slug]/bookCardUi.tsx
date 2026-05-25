@@ -1,5 +1,5 @@
 // v1.32.0: tiny shared helpers used across the per-kind card editors
-// (BUILD / MENU / BAR / SETUP / LEGAL / future). All pure-ish — no DB
+// (BUILD / MENU / BAR / SETUP / future). All pure-ish — no DB
 // access; the FieldLabel + Label primitives are a few lines of JSX.
 //
 // v1.34.0: lifted FieldLabel + Label out of the per-card files per

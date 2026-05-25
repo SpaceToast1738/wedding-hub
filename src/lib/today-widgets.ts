@@ -7,123 +7,15 @@
 // carry fitting / alterations / pickup dates. Those live as Tasks
 // now (Topic-linked to the card via the existing v1.51.0 m2m).
 //
-// Two widgets:
-//   1. nextLegalDeadlines — LEGAL cards with `dueByDate` or items
-//      `expiresAt` falling within the next N days.
-//   2. oldestOpenDecisions — open Tasks of type=DECISION, oldest
-//      first, capped to N.
+// v2.0.0: dropped nextLegalDeadlines — LEGAL card kind retired
+// (was UK-marriage-law-centric). Today widget previously surfaced
+// LEGAL `dueByDate` / item `expiresAt` deadlines in the next N days.
+//
+// Remaining widget:
+//   - oldestOpenDecisions — open Tasks of type=DECISION, oldest
+//     first, capped to N.
 
-const MS_PER_DAY = 86_400_000;
-
-// ─── 1. LEGAL deadlines ───────────────────────────────────────────
-
-export type LegalDeadlineCard = {
-  cardId: string;
-  cardTitle: string;
-  sectionSlug: string;
-  subsectionSlug: string;
-  dueByDate?: Date | null;
-  items: Array<{
-    id: string;
-    label: string;
-    obtained: boolean;
-    expiresAt?: Date | null;
-  }>;
-};
-
-export type LegalDeadlineHit =
-  | {
-      kind: "card";
-      cardId: string;
-      cardTitle: string;
-      sectionSlug: string;
-      subsectionSlug: string;
-      date: Date;
-      daysToDue: number;
-      isOverdue: boolean;
-    }
-  | {
-      kind: "item";
-      cardId: string;
-      cardTitle: string;
-      sectionSlug: string;
-      subsectionSlug: string;
-      itemLabel: string;
-      date: Date;
-      daysToDue: number;
-      isExpired: boolean;
-    };
-
-/**
- * Pick LEGAL deadlines coming up within `daysAhead`. Includes:
- *   - cards whose `dueByDate` is within the window AND not every item
- *     is `obtained` (skipped when fully complete).
- *   - items whose `expiresAt` is within the window.
- *
- * Past-but-still-actionable items (expired AND not obtained) are
- * always included so they don't fall off the radar; past completed
- * cards are excluded.
- *
- * Returns soonest-first, ties broken by cardTitle.
- */
-export function nextLegalDeadlines(
-  cards: LegalDeadlineCard[],
-  now: Date,
-  daysAhead: number,
-): LegalDeadlineHit[] {
-  const cutoff = now.getTime() + daysAhead * MS_PER_DAY;
-  const hits: LegalDeadlineHit[] = [];
-
-  for (const card of cards) {
-    // Card-level due date.
-    if (card.dueByDate) {
-      const t = card.dueByDate.getTime();
-      const allObtained = card.items.length > 0 && card.items.every((i) => i.obtained);
-      if (t <= cutoff && !allObtained) {
-        hits.push({
-          kind: "card",
-          cardId: card.cardId,
-          cardTitle: card.cardTitle,
-          sectionSlug: card.sectionSlug,
-          subsectionSlug: card.subsectionSlug,
-          date: card.dueByDate,
-          daysToDue: Math.round((t - now.getTime()) / MS_PER_DAY),
-          isOverdue: t < now.getTime(),
-        });
-      }
-    }
-    // Per-item expiry.
-    for (const item of card.items) {
-      if (!item.expiresAt) continue;
-      const t = item.expiresAt.getTime();
-      if (t <= cutoff) {
-        hits.push({
-          kind: "item",
-          cardId: card.cardId,
-          cardTitle: card.cardTitle,
-          sectionSlug: card.sectionSlug,
-          subsectionSlug: card.subsectionSlug,
-          itemLabel: item.label,
-          date: item.expiresAt,
-          daysToDue: Math.round((t - now.getTime()) / MS_PER_DAY),
-          isExpired: t < now.getTime(),
-        });
-      }
-    }
-  }
-  hits.sort((a, b) => {
-    const d = a.date.getTime() - b.date.getTime();
-    if (d !== 0) return d;
-    return a.cardTitle.localeCompare(b.cardTitle);
-  });
-  return hits;
-}
-
-// v1.93.0: nextOutfitMilestones + OutfitMilestoneHit + OutfitMilestoneCard
-// removed. OUTFIT cards no longer carry fitting / alterations / pickup
-// dates — couples track those as Tasks now.
-
-// ─── 3. Open decisions ────────────────────────────────────────────
+// ─── Open decisions ────────────────────────────────────────────
 
 export type DecisionTask = {
   id: string;

@@ -6,7 +6,7 @@
  *
  * **DELETES** every Book row — every section, every subsection, every
  * per-kind card (FIELD / RECIPE / SHOT_LIST / OUTFIT / BUILD / MENU /
- * BAR / SETUP / LEGAL / STAY / LODGING_GUIDE) — and re-creates the
+ * BAR / SETUP / STAY / LODGING_GUIDE) — and re-creates the
  * full seeded structure from scratch. Use when the Book is in a state
  * you'd rather start over from than fix in place.
  *
@@ -21,7 +21,6 @@
  *       - BookMenuCard + BookMenuCourse + BookMenuOption
  *       - BookBarCard + BookBarItem
  *       - BookSetupCard + BookSetupItem
- *       - BookLegalCard + BookLegalItem
  *       - BookStayCard
  *       - BookLodgingCard + BookLodgingItem
  *
@@ -34,8 +33,9 @@
  *   ✓ Suppliers / contracts / payments / budget categories /
  *     budget lines (BudgetLine.buildCards back-references go to zero
  *     until new BUILD cards are created with a budget link)
- *   ✓ Files (BookLegalItem.fileId → File.onDelete = SetNull means
- *     items disappearing leaves the File rows intact)
+ *   ✓ Files — the Book card tables hold File references via `fileIds`
+ *     string arrays, not relational FKs (since v1.63.0), so File rows
+ *     are unaffected when Book rows are deleted
  *   ✓ Audit logs (entries referencing the deleted entity ids stay
  *     as historic records — they just point at ids that no longer
  *     resolve)
@@ -58,7 +58,6 @@ import {
   seedBuildCards,
   seedFoodDrinkCards,
   seedGuestExperienceCards,
-  seedLegalSections,
   seedPhotographyCards,
   seedPostWeddingSection,
   seedVenueSpacesAndDecor,
@@ -78,15 +77,13 @@ const TARGET_SECTIONS: Array<{ slug: string; title: string; order: number }> = [
   { slug: "food-drink", title: "Food & Drink", order: 5 },
   { slug: "photography", title: "Photography & Videography", order: 6 },
   { slug: "guest-experience", title: "Guest Experience", order: 7 },
-  { slug: "legal-before", title: "Legal — Before the day", order: 8 },
-  { slug: "legal-day", title: "Legal — On the day", order: 9 },
-  { slug: "legal-after", title: "Legal — After", order: 10 },
-  { slug: "accommodation", title: "Accommodation", order: 11 },
-  { slug: "post-wedding", title: "Post-wedding", order: 12 },
+  // v2.0.0: legal sections retired with the LEGAL card kind.
+  { slug: "accommodation", title: "Accommodation", order: 8 },
+  { slug: "post-wedding", title: "Post-wedding", order: 9 },
 ];
 
 async function summariseBeforeDelete() {
-  const [sections, subsections, fields, recipes, shots, outfits, builds, menus, bars, setups, legals, stays, lodgings] =
+  const [sections, subsections, fields, recipes, shots, outfits, builds, menus, bars, setups, stays, lodgings] =
     await Promise.all([
       db.bookSection.count(),
       db.bookSubsection.count(),
@@ -98,7 +95,6 @@ async function summariseBeforeDelete() {
       db.bookMenuCard.count(),
       db.bookBarCard.count(),
       db.bookSetupCard.count(),
-      db.bookLegalCard.count(),
       db.bookStayCard.count(),
       db.bookLodgingCard.count(),
     ]);
@@ -107,7 +103,7 @@ async function summariseBeforeDelete() {
   console.log(`  ${subsections} subsections (subpages)`);
   console.log(`  ${fields} FIELD defs · ${recipes} RECIPE cards · ${shots} SHOT_LIST shots`);
   console.log(`  ${outfits} OUTFIT cards · ${builds} BUILD cards · ${menus} MENU cards`);
-  console.log(`  ${bars} BAR cards · ${setups} SETUP cards · ${legals} LEGAL cards`);
+  console.log(`  ${bars} BAR cards · ${setups} SETUP cards`);
   console.log(`  ${stays} STAY cards · ${lodgings} LODGING_GUIDE cards`);
   console.log("");
 }
@@ -136,7 +132,7 @@ async function reseed() {
   await seedVenueSpacesAndDecor();
   await seedBuildCards();
   await seedFoodDrinkCards();
-  await seedLegalSections();
+  // v2.0.0: seedLegalSections retired with LEGAL kind.
   await seedWeddingPartyPeopleAndDayof();
   await seedAccommodationCards();
   await seedPhotographyCards();

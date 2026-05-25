@@ -6,9 +6,10 @@
 // lock the contract without setup; mirrors the v1.11.0 csv-merge and
 // v1.15.0 custom-fields patterns.
 
-// v1.31.0: + BUILD. v1.32.0: + MENU, BAR. v1.33.0: + SETUP. v1.34.0: + LEGAL.
+// v1.31.0: + BUILD. v1.32.0: + MENU, BAR. v1.33.0: + SETUP.
+// v1.34.0: + LEGAL (dropped in v2.0.0 — UK-centric).
 // v1.36.0: + STAY, LODGING_GUIDE. v1.91.0: + DRESS_CODE. v1.92.0: + WEDDING_PARTY.
-export const BOOK_CARD_KINDS = ["TEXT", "FIELD", "RECIPE", "SHOT_LIST", "OUTFIT", "BUILD", "MENU", "BAR", "SETUP", "LEGAL", "STAY", "LODGING_GUIDE", "DRESS_CODE", "WEDDING_PARTY"] as const;
+export const BOOK_CARD_KINDS = ["TEXT", "FIELD", "RECIPE", "SHOT_LIST", "OUTFIT", "BUILD", "MENU", "BAR", "SETUP", "STAY", "LODGING_GUIDE", "DRESS_CODE", "WEDDING_PARTY"] as const;
 export type BookCardKind = (typeof BOOK_CARD_KINDS)[number];
 
 // Display metadata for each card kind — used by the picker UI and
@@ -54,10 +55,6 @@ export const BOOK_CARD_KIND_META: Record<
   SETUP: {
     label: "Setup",
     description: "Per-space spatial walkthrough — items, location, packed/placed flags.",
-  },
-  LEGAL: {
-    label: "Legal",
-    description: "Document checklist with deadlines + optional file attachments.",
   },
   STAY: {
     label: "Stay",
@@ -794,66 +791,10 @@ export function setupRollups(card: SetupCardShape): SetupRollups {
   return { itemCount, packedCount, placedCount, percentPacked, percentPlaced };
 }
 
-// ─── LEGAL card (v1.34.0) ────────────────────────────────────────
-//
-// Document checklist rollups. The header surfaces:
-//   - days remaining until the card-level dueByDate (negative if past)
-//   - % obtained
-//   - whether any item expires before the wedding (red flag)
-//   - whether the card-level deadline has passed (red flag)
-
-export type LegalItemShape = {
-  obtained: boolean;
-  expiresAt?: Date | null;
-};
-
-export type LegalCardShape = {
-  dueByDate?: Date | null;
-  items: LegalItemShape[];
-};
-
-export type LegalRollups = {
-  itemCount: number;
-  obtainedCount: number;
-  percentObtained: number;
-  daysToDue: number | null;
-  isOverdue: boolean;
-  expiringBeforeWedding: number;
-};
-
-const LEGAL_MS_PER_DAY = 24 * 60 * 60 * 1000;
-
-export function legalRollups(
-  card: LegalCardShape,
-  weddingDate: Date | null,
-  now: Date = new Date(),
-): LegalRollups {
-  const itemCount = card.items.length;
-  const obtainedCount = card.items.filter((i) => i.obtained).length;
-  const percentObtained =
-    itemCount === 0 ? 0 : Math.round((obtainedCount / itemCount) * 100);
-  let daysToDue: number | null = null;
-  let isOverdue = false;
-  if (card.dueByDate) {
-    const diff = card.dueByDate.getTime() - now.getTime();
-    daysToDue = Math.round(diff / LEGAL_MS_PER_DAY);
-    isOverdue = diff < 0 && obtainedCount < itemCount;
-  }
-  let expiringBeforeWedding = 0;
-  if (weddingDate) {
-    expiringBeforeWedding = card.items.filter(
-      (i) => i.expiresAt && i.expiresAt.getTime() < weddingDate.getTime(),
-    ).length;
-  }
-  return {
-    itemCount,
-    obtainedCount,
-    percentObtained,
-    daysToDue,
-    isOverdue,
-    expiringBeforeWedding,
-  };
-}
+// v2.0.0: LEGAL card kind dropped — was UK-marriage-law-centric
+// (Notice of Marriage, registrar contact, per-person marriage cert
+// pickup). The `legalRollups` helper + LegalCardShape / LegalItemShape
+// / LegalRollups types lived here pre-v2.
 
 // ─── OUTFIT card (v1.35.0 rework) ─────────────────────────────────
 //

@@ -34,6 +34,7 @@ Quick scan of every tagged release. Most recent first; click any version to jump
 
 | Version | Date | Headline |
 |---|---|---|
+| **v2.0.0** | 2026-05-25 | [Drop the LEGAL card kind from the Wedding Book. User: "can we drop the legal stuff from the wedding book, not sure this is UK Centric." The v1.34.0 LEGAL kind was pre-seeded with UK-marriage-law content (Notice of Marriage, registrar contact, per-person marriage certificate pickup, name-change checklist) — not portable, not useful for a non-UK install. Full removal: data-destructive migration `20260525000000_drop_legal_card_kind` deletes every `BookSubsection` where kind='LEGAL' (cascade drops BookLegalCard + BookLegalItem rows), then DROPs the two tables, then recreates `BookSubsectionKind` enum without LEGAL via the rename-recreate-cast-drop pattern. Code surfaces stripped: BookLegalCard.tsx editor (684 lines), `saveLegalCard` / `attachFileToLegalItem` / `detachFileFromLegalItem` server actions, `legalRollups` helper + `LegalCardShape/LegalItemShape/LegalRollups` types + 7 unit tests, CardRouter LEGAL case + Sub.legalCard field + import, `/book/[slug]/page.tsx` include + wedding-date passthrough + `hasLegal` predicate, `/book/page.tsx` `legal-admin` SECTION_META entry + `📜 legal` glyph branch + `legal-admin` LEGACY_SLUGS entry, Today-dashboard `nextLegalDeadlines` helper + `LegalDeadlineCard/Hit` types + 6 unit tests + the `legalCardRows` page fetch + the `LegalWidget` render + the `legalHits` prop on `TodayCrossModuleStrip` (plus retired the `Pill` / `dayPill` helpers used only by that widget), `prisma/seed.ts` `seedLegalSections()` + 3 section entries (`legal-before` / `legal-day` / `legal-after`) + ~380 lines of pre-seeded content, `scripts/reset-book.ts` + `scripts/seed-samples-only.ts` imports + invocations + console-summary lines, 3 legal audit action handlers (legal-save / legal-file-attach / legal-file-detach) in `audit-format.ts` (historical audit rows fall through to the default render), `IllusLegal` SVG illustration + its `bookSceneFor` mapping. `parseISODate` helper (originally inside the LEGAL action block, also a saveStayCard caller) lifted to the top-level helper cluster so the StayCard date round-trip survives the removal. Major-version bump because the schema change is breaking — anyone restoring a pre-v2 backup will hit a migration mismatch unless they re-apply the migration sequence. From 586 → 573 tests; typecheck + build green.](#2026-05-25--v200--drop-legal-card-kind) |
 | **v1.99.8** | 2026-05-18 | [Delete-section button surfaces in the Edit Details modal. User: "Cant delete 'People'". The `deleteBookSection` server action has shipped since v1.4.0 but never had a UI surface — the only way to remove a section was via Prisma Studio or a direct SQL DELETE. The v1.94.0 "Edit details" modal (rename + subtitle) seemed like the obvious mount point but originally only carried the rename UX. Now adds a "Delete section" ghost button in the modal footer (left side, danger tone) — confirms via `useConfirm` with the section title + body warning that all cards inside will be deleted too, then dispatches `deleteBookSection(id)` and `router.push('/book')` so the user lands on the overview before Next.js tries to re-render against a missing row. Footer layout is `[Delete section] (left) / [Cancel] [Save] (right)` — destructive action stays visually distant from the primary CTA, mirroring CardChrome + budget category modal conventions. No schema, no actions changed (the action already existed). 586 tests stay green.](#2026-05-18--v1998--delete-section-from-edit-details-modal) |
 | **v1.99.7** | 2026-05-18 | [Position-based accent rotation on `/book` section cards so colours always alternate. User: "Colours on this page dont seem to alternate" (screenshot showed three same-colour cards in a row on the Wedding Book overview grid). Pre-fix the canonical 7 slugs had hand-picked accents from `SECTION_META`, and custom slugs went through `fallbackAccentFor(slug)` which hashed the slug → one of three accents. The hash function didn't know about neighbours, so adjacent cards routinely landed on the same colour (e.g. Clothing + Wedding-Party-People + Wedding-Party-Day-of all hashed to `bg-moss-100`). Fix: `accentFor(idx)` walks a fixed 3-element rotation `[bg-moss-100, bg-marigold-100, bg-moss-50]` by position. Guarantees no two horizontally-adjacent cards share a colour in any column count. Trade-off: re-ordering sections via the ▲/▼ buttons shifts colours — acceptable since the alternation property was the dominant visual concern. SECTION_META.accent values retire (still in the type so existing reads don't break) — accent now comes purely from position. Glyph + description still come from SECTION_META for canonical slugs, fall through to `fallbackGlyphFor` / `DEFAULT_META.description` for custom ones. 586 tests stay green.](#2026-05-18--v1997--position-based-accent-rotation) |
 | **v1.99.6** | 2026-05-18 | [Hero image pinned to the top of every card, independent of the photos-component position. User: "The image header if applicable needs to render at the top of the page." Pre-fix the hero rendered INSIDE the ImageGallery component, which itself lived inside the "photos" entry of the v1.99.0 ReorderableCardBody registry — so wherever the user reordered "photos" to (e.g. below stats or notes), the hero went too. Fix: lifted the hero render OUT of ImageGallery into a new standalone `<GalleryHero />` exported component. Each editor now resolves the pinned file from `card.headerFileId` + `card.fileIds` and mounts `<GalleryHero />` via `CardChrome.mediaBlock` — that slot sits between the title row and the body children, anchoring the hero to the top regardless of body component order. ImageGallery still receives `headerFileId` (it's still used to dedupe the pinned image out of the body section + light up the ★ on the pinned thumb), but the `headerPosition` + `onHeaderPositionChange` props moved entirely to `<GalleryHero />`. GalleryHero is self-contained: its own lightbox state, its own 3×3 position dot grid, its own unpin ★ button. Swept all 6 ImageGallery-using kinds (TEXT, OUTFIT, DRESS_CODE, SETUP, BUILD, STAY); DRESS_CODE renders the hero inline in its bespoke `<article>` (no CardChrome to pass mediaBlock to). 586 tests stay green.](#2026-05-18--v1996--hero-pinned-to-top-of-card) |
@@ -961,6 +962,52 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-05-25 · v2.0.0 — Drop LEGAL card kind
+
+User: "can we drop the legal stuff from the wedding book, not sure this is UK Centric."
+
+The v1.34.0 LEGAL kind was designed around UK marriage law — pre-seeded with "Notice of Marriage" (the 28-day notice the bride/groom files at their local register office), "marriage certificate pickup" per-person, "name-change evidence" for the bride, registrar contact, and a per-card `dueByDate` with a Today-dashboard widget surfacing things within 30 days. Useful for a UK couple; not portable; not useful here either since the actual UK legal admin is already handled out-of-band by the registrar. Drop the whole feature.
+
+**Schema** (`prisma/migrations/20260525000000_drop_legal_card_kind/migration.sql`, new):
+
+1. `DELETE FROM "BookSubsection" WHERE kind = 'LEGAL'` — cascades to `BookLegalCard` (Cascade) → `BookLegalItem` (Cascade). File rows referenced by item.fileId are not affected (SetNull, and the items are dropped anyway).
+2. `DROP TABLE "BookLegalItem"`, then `DROP TABLE "BookLegalCard"`.
+3. Recreate `BookSubsectionKind` enum without LEGAL via the standard rename-recreate-cast-drop pattern. The pre-cast DROP DEFAULT / post-cast SET DEFAULT dance is required because the column carries `@default(TEXT)` which Postgres needs to detach before re-typing.
+
+**Code surfaces stripped** (16 files touched / deleted):
+
+- `prisma/schema.prisma` — `model BookLegalCard` + `model BookLegalItem` deleted; `legalCard` relation field dropped from `BookSubsection`; `LEGAL` removed from `BookSubsectionKind`; `bookLegalItems` back-relation dropped from `File`.
+- `src/app/(app)/book/[slug]/BookLegalCard.tsx` — 684-line editor file deleted.
+- `src/lib/book-cards.ts` — `legalRollups()` function + `LegalCardShape` / `LegalItemShape` / `LegalRollups` types + `LEGAL` from `BOOK_CARD_KINDS` + `LEGAL` from `BOOK_CARD_KIND_META`.
+- `tests/unit/legal-rollups.test.ts` — full file deleted (was the 7-test suite for `legalRollups`).
+- `src/app/(app)/book/actions.ts` — 200-line `saveLegalCard` + 30-line `attachFileToLegalItem` + 30-line `detachFileFromLegalItem` + the `LEGAL` arm in `createBookSubsection`'s kind-seeding switch. `parseISODate` helper (which lived inside the LEGAL block as a closure) lifted to the top-level helper cluster because `saveStayCard` still uses it for checkInDate/checkOutDate.
+- `src/app/(app)/book/[slug]/CardRouter.tsx` — `import BookLegalCard` + `"LEGAL"` member of `Sub.kind` + `legalCard` field on `Sub` type + the `case "LEGAL":` render branch.
+- `src/app/(app)/book/[slug]/page.tsx` — `legalCard` Prisma include + `hasLegal` predicate + the `weddingSettings` fetch (which only existed for the LEGAL expiry-before-wedding flag) + the per-subsection `legalCard` shaping.
+- `src/app/(app)/book/page.tsx` — `legal-admin` SECTION_META entry + `legal` keyword branch in `fallbackGlyphFor` + `legal-admin` from the LEGACY_SLUGS set.
+- `src/lib/today-widgets.ts` — `nextLegalDeadlines()` + `LegalDeadlineCard` / `LegalDeadlineHit` types + the `MS_PER_DAY` constant they used.
+- `tests/unit/today-widgets.test.ts` — 6 `nextLegalDeadlines` cases dropped; `oldestOpenDecisions` suite untouched.
+- `src/app/(app)/page.tsx` — `bookLegalCard.findMany` fetch + `nextLegalDeadlines` call + `legalHits` variable + the legal-deadlines widget render.
+- `src/app/(app)/TodayCrossModuleStrip.tsx` — `LegalWidget` sub-component + `LegalDeadlineHit` prop + `Pill` / `dayPill` helpers (only used by LegalWidget). Strip framework + DecisionsWidget unchanged.
+- `prisma/seed.ts` — `seedLegalSections()` function (~380 lines) + the 3 section entries (`legal-before` / `legal-day` / `legal-after`) + the main() invocation.
+- `scripts/reset-book.ts` + `scripts/seed-samples-only.ts` — `seedLegalSections` import / call + the BookLegalCard/Item references in the doc comment + the LEGAL-card count in the console summary.
+- `src/lib/audit-format.ts` — 3 audit action handlers (`legal-save` / `legal-file-attach` / `legal-file-detach`). Historical audit rows referencing these survive in the DB and fall through to the default render at the bottom of the file.
+- `src/components/ui/Illustrations.tsx` — `IllusLegal` SVG (notebook-with-quill scene) + its `case "legal-admin"` mapping in `bookSceneFor` + the keyword branch.
+- `src/app/(app)/book/[slug]/bookCardUi.tsx` — header comment listing LEGAL trimmed.
+
+**Production impact.**
+
+- Any existing `legal-before` / `legal-day` / `legal-after` sections in production data — including the seeded UK content — get deleted by the migration. User confirmed they're OK losing it (manual export via psql was offered and declined).
+- After deploy + migrate, the kind picker on "+ New card" no longer offers Legal. Historical audit rows mentioning `legal-save` etc. still exist but render as the generic fallback.
+- Restoring a pre-v2 backup will fail to apply the v2.0.0 migration twice — that's expected. Forward-fix only.
+
+**Why a major version bump.**
+
+This is the first deliberate breaking schema change since the project started. Two tables permanently dropped, an enum value removed, user data destroyed. v1.x = build-up; v2.0 = the first deliberate prune. Subsequent v2.x will continue patch / minor as before.
+
+573 tests pass (down 13 from v1.99.8's 586 — 7 legal-rollups + 6 nextLegalDeadlines). `npx prisma generate` clean. `npx tsc --noEmit` clean. `npm run build` clean.
+
+---
 
 ### 2026-05-18 · v1.99.8 — Delete-section from the Edit Details modal
 

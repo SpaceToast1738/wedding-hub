@@ -143,22 +143,9 @@ export function IllusGuestExp({ size = 48 }: { size?: number }) {
   );
 }
 
-export function IllusLegal({ size = 48 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden>
-      <path d="M6 10 L24 8 L42 10 L42 40 L24 38 L6 40 Z" fill="var(--color-moss-100)" stroke="var(--color-moss-500)" strokeWidth="1.2" />
-      <line x1="24" y1="8" x2="24" y2="38" stroke="var(--color-moss-500)" strokeWidth="1" />
-      <line x1="9" y1="16" x2="21" y2="16" stroke="var(--color-moss-300)" strokeWidth="0.8" />
-      <line x1="9" y1="20" x2="21" y2="20" stroke="var(--color-moss-300)" strokeWidth="0.8" />
-      <line x1="9" y1="24" x2="18" y2="24" stroke="var(--color-moss-300)" strokeWidth="0.8" />
-      <line x1="27" y1="16" x2="39" y2="16" stroke="var(--color-moss-300)" strokeWidth="0.8" />
-      <line x1="27" y1="20" x2="39" y2="20" stroke="var(--color-moss-300)" strokeWidth="0.8" />
-      <line x1="27" y1="24" x2="35" y2="24" stroke="var(--color-moss-300)" strokeWidth="0.8" />
-      <path d="M32 10 C38 6 42 4 40 14 C36 12 34 16 32 18" fill="var(--color-marigold-100)" stroke="var(--color-marigold-500)" strokeWidth="1" />
-      <line x1="36" y1="14" x2="32" y2="28" stroke="var(--color-moss-700)" strokeWidth="0.8" />
-    </svg>
-  );
-}
+// v2.0.0: IllusLegal retired — LEGAL kind dropped. Was a notebook-
+// with-quill scene; no callers left now that the legal-admin slug
+// + LEGAL kind are gone.
 
 export function IllusAccommodation({ size = 48 }: { size?: number }) {
   return (
@@ -190,7 +177,6 @@ export function bookSceneFor(slug: string) {
     case "food-drink": return IllusFood;
     case "photography": return IllusPhotography;
     case "guest-experience": return IllusGuestExp;
-    case "legal-admin": return IllusLegal;
     case "accommodation": return IllusAccommodation;
   }
   // Keyword fallback for variant slugs the couple has authored.
@@ -200,7 +186,6 @@ export function bookSceneFor(slug: string) {
   if (slug.startsWith("food") || slug.startsWith("drink") || slug.includes("menu") || slug.includes("bar") || slug.includes("cake") || slug.includes("catering")) return IllusFood;
   if (slug.startsWith("photo") || slug.startsWith("video") || slug.includes("shot")) return IllusPhotography;
   if (slug.startsWith("guest") || slug.includes("favour") || slug.includes("entertainment")) return IllusGuestExp;
-  if (slug.startsWith("legal") || slug.includes("admin") || slug.includes("licen") || slug.includes("document")) return IllusLegal;
   if (slug.startsWith("accommodation") || slug.includes("lodging") || slug.includes("hotel") || slug.includes("suite") || slug.includes("room")) return IllusAccommodation;
   return null;
 }

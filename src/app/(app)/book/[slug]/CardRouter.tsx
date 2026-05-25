@@ -3,7 +3,6 @@
 import { BookBarCard } from "./BookBarCard";
 import { BookBuildCard } from "./BookBuildCard";
 import { BookFieldsCard } from "./BookFieldsCard";
-import { BookLegalCard } from "./BookLegalCard";
 import { BookLodgingCard } from "./BookLodgingCard";
 import { BookMenuCard } from "./BookMenuCard";
 import { BookOutfitCardEditor } from "./BookOutfitCard";
@@ -86,7 +85,7 @@ type Sub = {
   hiddenComponents: string[];
   fields: unknown;
   visibility: "EVERYONE" | "COUPLE_ONLY";
-  kind: "TEXT" | "FIELD" | "RECIPE" | "SHOT_LIST" | "OUTFIT" | "BUILD" | "MENU" | "BAR" | "SETUP" | "LEGAL" | "STAY" | "LODGING_GUIDE" | "DRESS_CODE" | "WEDDING_PARTY";
+  kind: "TEXT" | "FIELD" | "RECIPE" | "SHOT_LIST" | "OUTFIT" | "BUILD" | "MENU" | "BAR" | "SETUP" | "STAY" | "LODGING_GUIDE" | "DRESS_CODE" | "WEDDING_PARTY";
   fieldDefs: Array<{
     id: string;
     label: string;
@@ -225,29 +224,6 @@ type Sub = {
     confirmedAdults: number | null;
     // v1.78.0: linked BudgetLine.
     budgetLine: { id: string; description: string; category: { id: string; name: string } } | null;
-  } | null;
-  // v1.34.0: LEGAL card eager-loaded data + wedding date for the
-  // expiry-before-wedding flag + file list for the per-item picker.
-  legalCard: {
-    id: string;
-    regulator: string | null;
-    regulatorContact: string | null;
-    dueByDate: Date | null;
-    notes: string | null;
-    items: Array<{
-      id: string;
-      label: string;
-      requiredFor: string | null;
-      obtained: boolean;
-      obtainedAt: Date | null;
-      expiresAt: Date | null;
-      fileId: string | null;
-      file: { id: string; name: string } | null;
-      notes: string | null;
-      order: number;
-    }>;
-    weddingDate: Date | null;
-    files: Array<{ id: string; name: string; mimeType: string }>;
   } | null;
   // v1.33.0: SETUP card eager-loaded data + supplier names for the
   // `source` autocomplete on each item row.
@@ -675,38 +651,6 @@ function renderCardBody(
             items: bc.items,
           }}
           confirmedAdults={bc.confirmedAdults}
-        />
-      );
-    }
-    case "LEGAL": {
-      const lc = sub.legalCard ?? {
-        id: "",
-        regulator: null,
-        regulatorContact: null,
-        dueByDate: null,
-        notes: null,
-        items: [],
-        weddingDate: null,
-        files: [],
-      };
-      return (
-        <BookLegalCard
-          subsectionId={sub.id}
-          slug={sub.slug}
-          title={sub.title}
-          visibility={sub.visibility}
-          canEdit={canEdit}
-          isCouple={isCouple}
-          card={{
-            id: lc.id,
-            regulator: lc.regulator,
-            regulatorContact: lc.regulatorContact,
-            dueByDate: lc.dueByDate,
-            notes: lc.notes,
-            items: lc.items,
-          }}
-          weddingDate={lc.weddingDate}
-          files={lc.files}
         />
       );
     }
