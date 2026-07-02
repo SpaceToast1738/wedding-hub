@@ -1866,10 +1866,15 @@ model AiProposal {
   // Populated after Apply — the id of the row the proposal produced
   // (Task, ScheduleEvent, etc.). Lets the review UI link to it.
   appliedEntityId String?
+  // v2.2.0: groups proposals created in one AI action (one chat turn,
+  // one parseGuestList run, one suggestDueDates run) so the review
+  // UIs can offer a single approve-all. Null = singleton.
+  batchId         String?
   createdAt       DateTime         @default(now())
   reviewedAt      DateTime?
 
   @@index([createdById, status, createdAt])
+  @@index([batchId])
 }
 
 enum AiProposalStatus {

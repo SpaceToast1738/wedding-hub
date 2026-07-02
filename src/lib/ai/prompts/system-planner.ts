@@ -8,6 +8,11 @@
 
 import type Anthropic from "@anthropic-ai/sdk";
 import { buildWeddingContext, renderWeddingContext } from "@/lib/ai/context";
+import {
+  buildReferenceDirectory,
+  renderReferenceDirectory,
+} from "@/lib/ai/directory";
+import { describeRoute } from "@/lib/ai/route-context";
 import type { SessionUser } from "@/lib/actions";
 
 const BASE_SYSTEM = `You are the wedding planner assistant for the Wedding Hub app — a small private app built by and for one couple to plan their wedding. Your job is to act like a warm, experienced human wedding planner: notice what needs doing, surface risks early, draft communication, and generally take work off the couple's plate.
@@ -35,14 +40,22 @@ const WRITE_ADDENDUM = `
 
 # Making changes
 
-You can propose changes with the propose_task and propose_event tools.
+You can propose changes with the propose_task, propose_task_update, and propose_event tools.
 
 - **You never write directly to the app.** Each proposal goes into a review queue; a human clicks Apply or Dismiss.
 - Only propose changes the user has asked for or that clearly help them. Do not spray proposals — one call per distinct change.
 - Include a short rationale on every proposal (one or two sentences) so the reviewer understands why.
 - After proposing, briefly tell the user in prose what you proposed and that it's waiting for review. Don't list internal IDs.
-- If the user asks for a "batch" (e.g. "give me 5 tasks I've probably forgotten"), read the current tasks first so you don't propose duplicates, then make separate propose_task calls.
-- Do not propose editing or deleting existing rows in phase 2. Only new tasks and new schedule events are supported yet.`;
+- When proposing several items, emit all the propose_* calls together in a single response (parallel tool calls), not one per turn.
+- Before proposing, call read_proposals AND read the current tasks so you don't duplicate something that already exists or is already queued for review.
+
+## Assigning people, topics, and suppliers
+
+- The reference directory below has REAL ids for users, nav tags, book sections, and guest groups. Copy ids exactly — never invent one.
+- Assign people (assigneeIds) only when the user asked for it or ownership is obvious from context. When in doubt, propose unassigned.
+- Attach topics (bookSectionIds / navTagIds / guestGroupIds) whenever the task clearly belongs to a section — that's how tasks show up in the right place in the app.
+- Link a supplier (supplierId, from read_suppliers) when the task is about a specific vendor.
+- propose_task_update takes ADD/REMOVE deltas for assignees and topics — express only the change, not the full new list.`;
 
 const READ_ONLY_ADDENDUM = `
 
@@ -58,10 +71,17 @@ You do not have write permission in this app. If the user asks you to create a t
  *  the preamble at cache-read rates (~0.1×). See shared/prompt-caching
  *  in the skill for the invariants. */
 export async function buildPlannerSystem(
-  _user: SessionUser,
-  opts: { canWrite: boolean },
+  user: SessionUser,
+  opts: { canWrite: boolean; pathname?: string | null },
 ): Promise<Anthropic.TextBlockParam[]> {
-  const ctx = await buildWeddingContext();
+  // Directory only matters when the model can reference ids in
+  // propose_* calls — read-only callers skip the extra queries + tokens.
+  const [ctx, dir] = await Promise.all([
+    buildWeddingContext(),
+    opts.canWrite
+      ? buildReferenceDirectory({ isCouple: user.isCouple })
+      : Promise.resolve(null),
+  ]);
   const preamble = [
     BASE_SYSTEM,
     opts.canWrite ? WRITE_ADDENDUM : READ_ONLY_ADDENDUM,
@@ -70,12 +90,15 @@ export async function buildPlannerSystem(
     "# Current wedding snapshot",
     "",
     renderWeddingContext(ctx),
+    ...(dir ? ["", renderReferenceDirectory(dir)] : []),
   ].join("\n");
 
-  return [
+  const blocks: Anthropic.TextBlockParam[] = [
     {
       type: "text",
       text: preamble,
+      // The cached prefix — everything after this block can vary per
+      // turn without invalidating the cache.
       cache_control: { type: "ephemeral" },
     },
     {
@@ -83,4 +106,18 @@ export async function buildPlannerSystem(
       text: snapshot,
     },
   ];
+
+  // v2.2.0: page-awareness. Trailing uncached block, omitted entirely
+  // when the client didn't send a pathname.
+  if (opts.pathname) {
+    const label = describeRoute(opts.pathname);
+    blocks.push({
+      type: "text",
+      text: `# Where the user is\nThe user sent this message while viewing ${
+        label ? `${label} (${opts.pathname})` : opts.pathname
+      }. When they say "this page", "this guest", "here" etc., that's what they mean — the trailing path segment is usually the entity id.`,
+    });
+  }
+
+  return blocks;
 }

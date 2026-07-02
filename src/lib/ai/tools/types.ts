@@ -17,6 +17,10 @@ export type ToolContext = {
    *  this today but the field is threaded so proposal-writing tools
    *  in phase 2 don't need a signature change. */
   canWrite: boolean;
+  /** v2.2.0: shared id stamped on every proposal created in one chat
+   *  turn (or one one-shot run) so the review UIs can group them into
+   *  a single approve-all card. Absent → proposals are singletons. */
+  batchId?: string;
 };
 
 export type ToolResult = { ok: true; data: unknown } | { ok: false; error: string };

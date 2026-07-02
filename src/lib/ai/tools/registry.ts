@@ -13,6 +13,8 @@ import { readGuests } from "./read-guests";
 import { readBook } from "./read-book";
 import { readBudget } from "./read-budget";
 import { readStats } from "./read-stats";
+import { readSuppliers } from "./read-suppliers";
+import { readProposals } from "./read-proposals";
 import { proposeTask } from "./propose-task";
 import { proposeTaskUpdate } from "./propose-task-update";
 import { proposeEvent } from "./propose-event";
@@ -30,6 +32,8 @@ const READ_TOOLS: AiTool<any>[] = [
   readGuests,
   readBook,
   readBudget,
+  readSuppliers,
+  readProposals,
 ];
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

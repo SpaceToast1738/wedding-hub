@@ -13,7 +13,9 @@ import { AI_ENABLED } from "@/lib/ai/config";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { PingButton } from "./PingButton";
 import { listPendingProposals } from "./actions";
+import { groupByBatch } from "@/lib/ai/proposals/grouping";
 import { ProposalReviewCard } from "./ProposalReviewCard";
+import { ProposalBatchGroup } from "./ProposalBatchGroup";
 import { ParseGuestsPanel } from "./ParseGuestsPanel";
 import { UsageDashboard } from "./UsageDashboard";
 import { WeddingReviewPanel } from "./WeddingReviewPanel";
@@ -122,9 +124,14 @@ export default async function AiPage() {
             </div>
           ) : (
             <div className="space-y-3">
-              {pending.map((p) => (
-                <ProposalReviewCard key={p.id} proposal={p} />
-              ))}
+              {groupByBatch(pending).map((group) => {
+                const first = group.items[0];
+                return group.items.length === 1 && first ? (
+                  <ProposalReviewCard key={group.key} proposal={first} />
+                ) : (
+                  <ProposalBatchGroup key={group.key} proposals={group.items} />
+                );
+              })}
             </div>
           )}
         </section>

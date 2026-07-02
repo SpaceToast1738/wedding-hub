@@ -7,6 +7,7 @@
 // Chat writes stay on the streaming POST /api/ai/chat endpoint so
 // token accounting can't be routed around.
 
+import { randomUUID } from "crypto";
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { requireUser } from "@/lib/actions";
@@ -21,10 +22,17 @@ import {
   weddingReviewSchema,
 } from "@/lib/ai/output-schemas";
 import {
+  mergeTaskRelations,
+  patchTouchesAssignees,
+  patchTouchesTopics,
+} from "@/lib/ai/proposals/merge-task-update";
+import { resolveRefs } from "@/lib/ai/tools/validate-refs";
+import {
   bookCardAppendSchema,
   eventCreateSchema,
   guestCreateSchema,
   humanLabel,
+  summariseProposal,
   taskCreateSchema,
   taskUpdateSchema,
   type ProposalKind,
@@ -58,7 +66,11 @@ export async function listMyThreads(): Promise<ThreadListItem[]> {
       id: true,
       title: true,
       updatedAt: true,
-      _count: { select: { messages: true } },
+      // Count only user+assistant rows — internal "tool" rows would
+      // inflate the "N messages" label in the history list.
+      _count: {
+        select: { messages: { where: { role: { not: "tool" } } } },
+      },
     },
   });
   return threads.map((t) => ({
@@ -113,6 +125,15 @@ export async function getThread(threadId: string): Promise<ThreadDetail | null> 
     title: thread.title,
     messages: thread.messages
       .filter((m) => m.role !== "tool")
+      // Tool-only loop iterations persist assistant rows with empty
+      // text; hydrating those as blank bubbles reads as rendering
+      // gaps. Keep rows that have text OR tool calls to show chips.
+      .filter(
+        (m) =>
+          m.role !== "assistant" ||
+          m.content.length > 0 ||
+          (Array.isArray(m.toolCalls) && (m.toolCalls as unknown[]).length > 0),
+      )
       .map((m) => {
         const rawCalls = (m.toolCalls as unknown[] | null) ?? [];
         const toolNames = Array.isArray(rawCalls)
@@ -147,41 +168,108 @@ export type PendingProposal = {
   payload: unknown;
   /** Small preview line rendered without opening the details drawer. */
   summary: string;
+  /** v2.2.0: resolved names for assignees / topics / supplier /
+   *  attendees, e.g. "→ Sarah · Flowers · supplier: Bloom & Co".
+   *  Null when the payload carries no references. */
+  detail: string | null;
+  /** v2.2.0: shared id when this proposal was created with siblings
+   *  in one AI action. Null = singleton. */
+  batchId: string | null;
 };
 
-function summariseProposal(kind: string, payload: unknown): string {
-  const p = payload as Record<string, unknown>;
+/** Pull every entity id referenced by a payload, by kind. Feeds one
+ *  batched resolveRefs call for the whole pending list. */
+function collectRefIds(kind: string, payload: Record<string, unknown>) {
+  const arr = (v: unknown): string[] => (Array.isArray(v) ? v.map(String) : []);
   if (kind === "task.create") {
-    const title = typeof p.title === "string" ? p.title : "(untitled)";
-    const priority = typeof p.priority === "string" ? p.priority : "MEDIUM";
-    const due = typeof p.dueDate === "string" && p.dueDate ? ` · due ${p.dueDate}` : "";
-    return `${title} (${priority})${due}`;
+    return {
+      userIds: arr(payload.assigneeIds),
+      navTagIds: arr(payload.navTagIds),
+      bookSectionIds: arr(payload.bookSectionIds),
+      guestGroupIds: arr(payload.guestGroupIds),
+      supplierIds: payload.supplierId ? [String(payload.supplierId)] : [],
+    };
   }
   if (kind === "task.update") {
-    const bits: string[] = [];
-    if (typeof p.status === "string") bits.push(`status → ${p.status}`);
-    if (typeof p.priority === "string") bits.push(`priority → ${p.priority}`);
-    if (typeof p.dueDate === "string" && p.dueDate) bits.push(`due → ${p.dueDate}`);
-    if (typeof p.title === "string") bits.push(`title → "${p.title}"`);
-    return bits.join(", ") || "small tweak";
+    return {
+      userIds: [...arr(payload.addAssigneeIds), ...arr(payload.removeAssigneeIds)],
+      navTagIds: [...arr(payload.addNavTagIds), ...arr(payload.removeNavTagIds)],
+      bookSectionIds: [
+        ...arr(payload.addBookSectionIds),
+        ...arr(payload.removeBookSectionIds),
+      ],
+      guestGroupIds: [
+        ...arr(payload.addGuestGroupIds),
+        ...arr(payload.removeGuestGroupIds),
+      ],
+      supplierIds: [],
+    };
   }
   if (kind === "event.create") {
-    const title = typeof p.title === "string" ? p.title : "(untitled)";
-    const start = typeof p.startTime === "string" ? p.startTime : "";
-    return `${title} · ${start.slice(0, 16)}`;
+    return {
+      userIds: arr(payload.attendeeRefs)
+        .filter((r) => r.startsWith("user:"))
+        .map((r) => r.slice("user:".length)),
+      navTagIds: [],
+      bookSectionIds: [],
+      guestGroupIds: [],
+      supplierIds: [],
+    };
   }
-  if (kind === "guest.create") {
-    const name = `${p.firstName ?? ""} ${p.lastName ?? ""}`.trim() || "(name pending)";
-    const side = typeof p.side === "string" ? ` · ${p.side}` : "";
-    return `${name}${side}`;
-  }
-  if (kind === "book.card.append") {
-    const heading = typeof p.heading === "string" ? p.heading : "Summary";
-    const text = typeof p.text === "string" ? p.text : "";
-    return `${heading}: ${text.slice(0, 80)}${text.length > 80 ? "…" : ""}`;
-  }
-  return "";
+  return { userIds: [], navTagIds: [], bookSectionIds: [], guestGroupIds: [], supplierIds: [] };
 }
+
+/** Render the resolved-names detail line for one proposal. Uses the
+ *  shared name maps; unknown ids (deleted since proposing) render as
+ *  "(deleted)" so the reviewer notices. */
+function buildProposalDetail(
+  kind: string,
+  payload: Record<string, unknown>,
+  names: Awaited<ReturnType<typeof resolveRefs>>["names"],
+): string | null {
+  const arr = (v: unknown): string[] => (Array.isArray(v) ? v.map(String) : []);
+  const nameOf = (map: Map<string, string>, id: string, sign = "") =>
+    `${sign}${map.get(id) ?? "(deleted)"}`;
+
+  const segments: string[] = [];
+  if (kind === "task.create") {
+    const assignees = arr(payload.assigneeIds).map((id) => nameOf(names.users, id));
+    const topics = [
+      ...arr(payload.navTagIds).map((id) => nameOf(names.navTags, id)),
+      ...arr(payload.bookSectionIds).map((id) => nameOf(names.bookSections, id)),
+      ...arr(payload.guestGroupIds).map((id) => nameOf(names.guestGroups, id)),
+    ];
+    if (assignees.length) segments.push(`→ ${assignees.join(", ")}`);
+    if (topics.length) segments.push(topics.join(", "));
+    if (payload.supplierId) {
+      segments.push(`supplier: ${nameOf(names.suppliers, String(payload.supplierId))}`);
+    }
+  } else if (kind === "task.update") {
+    const people = [
+      ...arr(payload.addAssigneeIds).map((id) => nameOf(names.users, id, "+")),
+      ...arr(payload.removeAssigneeIds).map((id) => nameOf(names.users, id, "−")),
+    ];
+    const topics = [
+      ...arr(payload.addNavTagIds).map((id) => nameOf(names.navTags, id, "+")),
+      ...arr(payload.removeNavTagIds).map((id) => nameOf(names.navTags, id, "−")),
+      ...arr(payload.addBookSectionIds).map((id) => nameOf(names.bookSections, id, "+")),
+      ...arr(payload.removeBookSectionIds).map((id) => nameOf(names.bookSections, id, "−")),
+      ...arr(payload.addGuestGroupIds).map((id) => nameOf(names.guestGroups, id, "+")),
+      ...arr(payload.removeGuestGroupIds).map((id) => nameOf(names.guestGroups, id, "−")),
+    ];
+    if (people.length) segments.push(`assignees: ${people.join(", ")}`);
+    if (topics.length) segments.push(`topics: ${topics.join(", ")}`);
+  } else if (kind === "event.create") {
+    const attendees = arr(payload.attendeeRefs).map((r) =>
+      r.startsWith("user:")
+        ? nameOf(names.users, r.slice("user:".length))
+        : r.replace(/^builtin:/, ""),
+    );
+    if (attendees.length) segments.push(`attendees: ${attendees.join(", ")}`);
+  }
+  return segments.length ? segments.join(" · ") : null;
+}
+
 
 export async function listPendingProposals(): Promise<PendingProposal[]> {
   const user = await requireUser();
@@ -202,11 +290,31 @@ export async function listPendingProposals(): Promise<PendingProposal[]> {
       payload: true,
       rationale: true,
       createdAt: true,
+      batchId: true,
       createdBy: {
         select: { firstName: true, name: true, email: true },
       },
     },
   });
+
+  // v2.2.0: one batched name-resolution pass across the whole list so
+  // detail lines show fresh names (renames don't stale).
+  const refUnion = {
+    userIds: [] as string[],
+    navTagIds: [] as string[],
+    bookSectionIds: [] as string[],
+    guestGroupIds: [] as string[],
+    supplierIds: [] as string[],
+  };
+  for (const r of rows) {
+    const ids = collectRefIds(r.kind, r.payload as Record<string, unknown>);
+    refUnion.userIds.push(...ids.userIds);
+    refUnion.navTagIds.push(...ids.navTagIds);
+    refUnion.bookSectionIds.push(...ids.bookSectionIds);
+    refUnion.guestGroupIds.push(...ids.guestGroupIds);
+    refUnion.supplierIds.push(...ids.supplierIds);
+  }
+  const { names } = await resolveRefs(refUnion);
 
   return rows.map((r) => ({
     id: r.id,
@@ -221,6 +329,8 @@ export async function listPendingProposals(): Promise<PendingProposal[]> {
       "someone",
     payload: r.payload,
     summary: summariseProposal(r.kind, r.payload),
+    detail: buildProposalDetail(r.kind, r.payload as Record<string, unknown>, names),
+    batchId: r.batchId,
   }));
 }
 
@@ -273,7 +383,18 @@ function taskPayloadToFormData(payload: Record<string, unknown>): FormData {
 }
 
 /** task.update payload → FormData for updateTask. */
-function taskUpdatePayloadToFormData(payload: Record<string, unknown>): FormData {
+/** task.update payload → FormData for updateTask.
+ *
+ *  v2.2.0: assignee/topic deltas are merged against the task's LIVE
+ *  relations here, at apply time — updateTask replaces those relation
+ *  sets wholesale when the fields are posted, so we must post the
+ *  full post-merge sets (including bookSubsection card links, which
+ *  the AI can't touch but which get wiped if omitted from a topic
+ *  replace). Fields the patch doesn't touch are left off the
+ *  FormData entirely so updateTask leaves them alone. */
+async function taskUpdatePayloadToFormData(
+  payload: Record<string, unknown>,
+): Promise<FormData> {
   const fd = new FormData();
   if (payload.title !== undefined) fd.append("title", String(payload.title));
   if (payload.status !== undefined) fd.append("status", String(payload.status));
@@ -284,6 +405,52 @@ function taskUpdatePayloadToFormData(payload: Record<string, unknown>): FormData
   if (payload.notes !== undefined && payload.notes !== null) {
     fd.append("notes", String(payload.notes));
   }
+
+  const patch = payload as import("@/lib/ai/proposals/merge-task-update").TaskRelationPatch;
+  const touchesAssignees = patchTouchesAssignees(patch);
+  const touchesTopics = patchTouchesTopics(patch);
+  if (!touchesAssignees && !touchesTopics) return fd;
+
+  const taskId = String(payload.taskId ?? "");
+  const current = await db.task.findUnique({
+    where: { id: taskId },
+    select: {
+      assignees: { select: { id: true } },
+      bookSections: { select: { id: true } },
+      bookSubsections: { select: { id: true } },
+      navTags: { select: { id: true } },
+      guestGroups: { select: { id: true } },
+    },
+  });
+  if (!current) throw new Error("Task not found — it may have been deleted since the proposal was made.");
+
+  const merged = mergeTaskRelations(
+    {
+      assigneeIds: current.assignees.map((a) => a.id),
+      bookSectionIds: current.bookSections.map((s) => s.id),
+      bookSubsectionIds: current.bookSubsections.map((s) => s.id),
+      navTagIds: current.navTags.map((t) => t.id),
+      guestGroupIds: current.guestGroups.map((g) => g.id),
+    },
+    patch,
+  );
+
+  if (touchesAssignees) {
+    // __touched__ marker lets updateTask distinguish "set to empty"
+    // from "field not posted" when every assignee was removed.
+    fd.append("assigneeIds", "__touched__");
+    for (const id of merged.assigneeIds) fd.append("assigneeIds", id);
+  }
+  if (touchesTopics) {
+    // updateTask replaces all four topic relations as a unit — post
+    // the complete merged set, INCLUDING existing card-level links.
+    fd.append("topicKeys", "__touched__");
+    for (const id of merged.bookSectionIds) fd.append("topicKeys", `bookSection:${id}`);
+    for (const id of merged.bookSubsectionIds) fd.append("topicKeys", `bookSubsection:${id}`);
+    for (const id of merged.navTagIds) fd.append("topicKeys", `navTag:${id}`);
+    for (const id of merged.guestGroupIds) fd.append("topicKeys", `guestGroup:${id}`);
+  }
+
   return fd;
 }
 
@@ -387,6 +554,164 @@ function eventPayloadToFormData(payload: Record<string, unknown>): FormData {
   return fd;
 }
 
+/** Shared core of single + bulk apply: takes an already-loaded, owned
+ *  proposal, dispatches by kind through the SAME human server actions,
+ *  updates the AiProposal row, writes the per-proposal audit entry.
+ *  Does NOT gate permissions or revalidate — callers own both. */
+async function applyLoadedProposal(
+  user: { id: string; isCouple: boolean },
+  proposal: { id: string; kind: string; payload: unknown; status: string },
+  override?: Record<string, unknown>,
+): Promise<ApplyResult> {
+  if (proposal.status !== "PENDING") {
+    return { ok: false, error: `Proposal is already ${proposal.status.toLowerCase()}.` };
+  }
+
+  const status = override && Object.keys(override).length > 0
+    ? "EDITED_AND_APPLIED"
+    : "APPLIED";
+
+  // v2.2.0 review fix: atomically CLAIM the row before creating the
+  // entity, so two concurrent applies (two tabs, chat card + /ai)
+  // can't both run the create. The loser's updateMany matches zero
+  // rows. On create failure the claim is rolled back to PENDING so
+  // the proposal stays actionable. (A crash between claim and create
+  // leaves an APPLIED row without an entity — rarer and strictly
+  // safer than double-creating real rows.)
+  const claimed = await db.aiProposal.updateMany({
+    where: { id: proposal.id, status: "PENDING" },
+    data: { status, reviewedAt: new Date() },
+  });
+  if (claimed.count === 0) {
+    return {
+      ok: false,
+      error: "Proposal was already handled — maybe in another tab.",
+    };
+  }
+
+  const merged = { ...(proposal.payload as Record<string, unknown>), ...(override ?? {}) };
+  let created: { id: string };
+
+  try {
+    if (proposal.kind === "task.create") {
+      const parsed = taskCreateSchema.parse(merged);
+      const result = await createTaskAction(taskPayloadToFormData(parsed));
+      if (!result?.id) throw new Error("createTask did not return an id.");
+      created = { id: result.id };
+    } else if (proposal.kind === "task.update") {
+      const parsed = taskUpdateSchema.parse(merged);
+      await updateTaskAction(
+        parsed.taskId,
+        await taskUpdatePayloadToFormData(parsed),
+      );
+      // updateTask returns void; the entity id IS the taskId, no new row.
+      created = { id: parsed.taskId };
+    } else if (proposal.kind === "event.create") {
+      const parsed = eventCreateSchema.parse(merged);
+      const result = await createScheduleEventAction(eventPayloadToFormData(parsed));
+      if (!result?.id) throw new Error("createScheduleEvent did not return an id.");
+      created = { id: result.id };
+    } else if (proposal.kind === "guest.create") {
+      const parsed = guestCreateSchema.parse(merged);
+      // Reuse an existing household by name (case-insensitive) if the
+      // couple has one; otherwise create a new one and link the guest.
+      const householdName =
+        parsed.householdName?.trim() || `${parsed.lastName} household`;
+      let household = await db.household.findFirst({
+        where: { name: { equals: householdName, mode: "insensitive" } },
+        select: { id: true },
+      });
+      if (!household) {
+        const createdHh = await createHouseholdAction(
+          householdPayloadToFormData(householdName, parsed.side),
+        );
+        if (!createdHh?.id) throw new Error("createHousehold did not return an id.");
+        household = { id: createdHh.id };
+      }
+      const guest = await createGuestAction(
+        guestPayloadToFormData(parsed, household.id),
+      );
+      if (!guest?.id) throw new Error("createGuest did not return an id.");
+      created = { id: guest.id };
+    } else if (proposal.kind === "book.card.append") {
+      const parsed = bookCardAppendSchema.parse(merged);
+      const { subsectionId, formData } = await bookCardAppendToFormData(parsed);
+      await updateBookSubsectionAction(subsectionId, formData);
+      created = { id: subsectionId };
+    } else {
+      await rollbackClaim(proposal.id);
+      return { ok: false, error: `Unknown proposal kind: ${proposal.kind}` };
+    }
+  } catch (err) {
+    await rollbackClaim(proposal.id);
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : "Apply failed during creation.",
+    };
+  }
+
+  await db.aiProposal.update({
+    where: { id: proposal.id },
+    data: { appliedEntityId: created.id },
+  });
+  await logAudit({
+    userId: user.id,
+    action: `ai.proposal.${status.toLowerCase()}`,
+    entity: "AiProposal",
+    entityId: proposal.id,
+    metadata: {
+      kind: proposal.kind,
+      appliedEntityId: created.id,
+      hadOverride: Boolean(override && Object.keys(override).length > 0),
+    },
+  });
+
+  return { ok: true, entityId: created.id };
+}
+
+/** Undo an apply-claim after entity creation failed — the row goes
+ *  back to PENDING so the reviewer can retry or dismiss. */
+async function rollbackClaim(id: string): Promise<void> {
+  try {
+    await db.aiProposal.update({
+      where: { id },
+      data: { status: "PENDING", reviewedAt: null },
+    });
+  } catch (err) {
+    console.error("ai proposal claim rollback failed", err);
+  }
+}
+
+/** Shared core of single + bulk dismiss. Same contract as
+ *  applyLoadedProposal: no gate, no revalidate. */
+async function dismissLoadedProposal(
+  user: { id: string },
+  proposal: { id: string; kind: string; status: string },
+): Promise<ApplyResult | { ok: true; entityId: null }> {
+  if (proposal.status !== "PENDING") {
+    return { ok: false, error: `Proposal is already ${proposal.status.toLowerCase()}.` };
+  }
+  // Atomic claim — same race protection as apply.
+  const claimed = await db.aiProposal.updateMany({
+    where: { id: proposal.id, status: "PENDING" },
+    data: { status: "DISMISSED", reviewedAt: new Date() },
+  });
+  if (claimed.count === 0) {
+    return {
+      ok: false,
+      error: "Proposal was already handled — maybe in another tab.",
+    };
+  }
+  await logAudit({
+    userId: user.id,
+    action: "ai.proposal.dismissed",
+    entity: "AiProposal",
+    entityId: proposal.id,
+    metadata: { kind: proposal.kind },
+  });
+  return { ok: true, entityId: null };
+}
+
 /** Apply a proposal — reuses the existing createTask /
  *  createScheduleEvent actions so the AI's writes are audit-log
  *  identical to a human's. Accepts an optional override that merges
@@ -406,88 +731,10 @@ export async function applyProposal(
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "Not found." };
   }
-  if (proposal.status !== "PENDING") {
-    return { ok: false, error: `Proposal is already ${proposal.status.toLowerCase()}.` };
-  }
 
-  const merged = { ...(proposal.payload as Record<string, unknown>), ...(override ?? {}) };
-  let created: { id: string };
-
-  try {
-    if (proposal.kind === "task.create") {
-      const parsed = taskCreateSchema.parse(merged);
-      const result = await createTaskAction(taskPayloadToFormData(parsed));
-      if (!result?.id) throw new Error("createTask did not return an id.");
-      created = { id: result.id };
-    } else if (proposal.kind === "task.update") {
-      const parsed = taskUpdateSchema.parse(merged);
-      await updateTaskAction(parsed.taskId, taskUpdatePayloadToFormData(parsed));
-      // updateTask returns void; the entity id IS the taskId, no new row.
-      created = { id: parsed.taskId };
-    } else if (proposal.kind === "event.create") {
-      const parsed = eventCreateSchema.parse(merged);
-      const result = await createScheduleEventAction(eventPayloadToFormData(parsed));
-      if (!result?.id) throw new Error("createScheduleEvent did not return an id.");
-      created = { id: result.id };
-    } else if (proposal.kind === "guest.create") {
-      const parsed = guestCreateSchema.parse(merged);
-      // Reuse an existing household by name (case-insensitive) if the
-      // couple has one; otherwise create a new one and link the guest.
-      const householdName =
-        parsed.householdName?.trim() || `${parsed.lastName} household`;
-      let household = await db.household.findFirst({
-        where: { name: { equals: householdName, mode: "insensitive" } },
-        select: { id: true },
-      });
-      if (!household) {
-        const created = await createHouseholdAction(
-          householdPayloadToFormData(householdName, parsed.side),
-        );
-        if (!created?.id) throw new Error("createHousehold did not return an id.");
-        household = { id: created.id };
-      }
-      const guest = await createGuestAction(
-        guestPayloadToFormData(parsed, household.id),
-      );
-      if (!guest?.id) throw new Error("createGuest did not return an id.");
-      created = { id: guest.id };
-    } else if (proposal.kind === "book.card.append") {
-      const parsed = bookCardAppendSchema.parse(merged);
-      const { subsectionId, formData } = await bookCardAppendToFormData(parsed);
-      await updateBookSubsectionAction(subsectionId, formData);
-      created = { id: subsectionId };
-    } else {
-      return { ok: false, error: `Unknown proposal kind: ${proposal.kind}` };
-    }
-  } catch (err) {
-    return {
-      ok: false,
-      error: err instanceof Error ? err.message : "Apply failed during creation.",
-    };
-  }
-
-  const status = override && Object.keys(override).length > 0
-    ? "EDITED_AND_APPLIED"
-    : "APPLIED";
-
-  await db.aiProposal.update({
-    where: { id },
-    data: { status, appliedEntityId: created.id, reviewedAt: new Date() },
-  });
-  await logAudit({
-    userId: user.id,
-    action: `ai.proposal.${status.toLowerCase()}`,
-    entity: "AiProposal",
-    entityId: id,
-    metadata: {
-      kind: proposal.kind,
-      appliedEntityId: created.id,
-      hadOverride: Boolean(override && Object.keys(override).length > 0),
-    },
-  });
-
+  const result = await applyLoadedProposal(user, proposal, override);
   revalidatePath("/ai");
-  return { ok: true, entityId: created.id };
+  return result;
 }
 
 export async function dismissProposal(id: string): Promise<ApplyResult | { ok: true; entityId: null }> {
@@ -502,24 +749,109 @@ export async function dismissProposal(id: string): Promise<ApplyResult | { ok: t
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "Not found." };
   }
-  if (proposal.status !== "PENDING") {
-    return { ok: false, error: `Proposal is already ${proposal.status.toLowerCase()}.` };
+
+  const result = await dismissLoadedProposal(user, proposal);
+  revalidatePath("/ai");
+  return result;
+}
+
+// ─── Bulk apply / dismiss (v2.2.0) ───────────────────────────────────
+
+export type BatchItemResult = {
+  id: string;
+  ok: boolean;
+  entityId: string | null;
+  error: string | null;
+};
+
+// Matches listPendingProposals' take:50 so a full dashboard batch can
+// be applied in one click. Sequential loop keeps this safe.
+const BULK_CAP = 50;
+
+/** Run apply or dismiss over a list of proposal ids. Per-item results
+ *  in input order; a failed item stays PENDING and its siblings keep
+ *  going. Sequential ON PURPOSE — two guest.create rows sharing a new
+ *  householdName must not race the find-or-create household lookup. */
+async function runBulk(
+  ids: string[],
+  mode: "apply" | "dismiss",
+): Promise<{ results: BatchItemResult[] }> {
+  const user = await requireUser();
+  const allowed = await canEdit(user, "ai_write");
+  const unique = [...new Set(ids)];
+
+  if (!allowed) {
+    return {
+      results: unique.map((id) => ({
+        id,
+        ok: false,
+        entityId: null,
+        error: `You don't have permission to ${mode} AI proposals.`,
+      })),
+    };
+  }
+  if (unique.length === 0) return { results: [] };
+
+  const results: BatchItemResult[] = [];
+  let processed = 0;
+  for (const id of unique) {
+    if (processed >= BULK_CAP) {
+      results.push({
+        id,
+        ok: false,
+        entityId: null,
+        error: `Too many at once — ${mode} in batches of ${BULK_CAP}.`,
+      });
+      continue;
+    }
+    processed++;
+    try {
+      const proposal = await loadOwnedProposal(id, user.id, user.isCouple);
+      const result =
+        mode === "apply"
+          ? await applyLoadedProposal(user, proposal)
+          : await dismissLoadedProposal(user, proposal);
+      results.push({
+        id,
+        ok: result.ok,
+        entityId: result.ok ? result.entityId : null,
+        error: result.ok ? null : result.error,
+      });
+    } catch (err) {
+      results.push({
+        id,
+        ok: false,
+        entityId: null,
+        error: err instanceof Error ? err.message : "Not found.",
+      });
+    }
   }
 
-  await db.aiProposal.update({
-    where: { id },
-    data: { status: "DISMISSED", reviewedAt: new Date() },
-  });
+  const failed = results.filter((r) => !r.ok).length;
   await logAudit({
     userId: user.id,
-    action: "ai.proposal.dismissed",
+    action: mode === "apply" ? "ai.proposal.batch_applied" : "ai.proposal.batch_dismissed",
     entity: "AiProposal",
-    entityId: id,
-    metadata: { kind: proposal.kind },
+    metadata: { count: results.length, failed, ids: unique.slice(0, BULK_CAP) },
   });
 
+  // One revalidate for the whole batch — the underlying create/update
+  // actions already revalidate their own routes per item; Next dedupes
+  // within a single server-action request.
   revalidatePath("/ai");
-  return { ok: true, entityId: null };
+  return { results };
+}
+
+export async function applyProposals(
+  ids: string[],
+): Promise<{ results: BatchItemResult[] }> {
+  return runBulk(ids, "apply");
+}
+
+export async function dismissProposals(
+  ids: string[],
+): Promise<{ results: BatchItemResult[] }> {
+  return runBulk(ids, "dismiss");
 }
 
 // ─── One-shot surfaces (phase 3) ─────────────────────────────────────
@@ -693,6 +1025,8 @@ export async function parseGuestList(
     const { guestCreateSchema: schema } = await import("@/lib/ai/proposals/schemas");
     const proposalIds: string[] = [];
     const skipped: string[] = [];
+    // One batch per parse run so the review UIs group the rows.
+    const batchId = randomUUID();
     for (let i = 0; i < rows.length; i++) {
       const parsed = schema.safeParse(rows[i]);
       if (!parsed.success) {
@@ -703,6 +1037,7 @@ export async function parseGuestList(
         data: {
           createdById: user.id,
           kind: "guest.create",
+          batchId,
           payload: parsed.data as unknown as object,
           rationale: `Parsed from pasted list (row ${i + 1}).`,
         },
@@ -813,6 +1148,8 @@ export async function suggestDueDates(): Promise<
     const now = Date.now();
     let count = 0;
     let skipped = 0;
+    // One batch per run so the review UIs can apply all dates at once.
+    const batchId = randomUUID();
 
     for (const d of dates) {
       if (!validIds.has(d.taskId)) {
@@ -828,6 +1165,7 @@ export async function suggestDueDates(): Promise<
         data: {
           createdById: user.id,
           kind: "task.update",
+          batchId,
           payload: {
             taskId: d.taskId,
             dueDate: d.dueDate,

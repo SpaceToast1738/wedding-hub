@@ -13,7 +13,7 @@ import { runChatTurn, type ChatEvent } from "@/lib/ai/chat";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-type Body = { threadId?: string; text?: string };
+type Body = { threadId?: string; text?: string; pathname?: string };
 
 function sseFrame(event: ChatEvent): string {
   // SSE: `event: <type>\ndata: <json>\n\n` — clients that parse SSE
@@ -41,6 +41,23 @@ export async function POST(req: Request) {
   if (!text) {
     return NextResponse.json({ error: "Empty message" }, { status: 400 });
   }
+  if (text.length > 4000) {
+    return NextResponse.json(
+      { error: "Message too long — keep it under 4000 characters." },
+      { status: 400 },
+    );
+  }
+
+  // v2.2.0: page context from the panel. Client input that lands in
+  // the system prompt — allowlist, don't blocklist. App routes are
+  // exclusively slug/cuid segments, so anything outside this charset
+  // (spaces, quotes, angle brackets, newlines) is dropped wholesale
+  // rather than trimmed.
+  const pathname =
+    typeof body.pathname === "string" &&
+    /^\/[A-Za-z0-9\-_/.]{0,199}$/.test(body.pathname)
+      ? body.pathname
+      : null;
 
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
@@ -50,6 +67,7 @@ export async function POST(req: Request) {
           user,
           threadId: body.threadId ?? null,
           text,
+          pathname,
         })) {
           controller.enqueue(encoder.encode(sseFrame(event)));
         }

@@ -9,6 +9,7 @@
 // The generator's caller (see src/app/api/ai/chat/route.ts) is
 // responsible for translating events → SSE bytes.
 
+import { randomUUID } from "crypto";
 import Anthropic from "@anthropic-ai/sdk";
 import { db } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
@@ -57,13 +58,115 @@ export type ChatEvent =
       proposalId: string;
       kind: string;
       title: string;
+      /** v2.2.0: resolved-names line ("→ Sarah · Flowers"). */
+      detail?: string;
+      /** v2.2.0: shared per-turn batch id for grouped approval. */
+      batchId?: string;
     }
   | { type: "message_end"; costPence: number; model: string }
   | { type: "done"; totalCostPence: number }
   | { type: "error"; error: string; code?: string };
 
-const MAX_TOOL_ITERATIONS = 6;
+// v2.2.0: 6 → 8. A batch turn legitimately needs read_proposals +
+// read_tasks + serialized propose calls + a closing prose turn; the
+// prompt nudges parallel tool calls (which land in ONE iteration) but
+// Sonnet sometimes serializes anyway. Keep a hard stop against loops.
+const MAX_TOOL_ITERATIONS = 8;
 const CHAT_HISTORY_LIMIT = 40;
+// v2.2.0: 4096 → 8192. A parallel propose batch carries many tool_use
+// blocks; max_tokens is a ceiling not a cost, and hitting it
+// mid-tool_use silently truncated the turn pre-fix.
+const MAX_OUTPUT_TOKENS = 8192;
+
+type BlockLike = { type?: string };
+
+/** v2.2.0 review fix: make the reconstructed history Anthropic-legal.
+ *
+ *  Two ways stored rows go bad: (a) a max_tokens stop persists an
+ *  assistant row with tool_use blocks whose tool_result rows never
+ *  got written — replaying that verbatim 400s every subsequent turn
+ *  in the thread; (b) the history window can slice a tool_use /
+ *  tool_result pair apart at its boundary. This walker:
+ *    - strips tool_use blocks from an assistant message unless the
+ *      NEXT message resolves every one of them with a tool_result;
+ *    - drops orphan tool_result blocks whose tool_use isn't in the
+ *      immediately preceding kept assistant message;
+ *    - drops leading assistant messages (first message must be user).
+ *  Healing happens at read time, so threads wedged by old truncated
+ *  turns recover on their next message. */
+function sanitizeHistory(
+  input: Anthropic.MessageParam[],
+): Anthropic.MessageParam[] {
+  const out: Anthropic.MessageParam[] = [];
+
+  for (let i = 0; i < input.length; i++) {
+    const m = input[i]!;
+
+    if (m.role === "assistant" && Array.isArray(m.content)) {
+      const toolUses = m.content.filter(
+        (b): b is Anthropic.ToolUseBlock => (b as BlockLike).type === "tool_use",
+      );
+      if (toolUses.length > 0) {
+        const next = input[i + 1];
+        const resultIds = new Set<string>();
+        if (next && next.role === "user" && Array.isArray(next.content)) {
+          for (const b of next.content) {
+            if ((b as BlockLike).type === "tool_result") {
+              resultIds.add((b as Anthropic.ToolResultBlockParam).tool_use_id);
+            }
+          }
+        }
+        const allResolved = toolUses.every((t) => resultIds.has(t.id));
+        if (!allResolved) {
+          const stripped = (m.content as BlockLike[]).filter(
+            (b) => b.type !== "tool_use",
+          );
+          if (stripped.length > 0) {
+            out.push({
+              role: "assistant",
+              content: stripped as Anthropic.MessageParam["content"],
+            });
+          }
+          continue;
+        }
+      }
+    }
+
+    if (m.role === "user" && Array.isArray(m.content)) {
+      const hasToolResult = (m.content as BlockLike[]).some(
+        (b) => b.type === "tool_result",
+      );
+      if (hasToolResult) {
+        const prev = out[out.length - 1];
+        const prevToolUseIds = new Set<string>();
+        if (prev && prev.role === "assistant" && Array.isArray(prev.content)) {
+          for (const b of prev.content) {
+            if ((b as BlockLike).type === "tool_use") {
+              prevToolUseIds.add((b as Anthropic.ToolUseBlock).id);
+            }
+          }
+        }
+        const kept = (m.content as BlockLike[]).filter(
+          (b) =>
+            b.type !== "tool_result" ||
+            prevToolUseIds.has((b as Anthropic.ToolResultBlockParam).tool_use_id),
+        );
+        if (kept.length === 0) continue;
+        out.push({
+          role: "user",
+          content: kept as Anthropic.MessageParam["content"],
+        });
+        continue;
+      }
+    }
+
+    out.push(m);
+  }
+
+  // First message must be role "user".
+  while (out.length > 0 && out[0]!.role !== "user") out.shift();
+  return out;
+}
 
 /** Persist and stream one turn. Async generator so the API route can
  *  `for await` it and pipe events straight to the SSE stream. */
@@ -71,8 +174,12 @@ export async function* runChatTurn(args: {
   user: SessionUser;
   threadId: string | null;
   text: string;
+  /** v2.2.0: sanitized pathname the panel was opened on ("/guests/abc").
+   *  Injected as a trailing system block; stored as contextRef on new
+   *  threads. Null = no page context. */
+  pathname?: string | null;
 }): AsyncGenerator<ChatEvent, void, void> {
-  const { user, text } = args;
+  const { user, text, pathname } = args;
 
   if (!(await canView(user, "ai_chat"))) {
     yield { type: "error", error: "You don't have access to the AI planner." };
@@ -112,6 +219,8 @@ export async function* runChatTurn(args: {
       data: {
         userId: user.id,
         title: text.slice(0, 80),
+        // v2.2.0: where the chat was opened from ("route:/guests/abc").
+        contextRef: pathname ? `route:${pathname}` : null,
       },
     });
     threadId = thread.id;
@@ -122,42 +231,56 @@ export async function* runChatTurn(args: {
   await db.aiMessage.create({
     data: { threadId, role: "user", content: text },
   });
+  // Bump the thread's updatedAt so the History list orders by real
+  // activity (message creates don't touch the parent row).
+  void db.aiThread
+    .update({ where: { id: threadId }, data: { updatedAt: new Date() } })
+    .catch(() => {});
 
   // ─── build the message history for Anthropic ─────────────────────
-  const prior = await db.aiMessage.findMany({
+  // v2.2.0 review fix: take the NEWEST rows. The original asc+take
+  // returned the OLDEST 40, so once a thread grew past the cap the
+  // just-typed message fell outside the window and the model never
+  // saw it. desc+take+reverse = most-recent window in chrono order.
+  const priorDesc = await db.aiMessage.findMany({
     where: { threadId },
-    orderBy: { createdAt: "asc" },
+    orderBy: { createdAt: "desc" },
     take: CHAT_HISTORY_LIMIT,
     select: { role: true, content: true, toolCalls: true },
   });
+  const prior = priorDesc.reverse();
 
-  const messages: Anthropic.MessageParam[] = [];
+  const rawMessages: Anthropic.MessageParam[] = [];
   for (const m of prior) {
     if (m.role === "user") {
-      messages.push({ role: "user", content: m.content });
+      rawMessages.push({ role: "user", content: m.content });
     } else if (m.role === "assistant") {
       // Reconstruct assistant blocks from stored toolCalls + text.
       const toolCalls = (m.toolCalls as Anthropic.ContentBlock[] | null) ?? null;
       if (toolCalls && toolCalls.length > 0) {
-        messages.push({ role: "assistant", content: toolCalls });
+        rawMessages.push({ role: "assistant", content: toolCalls });
       } else if (m.content) {
-        messages.push({ role: "assistant", content: m.content });
+        rawMessages.push({ role: "assistant", content: m.content });
       }
     } else if (m.role === "tool") {
       // Stored as JSON payload — the string content is a stringified
       // ToolResultBlockParam[]. Fall back to raw text if parsing fails.
       try {
         const parsed = JSON.parse(m.content) as Anthropic.ToolResultBlockParam[];
-        messages.push({ role: "user", content: parsed });
+        rawMessages.push({ role: "user", content: parsed });
       } catch {
-        messages.push({ role: "user", content: m.content });
+        rawMessages.push({ role: "user", content: m.content });
       }
     }
   }
+  const messages = sanitizeHistory(rawMessages);
 
   const canWrite = await canEdit(user, "ai_write");
-  const system = await buildPlannerSystem(user, { canWrite });
-  const ctx = { user, canWrite };
+  const system = await buildPlannerSystem(user, { canWrite, pathname });
+  // v2.2.0: every proposal created during this turn shares one batch
+  // id so the review UIs can offer approve-all.
+  const batchId = randomUUID();
+  const ctx = { user, canWrite, batchId };
   const tools = toolDefinitions({ canWrite });
   const model = MODEL_TIERS.balanced;
   const client = await getClient();
@@ -171,7 +294,7 @@ export async function* runChatTurn(args: {
     try {
       stream = client.messages.stream({
         model,
-        max_tokens: 4096,
+        max_tokens: MAX_OUTPUT_TOKENS,
         system,
         messages,
         tools,
@@ -251,6 +374,18 @@ export async function* runChatTurn(args: {
 
     messages.push({ role: "assistant", content: finalMessage.content });
 
+    // v2.2.0: a max_tokens stop mid-turn used to fall through the
+    // tool_use branch and end silently with truncated output — flag
+    // it so the user knows to retry with a narrower ask.
+    if (finalMessage.stop_reason === "max_tokens") {
+      yield {
+        type: "error",
+        error:
+          "The response hit its length limit and was cut off. Try a narrower request (e.g. fewer items at once).",
+      };
+      return;
+    }
+
     if (finalMessage.stop_reason !== "tool_use") {
       yield { type: "done", totalCostPence: totalCost };
       return;
@@ -277,7 +412,7 @@ export async function* runChatTurn(args: {
       // so it can render Apply/Dismiss cards inline in the transcript.
       if (result.ok && isProposeTool(t.name)) {
         const data = result.data as
-          | { proposalId?: string; kind?: string; title?: string }
+          | { proposalId?: string; kind?: string; title?: string; detail?: string }
           | undefined;
         if (data?.proposalId && data.kind && data.title) {
           yield {
@@ -285,6 +420,8 @@ export async function* runChatTurn(args: {
             proposalId: data.proposalId,
             kind: data.kind,
             title: data.title,
+            detail: data.detail,
+            batchId,
           };
         }
       }

@@ -45,6 +45,9 @@ export function ProposalReviewCard({ proposal }: { proposal: PendingProposal }) 
             {proposal.kindLabel} · from {proposal.createdBy}
           </div>
           <div className="font-medium text-ink-primary">{proposal.summary}</div>
+          {proposal.detail && (
+            <div className="text-xs text-ink-secondary mt-0.5">{proposal.detail}</div>
+          )}
           <div className="text-sm text-ink-secondary mt-1">
             <span className="italic">Why:</span> {proposal.rationale}
           </div>

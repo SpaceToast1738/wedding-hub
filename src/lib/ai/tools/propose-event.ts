@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { eventCreateSchema } from "@/lib/ai/proposals/schemas";
+import { BUILTIN_GROUP_SLUGS } from "@/lib/group-members";
+import { buildDetailLine, resolveRefs, unknownIdsError } from "./validate-refs";
 import type { AiTool } from "./types";
 
 const inputSchema = z.object({
@@ -12,6 +14,11 @@ const inputSchema = z.object({
   location: z.string().max(200).optional(),
   notes: z.string().max(2000).optional(),
   allDay: z.boolean().optional(),
+  // v2.2.0: attendees — "user:<id>" (reference directory) or
+  // "builtin:<slug>" (couple / everyone / wedding-party-role /
+  // planners-role). Custom "group:<slug>" refs are human-picker
+  // territory; the AI sticks to the two validated shapes.
+  attendeeRefs: z.array(z.string()).max(15).optional(),
   rationale: z
     .string()
     .min(1)
@@ -43,6 +50,12 @@ export const proposeEvent: AiTool<typeof inputSchema> = {
         location: { type: "string" },
         notes: { type: "string" },
         allDay: { type: "boolean" },
+        attendeeRefs: {
+          type: "array",
+          items: { type: "string" },
+          description:
+            'Who attends. Each entry is "user:<id>" (ids from the reference directory) or a builtin group like "builtin:couple". Optional.',
+        },
         rationale: {
           type: "string",
           description:
@@ -61,6 +74,30 @@ export const proposeEvent: AiTool<typeof inputSchema> = {
       };
     }
 
+    // Validate attendee refs: user:<id> against real users,
+    // builtin:<slug> against the builtin group registry. Anything
+    // else (including group:<slug>) is rejected with guidance.
+    const refs = input.attendeeRefs ?? [];
+    const userRefIds = refs
+      .filter((r) => r.startsWith("user:"))
+      .map((r) => r.slice("user:".length));
+    const badShape = refs.filter(
+      (r) => !r.startsWith("user:") && !r.startsWith("builtin:"),
+    );
+    const badBuiltin = refs
+      .filter((r) => r.startsWith("builtin:"))
+      .filter((r) => !BUILTIN_GROUP_SLUGS.has(r.slice("builtin:".length)));
+    if (badShape.length || badBuiltin.length) {
+      return {
+        ok: false,
+        error: `Invalid attendeeRefs: ${[...badShape, ...badBuiltin].join(", ")}. Use "user:<id>" with ids from the reference directory, or one of the builtin groups listed there.`,
+      };
+    }
+    const { invalid, names } = await resolveRefs({ userIds: userRefIds });
+    if (invalid.length) {
+      return { ok: false, error: unknownIdsError(invalid) };
+    }
+
     const payloadResult = eventCreateSchema.safeParse({
       title: input.title,
       startTime: input.startTime,
@@ -68,6 +105,7 @@ export const proposeEvent: AiTool<typeof inputSchema> = {
       location: input.location ?? null,
       notes: input.notes ?? null,
       allDay: input.allDay ?? false,
+      attendeeRefs: refs,
     });
     if (!payloadResult.success) {
       return {
@@ -82,7 +120,16 @@ export const proposeEvent: AiTool<typeof inputSchema> = {
         kind: "event.create",
         payload: payloadResult.data as unknown as object,
         rationale: input.rationale,
+        batchId: ctx.batchId ?? null,
       },
+    });
+
+    const detail = buildDetailLine({
+      attendees: refs.map((r) =>
+        r.startsWith("user:")
+          ? names.users.get(r.slice("user:".length))!
+          : r.slice("builtin:".length),
+      ),
     });
 
     return {
@@ -91,6 +138,7 @@ export const proposeEvent: AiTool<typeof inputSchema> = {
         proposalId: proposal.id,
         kind: "event.create",
         title: input.title,
+        detail,
         message:
           "Proposal queued. It will show up in the panel for the couple to Apply or Dismiss.",
       },

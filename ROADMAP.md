@@ -963,6 +963,60 @@ When wrapping up a meaningful iteration:
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
 
+### 2026-07-03 · v2.2.0 — AI planner: richer proposals, batch approvals, page-aware chat
+
+User: full review of the AI agent + "it can't assign people to tasks, can't assign topics so they show under their sections, and I want one approval for multiple proposed tasks". Review ran as a multi-agent read-only workflow; plan approved with four extras (page-aware chat, thread history, suppliers visibility, AI-sees-pending-proposals).
+
+**P0 bugfix shipped separately as v2.1.1 (`b2fd21c`)**: all three strict-JSON one-shot actions (parse guests, suggest due dates, wedding review) 400'd in production because their `output_config.format` schemas lacked `additionalProperties: false` on object nodes. Schemas moved to [src/lib/ai/output-schemas.ts](src/lib/ai/output-schemas.ts) with a walker regression test.
+
+**Richer proposals — the AI can now assign people, topics, and suppliers:**
+
+- **Reference directory** ([src/lib/ai/directory.ts](src/lib/ai/directory.ts), new): compact ID-bearing listing of users, nav tags, book sections, guest groups (+ builtin attendee groups), rendered into the *uncached* snapshot block of the system prompt on every write-enabled turn (~550–870 tokens). Suppliers deliberately excluded (unbounded) — they get `read_suppliers` instead.
+- **`validate-refs.ts`** (new): batched ID validation + name resolution shared by all propose tools. A hallucinated id never reaches an AiProposal payload; resolved names feed the UI detail lines.
+- **`propose_task`** now exposes `assigneeIds` / `bookSectionIds` / `navTagIds` / `guestGroupIds` / `supplierId` (the Zod payload schema + FormData bridge supported them since phase 2 — the tool input schema just never surfaced them).
+- **`propose_task_update`** gains add/remove **delta** fields for assignees + topics. Deltas (not full sets) because `updateTask` REPLACES all four topic relations as a unit whenever any topicKeys field is posted — the apply bridge loads the task's live relations, merges via the new pure module [merge-task-update.ts](src/lib/ai/proposals/merge-task-update.ts) (unit-tested), and posts the complete merged set *including* card-level bookSubsection links the AI can't even express. Deltas survive concurrent human edits between propose-time and apply-time.
+- **`propose_event`** exposes `attendeeRefs` (`user:<id>` validated against users, `builtin:<slug>` against BUILTIN_GROUPS).
+- **`read_suppliers`** (new tool): id/name/category/status/primary contact/latest communication + follow-up, filterable, cap 30. Gated on `canView("suppliers")`.
+- **Review UIs** show a resolved-names detail line ("→ Sarah · Flowers · supplier: Bloom & Co") on chat cards and /ai rows; names resolved server-side at list time so renames don't stale.
+
+**Batch approvals — one approve action for N proposals:**
+
+- `AiProposal.batchId String?` + index (append-only migration [20260703000000_ai_proposal_batch](prisma/migrations/20260703000000_ai_proposal_batch/migration.sql)). One `randomUUID()` per `runChatTurn` threaded through `ToolContext`; `parseGuestList` + `suggestDueDates` stamp their own per run; `summarizeBookCard` stays a singleton.
+- **Bulk server actions** `applyProposals(ids)` / `dismissProposals(ids)`: permission gate once, dedupe, cap 25, **sequential** loop (guest.create household find-or-create must not race), per-item results in input order, failures stay PENDING + retryable, one batch-level audit row on top of the per-item ones, one `/ai` revalidate. Single-proposal actions refactored onto the same `applyLoadedProposal`/`dismissLoadedProposal` helpers.
+- **ChatPanel**: >1 proposal in a turn renders ONE `ProposalBatchCard` — checkbox per item (deselection-set state so late-streaming items arrive checked), "Apply selected (n)" + "Dismiss all", per-item status chips, failed items retryable.
+- **/ai dashboard**: [grouping.ts](src/lib/ai/proposals/grouping.ts) `groupByBatch` (pure, tested) + [ProposalBatchGroup.tsx](src/app/(app)/ai/ProposalBatchGroup.tsx) with select-all. Singletons keep the existing card.
+- **SSE**: no new event type — the assistant message already is the batch boundary; `proposal_created` gains optional `detail` + `batchId`.
+
+**Context upgrades:**
+
+- **Page-aware chat**: ChatPanel sends `usePathname()` with every message; route sanitizes (leading `/`, no CR/LF, ≤200 chars); new threads store `contextRef: "route:<path>"` (the phase-0 field, finally wired); a trailing uncached system block tells the model where the user is, with a human label from [route-context.ts](src/lib/ai/route-context.ts) (longest-prefix match over NAV_GROUPS, unit-tested). "Draft a reminder for this guest" now works without re-explaining.
+- **Thread history + resume**: History button in the panel header lists past threads (`listMyThreads`, wired at last); tapping one hydrates the transcript (`getThread` → user/assistant bubbles + tool chips via a client-side label map) and continues the same thread. Past proposals are NOT reconstructed as stale Apply cards — a live pending-count strip links to /ai instead.
+- **`read_proposals`** (new tool): the model can see the PENDING queue (summaries via `summariseProposal`, moved to [schemas.ts](src/lib/ai/proposals/schemas.ts) so both the dashboard and the tool share it). Write addendum now instructs: check read_proposals before proposing.
+
+**Guardrails** ([chat.ts](src/lib/ai/chat.ts)): `MAX_TOOL_ITERATIONS` 6→8; `max_tokens` 4096→8192 (`MAX_OUTPUT_TOKENS` const); a `stop_reason === "max_tokens"` mid-turn now yields a visible error instead of silently truncating; prompt nudge to emit parallel propose calls (N proposals in one iteration).
+
+**Foot-guns:**
+
+- The WRITE_ADDENDUM edit invalidates the cached system prefix ONCE at deploy (plus the new tool definitions — tools render before system). First-request cache-write cost is expected, not a regression.
+- The directory only renders for `ai_write` callers; read-only chat pays no extra tokens.
+- `taskUpdatePayloadToFormData` is now async (loads live relations). Any future caller must await it.
+- Bulk apply is sequential by design; 25-cap per call. The ChatPanel/BatchGroup never send more than one batch at a time.
+- `read_proposals` mirrors listPendingProposals visibility (authors see own; couple sees all) — keep the two in sync if visibility rules ever change.
+
+**Adversarial review pass** (54-agent workflow: 3 finders → 51 raw findings → per-finding refutation → 41 confirmed). Fixed before ship:
+
+- *History rebuild (2 highs)*: the chat history query took the OLDEST 40 rows (asc+take), so long/resumed threads silently dropped the newest user message → now desc+take+reverse. And a `max_tokens` stop used to persist assistant `tool_use` blocks whose `tool_result` rows never got written, permanently 400-ing the thread → new `sanitizeHistory()` walker strips dangling tool_use / orphan tool_result pairs at rebuild time, healing old wedged threads too.
+- *Atomic claim on apply/dismiss*: `updateMany({where: {id, status: PENDING}})` claims the row before the entity create, so two tabs can't double-create; create failure rolls the claim back to PENDING.
+- *Error-event handling in the panel*: a terminal error (token/iteration cap) no longer wipes the assistant bubble — streamed text, tool chips and proposal cards stay; the error appends as its own message.
+- *Retryable batch failures*: failed items stay checkbox-selectable in both batch UIs (server-side they're still PENDING), instead of being permanently stuck on "failed".
+- *Directory visibility leak*: COUPLE_ONLY book sections no longer render into a non-couple user's reference directory.
+- *pathname hardening*: charset allowlist (`/^\/[A-Za-z0-9\-_/.]{0,199}$/`) instead of CR/LF stripping — free-text prompt injection via the pathname field is dead; also a 4000-char cap on chat messages.
+- *Smaller*: proposal buttons lock while a turn is streaming (prevents the 1→N card remount race), thread `updatedAt` bumps on new messages (history ordering), history counts exclude internal tool rows, empty assistant rows filtered from resume, `read_proposals` flags truncation, no-op task-update patches rejected, BULK_CAP raised to 50 to match the dashboard window, near-bottom guard on autoscroll, focus restore after replies, loadThread failure handling.
+
+Known-accepted (documented, not fixed): relation merge is last-writer-wins under concurrent human edits (deltas minimize the blast radius); `listPendingProposals` take:50 can theoretically split a >50-row batch; entity renames flow into the prompt (inherent to giving the model user data); `updateTask` gates QUESTION-type rows behind the tasks permission (pre-existing app behavior).
+
+582 unit tests → 602 (merge-task-update, proposal-grouping, route-context suites; the output-schemas walker landed with v2.1.1). Typecheck clean.
+
 ### 2026-07-02 · v2.1.0 — AI phase 6.1: edit Anthropic API key in Settings
 
 User: *"I want to add it in the website"* — Anthropic API key without having to shell into the Unraid box.
