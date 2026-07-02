@@ -16,6 +16,11 @@ import { sendMessage } from "@/lib/ai/client";
 import { AI_FEATURES, AiDisabledError } from "@/lib/ai/config";
 import { BudgetExceeded, RateLimited } from "@/lib/ai/guards";
 import {
+  dueDateSuggestionSchema,
+  guestExtractionSchema,
+  weddingReviewSchema,
+} from "@/lib/ai/output-schemas";
+import {
   bookCardAppendSchema,
   eventCreateSchema,
   guestCreateSchema,
@@ -653,37 +658,6 @@ export async function parseGuestList(
     return { ok: false, error: "That's too much text at once. Split into chunks." };
   }
 
-  // Strict JSON output — the model is forced by output_config to
-  // emit valid JSON matching this schema. Replaces the pre-phase-4
-  // "please return JSON" instruction + code-fence peeling.
-  const guestJsonSchema = {
-    type: "object",
-    properties: {
-      guests: {
-        type: "array",
-        items: {
-          type: "object",
-          properties: {
-            firstName: { type: "string" },
-            lastName: { type: "string" },
-            householdName: { type: ["string", "null"] },
-            side: { type: "string", enum: ["BRIDE", "GROOM", "BOTH"] },
-            email: { type: ["string", "null"] },
-            phone: { type: ["string", "null"] },
-            isChild: { type: "boolean" },
-            plusOneAllowed: { type: "boolean" },
-            plusOneName: { type: ["string", "null"] },
-            dietary: { type: ["string", "null"] },
-            role: { type: ["string", "null"] },
-            notes: { type: ["string", "null"] },
-          },
-          required: ["firstName", "lastName", "side"],
-        },
-      },
-    },
-    required: ["guests"],
-  } as const;
-
   try {
     const result = await sendMessage({
       userId: user.id,
@@ -693,7 +667,7 @@ export async function parseGuestList(
       system: `You extract structured guest data from pasted text. Rules:\n- One entry per person (children count as separate people).\n- Group co-habiting people under the same householdName; couples usually share a household.\n- 'side' is BRIDE or GROOM if the text makes it obvious, else BOTH.\n- Never invent an email or phone. Leave those null if not in the source.\n- Skip anything you can't parse confidently — under-extract rather than fabricate.`,
       messages: [{ role: "user", content: `Extract guests from:\n\n${trimmed}` }],
       outputConfig: {
-        format: { type: "json_schema", schema: guestJsonSchema as unknown as Record<string, unknown> },
+        format: { type: "json_schema", schema: guestExtractionSchema as unknown as Record<string, unknown> },
       },
     });
     const jsonText = result.content
@@ -790,28 +764,6 @@ export async function suggestDueDates(): Promise<
   );
   const weeks = Math.floor(daysToWedding / 7);
 
-  const responseSchema = {
-    type: "object",
-    properties: {
-      dates: {
-        type: "array",
-        items: {
-          type: "object",
-          properties: {
-            taskId: { type: "string" },
-            dueDate: {
-              type: "string",
-              description: "ISO date YYYY-MM-DD.",
-            },
-            rationale: { type: "string" },
-          },
-          required: ["taskId", "dueDate", "rationale"],
-        },
-      },
-    },
-    required: ["dates"],
-  } as const;
-
   const taskList = openTasks
     .map(
       (t) =>
@@ -835,7 +787,7 @@ export async function suggestDueDates(): Promise<
       outputConfig: {
         format: {
           type: "json_schema",
-          schema: responseSchema as unknown as Record<string, unknown>,
+          schema: dueDateSuggestionSchema as unknown as Record<string, unknown>,
         },
       },
     });
@@ -1234,47 +1186,6 @@ export async function reviewWeddingState(): Promise<
     ...(budgetSummary ? [budgetSummary] : []),
   ].join("\n");
 
-  const responseSchema = {
-    type: "object",
-    properties: {
-      headline: {
-        type: "string",
-        description:
-          "One or two sentences summarising overall state. Lead with the outcome, not the process.",
-      },
-      onTrack: {
-        type: "array",
-        items: {
-          type: "object",
-          properties: {
-            area: { type: "string" },
-            note: { type: "string" },
-          },
-          required: ["area", "note"],
-        },
-      },
-      concerns: {
-        type: "array",
-        items: {
-          type: "object",
-          properties: {
-            severity: { type: "string", enum: ["high", "medium", "low"] },
-            area: { type: "string" },
-            issue: { type: "string" },
-            suggestion: { type: "string" },
-          },
-          required: ["severity", "area", "issue", "suggestion"],
-        },
-      },
-      nextSteps: {
-        type: "array",
-        items: { type: "string" },
-        description: "3–5 concrete actions the couple should tackle this week.",
-      },
-    },
-    required: ["headline", "onTrack", "concerns", "nextSteps"],
-  } as const;
-
   try {
     const result = await sendMessage({
       userId: user.id,
@@ -1291,7 +1202,7 @@ export async function reviewWeddingState(): Promise<
       outputConfig: {
         format: {
           type: "json_schema",
-          schema: responseSchema as unknown as Record<string, unknown>,
+          schema: weddingReviewSchema as unknown as Record<string, unknown>,
         },
       },
     });
