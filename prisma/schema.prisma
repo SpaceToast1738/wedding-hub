@@ -1731,6 +1731,11 @@ model WeddingSettings {
   // falls back to AI_MONTHLY_CAP_PENCE env, then to a hard-coded
   // 3000-pence (£30) default. Editable from /settings.
   aiMonthlyCapPence Int?
+  // v2.1.0 phase 6.1: Anthropic API key, editable from /settings so
+  // the couple can rotate it without touching .env. Falls back to the
+  // ANTHROPIC_API_KEY env var when NULL. Server-side only; the value
+  // never leaves the DB in raw form (Settings UI shows a mask).
+  anthropicApiKey String?
   updatedAt         DateTime @updatedAt
 }
 

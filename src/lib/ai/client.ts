@@ -9,7 +9,6 @@ import Anthropic from "@anthropic-ai/sdk";
 import { db } from "@/lib/db";
 import { logAudit } from "@/lib/audit";
 import {
-  ANTHROPIC_API_KEY,
   MODEL_TIERS,
   assertConfigured,
   type AiFeature,
@@ -19,14 +18,17 @@ import {
 import { computeCostPence } from "@/lib/ai/cost";
 import { budgetGuard, rateLimit } from "@/lib/ai/guards";
 
-let cachedClient: Anthropic | null = null;
+// v2.1.0 phase 6.1: cached client keyed by the api key string.
+// Rebuilds when the DB-editable key changes. Both fields written
+// together so a rotation can never race a "wrong-key client" call.
+let cachedClient: { client: Anthropic; key: string } | null = null;
 
-function getClient(): Anthropic {
-  assertConfigured();
-  if (!cachedClient) {
-    cachedClient = new Anthropic({ apiKey: ANTHROPIC_API_KEY! });
+async function getClient(): Promise<Anthropic> {
+  const key = await assertConfigured();
+  if (!cachedClient || cachedClient.key !== key) {
+    cachedClient = { client: new Anthropic({ apiKey: key }), key };
   }
-  return cachedClient;
+  return cachedClient.client;
 }
 
 export type SendMessageArgs = {
@@ -66,7 +68,7 @@ export type SendMessageResult = {
 export async function sendMessage(args: SendMessageArgs): Promise<SendMessageResult> {
   await Promise.all([budgetGuard(), rateLimit(args.userId, args.feature)]);
 
-  const client = getClient();
+  const client = await getClient();
   const model = args.model ?? MODEL_TIERS[args.tier ?? "balanced"];
 
   const request: Anthropic.MessageCreateParamsNonStreaming = {

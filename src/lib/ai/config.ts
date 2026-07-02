@@ -32,10 +32,86 @@ export type ModelId = (typeof MODEL_TIERS)[ModelTier];
  *  a network call. Cheap way to pull the emergency brake. */
 export const AI_ENABLED: boolean = process.env.AI_ENABLED !== "false";
 
-/** Anthropic API key. Absence isn't fatal at import time (so tests +
- *  local dev without a key still boot); the client's `assertConfigured`
- *  check throws before the first outbound call. */
-export const ANTHROPIC_API_KEY: string | undefined = process.env.ANTHROPIC_API_KEY;
+/** Environment-provided Anthropic key. Retained as the fallback when
+ *  no DB-editable key is set. Kept as a plain constant so tests + code
+ *  paths that don't touch the DB still get the expected value. */
+export const ANTHROPIC_API_KEY_FROM_ENV: string | undefined =
+  process.env.ANTHROPIC_API_KEY;
+
+// v2.1.0 phase 6.1: DB-first key resolution.
+//
+// Reads WeddingSettings.anthropicApiKey; falls back to the env var
+// above; then to undefined. Result is cached for a short window so
+// tight bursts (chat + tool loop = 3–6 calls per turn) don't hammer
+// the DB. `invalidateApiKeyCache()` is called from the settings save
+// action so a rotation takes effect on the very next call.
+let cachedKey: string | undefined = undefined;
+let cachedKeyLoadedAt = 0;
+const KEY_CACHE_MS = 30_000;
+
+async function readKeyFromDb(): Promise<string | undefined> {
+  try {
+    const { db } = await import("@/lib/db");
+    const row = await db.weddingSettings.findUnique({
+      where: { id: 1 },
+      select: { anthropicApiKey: true },
+    });
+    const trimmed = row?.anthropicApiKey?.trim();
+    return trimmed || undefined;
+  } catch {
+    // DB down mid-request — fall through to the env fallback rather
+    // than error the whole AI surface.
+    return undefined;
+  }
+}
+
+export async function getAnthropicApiKey(): Promise<string | undefined> {
+  if (Date.now() - cachedKeyLoadedAt < KEY_CACHE_MS && cachedKeyLoadedAt !== 0) {
+    return cachedKey;
+  }
+  const dbKey = await readKeyFromDb();
+  cachedKey = dbKey ?? ANTHROPIC_API_KEY_FROM_ENV;
+  cachedKeyLoadedAt = Date.now();
+  return cachedKey;
+}
+
+/** Force the next `getAnthropicApiKey()` call to hit the DB again.
+ *  Called from the Settings save action so a rotation lands
+ *  immediately for every process (each process caches independently,
+ *  but the 30-second TTL bounds the drift). */
+export function invalidateApiKeyCache(): void {
+  cachedKeyLoadedAt = 0;
+  cachedKey = undefined;
+}
+
+/** Describe the current key without leaking its full value. Used by
+ *  the Settings panel to show "source: settings", "source: env" or
+ *  "no key configured", plus a last-4 mask. */
+export async function describeApiKey(): Promise<{
+  hasKey: boolean;
+  source: "settings" | "env" | "none";
+  mask: string | null;
+}> {
+  const dbKey = await readKeyFromDb();
+  if (dbKey) {
+    return { hasKey: true, source: "settings", mask: maskKey(dbKey) };
+  }
+  if (ANTHROPIC_API_KEY_FROM_ENV) {
+    return {
+      hasKey: true,
+      source: "env",
+      mask: maskKey(ANTHROPIC_API_KEY_FROM_ENV),
+    };
+  }
+  return { hasKey: false, source: "none", mask: null };
+}
+
+function maskKey(key: string): string {
+  // `sk-ant-…xxxx` — show the prefix + last 4 chars so the reviewer
+  // can eyeball which key is set without exposing the rest.
+  if (key.length <= 12) return "sk-ant-…";
+  return `sk-ant-…${key.slice(-4)}`;
+}
 
 /** Fallback monthly cap when WeddingSettings.aiMonthlyCapPence is null.
  *  £30 = 3000 pence. Kept below any real Anthropic invoice we'd expect. */
@@ -59,15 +135,20 @@ export const AI_FEATURES = {
 
 export type AiFeature = (typeof AI_FEATURES)[keyof typeof AI_FEATURES];
 
-export function assertConfigured(): void {
+/** Async so it can consult the DB-first key resolver. Throws
+ *  AiDisabledError before any outbound call when the surface is off
+ *  or unconfigured. */
+export async function assertConfigured(): Promise<string> {
   if (!AI_ENABLED) {
     throw new AiDisabledError("AI features are disabled (AI_ENABLED=false).");
   }
-  if (!ANTHROPIC_API_KEY) {
+  const key = await getAnthropicApiKey();
+  if (!key) {
     throw new AiDisabledError(
-      "ANTHROPIC_API_KEY is not set — AI features can't run.",
+      "No Anthropic API key configured — set one in Settings → AI planner, or the ANTHROPIC_API_KEY env var.",
     );
   }
+  return key;
 }
 
 export class AiDisabledError extends Error {

@@ -16,6 +16,8 @@ import { SpotifySettingsPanel } from "./SpotifySettingsPanel";
 import { CustomFieldsPanel } from "./CustomFieldsPanel";
 import { WeddingSettingsPanel } from "./WeddingSettingsPanel";
 import { AiBudgetPanel } from "./AiBudgetPanel";
+import { AiApiKeyPanel } from "./AiApiKeyPanel";
+import { readAnthropicApiKeyState } from "./wedding-settings-actions";
 import { DEFAULT_MONTHLY_CAP_PENCE } from "@/lib/ai/config";
 import { AuditLogPanel } from "./AuditLogPanel";
 import { NudgesPanel } from "./NudgesPanel";
@@ -162,6 +164,13 @@ export default async function SettingsPage({
       })
     : null;
 
+  // v2.1.0 phase 6.1: mask + source of the current Anthropic key.
+  // Couple-only; the action returns { source: "none" } for others so
+  // the panel just shows "not configured" without leaking presence.
+  const apiKeyState = user.isCouple
+    ? await readAnthropicApiKeyState()
+    : null;
+
   // Format the date for the datetime-local input + read view.
   const pad = (n: number) => String(n).padStart(2, "0");
   const d = wedding.weddingDate;
@@ -243,8 +252,9 @@ export default async function SettingsPage({
           {user.isCouple && (
             <SettingsSection
               title="AI planner"
-              subtitle="Soft cap on Anthropic API spend. Applies across all AI features."
+              subtitle="Anthropic API key + monthly spend cap. Applies across all AI features."
             >
+              {apiKeyState && <AiApiKeyPanel initialState={apiKeyState} />}
               <AiBudgetPanel
                 currentPence={aiCapRow?.aiMonthlyCapPence ?? null}
                 fallbackPence={DEFAULT_MONTHLY_CAP_PENCE}

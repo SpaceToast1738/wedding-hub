@@ -15,7 +15,6 @@ import { logAudit } from "@/lib/audit";
 import type { SessionUser } from "@/lib/actions";
 import { canEdit, canView } from "@/lib/permissions";
 import {
-  ANTHROPIC_API_KEY,
   MODEL_TIERS,
   assertConfigured,
   AI_FEATURES,
@@ -35,11 +34,17 @@ import {
   toolDefinitions,
 } from "@/lib/ai/tools/registry";
 
-let cachedClient: Anthropic | null = null;
-function getClient(): Anthropic {
-  assertConfigured();
-  if (!cachedClient) cachedClient = new Anthropic({ apiKey: ANTHROPIC_API_KEY! });
-  return cachedClient;
+// v2.1.0 phase 6.1: cached client keyed by api key string; rebuilds
+// when the DB-editable key rotates. Duplicated with src/lib/ai/client
+// on purpose — the streaming chat loop and the one-shot sendMessage
+// path each own their client to avoid coupling instantiation timing.
+let cachedClient: { client: Anthropic; key: string } | null = null;
+async function getClient(): Promise<Anthropic> {
+  const key = await assertConfigured();
+  if (!cachedClient || cachedClient.key !== key) {
+    cachedClient = { client: new Anthropic({ apiKey: key }), key };
+  }
+  return cachedClient.client;
 }
 
 export type ChatEvent =
@@ -155,7 +160,7 @@ export async function* runChatTurn(args: {
   const ctx = { user, canWrite };
   const tools = toolDefinitions({ canWrite });
   const model = MODEL_TIERS.balanced;
-  const client = getClient();
+  const client = await getClient();
 
   let totalCost = 0;
 

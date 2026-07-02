@@ -8,6 +8,10 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { audit, requireUser } from "@/lib/actions";
+import {
+  describeApiKey,
+  invalidateApiKeyCache,
+} from "@/lib/ai/config";
 
 const schema = z.object({
   // Accept either ISO timestamp or YYYY-MM-DD; Date constructor parses both.
@@ -142,4 +146,75 @@ export async function updateAiMonthlyCap(formData: FormData): Promise<{ ok: true
   revalidatePath("/settings");
   revalidatePath("/ai");
   return { ok: true };
+}
+
+// v2.1.0 phase 6.1: Anthropic API key edit path.
+//
+// The full key is never returned from a server action — the panel
+// only ever sees the masked describeApiKey() shape. Save accepts
+// either a new key (validated as `sk-ant-*`) or a blank string to
+// clear the DB value and fall back to the env var.
+
+export type ApiKeyState = { hasKey: boolean; source: "settings" | "env" | "none"; mask: string | null };
+
+export async function readAnthropicApiKeyState(): Promise<ApiKeyState> {
+  const user = await requireUser();
+  if (!user.isCouple) {
+    return { hasKey: false, source: "none", mask: null };
+  }
+  return describeApiKey();
+}
+
+export async function updateAnthropicApiKey(
+  formData: FormData,
+): Promise<{ ok: true; state: ApiKeyState } | { ok: false; error: string }> {
+  const user = await requireUser();
+  if (!user.isCouple) {
+    return { ok: false, error: "Only the couple can edit the API key." };
+  }
+
+  const raw = (formData.get("apiKey") ?? "").toString().trim();
+  const clear = formData.get("clear") === "1";
+
+  let nextValue: string | null;
+  if (clear || raw === "") {
+    nextValue = null;
+  } else {
+    if (!raw.startsWith("sk-ant-")) {
+      return {
+        ok: false,
+        error: "That doesn't look like an Anthropic key — it should start with 'sk-ant-'.",
+      };
+    }
+    if (raw.length < 20 || raw.length > 500) {
+      return { ok: false, error: "Key length looks wrong. Paste the whole value from console.anthropic.com." };
+    }
+    nextValue = raw;
+  }
+
+  const before = await db.weddingSettings.findUnique({
+    where: { id: 1 },
+    select: { anthropicApiKey: true },
+  });
+  await db.weddingSettings.update({
+    where: { id: 1 },
+    data: { anthropicApiKey: nextValue },
+  });
+  invalidateApiKeyCache();
+
+  await audit(user, {
+    action: "update",
+    entity: "WeddingSettings",
+    entityId: "1",
+    metadata: {
+      changedFields: ["anthropicApiKey"],
+      // NEVER audit the key itself — record just the transition.
+      previousSet: Boolean(before?.anthropicApiKey),
+      nextSet: Boolean(nextValue),
+    },
+  });
+
+  revalidatePath("/settings");
+  revalidatePath("/ai");
+  return { ok: true, state: await describeApiKey() };
 }

@@ -963,6 +963,43 @@ When wrapping up a meaningful iteration:
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
 
+### 2026-07-02 · v2.1.0 — AI phase 6.1: edit Anthropic API key in Settings
+
+User: *"I want to add it in the website"* — Anthropic API key without having to shell into the Unraid box.
+
+**Schema** ([prisma/migrations/20260702000000_ai_api_key_setting/migration.sql](prisma/migrations/20260702000000_ai_api_key_setting/migration.sql)):
+
+`ALTER TABLE "WeddingSettings" ADD COLUMN "anthropicApiKey" TEXT`. Nullable, no backfill, append-only. Runs in <1 sec at container start.
+
+**Async key resolution** ([src/lib/ai/config.ts](src/lib/ai/config.ts)):
+
+The old `ANTHROPIC_API_KEY` const (env-only, captured at module load) is replaced by `getAnthropicApiKey(): Promise<string | undefined>`. Resolution order: `WeddingSettings.anthropicApiKey` → `process.env.ANTHROPIC_API_KEY` → undefined.
+
+Result is process-local cached for 30 seconds so a chat turn with 3–6 rapid tool calls doesn't hammer the DB. `invalidateApiKeyCache()` is called from the settings save action so a rotation lands on the very next call (bounded by 30s TTL for other worker processes if we ever scale beyond one).
+
+`assertConfigured()` becomes `async` and now returns the resolved key string. The Anthropic SDK client is cached keyed by the key value in both [client.ts](src/lib/ai/client.ts) and [chat.ts](src/lib/ai/chat.ts) — when the key rotates, the next `getClient()` call rebuilds. Never end up with a stale-key SDK sending requests to Anthropic.
+
+**Server action** ([src/app/(app)/settings/wedding-settings-actions.ts](src/app/(app)/settings/wedding-settings-actions.ts)):
+
+`updateAnthropicApiKey(formData)` — couple-only. Accepts either a key that starts with `sk-ant-` (validated for length) OR a blank/clear signal (nulls the DB column, falls back to env). Audit log records the *transition* — `{previousSet: boolean, nextSet: boolean}` — never the key value.
+
+`readAnthropicApiKeyState()` — couple-only. Returns `{hasKey, source: "settings" | "env" | "none", mask: "sk-ant-…xxxx"}`. The full key never leaves the server after save; the panel only ever sees the mask.
+
+**Settings panel** ([src/app/(app)/settings/AiApiKeyPanel.tsx](src/app/(app)/settings/AiApiKeyPanel.tsx)):
+
+New panel above the existing AiBudgetPanel in Settings → AI planner. Shows current status (mask + source), a password-typed input for a new key, Save button, and a Clear button (only when the current key came from Settings, not the env). Save validates prefix client-side and server-side; on server error the message is shown inline. On success, the "current key" line updates to the new mask.
+
+The panel's blurb notes the key is stored in Postgres and only sent to Anthropic in the Authorization header — no third-party pass-through.
+
+**Foot-guns:**
+
+- **The 30-second cache is per-process.** In a single-container deployment (this one) that's fine. If we ever scale to N replicas each will lag up to 30s on rotation. Fine for wedding hub; document it if we ever need instant rotation.
+- **Env var still wins if set AND DB is empty.** Blank the input, hit Save (or Clear) — the panel falls back to whatever the env var was set to at container start. If someone deleted the env var without restarting, the process still remembers it. Restart the container to fully purge.
+- **Key rotation invalidates every in-flight cached SDK client.** The next call rebuilds. If a chat turn's tool loop is mid-flight when a key rotation happens, the *next* iteration's SDK client is fresh. Not a data-integrity problem — worst case the current turn's remaining calls still use the old key, but the old key was valid when the call started.
+- **The key is stored plain in Postgres.** For a self-hosted 5-user app with encrypted-at-rest backups, this is the right tradeoff — app-level encryption would just move the trust boundary to a KEK, which also lives on the same box. If we ever multi-tenant this, revisit.
+- **Audit metadata deliberately omits the key.** Even in a "changed" audit row, we log only `previousSet: boolean` / `nextSet: boolean`. Never the value, never the mask. Preserves the invariant that the audit log is safe to view fully.
+- **Panel is gated on `user.isCouple`.** Non-couple viewers of `/settings` don't see the panel at all — no leakage of "is a key configured?" state either.
+
 ### 2026-07-02 · v2.1.0 — AI phase 6: state-of-the-wedding review
 
 User: *"Can we have a button that reviews the overall state of the wedding — reads all the data on the site?"*
