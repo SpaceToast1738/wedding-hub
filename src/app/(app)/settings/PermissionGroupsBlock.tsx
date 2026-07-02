@@ -48,6 +48,8 @@ const SECTION_LABELS: Record<Section, string> = {
   // the supplier detail page. Default NONE for non-couple.
   money: "Money values",
   settings: "Settings",
+  ai_chat: "AI chat",
+  ai_write: "AI proposals",
 };
 
 type UserRow = { id: string; name: string; email?: string };

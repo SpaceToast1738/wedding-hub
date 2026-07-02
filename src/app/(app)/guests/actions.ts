@@ -133,6 +133,9 @@ export async function createHousehold(formData: FormData) {
     metadata: { name: created.name, side: created.side },
   });
   revalidatePath("/guests");
+  // v2.1.0 phase 3: return id so applyProposal can chain a
+  // createGuest into the same household.
+  return { id: created.id };
 }
 
 export async function updateHousehold(id: string, formData: FormData) {
@@ -247,6 +250,8 @@ export async function createGuest(formData: FormData) {
   });
   revalidatePath("/guests");
   revalidatePath("/");
+  // v2.1.0 phase 3: return id so applyProposal can link the row.
+  return { id: created.id };
 }
 
 export async function updateGuest(id: string, formData: FormData) {

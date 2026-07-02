@@ -157,6 +157,9 @@ Image is private. The Unraid host has cached credentials in `/root/.docker/confi
 | `EMAIL_SERVER_*` | SMTP config | Resend (host=`smtp.resend.com`, user=`resend`, password=API key) |
 | `EMAIL_FROM` | Sender | `Wedding Hub <noreply@spencer-net.com>` (apex — DKIM aligns) |
 | `WEDDING_DATE` | App-level constant | `2026-09-26T14:00:00Z` |
+| `ANTHROPIC_API_KEY` | AI planner API key (v2.1.0+) | 1Password; missing = AI features off |
+| `AI_MONTHLY_CAP_PENCE` | Fallback monthly cap when `WeddingSettings.aiMonthlyCapPence` is null | `3000` (£30) |
+| `AI_ENABLED` | Kill-switch for the AI surface | `true` |
 
 ## Common tasks
 

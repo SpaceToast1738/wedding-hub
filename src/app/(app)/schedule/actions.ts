@@ -122,6 +122,9 @@ export async function createScheduleEvent(formData: FormData) {
   });
   revalidatePath("/schedule");
   revalidatePath("/");
+  // v2.1.0 phase 2: return the id so applyProposal can link the
+  // AiProposal to the row it just produced.
+  return { id: created.id };
 }
 
 export async function updateScheduleEvent(id: string, formData: FormData) {

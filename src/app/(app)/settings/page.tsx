@@ -15,6 +15,8 @@ import { MyProfilePanel } from "./MyProfilePanel";
 import { SpotifySettingsPanel } from "./SpotifySettingsPanel";
 import { CustomFieldsPanel } from "./CustomFieldsPanel";
 import { WeddingSettingsPanel } from "./WeddingSettingsPanel";
+import { AiBudgetPanel } from "./AiBudgetPanel";
+import { DEFAULT_MONTHLY_CAP_PENCE } from "@/lib/ai/config";
 import { AuditLogPanel } from "./AuditLogPanel";
 import { NudgesPanel } from "./NudgesPanel";
 import { NavTagsBlock } from "./NavTagsBlock";
@@ -149,6 +151,17 @@ export default async function SettingsPage({
       : Promise.resolve([]),
   ]);
 
+  // v2.1.0 phase 4: AI monthly cap. Separate query because
+  // getWeddingSettings() strips the field to keep the shared read
+  // small — this column is only consulted on /settings and inside
+  // the AI budget guard.
+  const aiCapRow = user.isCouple
+    ? await db.weddingSettings.findUnique({
+        where: { id: 1 },
+        select: { aiMonthlyCapPence: true },
+      })
+    : null;
+
   // Format the date for the datetime-local input + read view.
   const pad = (n: number) => String(n).padStart(2, "0");
   const d = wedding.weddingDate;
@@ -226,6 +239,18 @@ export default async function SettingsPage({
             />
             <SpotifySettingsPanel configured={spotifyConfigured} isCouple={user.isCouple} />
           </SettingsSection>
+
+          {user.isCouple && (
+            <SettingsSection
+              title="AI planner"
+              subtitle="Soft cap on Anthropic API spend. Applies across all AI features."
+            >
+              <AiBudgetPanel
+                currentPence={aiCapRow?.aiMonthlyCapPence ?? null}
+                fallbackPence={DEFAULT_MONTHLY_CAP_PENCE}
+              />
+            </SettingsSection>
+          )}
 
           <SettingsSection
             title="Customisation"

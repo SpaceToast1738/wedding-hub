@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { SuggestDueDatesButton } from "./SuggestDueDatesButton";
 import { canEdit, canView } from "@/lib/permissions";
 import { requireUser } from "@/lib/actions";
 import type { CustomFieldDef } from "@/lib/custom-fields";
@@ -20,6 +21,8 @@ export default async function TasksPage({
   const user = await requireUser();
   if (!(await canView(user, "tasks"))) redirect("/");
   const editable = await canEdit(user, "tasks");
+  // v2.1.0 phase 5: gate Suggest-due-dates button on ai_write.
+  const canWriteAi = await canEdit(user, "ai_write");
   const sp = await searchParams;
   const supplierFilter = typeof sp.supplier === "string" ? sp.supplier : null;
 
@@ -145,6 +148,7 @@ export default async function TasksPage({
         actions={
           editable ? (
             <>
+              {canWriteAi && <SuggestDueDatesButton />}
               <Link
                 href="/tasks/import"
                 className="inline-flex items-center text-xs font-medium px-2.5 py-1 rounded-sm border border-border-soft bg-canvas text-ink-secondary hover:border-moss-300 hover:text-moss-700"

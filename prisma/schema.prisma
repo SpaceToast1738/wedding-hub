@@ -14,23 +14,23 @@ datasource db {
 // ─── Auth.js tables ─────────────────────────────────────────────────────────
 
 model User {
-  id            String     @id @default(cuid())
-  email         String     @unique
-  name          String?    // legacy single-string display name; auto-synced from firstName + lastName when those are set
-  firstName     String?
-  lastName      String?
-  image         String?
-  emailVerified DateTime?
-  role          UserRole   @default(VIEWER)
-  isCouple      Boolean    @default(false)
+  id               String            @id @default(cuid())
+  email            String            @unique
+  name             String? // legacy single-string display name; auto-synced from firstName + lastName when those are set
+  firstName        String?
+  lastName         String?
+  image            String?
+  emailVerified    DateTime?
+  role             UserRole          @default(VIEWER)
+  isCouple         Boolean           @default(false)
   // B11 (v1.12.0): per-account dark-mode preference. Synced from
   // localStorage on first toggle so existing users keep their pick.
   // Null = "follow the device default" (system preference); rare in
   // practice since the toggle UI sets a concrete value.
-  darkMode      Boolean?
-  accounts      Account[]
-  sessions      Session[]
-  auditLogs     AuditLog[]
+  darkMode         Boolean?
+  accounts         Account[]
+  sessions         Session[]
+  auditLogs        AuditLog[]
   // v1.40.0 (backlog #3): per-user m2m to PermissionGroup. Groups
   // bundle admin users for schedule attendees, future per-section
   // permission inheritance, future email-reminder targeting.
@@ -39,12 +39,18 @@ model User {
   // it doesn't get confused with GuestGroup (organisational bundles
   // of wedding guests, not app users).
   permissionGroups PermissionGroup[] @relation("PermissionGroupMembers")
-  invitesSent   Invite[]     @relation("InvitesSent")
+  invitesSent      Invite[]          @relation("InvitesSent")
   // v1.96.0: Task ↔ User m2m for multi-assignee. Replaces the
   // singular `assigneeId` column previously held on Task.
-  assignedTasks Task[]       @relation("TaskAssignees")
-  createdAt     DateTime   @default(now())
-  updatedAt     DateTime   @updatedAt
+  assignedTasks    Task[]            @relation("TaskAssignees")
+  // v2.1.0: AI planner surface. Threads own persisted chat state,
+  // proposals are the review-and-apply layer between AI tool calls
+  // and real writes, usage rows are the monthly-cap accounting.
+  aiThreads        AiThread[]
+  aiProposals      AiProposal[]
+  aiUsage          AiUsage[]
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
 
   @@index([email])
 }
@@ -121,13 +127,13 @@ enum UserRole {
 // ─── Domain ────────────────────────────────────────────────────────────────
 
 model Household {
-  id          String   @id @default(cuid())
-  name        String
-  side        Side     @default(BOTH)
-  notes       String?  @db.Text
-  guests      Guest[]
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id        String   @id @default(cuid())
+  name      String
+  side      Side     @default(BOTH)
+  notes     String?  @db.Text
+  guests    Guest[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 enum Side {
@@ -137,47 +143,47 @@ enum Side {
 }
 
 model Guest {
-  id              String         @id @default(cuid())
-  householdId     String
-  household       Household      @relation(fields: [householdId], references: [id], onDelete: Cascade)
-  firstName       String
-  lastName        String
-  email           String?
-  phone           String?
-  rsvp            RsvpStatus     @default(PENDING)
-  attending       Boolean?
-  isChild         Boolean        @default(false)
-  needsHighchair  Boolean        @default(false)
-  plusOneAllowed  Boolean        @default(false)
-  plusOneName     String?
-  role            String?        // Best Man, Maid of Honour, etc.
-  side            Side           @default(BOTH)
-  mealCourseId    String?
-  mealCourse      MealOption?    @relation(fields: [mealCourseId], references: [id])
+  id                   String        @id @default(cuid())
+  householdId          String
+  household            Household     @relation(fields: [householdId], references: [id], onDelete: Cascade)
+  firstName            String
+  lastName             String
+  email                String?
+  phone                String?
+  rsvp                 RsvpStatus    @default(PENDING)
+  attending            Boolean?
+  isChild              Boolean       @default(false)
+  needsHighchair       Boolean       @default(false)
+  plusOneAllowed       Boolean       @default(false)
+  plusOneName          String?
+  role                 String? // Best Man, Maid of Honour, etc.
+  side                 Side          @default(BOTH)
+  mealCourseId         String?
+  mealCourse           MealOption?   @relation(fields: [mealCourseId], references: [id])
   // Free-text three-course choices (populated by the CSV import). These
   // coexist with mealCourse FK above, which was structured but never UI-
   // wired; real Say I Do data is messy enough that free-text is honest.
-  mealStarter     String?
-  mealMain        String?
-  mealDessert     String?
-  dietary         String[]       @default([])
-  songRequests    SongRequest[]
-  tableSeatId     String?        @unique
-  tableSeat       Seat?          @relation(fields: [tableSeatId], references: [id])
+  mealStarter          String?
+  mealMain             String?
+  mealDessert          String?
+  dietary              String[]      @default([])
+  songRequests         SongRequest[]
+  tableSeatId          String?       @unique
+  tableSeat            Seat?         @relation(fields: [tableSeatId], references: [id])
   // Per-party RSVP URL from Say I Do — typically shared across all guests in
   // a household, so this is NOT unique. Stored on Guest rather than Household
   // for forward-compat in case a platform ever issues per-guest links.
-  rsvpUniqueLink  String?
-  childrenMeal    Boolean        @default(false)
-  archived        Boolean        @default(false)
-  notes           String?        @db.Text
+  rsvpUniqueLink       String?
+  childrenMeal         Boolean       @default(false)
+  archived             Boolean       @default(false)
+  notes                String?       @db.Text
   // v1.42.0: m2m back-relation to GuestGroup. Distinct from the
   // flat `tags: String[]` field above — tags are ad-hoc hashtags
   // ("vegetarian friend", "knows the band"); groups are structured,
   // named, optionally colour-coded cohorts.
-  groups          GuestGroup[]   @relation("GuestGroupMembers")
-  tags            String[]       @default([])
-  lastNudgedAt    DateTime?
+  groups               GuestGroup[]  @relation("GuestGroupMembers")
+  tags                 String[]      @default([])
+  lastNudgedAt         DateTime?
   // Self-relation for plus-ones. When a host has plusOneAllowed=true and
   // plusOneName set and rsvp=ATTENDING, we materialise a child Guest row
   // with parentGuestId pointing at the host. The child shows up in totals
@@ -188,31 +194,31 @@ model Guest {
   // Cascade on parent hard-delete so a real DB cleanup doesn't leave an
   // orphan +1 row (the soft-archive path is handled in actions.ts and
   // mirrors the host's archived state explicitly).
-  parentGuestId   String?
-  parentGuest     Guest?         @relation("PlusOneOf", fields: [parentGuestId], references: [id], onDelete: Cascade)
-  plusOnes        Guest[]        @relation("PlusOneOf")
+  parentGuestId        String?
+  parentGuest          Guest?        @relation("PlusOneOf", fields: [parentGuestId], references: [id], onDelete: Cascade)
+  plusOnes             Guest[]       @relation("PlusOneOf")
   // C4 (v1.14.0): per-field manual-edit timestamps. JSON shape is
   // { "fieldName": "<ISO 8601 timestamp>", … }. Populated by the
   // updateGuest action when a manual edit changes a field. The CSV
   // import preview reads this to warn "you edited dietary 3 weeks
   // ago — overwrite?" before re-importing. Null on rows that haven't
   // been manually edited since C4 shipped (most existing rows).
-  lastEditedFields Json?
+  lastEditedFields     Json?
   // C10 (v1.15.0): per-guest custom field values. Keyed by
   // CustomField.id; value type matches the field's `type` column
   // (text → string, number → number, date → ISO string, select →
   // string from `options`). Validation happens at write time in the
   // server action. Null when no custom fields are populated.
-  customFieldValues Json?
+  customFieldValues    Json?
   /// v1.67.0: optional profile picture for the guest. Reuses the
   /// existing File model so we get the 25 MB cap, MIME allowlist,
   /// and signed-download flow for free. SetNull cascade so deleting
   /// the file row doesn't cascade-delete the guest — the guest
   /// just loses their photo and falls back to initials.
   profilePictureFileId String?
-  profilePicture       File?     @relation("GuestProfilePicture", fields: [profilePictureFileId], references: [id], onDelete: SetNull)
-  createdAt       DateTime       @default(now())
-  updatedAt       DateTime       @updatedAt
+  profilePicture       File?         @relation("GuestProfilePicture", fields: [profilePictureFileId], references: [id], onDelete: SetNull)
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
 
   @@index([householdId])
   @@index([rsvp])
@@ -243,37 +249,37 @@ enum Course {
 }
 
 model SongRequest {
-  id        String   @id @default(cuid())
-  guestId   String
-  guest     Guest    @relation(fields: [guestId], references: [id], onDelete: Cascade)
-  title     String
-  artist    String?
+  id         String    @id @default(cuid())
+  guestId    String
+  guest      Guest     @relation(fields: [guestId], references: [id], onDelete: Cascade)
+  title      String
+  artist     String?
   playlistId String?
-  playlist  Playlist? @relation(fields: [playlistId], references: [id])
-  createdAt DateTime @default(now())
+  playlist   Playlist? @relation(fields: [playlistId], references: [id])
+  createdAt  DateTime  @default(now())
 }
 
 // ─── Tasks / Questions ─────────────────────────────────────────────────────
 
 model Task {
-  id           String      @id @default(cuid())
-  title        String
-  type         TaskType    @default(TASK)
-  status       TaskStatus  @default(OPEN)
-  priority     Priority    @default(MEDIUM)
+  id                String           @id @default(cuid())
+  title             String
+  type              TaskType         @default(TASK)
+  status            TaskStatus       @default(OPEN)
+  priority          Priority         @default(MEDIUM)
   // v1.96.0: multi-assignee. Pre-fix `assigneeId String?` could only
   // hold one user; the couple co-owning a task forced one off the
   // chip. Junction `_TaskAssignees` (Prisma-implicit) replaces it.
-  assignees    User[]      @relation("TaskAssignees")
-  dueDate      DateTime?
-  notes        String?     @db.Text
-  decisionAnswer String?   @db.Text
-  questionAnswer String?   @db.Text
-  budgetTagged Boolean     @default(false)
-  tags         String[]    @default([])
-  parentId     String?
-  parent       Task?       @relation("TaskChildren", fields: [parentId], references: [id])
-  children     Task[]      @relation("TaskChildren")
+  assignees         User[]           @relation("TaskAssignees")
+  dueDate           DateTime?
+  notes             String?          @db.Text
+  decisionAnswer    String?          @db.Text
+  questionAnswer    String?          @db.Text
+  budgetTagged      Boolean          @default(false)
+  tags              String[]         @default([])
+  parentId          String?
+  parent            Task?            @relation("TaskChildren", fields: [parentId], references: [id])
+  children          Task[]           @relation("TaskChildren")
   // v1.22.0: per-task custom field values, mirrors Guest.customFieldValues
   // (C10 v1.15.0). Keyed by CustomField.id; values typed per the field's
   // `type` column. Null when no custom fields are populated.
@@ -282,21 +288,21 @@ model Task {
   // (already in schema). Read by the overdue-task digest decision
   // module to rate-limit which tasks land in each digest send (>7
   // days since last include, or never).
-  lastNudgedAt DateTime?
+  lastNudgedAt      DateTime?
   // v1.28.0: optional supplier link — surface tasks/questions/decisions
   // from the supplier's detail page, and group/filter on it from the
   // Tasks page. Nullable + onDelete: SetNull so deleting a supplier
   // doesn't cascade-delete the linked tasks (the questions about
   // "what should we ask the photographer?" outlive the booking
   // decision).
-  supplierId   String?
-  supplier     Supplier?   @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  supplierId        String?
+  supplier          Supplier?        @relation(fields: [supplierId], references: [id], onDelete: SetNull)
   // v1.30.5: replaces v1.30.0's bookSubsectionId. Tasks can now attach
   // to multiple book sections AND multiple nav tags via a unified
   // "Topics" multi-select on the form. Implicit m2m means Prisma
   // manages the junction tables (_BookSectionToTask + _NavTagToTask).
-  bookSections BookSection[]
-  navTags      NavTag[]
+  bookSections      BookSection[]
+  navTags           NavTag[]
   // v1.51.0: parallel m2m at the **subsection** level. Coexists with
   // bookSections — tasks can link to either, both, or neither. The
   // section link is for "this task is about Food & Drink"; the
@@ -304,14 +310,14 @@ model Task {
   // MENU card specifically" — and that's the link that drives the
   // inline tasks panel rendered below each card on /book/[slug].
   // Implicit m2m → Prisma manages the _BookSubsectionToTask junction.
-  bookSubsections BookSubsection[]
+  bookSubsections   BookSubsection[]
   // v1.61.0 (XL1): m2m to GuestGroup so a task tagged "Bride's parents"
   // surfaces on every member of that group's detail page (read-time
   // query in /guests/[id]). Same pattern as bookSections / navTags —
   // implicit m2m, Prisma manages _GuestGroupToTask.
-  guestGroups  GuestGroup[]
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
+  guestGroups       GuestGroup[]
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
 
   @@index([status])
   @@index([type])
@@ -342,12 +348,12 @@ enum Priority {
 // ─── Schedule ──────────────────────────────────────────────────────────────
 
 model ScheduleEvent {
-  id          String    @id @default(cuid())
-  title       String
-  startTime   DateTime
-  endTime     DateTime?
-  location    String?
-  notes       String?   @db.Text
+  id           String    @id @default(cuid())
+  title        String
+  startTime    DateTime
+  endTime      DateTime?
+  location     String?
+  notes        String?   @db.Text
   // v1.27.1: replaces the persona-based `audience`. User IDs of who
   // needs to know about / attend this event. The form renders a
   // multi-user picker; renderers show user names (resolved client-
@@ -356,7 +362,7 @@ model ScheduleEvent {
   // buffer (matches v1.30.5 / P5 / P7a pattern). New writes go to
   // `attendeeRefs`; reads prefer attendeeRefs, fall back to expanding
   // attendeeIds → `user:<id>` refs at render time.
-  attendeeIds String[]  @default([])
+  attendeeIds  String[]  @default([])
   // v1.41.0 (backlog #4): polymorphic attendee references. Each
   // string is one of:
   //   "user:<id>"          — individual user
@@ -365,16 +371,16 @@ model ScheduleEvent {
   //                          wedding-party-role / planners-role)
   //   "group:<slug>"       — DB-backed UserGroup row by slug
   // See src/lib/group-members.ts for the resolver helpers.
-  attendeeRefs String[] @default([])
+  attendeeRefs String[]  @default([])
   // v1.27.1: all-day events. When true the time component of
   // startTime/endTime is ignored — renderers display the date only.
   // Stored as midnight UTC + null endTime by convention.
-  allDay      Boolean   @default(false)
-  motif       String?   // illustration key
-  printable   Boolean   @default(true)
-  order       Int       @default(0)
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  allDay       Boolean   @default(false)
+  motif        String? // illustration key
+  printable    Boolean   @default(true)
+  order        Int       @default(0)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
   @@index([startTime])
 }
@@ -382,24 +388,24 @@ model ScheduleEvent {
 // ─── Suppliers ─────────────────────────────────────────────────────────────
 
 model Supplier {
-  id              String                  @id @default(cuid())
-  name            String
-  category        String                  // venue, photographer, florist, etc.
-  status          SupplierStatus          @default(SHORTLIST)
-  website         String?
-  notes           String?                 @db.Text
-  amountAgreed    Decimal?                @db.Decimal(10, 2)
-  contacts        SupplierContact[]
-  contracts       SupplierContract[]
-  communications  SupplierCommunication[]
-  payments        Payment[]
+  id                String                  @id @default(cuid())
+  name              String
+  category          String // venue, photographer, florist, etc.
+  status            SupplierStatus          @default(SHORTLIST)
+  website           String?
+  notes             String?                 @db.Text
+  amountAgreed      Decimal?                @db.Decimal(10, 2)
+  contacts          SupplierContact[]
+  contracts         SupplierContract[]
+  communications    SupplierCommunication[]
+  payments          Payment[]
   // v1.28.0: tasks / questions / decisions linked to this supplier.
   // SetNull cascade — see Task.supplier.
-  tasks           Task[]
+  tasks             Task[]
   // v1.22.0: per-supplier custom field values, mirrors Guest + Task.
   customFieldValues Json?
-  createdAt       DateTime                @default(now())
-  updatedAt       DateTime                @updatedAt
+  createdAt         DateTime                @default(now())
+  updatedAt         DateTime                @updatedAt
 
   @@index([category])
 }
@@ -437,14 +443,14 @@ model SupplierContract {
 }
 
 model SupplierCommunication {
-  id         String   @id @default(cuid())
-  supplierId String
-  supplier   Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
-  channel    String   // email, call, meeting
-  summary    String   @db.Text
-  followUpAt DateTime?
+  id          String    @id @default(cuid())
+  supplierId  String
+  supplier    Supplier  @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  channel     String // email, call, meeting
+  summary     String    @db.Text
+  followUpAt  DateTime?
   createdById String?
-  createdAt  DateTime @default(now())
+  createdAt   DateTime  @default(now())
 }
 
 // ─── Budget / Payments ─────────────────────────────────────────────────────
@@ -459,35 +465,35 @@ model BudgetCategory {
 }
 
 model BudgetLine {
-  id          String         @id @default(cuid())
-  categoryId  String
-  category    BudgetCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
-  description String
-  estimated   Decimal?       @db.Decimal(10, 2)
-  actual      Decimal?       @db.Decimal(10, 2)
-  paid        Decimal?       @db.Decimal(10, 2)
-  supplierId  String?
-  payments    Payment[]
-  notes       String?
-  order       Int            @default(0)
+  id               String                @id @default(cuid())
+  categoryId       String
+  category         BudgetCategory        @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  description      String
+  estimated        Decimal?              @db.Decimal(10, 2)
+  actual           Decimal?              @db.Decimal(10, 2)
+  paid             Decimal?              @db.Decimal(10, 2)
+  supplierId       String?
+  payments         Payment[]
+  notes            String?
+  order            Int                   @default(0)
   // v1.31.1: BUILD cards back-relation for the materials-total link.
-  buildCards  BookBuildCard[]
+  buildCards       BookBuildCard[]
   // v1.78.0: each cost-bearing card kind back-relates so a BudgetLine
   // can be unlinked + re-linked from any of them. Setting any of these
   // FKs to point at this line means card-saves auto-resync the line.
-  menuCards   BookMenuCard[]
-  barCards    BookBarCard[]
-  outfitCards BookOutfitCard[]
-  stayCards   BookStayCard[]
+  menuCards        BookMenuCard[]
+  barCards         BookBarCard[]
+  outfitCards      BookOutfitCard[]
+  stayCards        BookStayCard[]
   // v1.77.0: variable / per-head pricing. When `perHeadPence` and
   // `headcountSource` are both set, the line's effective estimated
   // total is `perHeadPence × computeHeadcount(...)` — recomputed live
   // against the guest list each render (so RSVP changes propagate
   // without anyone needing to retype the number). The flat `estimated`
   // column above is retained as a manual fallback.
-  perHeadPence    Int?
-  headcountSource PerHeadSource?
-  manualHeadcount Int?
+  perHeadPence     Int?
+  headcountSource  PerHeadSource?
+  manualHeadcount  Int?
   // v1.81.0: minimum-cover clause. When set on a per-head line, the
   // effective multiplier becomes max(resolvedCount, minimumHeadcount)
   // so vendor minimums (e.g. "80 covers regardless of RSVPs") are
@@ -499,16 +505,16 @@ model BudgetLine {
   // Direct `estimated` and `perHeadPence` on the line are ignored
   // by the renderer while components exist (but preserved on the
   // model in case the user removes all components later).
-  components  BudgetLineComponent[]
+  components       BudgetLineComponent[]
   // v1.86.0: funding-source tag. NULL = unassigned. Components +
   // payments inherit this fund silently when their own fundSource is
   // NULL; a non-null override at component or payment level wins.
   // `fundLabel` is a free-text annotation (mostly useful for OTHER —
   // e.g. "Bryony's parents" — but allowed on all four buckets).
-  fundSource  FundSource?
-  fundLabel   String?
-  createdAt   DateTime       @default(now())
-  updatedAt   DateTime       @updatedAt
+  fundSource       FundSource?
+  fundLabel        String?
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
 
   @@index([fundSource])
 }
@@ -519,36 +525,36 @@ model BudgetLine {
 // (mirrors the BudgetLine shape exactly). Wedding Book cards can
 // target a component for finer auto-sync than the line-level link.
 model BudgetLineComponent {
-  id              String         @id @default(cuid())
-  lineId          String
-  line            BudgetLine     @relation(fields: [lineId], references: [id], onDelete: Cascade)
-  label           String
-  flatPence       Int?
-  perHeadPence    Int?
-  headcountSource PerHeadSource?
-  manualHeadcount Int?
+  id               String           @id @default(cuid())
+  lineId           String
+  line             BudgetLine       @relation(fields: [lineId], references: [id], onDelete: Cascade)
+  label            String
+  flatPence        Int?
+  perHeadPence     Int?
+  headcountSource  PerHeadSource?
+  manualHeadcount  Int?
   // v1.81.0: minimum-cover floor (mirrors BudgetLine.minimumHeadcount).
   minimumHeadcount Int?
-  order           Int            @default(0)
-  notes           String?
+  order            Int              @default(0)
+  notes            String?
   // Payments that paid for this specific component. Optional —
   // lump-sum payments still link to the parent BudgetLine.
-  payments        Payment[]
+  payments         Payment[]
   // Wedding Book cards that target this component via the v1.80.0
   // component-level FK. When set, card-saves auto-resync THIS
   // component (not the parent line).
-  menuCards       BookMenuCard[]
-  barCards        BookBarCard[]
-  outfitCards     BookOutfitCard[]
-  stayCards       BookStayCard[]
-  buildCards      BookBuildCard[]
+  menuCards        BookMenuCard[]
+  barCards         BookBarCard[]
+  outfitCards      BookOutfitCard[]
+  stayCards        BookStayCard[]
+  buildCards       BookBuildCard[]
   // v1.86.0: per-component funding override. NULL inherits the parent
   // BudgetLine.fundSource. Lets a Venue line tagged Joint hold a sub-
   // component tagged OTHER (e.g. "Wedding arch — parents' gift").
-  fundSource      FundSource?
-  fundLabel       String?
-  createdAt       DateTime       @default(now())
-  updatedAt       DateTime       @updatedAt
+  fundSource       FundSource?
+  fundLabel        String?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
 
   @@index([lineId])
   @@index([fundSource])
@@ -588,27 +594,27 @@ enum FundSource {
 }
 
 model Payment {
-  id           String        @id @default(cuid())
-  description  String
-  amount       Decimal       @db.Decimal(10, 2)
-  status       PaymentStatus @default(DUE)
-  dueDate      DateTime?
-  paidDate     DateTime?
-  method       String?
-  supplierId   String?
-  supplier     Supplier?     @relation(fields: [supplierId], references: [id])
-  budgetLineId String?
-  budgetLine   BudgetLine?   @relation(fields: [budgetLineId], references: [id])
+  id                    String               @id @default(cuid())
+  description           String
+  amount                Decimal              @db.Decimal(10, 2)
+  status                PaymentStatus        @default(DUE)
+  dueDate               DateTime?
+  paidDate              DateTime?
+  method                String?
+  supplierId            String?
+  supplier              Supplier?            @relation(fields: [supplierId], references: [id])
+  budgetLineId          String?
+  budgetLine            BudgetLine?          @relation(fields: [budgetLineId], references: [id])
   // v1.75.0: receipts + optional link to a BookBuildMaterial (e.g.
   // Hobbycraft → centerpiece foam) or BookOutfit per-item (e.g.
   // Converse → Jamie's shoes). Linking a BUILD material auto-marks
   // it as ordered. Both FKs are SetNull on delete so the payment
   // record survives if the linked book row is removed.
-  fileIds              String[]            @default([])
-  bookBuildMaterialId  String?
-  bookBuildMaterial    BookBuildMaterial?  @relation(fields: [bookBuildMaterialId], references: [id], onDelete: SetNull)
-  bookOutfitId         String?
-  bookOutfitItem       BookOutfit?         @relation(fields: [bookOutfitId], references: [id], onDelete: SetNull)
+  fileIds               String[]             @default([])
+  bookBuildMaterialId   String?
+  bookBuildMaterial     BookBuildMaterial?   @relation(fields: [bookBuildMaterialId], references: [id], onDelete: SetNull)
+  bookOutfitId          String?
+  bookOutfitItem        BookOutfit?          @relation(fields: [bookOutfitId], references: [id], onDelete: SetNull)
   // v1.80.0: optional component-level link. When set, this payment
   // rolls into the component's actual (instead of, or in addition
   // to, the line's actual). Set both budgetLineId AND
@@ -619,11 +625,11 @@ model Payment {
   // v1.86.0: which fund this payment came out of. NULL inherits the
   // linked line's (or component's) fund silently. Explicit override
   // wins when set. `fundLabel` is the optional OTHER-name annotation.
-  fundSource   FundSource?
-  fundLabel    String?
-  notes        String?
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
+  fundSource            FundSource?
+  fundLabel             String?
+  notes                 String?
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
 
   @@index([status])
   @@index([dueDate])
@@ -645,125 +651,125 @@ enum PaymentStatus {
 // ─── Wedding Book ──────────────────────────────────────────────────────────
 
 model BookSection {
-  id          String           @id @default(cuid())
-  slug        String           @unique
-  title       String
+  id           String                   @id @default(cuid())
+  slug         String                   @unique
+  title        String
   // v1.94.0: per-section subtitle. Editable replacement for the
   // hard-coded SECTION_META.description that used to show under
   // each section title on /book.
-  subtitle    String?
+  subtitle     String?
   illustration String?
-  order       Int              @default(0)
-  subsections BookSubsection[]
+  order        Int                      @default(0)
+  subsections  BookSubsection[]
   // v1.24.0: per-section audience override. Reuses the same enum the
   // BookSubsection has had since C1 (v1.14.0) so the read-side filter
   // can collapse both checks. Default EVERYONE so existing rows stay
   // visible after the migration.
-  visibility BookSubsectionVisibility @default(EVERYONE)
+  visibility   BookSubsectionVisibility @default(EVERYONE)
   // v1.30.5: tasks/questions/decisions tagged to this section via the
   // unified Topics multi-select on Task. Implicit m2m — Prisma manages
   // the _BookSectionToTask junction table.
-  tasks       Task[]
-  createdAt   DateTime         @default(now())
-  updatedAt   DateTime         @updatedAt
+  tasks        Task[]
+  createdAt    DateTime                 @default(now())
+  updatedAt    DateTime                 @updatedAt
 }
 
 model BookSubsection {
-  id         String      @id @default(cuid())
-  sectionId  String
-  section    BookSection @relation(fields: [sectionId], references: [id], onDelete: Cascade)
-  slug       String
-  title      String
+  id               String                   @id @default(cuid())
+  sectionId        String
+  section          BookSection              @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  slug             String
+  title            String
   // v1.26.0: card-kind discriminator. Existing rows default to TEXT
   // in the migration so behaviour is unchanged. Per-kind structured
   // data hangs off the relations below.
-  kind       BookSubsectionKind @default(TEXT)
+  kind             BookSubsectionKind       @default(TEXT)
   // TEXT cards use `body` for freeform markdown/notes.
   // v1.37.0: TEXT cards now author HTML via Tiptap. `body` stays one
   // release as a recoverability buffer; new edits write `bodyHtml`
   // (sanitised on the way in) and stop writing to `body`.
-  body       String?     @db.Text
-  bodyHtml   String?     @db.Text
+  body             String?                  @db.Text
+  bodyHtml         String?                  @db.Text
   // FIELD cards use `fields` as a Json bag keyed by BookFieldDef.id
   // (Record<string, string|number|null>). Was vestigial pre-v1.26.0;
   // the column is reused so the FIELD case adds no new column.
-  fields     Json?
+  fields           Json?
   // v1.96.1: TEXT cards' photo gallery. Other kinds keep their per-
   // kind fileIds column on the relevant child table; this one is
   // TEXT-only in practice. Empty array default mirrors the
   // convention used by every other fileIds column in the schema.
-  fileIds    String[]    @default([])
-  order      Int         @default(0)
+  fileIds          String[]                 @default([])
+  order            Int                      @default(0)
   // v1.95.0: per-card width on the /book/[slug] two-column grid.
   // false = single column; true = spans both columns. Default false
   // so the layout doesn't shift for existing rows on migration.
-  wide       Boolean     @default(false)
+  wide             Boolean                  @default(false)
   // v1.96.4: per-card photo gallery thumbnail size. 'sm' / 'md' /
   // 'lg' control the <ImageGallery> grid columns + thumbnail size.
   // String (not enum) so future sizes are migration-free. Default
   // 'md' matches the v1.63.0 baseline.
-  photoSize  String      @default("md")
+  photoSize        String                   @default("md")
   // v1.99.0: per-card body layout. componentOrder = explicit display
   // order of component IDs; empty = use the kind's hard-coded default.
   // hiddenComponents = component IDs to suppress entirely (with an
   // `alwaysVisible` per-kind guard in the renderer for required ones).
-  componentOrder    String[]  @default([])
-  hiddenComponents  String[]  @default([])
+  componentOrder   String[]                 @default([])
+  hiddenComponents String[]                 @default([])
   // v1.97.0: photo body-section mode.
   // v1.99.4: 'header' dropped as a body mode (header is now additive,
   // controlled by headerFileId being non-null) and 'mosaic' added.
   // Values: 'gallery' (default — thumb grid) / 'slideshow' (carousel)
   // / 'mosaic' (Pinterest-style masonry). String (not enum) so future
   // modes are migration-free.
-  photoDisplay  String   @default("gallery")
+  photoDisplay     String                   @default("gallery")
   // v1.99.4: tied "favourite = header" model. When non-null, the
   // referenced file renders as a hero image ABOVE the body section
   // (the body still shows whatever photoDisplay picks, minus the
   // pinned file to avoid duplication). Pre-v1.99.4 this was only
   // consulted when photoDisplay='header'; now it's the single switch
   // for hero rendering.
-  headerFileId  String?
+  headerFileId     String?
   // v1.99.4: 9-point header positioning. Values: tl|t|tr|l|c|r|bl|b|br.
   // Maps to CSS object-position at render time. Default 'center'
   // preserves pre-fix centred crop.
-  headerPosition String  @default("center")
+  headerPosition   String                   @default("center")
   // Only consulted when photoDisplay = 'slideshow'. true = auto-advance
   // every 4s with hover-pause, false = manual prev/next only. Per-card
   // toggle in edit mode.
-  slideshowAuto Boolean  @default(false)
+  slideshowAuto    Boolean                  @default(false)
   // C1 (v1.14.0): per-page audience override. Mirrors FileVisibility.
   // Couple-only pages are filtered out for non-couple users at read
   // time. Default EVERYONE so existing rows remain visible.
-  visibility BookSubsectionVisibility @default(EVERYONE)
+  visibility       BookSubsectionVisibility @default(EVERYONE)
   // v1.26.0: per-kind 1:1 / 1:m children. Null for kinds that don't
   // need structured data. All cascade on subsection delete.
-  fieldDefs  BookFieldDef[]
-  recipe     BookRecipe?
-  shotList   BookShotList?
-  outfitCard BookOutfitCard?
+  fieldDefs        BookFieldDef[]
+  recipe           BookRecipe?
+  shotList         BookShotList?
+  outfitCard       BookOutfitCard?
   // v1.31.0: BUILD card — DIY production tracker with materials +
   // sessions. One card per project (centerpieces, place cards, etc.).
-  buildCard  BookBuildCard?
+  buildCard        BookBuildCard?
   // v1.32.0: MENU card — food service composition (one per service:
   // wedding breakfast / kids / evening / late-night). Courses + options
   // with allergen tags.
-  menuCard   BookMenuCard?
+  menuCard         BookMenuCard?
   // v1.32.0: BAR card — drinks plan with per-category items + per-
   // head sanity check.
-  barCard    BookBarCard?
+  barCard          BookBarCard?
   // v1.33.0: SETUP card — per-space spatial walkthrough. One card
   // per physical space (Ceremony room / Reception room / etc.).
-  setupCard  BookSetupCard?
+  setupCard        BookSetupCard?
   // v1.36.0: STAY card — one card per accommodation booking the couple
   // pays for (bridal suite, night-before rooms, etc.).
-  stayCard   BookStayCard?
+  stayCard         BookStayCard?
   // v1.36.0: LODGING_GUIDE card — recommended hotels for guests, rows
   // are reference data not tracked-state.
-  lodgingCard BookLodgingCard?
+  lodgingCard      BookLodgingCard?
   // v1.91.0: DRESS_CODE card — couple-internal reference for the
   // dress code + colour / footwear / weather guidance the couple
   // shares with guests on request.
-  dressCodeCard BookDressCodeCard?
+  dressCodeCard    BookDressCodeCard?
   // v1.92.0: WEDDING_PARTY card — matrix tracker (items × people)
   // for bridesmaid / groomsman / flower-girl readiness.
   weddingPartyCard BookWeddingPartyCard?
@@ -774,8 +780,8 @@ model BookSubsection {
   // below each card on /book/[slug]. Doesn't replace the section-
   // level link (that's the broader "this task touches the section"
   // grouping; this one is per-card).
-  tasks      Task[]
-  updatedAt  DateTime    @updatedAt
+  tasks            Task[]
+  updatedAt        DateTime                 @updatedAt
 
   @@unique([sectionId, slug])
 }
@@ -819,7 +825,7 @@ model BookFieldDef {
   subsectionId String
   subsection   BookSubsection @relation(fields: [subsectionId], references: [id], onDelete: Cascade)
   label        String
-  type         String         // "text" | "number" | "date" | "select"
+  type         String // "text" | "number" | "date" | "select"
   options      String[]       @default([])
   order        Int            @default(0)
   // v1.38.0 (P7b/B): richer FIELD authoring — group label for
@@ -847,12 +853,12 @@ model BookFieldDef {
 // for catered batches). Legacy `steps` Json column kept one release
 // as a recoverability buffer (matches v1.30.5 / P7a pattern).
 model BookRecipe {
-  id           String         @id @default(cuid())
-  subsectionId String         @unique
-  subsection   BookSubsection @relation(fields: [subsectionId], references: [id], onDelete: Cascade)
-  ingredients  Json           // string[]
-  steps        Json           // string[] — legacy; backfilled into recipeSteps in v1.38.0
-  notes        String?        @db.Text
+  id           String           @id @default(cuid())
+  subsectionId String           @unique
+  subsection   BookSubsection   @relation(fields: [subsectionId], references: [id], onDelete: Cascade)
+  ingredients  Json // string[]
+  steps        Json // string[] — legacy; backfilled into recipeSteps in v1.38.0
+  notes        String?          @db.Text
   servingsBase Int?
   recipeSteps  BookRecipeStep[]
 }
@@ -883,14 +889,14 @@ model BookShotList {
 }
 
 model BookShot {
-  id              String       @id @default(cuid())
-  shotListId      String
-  shotList        BookShotList @relation(fields: [shotListId], references: [id], onDelete: Cascade)
-  title           String
+  id               String       @id @default(cuid())
+  shotListId       String
+  shotList         BookShotList @relation(fields: [shotListId], references: [id], onDelete: Cascade)
+  title            String
   // v1.38.0 (P7b/B): structured grouping + time budget.
   // `category` is free text (e.g. "Pre-ceremony", "Family formals",
   // "Reception"). `estimatedMinutes` rolls up into the card header.
-  category        String?
+  category         String?
   estimatedMinutes Int?
   // v1.38.0: the existing `withWhom` field stays for free-text names
   // (vendors, partner-of-cousin, etc.). `guestIds` is the array of
@@ -898,13 +904,13 @@ model BookShot {
   // BookStayCard. Reverse query lives at render time. Editor offers
   // a multi-select picker; the rendered card joins back to
   // `Guest.firstName/lastName` for display.
-  withWhom        String[]     @default([])
-  guestIds        String[]     @default([])
-  location        String?
-  notes           String?      @db.Text
-  captured        Boolean      @default(false)
-  capturedAt      DateTime?
-  order           Int          @default(0)
+  withWhom         String[]     @default([])
+  guestIds         String[]     @default([])
+  location         String?
+  notes            String?      @db.Text
+  captured         Boolean      @default(false)
+  capturedAt       DateTime?
+  order            Int          @default(0)
 }
 
 // v1.26.0: OUTFIT card — list of per-person outfit rows. Free-text
@@ -923,24 +929,24 @@ model BookShot {
 // for one release post-migration so the legacy data is recoverable
 // if anything goes sideways.
 model BookOutfitCard {
-  id               String         @id @default(cuid())
-  subsectionId     String         @unique
-  subsection       BookSubsection @relation(fields: [subsectionId], references: [id], onDelete: Cascade)
+  id                    String               @id @default(cuid())
+  subsectionId          String               @unique
+  subsection            BookSubsection       @relation(fields: [subsectionId], references: [id], onDelete: Cascade)
   // v1.35.0: card-level person identity + cost.
   // All nullable so legacy single-card-per-section rows render OK.
   // v1.93.0: dropped fittingDate / alterationsDueBy / pickupDate / paid
   // / paidBy. Dates now live as Tasks tagged to this card; payment
   // tracking flows via the v1.75.0 Payment.bookOutfitId per-item link
   // + v1.78.0 card → BudgetLine sync.
-  personName       String?
-  role             String?        // "Bride" | "Groom" | "Best Man" | "Bridesmaid" | "Groomsman" | "Flower Girl" | etc.
-  costPence        Int?
-  fileIds          String[]       @default([])
-  notes            String?        @db.Text
-  outfits          BookOutfit[]
+  personName            String?
+  role                  String? // "Bride" | "Groom" | "Best Man" | "Bridesmaid" | "Groomsman" | "Flower Girl" | etc.
+  costPence             Int?
+  fileIds               String[]             @default([])
+  notes                 String?              @db.Text
+  outfits               BookOutfit[]
   // v1.78.0: optional auto-sync into a BudgetLine. SetNull on delete.
-  budgetLineId     String?
-  budgetLine       BudgetLine?    @relation(fields: [budgetLineId], references: [id], onDelete: SetNull)
+  budgetLineId          String?
+  budgetLine            BudgetLine?          @relation(fields: [budgetLineId], references: [id], onDelete: SetNull)
   // v1.80.0: optional component-level sync target. When set, card
   // saves resync the component (not the line). Component link wins
   // over line link when both are set.
@@ -955,14 +961,14 @@ model BookOutfit {
   // v1.35.0: re-purposed — was per-person, now per-item.
   // personName + role kept for one release as a recoverability
   // buffer; itemLabel takes over as the row identity.
-  itemLabel   String?        // "Dress" | "Shoes" | "Veil" | "Tie" | "Cufflinks"
+  itemLabel   String? // "Dress" | "Shoes" | "Veil" | "Tie" | "Cufflinks"
   description String?
-  personName  String?        // legacy buffer — was required pre-v1.35.0
-  role        String?        // legacy buffer
+  personName  String? // legacy buffer — was required pre-v1.35.0
+  role        String? // legacy buffer
   items       String[]       @default([])
   supplier    String?
-  website     String?        // v1.71.0: optional URL (supplier page, product listing, etc.)
-  status      String?        // "Designed" | "Ordered" | "Fitted" | "Collected"
+  website     String? // v1.71.0: optional URL (supplier page, product listing, etc.)
+  status      String? // "Designed" | "Ordered" | "Fitted" | "Collected"
   notes       String?        @db.Text
   order       Int            @default(0)
   // v1.75.0: payments that paid for this outfit item.
@@ -986,28 +992,28 @@ model BookOutfit {
 // across many sections (Venue — Décor in particular, also Guest
 // Experience for welcome bags / favours / programs if those go DIY).
 model BookBuildCard {
-  id                       String         @id @default(cuid())
-  subsectionId             String         @unique
-  subsection               BookSubsection @relation(fields: [subsectionId], references: [id], onDelete: Cascade)
-  quantityNeeded           Int?
-  targetDate               DateTime?
-  status                   String?        // "Designing" | "Prototyping" | "Producing" | "Done"
-  prototypeDone            Boolean        @default(false)
-  prototypeNotes           String?        @db.Text
-  estimatedMinutesPerUnit  Int?
-  notes                    String?        @db.Text
+  id                      String               @id @default(cuid())
+  subsectionId            String               @unique
+  subsection              BookSubsection       @relation(fields: [subsectionId], references: [id], onDelete: Cascade)
+  quantityNeeded          Int?
+  targetDate              DateTime?
+  status                  String? // "Designing" | "Prototyping" | "Producing" | "Done"
+  prototypeDone           Boolean              @default(false)
+  prototypeNotes          String?              @db.Text
+  estimatedMinutesPerUnit Int?
+  notes                   String?              @db.Text
   // v1.31.1: optional FK to BudgetLine. Set by "Copy materials total
   // to Budget" — the action both creates the line and stores the link
   // here so subsequent re-clicks update the existing line instead of
   // duplicating. SetNull cascade so deleting a budget line doesn't
   // cascade-delete the build card; the card just loses its link.
-  budgetLineId             String?
-  budgetLine               BudgetLine?    @relation(fields: [budgetLineId], references: [id], onDelete: SetNull)
+  budgetLineId            String?
+  budgetLine              BudgetLine?          @relation(fields: [budgetLineId], references: [id], onDelete: SetNull)
   // v1.80.0: optional component-level sync target. When set, the
   // BUILD card's auto-sync writes to this component instead of the
   // line itself.
-  budgetLineComponentId    String?
-  budgetLineComponent      BudgetLineComponent? @relation(fields: [budgetLineComponentId], references: [id], onDelete: SetNull)
+  budgetLineComponentId   String?
+  budgetLineComponent     BudgetLineComponent? @relation(fields: [budgetLineComponentId], references: [id], onDelete: SetNull)
   // v1.63.0: optional photo gallery — reuses the existing File model
   // (same 25 MB cap, signed download, visibility gates) by storing an
   // array of File ids. Lifted-pattern from BookOutfitCard.fileIds
@@ -1015,44 +1021,44 @@ model BookBuildCard {
   // for image MIMEs and chip-text fallback for the rest. Forward-only
   // reference (no FK array in Prisma) — File rows survive even if
   // detached, so the user can re-attach later from /files.
-  fileIds                  String[]       @default([])
-  materials                BookBuildMaterial[]
-  sessions                 BookBuildSession[]
+  fileIds                 String[]             @default([])
+  materials               BookBuildMaterial[]
+  sessions                BookBuildSession[]
 
   @@index([budgetLineId])
 }
 
 model BookBuildMaterial {
-  id          String         @id @default(cuid())
-  cardId      String
-  card        BookBuildCard  @relation(fields: [cardId], references: [id], onDelete: Cascade)
-  name        String
-  quantity    Float?
-  unit        String?
-  supplier    String?
-  website     String?        // v1.71.0: optional URL (supplier page, product listing, etc.)
-  costPence   Int?
-  ordered     Boolean        @default(false)
-  arrived     Boolean        @default(false)
-  notes       String?
-  order       Int            @default(0)
+  id        String        @id @default(cuid())
+  cardId    String
+  card      BookBuildCard @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  name      String
+  quantity  Float?
+  unit      String?
+  supplier  String?
+  website   String? // v1.71.0: optional URL (supplier page, product listing, etc.)
+  costPence Int?
+  ordered   Boolean       @default(false)
+  arrived   Boolean       @default(false)
+  notes     String?
+  order     Int           @default(0)
   // v1.75.0: payments that paid for this material. Linking a
   // payment auto-marks `ordered = true`.
-  payments    Payment[]
+  payments  Payment[]
 
   @@index([cardId])
 }
 
 model BookBuildSession {
-  id              String         @id @default(cuid())
-  cardId          String
-  card            BookBuildCard  @relation(fields: [cardId], references: [id], onDelete: Cascade)
-  date            DateTime
-  minutes         Int
-  unitsCompleted  Int?
-  notes           String?
-  loggedById      String?
-  createdAt       DateTime       @default(now())
+  id             String        @id @default(cuid())
+  cardId         String
+  card           BookBuildCard @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  date           DateTime
+  minutes        Int
+  unitsCompleted Int?
+  notes          String?
+  loggedById     String?
+  createdAt      DateTime      @default(now())
 
   @@index([cardId])
 }
@@ -1066,39 +1072,39 @@ model BookBuildSession {
 // MealOption table is unwired per the v0.x comment, so we honour
 // the messy free-text reality the CSV import produces).
 model BookMenuCard {
-  id                  String          @id @default(cuid())
-  subsectionId        String          @unique
-  subsection          BookSubsection  @relation(fields: [subsectionId], references: [id], onDelete: Cascade)
-  serviceType         String?         // "Plated" | "Buffet" | "Family-style" | "Canapés"
-  serviceTime         String?
-  pricePerHeadPence   Int?
+  id                    String               @id @default(cuid())
+  subsectionId          String               @unique
+  subsection            BookSubsection       @relation(fields: [subsectionId], references: [id], onDelete: Cascade)
+  serviceType           String? // "Plated" | "Buffet" | "Family-style" | "Canapés"
+  serviceTime           String?
+  pricePerHeadPence     Int?
   // v1.32.0 — manual override headcount. v1.78.0 supersedes this with
   // headcountSource + manualHeadcount. Kept one release as a recovery
   // buffer; drop in v1.79.
-  confirmedHeadcount  Int?
+  confirmedHeadcount    Int?
   // v1.78.0: unified PerHeadSource enum. When set, the editor uses
   // this to resolve the live count instead of the old null-fallback
   // path. Migration backfilled: existing confirmedHeadcount → MANUAL;
   // null+priced rows → ALL_CONFIRMED.
-  headcountSource     PerHeadSource?
-  manualHeadcount     Int?
-  notes               String?         @db.Text
-  courses             BookMenuCourse[]
+  headcountSource       PerHeadSource?
+  manualHeadcount       Int?
+  notes                 String?              @db.Text
+  courses               BookMenuCourse[]
   // v1.78.0: optional auto-sync into a BudgetLine.
-  budgetLineId        String?
-  budgetLine          BudgetLine?     @relation(fields: [budgetLineId], references: [id], onDelete: SetNull)
+  budgetLineId          String?
+  budgetLine            BudgetLine?          @relation(fields: [budgetLineId], references: [id], onDelete: SetNull)
   // v1.80.0: optional component-level sync target.
   budgetLineComponentId String?
   budgetLineComponent   BudgetLineComponent? @relation(fields: [budgetLineComponentId], references: [id], onDelete: SetNull)
 }
 
 model BookMenuCourse {
-  id           String         @id @default(cuid())
-  cardId       String
-  card         BookMenuCard   @relation(fields: [cardId], references: [id], onDelete: Cascade)
-  courseLabel  String         // "Starter" | "Main" | "Dessert" | "Late-night"
-  order        Int            @default(0)
-  options      BookMenuOption[]
+  id          String           @id @default(cuid())
+  cardId      String
+  card        BookMenuCard     @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  courseLabel String // "Starter" | "Main" | "Dessert" | "Late-night"
+  order       Int              @default(0)
+  options     BookMenuOption[]
 
   @@index([cardId])
 }
@@ -1124,39 +1130,39 @@ model BookMenuOption {
 // Spirits…). Per-head sanity check at render time flags if planned
 // quantity is outside [0.5, 1.5] bottles per confirmed adult.
 model BookBarCard {
-  id            String        @id @default(cuid())
-  subsectionId  String        @unique
-  subsection    BookSubsection @relation(fields: [subsectionId], references: [id], onDelete: Cascade)
-  barType       String?       // "Open bar" | "Drinks tab to £X" | "Cash bar" | "Wine + toast only"
-  tabLimitPence Int?
-  toastDrink    String?       // "Champagne" | "Prosecco" | "Sparkling elderflower"
-  corkagePence  Int?
-  notes         String?       @db.Text
-  items         BookBarItem[]
+  id                    String               @id @default(cuid())
+  subsectionId          String               @unique
+  subsection            BookSubsection       @relation(fields: [subsectionId], references: [id], onDelete: Cascade)
+  barType               String? // "Open bar" | "Drinks tab to £X" | "Cash bar" | "Wine + toast only"
+  tabLimitPence         Int?
+  toastDrink            String? // "Champagne" | "Prosecco" | "Sparkling elderflower"
+  corkagePence          Int?
+  notes                 String?              @db.Text
+  items                 BookBarItem[]
   // v1.78.0: optional auto-sync into a BudgetLine. BAR is multi-item
   // (each with its own pricePerHead) so the linked line carries a
   // flat rolled-up `estimated`, no per-head config — the BAR card
   // itself stays the source of truth for the breakdown.
-  budgetLineId  String?
-  budgetLine    BudgetLine?   @relation(fields: [budgetLineId], references: [id], onDelete: SetNull)
+  budgetLineId          String?
+  budgetLine            BudgetLine?          @relation(fields: [budgetLineId], references: [id], onDelete: SetNull)
   // v1.80.0: optional component-level sync target.
   budgetLineComponentId String?
   budgetLineComponent   BudgetLineComponent? @relation(fields: [budgetLineComponentId], references: [id], onDelete: SetNull)
 }
 
 model BookBarItem {
-  id              String       @id @default(cuid())
-  cardId          String
-  card            BookBarCard  @relation(fields: [cardId], references: [id], onDelete: Cascade)
-  category        String       // "Reception drink" | "Wine" | "Beer" | "Soft" | "Spirits"
-  name            String
-  quantityPlanned Float?
-  unit            String?
-  supplier        String?
-  website         String?      // v1.71.0: optional URL (supplier page, product listing, etc.)
-  costPence       Int?
-  notes           String?
-  order           Int          @default(0)
+  id                String         @id @default(cuid())
+  cardId            String
+  card              BookBarCard    @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  category          String // "Reception drink" | "Wine" | "Beer" | "Soft" | "Spirits"
+  name              String
+  quantityPlanned   Float?
+  unit              String?
+  supplier          String?
+  website           String? // v1.71.0: optional URL (supplier page, product listing, etc.)
+  costPence         Int?
+  notes             String?
+  order             Int            @default(0)
   // v1.32.2: per-head pricing for drinks costed per cover (e.g.
   // £2.50/head for the toast). When set, costPence is treated as
   // optional / informational and the line total is computed as
@@ -1166,11 +1172,11 @@ model BookBarItem {
   // v1.32.2: serving moment label — "Reception" | "Toast" | "Dinner"
   // | "Evening" | "Late night" | free text. Used for grouping in the
   // view, also threads through the audit log summary.
-  timing          String?
+  timing            String?
   // v1.78.0: per-item headcount source for the per-head pricing path.
   // Defaults to ADULTS_CONFIRMED on existing rows (matches the
   // hardcoded behaviour pre-migration). NULL on flat-priced rows.
-  headcountSource PerHeadSource?
+  headcountSource   PerHeadSource?
 
   @@index([cardId])
 }
@@ -1181,17 +1187,17 @@ model BookBarItem {
 // setup / Pack-down. Items track what gets put where, with packed
 // + placed flags + a pack-down plan.
 model BookSetupCard {
-  id            String         @id @default(cuid())
-  subsectionId  String         @unique
-  subsection    BookSubsection @relation(fields: [subsectionId], references: [id], onDelete: Cascade)
-  space         String?        // venue room / area name (free text)
-  setupStartsAt String?        // free-text time, e.g. "10:00am"
-  setupOwner    String?        // "Paintbox Blooms" | "Bridesmaids" | "Best man's car"
-  notes         String?        @db.Text
+  id            String          @id @default(cuid())
+  subsectionId  String          @unique
+  subsection    BookSubsection  @relation(fields: [subsectionId], references: [id], onDelete: Cascade)
+  space         String? // venue room / area name (free text)
+  setupStartsAt String? // free-text time, e.g. "10:00am"
+  setupOwner    String? // "Paintbox Blooms" | "Bridesmaids" | "Best man's car"
+  notes         String?         @db.Text
   /// v1.63.0: optional photo gallery — same forward-only File-id array
   /// as BookOutfitCard. Useful for "before" photos of the space, or
   /// reference shots showing how décor should be laid out.
-  fileIds       String[]       @default([])
+  fileIds       String[]        @default([])
   items         BookSetupItem[]
 }
 
@@ -1201,11 +1207,11 @@ model BookSetupItem {
   card         BookSetupCard @relation(fields: [cardId], references: [id], onDelete: Cascade)
   name         String
   quantity     Int?
-  location     String?       // "Top of aisle" | "Round-table centre" | etc.
+  location     String? // "Top of aisle" | "Round-table centre" | etc.
   // Free-text but auto-completes from existing Supplier.name in the
   // editor — read-time string match for the cross-module reference.
   source       String?
-  website      String?       // v1.71.0: optional URL (supplier page, product listing, etc.)
+  website      String? // v1.71.0: optional URL (supplier page, product listing, etc.)
   packed       Boolean       @default(false)
   placed       Boolean       @default(false)
   packDownPlan String?
@@ -1224,26 +1230,26 @@ model BookSetupItem {
 // v1.30.5 cross-module-reference convention (read-time queries, not
 // denormalisation), and matches OUTFIT card's `fileIds` shape.
 model BookStayCard {
-  id               String         @id @default(cuid())
-  subsectionId     String         @unique
-  subsection       BookSubsection @relation(fields: [subsectionId], references: [id], onDelete: Cascade)
-  propertyName     String?
-  propertyContact  String?        // free text — phone / email / address
-  bookingReference String?
-  checkInDate      DateTime?
-  checkOutDate     DateTime?
-  costPence        Int?
-  paidBy           String?        // "Couple" | "Self" | "Parents" | "Other"
-  paid             Boolean        @default(false)
-  occupants        String[]       @default([])
-  guestIds         String[]       @default([])
-  notes            String?        @db.Text
+  id                    String               @id @default(cuid())
+  subsectionId          String               @unique
+  subsection            BookSubsection       @relation(fields: [subsectionId], references: [id], onDelete: Cascade)
+  propertyName          String?
+  propertyContact       String? // free text — phone / email / address
+  bookingReference      String?
+  checkInDate           DateTime?
+  checkOutDate          DateTime?
+  costPence             Int?
+  paidBy                String? // "Couple" | "Self" | "Parents" | "Other"
+  paid                  Boolean              @default(false)
+  occupants             String[]             @default([])
+  guestIds              String[]             @default([])
+  notes                 String?              @db.Text
   /// v1.63.0: optional photo gallery — bridal suite, property
   /// exterior, room layout, etc. Same forward-only File-id array.
-  fileIds          String[]       @default([])
+  fileIds               String[]             @default([])
   // v1.78.0: optional auto-sync into a flat BudgetLine.
-  budgetLineId     String?
-  budgetLine       BudgetLine?    @relation(fields: [budgetLineId], references: [id], onDelete: SetNull)
+  budgetLineId          String?
+  budgetLine            BudgetLine?          @relation(fields: [budgetLineId], references: [id], onDelete: SetNull)
   // v1.80.0: optional component-level sync target.
   budgetLineComponentId String?
   budgetLineComponent   BudgetLineComponent? @relation(fields: [budgetLineComponentId], references: [id], onDelete: SetNull)
@@ -1266,8 +1272,8 @@ model BookLodgingItem {
   cardId            String
   card              BookLodgingCard @relation(fields: [cardId], references: [id], onDelete: Cascade)
   name              String
-  distanceFromVenue String?         // e.g. "0.3 miles — 8 min walk"
-  priceRangeLabel   String?         // "£" | "££" | "£££"
+  distanceFromVenue String? // e.g. "0.3 miles — 8 min walk"
+  priceRangeLabel   String? // "£" | "££" | "£££"
   phone             String?
   website           String?
   groupRateCode     String?
@@ -1380,7 +1386,7 @@ model NavTag {
   slug      String   @unique
   route     String?
   order     Int      @default(0)
-  tasks     Task[]   // implicit m2m: Task ↔ NavTag (_NavTagToTask)
+  tasks     Task[] // implicit m2m: Task ↔ NavTag (_NavTagToTask)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
@@ -1439,33 +1445,33 @@ model PermissionGroup {
 // seating canvas to colour-code rows / dots. Null = use the default
 // neutral colour — couple sets the value via the Settings UI.
 model GuestGroup {
-  id            String         @id @default(cuid())
-  slug          String         @unique
-  name          String
-  description   String?        @db.Text
+  id           String        @id @default(cuid())
+  slug         String        @unique
+  name         String
+  description  String?       @db.Text
   /// Hex string like "#a3c9a8" (with leading #). Null = no colour set.
   /// Used by the ceremony seating canvas for colour-coded rows.
-  colour        String?
+  colour       String?
   /// v1.48.0: side constraint for the ceremony seating allocator.
   /// BRIDE → members fill the LEFT side only.
   /// GROOM → members fill the RIGHT side only.
   /// BOTH (default) → members fill whichever side has more space.
   /// Reuses the existing `Side` enum used for `Guest.side`.
-  side          Side           @default(BOTH)
-  order         Int            @default(0)
-  members       Guest[]        @relation("GuestGroupMembers")
+  side         Side          @default(BOTH)
+  order        Int           @default(0)
+  members      Guest[]       @relation("GuestGroupMembers")
   /// v1.61.0 (XL1): m2m back-relation to Task. A task tagged with this
   /// group surfaces on every member's /guests/[id] page via a
   /// read-time query.
-  tasks         Task[]
+  tasks        Task[]
   /// v1.46.0: legacy per-row pinning. Deprecated in v1.48.0 in
   /// favour of `side` + `order` driving auto-fill. Rows are no
   /// longer rendered; the table is preserved for one release as a
   /// recoverability buffer in case the auto-fill model needs a
   /// rollback.
-  ceremonyRows  CeremonyRow[]
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
+  ceremonyRows CeremonyRow[]
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
 }
 
 // v1.30.5: PhotographyShot dropped. Data was migrated to BookShot under
@@ -1476,13 +1482,13 @@ model GuestGroup {
 // ─── Seating ───────────────────────────────────────────────────────────────
 
 model Table {
-  id        String   @id @default(cuid())
+  id        String     @id @default(cuid())
   name      String
   shape     TableShape @default(ROUND)
   capacity  Int
-  posX      Float    @default(0)
-  posY      Float    @default(0)
-  rotation  Float    @default(0)
+  posX      Float      @default(0)
+  posY      Float      @default(0)
+  rotation  Float      @default(0)
   seats     Seat[]
   // v1.23.0: free-form notes per table (table size constraints, board
   // game plan for the table, dietary clusters, "this table near the
@@ -1493,8 +1499,8 @@ model Table {
   // tick off "place cards / menu cards / table number stand /
   // centrepiece / Polaroid camera / board game" on the day.
   checklist Json?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
 }
 
 enum TableShape {
@@ -1504,11 +1510,11 @@ enum TableShape {
 }
 
 model Seat {
-  id      String  @id @default(cuid())
-  tableId String
-  table   Table   @relation(fields: [tableId], references: [id], onDelete: Cascade)
-  index   Int
-  guest   Guest?  // backref via Guest.tableSeatId
+  id       String  @id @default(cuid())
+  tableId  String
+  table    Table   @relation(fields: [tableId], references: [id], onDelete: Cascade)
+  index    Int
+  guest    Guest? // backref via Guest.tableSeatId
   proposed Boolean @default(false)
 
   @@unique([tableId, index])
@@ -1517,48 +1523,48 @@ model Seat {
 // ─── Files ─────────────────────────────────────────────────────────────────
 
 model File {
-  id           String             @id @default(cuid())
-  name         String
-  storedPath   String             // relative to /uploads
-  mimeType     String
-  sizeBytes    Int
-  folder       String?            // contracts, menus, photos, etc.
-  visibility   FileVisibility     @default(EVERYONE)
-  uploadedById String?
-  contracts    SupplierContract[]
+  id              String             @id @default(cuid())
+  name            String
+  storedPath      String // relative to /uploads
+  mimeType        String
+  sizeBytes       Int
+  folder          String? // contracts, menus, photos, etc.
+  visibility      FileVisibility     @default(EVERYONE)
+  uploadedById    String?
+  contracts       SupplierContract[]
   /// v1.67.0: back-relation to Guest profile picture. Named relation
   /// so Prisma can disambiguate this from any future File→Guest
   /// links (e.g. attached scans).
-  guestProfileFor Guest[] @relation("GuestProfilePicture")
-  createdAt    DateTime           @default(now())
+  guestProfileFor Guest[]            @relation("GuestProfilePicture")
+  createdAt       DateTime           @default(now())
 }
 
 enum FileVisibility {
-  EVERYONE     // visible to everyone with files-section access
-  COUPLE_ONLY  // visible only to couple-tier users (Jamie + Bryony)
+  EVERYONE // visible to everyone with files-section access
+  COUPLE_ONLY // visible only to couple-tier users (Jamie + Bryony)
 }
 
 // ─── Songs / Playlists ─────────────────────────────────────────────────────
 
 model Playlist {
-  id           String        @id @default(cuid())
-  name         String
-  category     PlaylistCategory
-  description  String?
-  spotifyId    String?
-  spotifyUrl   String?
+  id              String           @id @default(cuid())
+  name            String
+  category        PlaylistCategory
+  description     String?
+  spotifyId       String?
+  spotifyUrl      String?
   // Sync metadata: when the playlist was last pulled from Spotify, plus any
   // error from that attempt (rate limit, 404 if made private, etc.).
   // Both null means "never synced".
-  lastSyncedAt   DateTime?
-  lastSyncError  String?
+  lastSyncedAt    DateTime?
+  lastSyncError   String?
   lastSyncedSongs Int?
-  isBlockList  Boolean       @default(false)
-  songs        Song[]
-  songRequests SongRequest[]
-  order        Int           @default(0)
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
+  isBlockList     Boolean          @default(false)
+  songs           Song[]
+  songRequests    SongRequest[]
+  order           Int              @default(0)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
 }
 
 enum PlaylistCategory {
@@ -1578,7 +1584,7 @@ model Song {
   title      String
   artist     String?
   spotifyUri String?
-  source     String?  // "guest request", "couple", "DJ"
+  source     String? // "guest request", "couple", "DJ"
   order      Int      @default(0)
   createdAt  DateTime @default(now())
 }
@@ -1599,7 +1605,7 @@ model Song {
 model Permission {
   id      String          @id @default(cuid())
   userId  String
-  section String          // tasks, guests, budget, etc.
+  section String // tasks, guests, budget, etc.
   level   PermissionLevel @default(VIEW)
 
   @@unique([userId, section])
@@ -1626,7 +1632,7 @@ model GroupPermission {
   /// src/lib/group-members.ts for the four built-in slugs; custom
   /// slugs come from PermissionGroup.slug.
   groupKey  String
-  section   String          // tasks, guests, budget, etc.
+  section   String // tasks, guests, budget, etc.
   level     PermissionLevel @default(VIEW)
   createdAt DateTime        @default(now())
   updatedAt DateTime        @updatedAt
@@ -1666,8 +1672,8 @@ model AuditLog {
 // to stay tiny (a few hundred rows max in normal operation).
 model MagicLinkAttempt {
   id         String   @id @default(cuid())
-  identifier String   // email address (lowercased)
-  ip         String?  // best-effort; null when the auth callback can't access headers
+  identifier String // email address (lowercased)
+  ip         String? // best-effort; null when the auth callback can't access headers
   createdAt  DateTime @default(now())
 
   @@index([identifier, createdAt])
@@ -1678,9 +1684,9 @@ model MagicLinkAttempt {
 
 model CustomField {
   id        String   @id @default(cuid())
-  entity    String   // "guest", "supplier", etc.
+  entity    String // "guest", "supplier", etc.
   name      String
-  type      String   // text, number, date, select
+  type      String // text, number, date, select
   options   String[] @default([])
   order     Int      @default(0)
   createdAt DateTime @default(now())
@@ -1697,30 +1703,35 @@ model CustomField {
 // boots reasonably; existing references fall through to the same env vars.
 
 model WeddingSettings {
-  id           Int      @id @default(1)
+  id                Int      @id @default(1)
   // ISO timestamp. The day-of timeline + countdown read this; the
   // ceremony-time string (below) is the human-friendly label.
-  weddingDate  DateTime
-  ceremonyTime String   @default("2:00pm ceremony")
-  venue        String
-  venueAddress String?
+  weddingDate       DateTime
+  ceremonyTime      String   @default("2:00pm ceremony")
+  venue             String
+  venueAddress      String?
   // Long form: "Spencer · Olwyn-Davis Wedding" — used as document
   // titles, schedule letterhead, AppShell sidebar header.
-  coupleLabel  String   @default("Spencer · Olwyn-Davis Wedding")
+  coupleLabel       String   @default("Spencer · Olwyn-Davis Wedding")
   // Short, possessive form: "Jamie & Bryony's Wedding" — used in the
   // CountdownCard inside the homepage 3-column grid (v1.19.0).
-  coupleShort  String   @default("Jamie & Bryony's Wedding")
-  brideFirst   String   @default("Bryony")
-  groomFirst   String   @default("Jamie")
+  coupleShort       String   @default("Jamie & Bryony's Wedding")
+  brideFirst        String   @default("Bryony")
+  groomFirst        String   @default("Jamie")
   // v1.23.0: plan-level seating notes — table-size constraints
   // ("min 6 / max 10 per table"), board game allocation across the
   // room, day-of staffing reminders. Renders at the top of /seating.
-  seatingNotes     String?
+  seatingNotes      String?
   // v1.23.1: plan-level day-of checklist (replaces the v1.23.0
   // per-table checklist — user wanted one shared list for the whole
   // plan, not one per table). Json array of {id, label, done}.
-  seatingChecklist Json?
-  updatedAt        DateTime @updatedAt
+  seatingChecklist  Json?
+  // v2.1.0: soft monthly cap on Anthropic API spend, in pence. Read
+  // by src/lib/ai/guards.ts before every AI call; when NULL the code
+  // falls back to AI_MONTHLY_CAP_PENCE env, then to a hard-coded
+  // 3000-pence (£30) default. Editable from /settings.
+  aiMonthlyCapPence Int?
+  updatedAt         DateTime @updatedAt
 }
 
 // v1.23.0: ceremony seating layout — placeholder for now (no per-seat
@@ -1732,7 +1743,7 @@ model CeremonySeating {
   id            Int      @id @default(1)
   leftRows      Int      @default(8)
   leftSeatsRow  Int      @default(8)
-  rightRows    Int      @default(8)
+  rightRows     Int      @default(8)
   rightSeatsRow Int      @default(8)
   notes         String?
   updatedAt     DateTime @updatedAt
@@ -1759,15 +1770,126 @@ model CeremonySeating {
 // `notes` is free-text, for hints like "Reserved for the bride's
 // godparents" that don't fit a group.
 model CeremonyRow {
-  id            String       @id @default(cuid())
-  side          String       // "LEFT" | "RIGHT"
-  rowIndex      Int          // 0-indexed, 0 = front
-  guestGroupId  String?
-  guestGroup    GuestGroup?  @relation(fields: [guestGroupId], references: [id], onDelete: SetNull)
-  notes         String?
-  createdAt     DateTime     @default(now())
-  updatedAt     DateTime     @updatedAt
+  id           String      @id @default(cuid())
+  side         String // "LEFT" | "RIGHT"
+  rowIndex     Int // 0-indexed, 0 = front
+  guestGroupId String?
+  guestGroup   GuestGroup? @relation(fields: [guestGroupId], references: [id], onDelete: SetNull)
+  notes        String?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
 
   @@unique([side, rowIndex])
   @@index([guestGroupId])
+}
+
+// ─── AI planner (v2.1.0) ───────────────────────────────────────────────────
+//
+// The AI surface (planner chat, task/event/book suggestions, guest helpers)
+// is layered on top of the rest of the schema — every write the AI wants
+// to make lands in AiProposal first, then a human clicks Apply and the
+// existing server actions (createTask, etc.) run under the same permission
+// gates and audit log as any manual edit. AI never bypasses them.
+//
+// See src/lib/ai/ for the client wrapper + tool registry; see
+// src/app/(app)/ai/ for the review dashboard.
+
+model AiThread {
+  id         String      @id @default(cuid())
+  userId     String
+  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // AI-generated short summary of the first user turn — shown in the
+  // side-panel thread list. Null until the first assistant turn writes it.
+  title      String?
+  // Pinned context reference — e.g. "route:/guests/xxxxxx" when the user
+  // opened the chat from a guest page, so the assistant sees where they
+  // asked from. Free-form string, not a FK.
+  contextRef String?
+  messages   AiMessage[]
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+
+  @@index([userId, updatedAt])
+}
+
+model AiMessage {
+  id           String       @id @default(cuid())
+  threadId     String
+  thread       AiThread     @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  // "user" | "assistant" | "tool" — matches Anthropic's roles.
+  role         String
+  // The visible text of the message. Assistant turns that only emitted
+  // tool_use blocks store an empty string here; `toolCalls` carries the
+  // structured data.
+  content      String       @db.Text
+  // Anthropic tool_use blocks as returned by the API. Null when the turn
+  // didn't call any tools.
+  toolCalls    Json?
+  // Proposals emitted on this turn (write tools → AiProposal rows).
+  proposals    AiProposal[]
+  // Per-message token accounting, mirrored into AiUsage for aggregation.
+  inputTokens  Int?
+  outputTokens Int?
+  model        String?
+  createdAt    DateTime     @default(now())
+
+  @@index([threadId, createdAt])
+}
+
+model AiProposal {
+  id              String           @id @default(cuid())
+  // Null when the proposal came from an inline "Suggest" button rather
+  // than a chat turn. Message deletion nulls the link but keeps the row —
+  // the human decision about the proposal outlives the raw conversation.
+  messageId       String?
+  message         AiMessage?       @relation(fields: [messageId], references: [id], onDelete: SetNull)
+  // The user in whose session the proposal was created. Filters the
+  // review dashboard and gates apply/dismiss.
+  createdById     String
+  createdBy       User             @relation(fields: [createdById], references: [id], onDelete: Cascade)
+  // Namespaced kind: "task.create" | "task.update" | "event.create" |
+  // "guest.update" | "book.card.update" | "book.summarize" | …
+  // Zod schemas live in src/lib/ai/proposals/schemas.ts (added in phase 2).
+  kind            String
+  // The proposed change, kind-shaped. Validated against the kind's
+  // schema at both write and apply time.
+  payload         Json
+  // AI's short justification, shown in the review UI so the couple can
+  // sanity-check without opening the full thread.
+  rationale       String           @db.Text
+  status          AiProposalStatus @default(PENDING)
+  // Populated after Apply — the id of the row the proposal produced
+  // (Task, ScheduleEvent, etc.). Lets the review UI link to it.
+  appliedEntityId String?
+  createdAt       DateTime         @default(now())
+  reviewedAt      DateTime?
+
+  @@index([createdById, status, createdAt])
+}
+
+enum AiProposalStatus {
+  PENDING
+  APPLIED
+  DISMISSED
+  EDITED_AND_APPLIED
+}
+
+model AiUsage {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // Full model id, e.g. "claude-sonnet-4-6" — never an alias.
+  model        String
+  inputTokens  Int
+  outputTokens Int
+  // Pre-computed £-pence cost so budget queries stay O(1) — see
+  // src/lib/ai/cost.ts for the pricing table + FX conversion.
+  costPence    Int
+  // Which product feature spent the tokens: "chat" | "generate-timeline"
+  // | "summarize-card" | "propose-tasks" | …
+  feature      String
+  createdAt    DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([createdAt])
 }

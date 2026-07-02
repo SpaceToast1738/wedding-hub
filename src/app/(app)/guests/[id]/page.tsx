@@ -7,6 +7,7 @@ import { canEdit, canView } from "@/lib/permissions";
 import { requireUser } from "@/lib/actions";
 import { findMealChoiceLinks, findShotsForGuest, findStaysForGuest } from "@/lib/guest-cross-refs";
 import { GuestDetailClient } from "./GuestDetailClient";
+import { DraftRsvpReminderButton } from "./DraftRsvpReminderButton";
 import { GuestPhotoUpload } from "./GuestPhotoUpload";
 import { AddSongRequestInline } from "./AddSongRequestInline";
 import { CustomFieldsBlock } from "./CustomFieldsBlock";
@@ -341,6 +342,12 @@ export default async function GuestDetailPage({
               </span>
             </div>
           </div>
+
+          {/* v2.1.0 phase 5: AI-drafted reminder — couple-only, only
+              shows when the guest hasn't responded yet. */}
+          {user.isCouple && (
+            <DraftRsvpReminderButton guestId={guest.id} rsvpStatus={guest.rsvp} />
+          )}
 
           {/* Editable form (toggled by the client) */}
           <GuestDetailClient

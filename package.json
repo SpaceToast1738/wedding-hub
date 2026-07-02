@@ -1,6 +1,6 @@
 {
   "name": "wedding-hub",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -25,6 +25,7 @@
     "seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.109.0",
     "@auth/prisma-adapter": "^2.7.4",
     "@prisma/client": "^5.22.0",
     "@tiptap/extension-link": "^3.22.5",

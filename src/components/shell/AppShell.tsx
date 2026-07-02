@@ -4,6 +4,7 @@ import { MobileTabBar } from "@/components/shell/MobileTabBar";
 import { QuickCapture } from "@/components/shell/QuickCapture";
 import { Toaster } from "@/components/ui/Toaster";
 import { ConfirmProvider } from "@/components/ui/ConfirmDialog";
+import { ChatPanelHost } from "@/components/ai/ChatPanelHost";
 import { signOut } from "@/auth";
 import type { Counts } from "@/components/shell/nav-config";
 
@@ -59,6 +60,9 @@ export async function AppShell({
         <MobileTabBar isCouple={user.isCouple} signOutAction={signOutAction} />
         <QuickCapture />
         <Toaster />
+        {/* v2.1.0: AI planner side panel + floating trigger. Renders
+            null when the user lacks ai_chat access or AI_ENABLED=false. */}
+        <ChatPanelHost />
       </div>
     </ConfirmProvider>
   );

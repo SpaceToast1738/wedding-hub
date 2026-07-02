@@ -11,6 +11,13 @@ export const SECTIONS = [
   "tasks", "questions", "schedule", "suppliers",
   "guests", "seating", "songs", "files", "book",
   "budget", "payments", "money", "settings",
+  // v2.1.0: AI planner. `ai_chat` gates the side-panel + read-only
+  // tool calls (safe for everyone). `ai_write` gates proposal
+  // creation + apply — anything that would touch real data. Couple
+  // bypass grants both automatically; group defaults live in
+  // src/lib/group-defaults.ts (or the initial-permissions SQL when
+  // that's how the row got there).
+  "ai_chat", "ai_write",
 ] as const;
 
 export type Section = (typeof SECTIONS)[number];

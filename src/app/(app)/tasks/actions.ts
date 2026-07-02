@@ -201,6 +201,10 @@ export async function createTask(formData: FormData) {
   revalidatePath("/questions");
   revalidatePath("/");
   revalidatePath("/book");
+  // v2.1.0 phase 2: return the id so applyProposal can link the
+  // AiProposal to the row it just produced. Existing FormData
+  // callers ignore return values, so this is non-breaking.
+  return { id: created.id };
 }
 
 export async function updateTask(id: string, formData: FormData) {

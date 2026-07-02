@@ -56,6 +56,8 @@ const SECTION_LABELS: Record<Section, string> = {
   payments: "Payments",
   money: "Money values",
   settings: "Settings",
+  ai_chat: "AI chat",
+  ai_write: "AI proposals",
 };
 
 type Level = "NONE" | "VIEW" | "EDIT";

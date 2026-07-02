@@ -13,6 +13,7 @@ import { BookStayCard } from "./BookStayCard";
 import { BookDressCodeCard } from "./BookDressCodeCard";
 import { BookWeddingPartyCard } from "./BookWeddingPartyCard";
 import { SubsectionEditor } from "./SubsectionEditor";
+import { SummarizeCardButton } from "@/app/(app)/ai/SummarizeCardButton";
 import type { GalleryDisplay, GallerySize, HeaderPosition } from "@/components/ui/ImageGallery";
 import type { UserOpt } from "@/app/(app)/tasks/AddTaskToggle";
 
@@ -455,38 +456,46 @@ function renderCardBody(
   switch (sub.kind) {
     case "TEXT":
       return (
-        <SubsectionEditor
-          sub={{
-            id: sub.id,
-            slug: sub.slug,
-            title: sub.title,
-            body: sub.body,
-            bodyHtml: sub.bodyHtml,
-            visibility: sub.visibility,
-            // v1.96.1: TEXT card photo gallery.
-            fileIds: sub.fileIds,
-            // v1.96.5: gallery thumb size lives on BookSubsection
-            // (the v1.96.4 column). Narrow the DB string to the
-            // GallerySize union with a defensive 'md' fallback —
-            // matches the OUTFIT case below.
-            // v1.98.1: union widened to xs / sm / md / lg / xl.
-            photoSize: narrowSize(sub.photoSize),
-            // v1.97.0 / v1.99.4: body mode (gallery/slideshow/mosaic)
-            // + hero pin + 9-point hero position + slideshow auto.
-            photoDisplay: narrowDisplay(sub.photoDisplay),
-            headerFileId: sub.headerFileId,
-            headerPosition: narrowHeaderPosition(sub.headerPosition),
-            slideshowAuto: sub.slideshowAuto,
-            // v1.99.0: per-card body layout.
-            componentOrder: sub.componentOrder,
-            hiddenComponents: sub.hiddenComponents,
-          }}
-          canEdit={canEdit}
-          isCouple={isCouple}
-          linkedTasks={linkedTasks}
-          users={users}
-          files={files}
-        />
+        <>
+          <SubsectionEditor
+            sub={{
+              id: sub.id,
+              slug: sub.slug,
+              title: sub.title,
+              body: sub.body,
+              bodyHtml: sub.bodyHtml,
+              visibility: sub.visibility,
+              // v1.96.1: TEXT card photo gallery.
+              fileIds: sub.fileIds,
+              // v1.96.5: gallery thumb size lives on BookSubsection
+              // (the v1.96.4 column). Narrow the DB string to the
+              // GallerySize union with a defensive 'md' fallback —
+              // matches the OUTFIT case below.
+              // v1.98.1: union widened to xs / sm / md / lg / xl.
+              photoSize: narrowSize(sub.photoSize),
+              // v1.97.0 / v1.99.4: body mode (gallery/slideshow/mosaic)
+              // + hero pin + 9-point hero position + slideshow auto.
+              photoDisplay: narrowDisplay(sub.photoDisplay),
+              headerFileId: sub.headerFileId,
+              headerPosition: narrowHeaderPosition(sub.headerPosition),
+              slideshowAuto: sub.slideshowAuto,
+              // v1.99.0: per-card body layout.
+              componentOrder: sub.componentOrder,
+              hiddenComponents: sub.hiddenComponents,
+            }}
+            canEdit={canEdit}
+            isCouple={isCouple}
+            linkedTasks={linkedTasks}
+            users={users}
+            files={files}
+          />
+          {canEdit && (
+            <SummarizeCardButton
+              subsectionId={sub.id}
+              hasContent={Boolean(sub.bodyHtml || sub.body)}
+            />
+          )}
+        </>
       );
     case "FIELD":
       return (

@@ -83,3 +83,63 @@ export async function updateWeddingSettings(formData: FormData) {
   revalidatePath("/guests/catering");
   revalidatePath("/settings");
 }
+
+// v2.1.0 phase 4: dedicated action for the AI monthly cap. Split off
+// updateWeddingSettings so the AI settings block on /settings can save
+// independently of the wedding-details form (which has its own schema
+// + audit metadata).
+const aiBudgetSchema = z.object({
+  aiMonthlyCapPence: z
+    .number()
+    .int()
+    .min(0)
+    .max(1_000_000)
+    .nullable()
+    .optional(),
+});
+
+export async function updateAiMonthlyCap(formData: FormData): Promise<{ ok: true } | { ok: false; error: string }> {
+  const user = await requireUser();
+  if (!user.isCouple) {
+    return { ok: false, error: "Only the couple can edit the AI budget cap." };
+  }
+
+  const raw = formData.get("aiMonthlyCapPounds");
+  let capPence: number | null;
+  if (raw === null || raw === "" || raw === "unset") {
+    capPence = null;
+  } else {
+    const pounds = Number(raw);
+    if (!Number.isFinite(pounds) || pounds < 0) {
+      return { ok: false, error: "Enter a positive number, or leave blank to use the env-default." };
+    }
+    capPence = Math.round(pounds * 100);
+  }
+
+  const parsed = aiBudgetSchema.safeParse({ aiMonthlyCapPence: capPence });
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.message };
+  }
+
+  const before = await db.weddingSettings.findUnique({
+    where: { id: 1 },
+    select: { aiMonthlyCapPence: true },
+  });
+  await db.weddingSettings.update({
+    where: { id: 1 },
+    data: { aiMonthlyCapPence: parsed.data.aiMonthlyCapPence ?? null },
+  });
+  await audit(user, {
+    action: "update",
+    entity: "WeddingSettings",
+    entityId: "1",
+    metadata: {
+      changedFields: ["aiMonthlyCapPence"],
+      previous: before?.aiMonthlyCapPence ?? null,
+      next: parsed.data.aiMonthlyCapPence ?? null,
+    },
+  });
+  revalidatePath("/settings");
+  revalidatePath("/ai");
+  return { ok: true };
+}

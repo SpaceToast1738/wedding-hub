@@ -963,6 +963,331 @@ When wrapping up a meaningful iteration:
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
 
+### 2026-07-02 · v2.1.0 — AI phase 6: state-of-the-wedding review
+
+User: *"Can we have a button that reviews the overall state of the wedding — reads all the data on the site?"*
+
+Phase 6 adds one big-picture button on `/ai` that runs a full pass across every data surface and returns a structured "how are we doing?" report. Meant to be run every few weeks — the rate limit is intentionally low (3/hour) and the model is Opus 4.8 (deep tier). Costs ~5–10p per run.
+
+**Server action `reviewWeddingState()`** ([src/app/(app)/ai/actions.ts](src/app/(app)/ai/actions.ts)):
+
+Reads a comprehensive but token-bounded snapshot:
+
+- Tasks by status (all counts), plus every URGENT/HIGH open task (up to 20) and every overdue task (up to 20) as full rows with title + due date + priority.
+- Guests by RSVP (aggregate), plus the first 25 PENDING guests by name — the ones who need chasing.
+- Schedule: next 10 events (title + date + location).
+- Wedding Book sections: title + card count + linked task count per section (spotting a "Décor" section with no cards is a useful signal).
+- Suppliers: count per status (SHORTLIST / BOOKED / etc).
+- Budget totals + per-category breakdown + top 15 upcoming payments — **only when `canView("budget")` returns true**. A non-couple reviewer gets `"BUDGET: not visible to this reviewer"` in the context and the system prompt explicitly tells the model not to mention any budget figure. Prevents leakage even if the model tries to reason about spend from other signals.
+
+Sends the whole snapshot to Opus 4.8 with a strict-JSON `output_config.format` that requires:
+```
+{
+  headline: string,           // one or two sentences, lead with the outcome
+  onTrack: [{area, note}],    // 2–4 things going well
+  concerns: [{severity, area, issue, suggestion}],  // severity ranked honestly
+  nextSteps: [string]         // 3–5 concrete actions for this week
+}
+```
+
+System prompt bakes in the anti-padding rule ("do NOT pad the concerns list; if things are going well, return a short array") and the honest severity ladder — `high` risks the day itself, `medium` causes real stress, `low` is polish.
+
+Returns `WeddingReview` with `weeksToWedding`, `generatedAt`, `costPence` for the "how much did this cost" footer.
+
+**Rate limit** ([src/lib/ai/guards.ts](src/lib/ai/guards.ts)): 3 per hour per user. This is expensive, and the couple probably shouldn't run it more than weekly anyway.
+
+**UI** ([src/app/(app)/ai/WeddingReviewPanel.tsx](src/app/(app)/ai/WeddingReviewPanel.tsx)):
+
+Rendered as the top section of `/ai`, above every other AI feature. Pre-run: short blurb + button. Post-run: headline banner with weeks-to-wedding + "generated N min ago", then a colour-coded concerns list (rose = high, amber = medium, slate = low) with area + issue + suggestion per row, then a numbered next-steps list, then on-track bullets, then a small cost footer. "Re-run review" replaces the initial button after the first pass.
+
+Deep-tier calls take ~15–30 seconds. `useTransition` handles the loading state; the button text switches to "Reviewing…" and disables.
+
+**Foot-guns:**
+
+- **The context can be big.** ~5000 tokens on a well-populated wedding (60 open tasks + 100 guests + 30 book cards + a full budget). Opus 4.8 at £5/M input = ~2p input + ~4p output ≈ 6p per call. Cheap for the depth, but a runaway limit-flip could burn the £30/mo cap in a few days. The 3/hour rate limit is the primary guard.
+- **The AI can be confidently wrong.** The footer says "sanity-check anything critical before you act" — the couple should treat this as an experienced-friend read, not a plan-of-record. Especially on concerns that reference specific counts or dates, cross-check against the raw pages.
+- **PENDING guest list is capped at 25.** Bigger weddings will show "25+" but only feed 25 names to the model. It'll say "you have 25+ unanswered RSVPs" — good enough for a report; the couple opens `/guests` for the full list.
+- **Budget visibility gate is doubled.** The DB query only runs when `canView("budget")` is true (nothing sensitive fetched), AND the system prompt tells the model "do not mention any budget number if you were told the budget isn't visible". If a future refactor removes one, the other still holds — never single-layer the money gate.
+- **Empty-state weddings look weird.** A fresh install with 0 tasks, 0 guests, 0 events makes the AI produce a report along the lines of "you haven't started". That's technically correct but not useful — consider a client-side "run this once you've added some data" check if this ever comes up.
+- **The review isn't persisted.** Transient — closing/reopening `/ai` loses the last run. A `WeddingReview` model + history table would let the couple see trajectory over time. Fine to defer; add if the couple asks.
+
+### 2026-07-02 · v2.1.0 — AI phase 5: Suggest due dates + RSVP reminder drafts
+
+Phase 5 adds two focused one-shots that don't need chat — they answer specific "help me with this" moments right where the couple already is.
+
+**Suggest due dates** ([src/app/(app)/tasks/SuggestDueDatesButton.tsx](src/app/(app)/tasks/SuggestDueDatesButton.tsx), `suggestDueDates` in [src/app/(app)/ai/actions.ts](src/app/(app)/ai/actions.ts)):
+
+Button in the `/tasks` page header (couple/planner only — gated on `canEdit("ai_write")`). One click:
+
+1. Fetches up to 30 open TASK-typed rows with `dueDate: null`.
+2. Refuses if none — "every open task already has a due date".
+3. Calls the deep tier (Opus 4.8) with the wedding date, days-remaining, and the task list.
+4. Uses strict JSON output (`output_config.format`) requiring `{taskId, dueDate, rationale}[]`.
+5. Validates every suggested date is in the future AND before the wedding.
+6. Emits one `task.update` proposal per valid suggestion (rationale carries the AI's reasoning).
+7. Returns `{count, skipped}` — invalid rows (unknown taskId, past date, post-wedding date) go into `skipped` so the couple sees the AI didn't just quietly drop them.
+
+Post-run, the button tooltip shows "✓ Drafted N due-date proposals — Review on /ai →" with a direct link.
+
+**RSVP reminder drafts** ([src/app/(app)/guests/\[id\]/DraftRsvpReminderButton.tsx](src/app/(app)/guests/[id]/DraftRsvpReminderButton.tsx), `draftRsvpReminder` in [actions.ts](src/app/(app)/ai/actions.ts)):
+
+Button on the guest detail page, only rendered when the guest is couple-tier caller AND the guest's RSVP is PENDING or MAYBE. Server action:
+
+1. Loads guest + household name.
+2. Refuses on children ("send to the parent instead") and non-PENDING states.
+3. Calls the balanced tier with a "60–100 words, warm, sign off as `${brideFirst} & ${groomFirst}`, no subject line, no preamble" system prompt.
+4. Passes guest first name, wedding-party role, plus-one status, and side as one summary line.
+5. **Returns text, not a proposal.** The AI drafts; the couple copies. No auto-send anywhere in the pipeline.
+
+The button reveals the draft in a textarea (editable inline before copying) with Copy and Regenerate buttons. Copy uses `navigator.clipboard`; on browsers that block it (rare — plain HTTP) the couple can still select-all manually.
+
+Every draft is audit-logged (`ai.rsvp_reminder.drafted` action, guest id + name in metadata) so the couple can see who they've reminded from the AuditLog panel — useful when the same guest ghosts through several nudges.
+
+**New feature labels** ([src/lib/ai/config.ts](src/lib/ai/config.ts)):
+
+`AI_FEATURES.suggestDueDates` and `AI_FEATURES.draftGuestMessage` were already declared in phase 0 as placeholders; phase 5 finally uses them. The usage dashboard on `/ai` picks them up automatically via the `FEATURE_LABELS` map — "Due-date suggestions" and "Message drafts" as their user-facing names.
+
+**Foot-guns:**
+
+- **`suggestDueDates` batches up to 30 tasks.** For a wedding with 40+ open undated tasks, the couple has to run it twice. Simple safeguard against a single Opus call ballooning; if a couple regularly exceeds 30, bump the `take` to 60 (still one Opus call, under 10p at current Opus pricing).
+- **Suggested dates are always at the same `YYYY-MM-DD` granularity.** The AI can't propose an hour or specific time; if the couple wants "book venue walk-through, morning", they'll need to add that in the notes themselves after Apply.
+- **The RSVP reminder prompt hard-codes the couple's first names via `brideFirst`/`groomFirst`.** If the couple has changed those in Settings mid-planning, older drafts already sent will differ from newly-generated drafts — cosmetic, but worth knowing.
+- **Copy-to-clipboard is silent-fail.** Browsers over http reject `navigator.clipboard.writeText`. The textarea is editable + selectable so the fallback exists, but the button silently doesn't flip to "✓ Copied". Add a browser feature-detect if the wedding site ever runs on plain http (currently doesn't — Cloudflare Tunnel forces https).
+- **`suggestDueDates` uses Opus.** One call is ~15,000 input tokens (30 tasks × ~400 tokens context + system prompt) + ~4,000 output tokens = ~7p per invocation. Rate limit is 5/hour (from phase 0's `DEFAULT_LIMITS`). At £30/mo cap the couple can run it ~400 times a month — fine.
+- **The suggested-dates flow doesn't set a `title` on the proposal review card.** The card summary line reads "due → 2026-08-15" without saying *which* task the AI updated. Fix in a later polish: extend `summariseProposal("task.update", ...)` to look up the task title, either via a proposal-time enrichment (store title in payload metadata) or a review-time join.
+
+### 2026-07-01 · v2.1.0 — AI phase 4: caching, editable cap, usage dashboard, strict JSON
+
+Phase 4 is polish + observability. No new AI capability — every existing surface gets faster, cheaper, more legible, or more reliable.
+
+**Prompt caching** ([src/lib/ai/prompts/system-planner.ts](src/lib/ai/prompts/system-planner.ts), [chat.ts](src/lib/ai/chat.ts:154)):
+
+`buildPlannerSystem()` now returns `Anthropic.TextBlockParam[]` instead of a plain string. The preamble (base rules + write/read addendum — stable across turns for a given user's `canWrite` bit) gets `cache_control: {type: "ephemeral"}`; the wedding snapshot (weeks-to-wedding, task counts, RSVP counts — refetched every turn) lives in a separate trailing block with no marker. Once the preamble grows past Sonnet 4.6's 2K-token cache minimum, subsequent turns bill it at cache-read rates (~0.1×). Watch `usage.cache_read_input_tokens` on turn 2+ — if it's zero, the prefix isn't hitting the minimum yet (currently borderline at ~1200 tokens).
+
+**Editable monthly cap in Settings** ([src/app/(app)/settings/AiBudgetPanel.tsx](src/app/(app)/settings/AiBudgetPanel.tsx), [wedding-settings-actions.ts](src/app/(app)/settings/wedding-settings-actions.ts)):
+
+New couple-only "AI planner" section on `/settings`. `updateAiMonthlyCap(formData)` server action, split off from `updateWeddingSettings` so the two forms save independently and audit metadata reads cleanly. Blank input clears `WeddingSettings.aiMonthlyCapPence` and falls back to `AI_MONTHLY_CAP_PENCE` env (default 3000p = £30). Post-save, both `/settings` and `/ai` revalidate so the header on `/ai` reflects the new cap.
+
+**Usage dashboard** ([src/app/(app)/ai/UsageDashboard.tsx](src/app/(app)/ai/UsageDashboard.tsx)):
+
+Server component that aggregates this calendar month's `AiUsage` rows. Renders (a) a per-feature table — one row per feature, sorted by spend descending, with call count + total tokens + cost pence; (b) a per-day mini bar chart with tooltip-ready titles. Empty state ("no calls yet") shows on fresh installs. Placed above the pending-proposal list on `/ai` so the couple sees where the month's spend went before deciding whether to Apply another chat's worth of proposals.
+
+`FEATURE_LABELS` map lives inside the component — matches the `AI_FEATURES` names from [src/lib/ai/config.ts](src/lib/ai/config.ts) exactly, so any new feature added later automatically shows (as its raw slug until a label is added).
+
+**Strict JSON output for guest-parse** ([src/lib/ai/client.ts](src/lib/ai/client.ts), [src/app/(app)/ai/actions.ts](src/app/(app)/ai/actions.ts) `parseGuestList`):
+
+`SendMessageArgs` now accepts an optional `outputConfig: Anthropic.OutputConfig` that threads through to `client.messages.create({output_config})`. `parseGuestList` uses it with `{format: {type: "json_schema", schema: {...}}}` — the schema wraps a single top-level `guests` array (Anthropic requires an object at the root; the array lives one level down). Replaces the pre-phase-4 "please return a JSON array, no code fences" prompt + the regex-strip hack that peeled backtick fences the model sometimes added anyway. The model is now forced to emit valid JSON matching the schema; empty-guest arrays still surface as `{guests: []}`, handled the same way as before.
+
+**Foot-guns:**
+
+- **Prompt caching invalidates on every byte.** The preamble includes `WRITE_ADDENDUM` vs `READ_ONLY_ADDENDUM` conditional on `canWrite`. That means each user tier gets its own cache entry — fine (both are stable within a session), but if a user's ai_write permission flips mid-conversation the next turn writes a new cache. Anyone editing the addendum text should measure `cache_creation_input_tokens` on the *next* turn to confirm the cache took.
+- **JSON schema wrapper level.** Anthropic's `json_schema` format requires an object at the top level. If a future extraction expects a bare array (e.g. `parseTasks` in some hypothetical phase-5 helper), don't ask the AI for `{type: "array"}` at the root — wrap it in an object first.
+- **`output_config.effort` and `output_config.format` share the same struct.** If we later want strict JSON *and* effort-tuning on the same call, both go in the same `outputConfig` object. The client wrapper accepts the whole `OutputConfig`, not just `.format`.
+- **The usage dashboard sorts by pence, not calls.** A single expensive Opus call outranks 20 Haiku calls. That's the right sort for "where's my money going", but if we ever want a "which features get used" view, add a second sort. Don't overload one table.
+- **Editable cap accepts blank = fallback**, but the button says "Save" not "Clear" — a couple hitting Save with an empty field will (correctly) clear the DB row. Rename the button or add a discrete Clear affordance if this bites.
+- **Fresh installs have zero AiUsage rows for the first month.** UsageDashboard shows the empty state; UsageBadge on the `/ai` header shows £0.00 / £30.00. Both work correctly, but new operators sometimes think "the AI isn't running" — the smoke-test ping button on `/ai` is the fastest way to prove it is.
+
+### 2026-07-01 · v2.1.0 — AI phase 3: task edits + book summarize + guest paste
+
+Phase 3 broadens the AI surface from "propose new things" to "propose edits" and adds two one-shot surfaces: summarise a wedding-book card and parse a pasted guest list. Same propose-then-approve model — nothing writes to real data until the couple clicks Apply.
+
+**Schema additions** ([src/lib/ai/proposals/schemas.ts](src/lib/ai/proposals/schemas.ts)):
+
+Three new kinds: `task.update` (`{taskId, title?, status?, priority?, dueDate?, notes?}`), `guest.create` (`{firstName, lastName, householdName?, side, email?, phone?, isChild, plusOneAllowed, plusOneName?, dietary?, role?, notes?}`), `book.card.append` (`{subsectionId, heading, text}`). `PROPOSAL_KINDS`, `schemaForKind()`, and `humanLabel()` extended to match.
+
+**New AI tool** ([src/lib/ai/tools/propose-task-update.ts](src/lib/ai/tools/propose-task-update.ts)):
+
+`propose_task_update` — takes a `taskId` (from a prior `read_tasks` call) plus any subset of `{title, status, priority, dueDate, notes}`, plus a mandatory rationale. Validates the taskId exists in the DB before writing the proposal — if the AI hallucinates an id, it gets a clear error back and doesn't produce a broken proposal.
+
+Also gated on `canWrite` at the handler level in addition to registry exposure — belt-and-braces if a future refactor accidentally exposes it.
+
+**Extended applyProposal** ([src/app/(app)/ai/actions.ts](src/app/(app)/ai/actions.ts)):
+
+- `task.update` → parses the patch, builds FormData with just the fields present, calls `updateTaskAction(taskId, formData)`. Returns the same `taskId` as `appliedEntityId` (updates don't produce a new row).
+- `guest.create` → looks up an existing household by name (case-insensitive) or creates one via `createHouseholdAction`, then calls `createGuestAction` with the resolved householdId. Handles the two-step create as a single Apply. Both existing actions now return `{id}` (non-breaking — FormData callers ignore returns).
+- `book.card.append` → loads the TEXT card's existing `bodyHtml`, wraps the AI's summary in an `<h3>` + `<p>` block (escaping angle brackets so the sanitizer preserves literal text), and posts the updated HTML through `updateBookSubsectionAction`. Rejects non-TEXT kinds.
+
+**Book card summarize** ([src/app/(app)/ai/SummarizeCardButton.tsx](src/app/(app)/ai/SummarizeCardButton.tsx), server action in [actions.ts](src/app/(app)/ai/actions.ts)):
+
+New `summarizeBookCard(subsectionId)` server action. Loads the card's text, strips HTML, caps at 8000 chars, calls the fast tier (`claude-haiku-4-5`) with a "2–4 bullets, ≤80 words" prompt, and creates a `book.card.append` proposal with the result. Refuses on COUPLE_ONLY cards a non-couple user hits; refuses when the card has less than 40 chars.
+
+`<SummarizeCardButton>` mounts inline in [CardRouter's TEXT case](src/app/(app)/book/[slug]/CardRouter.tsx:498) via a Fragment sibling to `SubsectionEditor`. Renders as a small "✨ Summarize card" button under the card body when the user can edit and the card has content. Success shows the draft summary inline plus a link to /ai to Apply.
+
+**Guest list parse** ([src/app/(app)/ai/ParseGuestsPanel.tsx](src/app/(app)/ai/ParseGuestsPanel.tsx), server action in [actions.ts](src/app/(app)/ai/actions.ts)):
+
+New `parseGuestList(pastedText)` server action, couple-only. Uses the balanced tier with a structured-extraction prompt (JSON array of guest rows, no prose, no code fences). Cleans up code fences the model sometimes adds anyway, JSON.parses, safe-parses each row against `guestCreateSchema`, and creates one `guest.create` proposal per valid row. Returns `{count, skipped}` so the panel can show a summary.
+
+`<ParseGuestsPanel>` sits on `/ai` above the pending list, couple-only. Paste box, char counter, "Parse into proposals" button, success/failure inline. After a successful parse the pending list refreshes via `router.refresh()`.
+
+**Non-breaking signature changes**:
+
+- [createTask](src/app/(app)/tasks/actions.ts) returned `{id}` in phase 2.
+- Phase 3 adds the same to [createHousehold](src/app/(app)/guests/actions.ts:135) and [createGuest](src/app/(app)/guests/actions.ts:249). FormData callers still ignore returns.
+
+**Foot-guns:**
+
+- **HTML append is additive only.** `book.card.append` never removes or replaces existing content — the couple can end up with duplicate summaries if they Apply the same proposal twice. The proposal moves to APPLIED after the first Apply so this can't happen through the UI, but a future "regenerate summary" flow would need to consider it.
+- **The guest-parse prompt is instruction-tuned, not schema-forced.** We ask for JSON in prose; the model occasionally wraps in code fences (handled) or tacks on an explanation before the array (would fail parse). For phase 4 polish, consider `output_config: {format: {type: "json_schema", ...}}` for strict output — SDK 0.109 supports it.
+- **Case-insensitive household matching is a heuristic.** If the couple has two households named "Smith" (one bride-side, one groom-side), the parser will merge new Smith guests into whichever came first alphabetically. The alternative — never match, always create — is worse (proliferates duplicate households). Manual dedup on `/guests` is the escape hatch.
+- **`updateTaskAction` doesn't return a value** so `applyProposal` uses the input `taskId` as `appliedEntityId`. If the underlying update silently no-ops (e.g. wrong id somehow slipped past our earlier existence check), the Apply looks successful but nothing changed. In practice `updateTask` throws on invalid ids; the audit log is the ground truth.
+- **Two model tiers now in use** — Haiku for summarize, Sonnet for chat + parse-guests. If Anthropic changes pricing, both `PRICING_USD_CENTS_PER_MTOK` rows in [src/lib/ai/cost.ts](src/lib/ai/cost.ts) need updating.
+- **The Summarize button hides on empty cards.** If a card's `bodyHtml` is present but only whitespace, `Boolean(bodyHtml)` is true and the button shows — the server action then bails with "not enough text". Cosmetic; consider trim-check in the button if it annoys anyone.
+
+### 2026-07-01 · v2.1.0-rc — AI proposals: propose + apply + dismiss (phase 2)
+
+Phase 2 closes the loop between chat and real data. The AI can now say "I'll add that task for you" and it means it — it creates an `AiProposal` row, the panel renders an inline Apply/Dismiss card, one click funnels the write through the couple's existing `createTask` / `createScheduleEvent` server actions with all their usual permission checks and audit trail. The AI never touches the real tables directly.
+
+**Payload schemas** ([src/lib/ai/proposals/schemas.ts](src/lib/ai/proposals/schemas.ts), new):
+
+Central Zod schemas for each proposal kind — `taskCreateSchema` and `eventCreateSchema` — plus `schemaForKind(kind)` and `humanLabel(kind)` helpers. Both the write tool (proposal creation) and applyProposal (proposal application) validate through the same schema, so a tampered `payload` in the DB can't sneak past the apply step. The shapes are forgiving: defaults are applied where the AI usually skips (type/status/priority default to TASK/OPEN/MEDIUM; assigneeIds default to []).
+
+**Write tools** ([src/lib/ai/tools/propose-task.ts](src/lib/ai/tools/propose-task.ts), [propose-event.ts](src/lib/ai/tools/propose-event.ts), new):
+
+Two new AI-callable tools that emit `AiProposal` rows. Both require a mandatory `rationale` (1–2 sentences shown to the reviewer) and are hard-gated on the caller having `ai_write` — the handler returns a permission error even if the tool somehow got exposed to the model. Successful calls return `{ proposalId, kind, title, message }` so the SSE stream can surface the new proposal to the chat panel.
+
+**Registry gate + prompt addendum** ([src/lib/ai/tools/registry.ts](src/lib/ai/tools/registry.ts), [src/lib/ai/prompts/system-planner.ts](src/lib/ai/prompts/system-planner.ts)):
+
+- `toolDefinitions({canWrite})` now returns just the read tools when the caller lacks `ai_write`; the model literally doesn't see the propose_* tools and can't try to call them.
+- `buildPlannerSystem(user, {canWrite})` swaps in two different addenda depending on the flag. Read-only callers get "You do not have write permission — tell the user to ask for ai_write access"; write-enabled callers get "You can propose changes but never write directly, include a rationale, don't spray proposals". Prevents the model from apologising about permissions it actually has.
+
+**Chat loop event** ([src/lib/ai/chat.ts](src/lib/ai/chat.ts)):
+
+New `proposal_created` SSE event carrying `{proposalId, kind, title}`, emitted from the tool_use loop right after a successful propose_* handler. Wired to `isProposeTool(name)` in the registry so we don't have to remember to update chat.ts when phase 3 adds more write tools.
+
+**Apply / dismiss actions** ([src/app/(app)/ai/actions.ts](src/app/(app)/ai/actions.ts)):
+
+- `listPendingProposals()` — feeds the /ai dashboard. Non-couple callers see only their own proposals; the couple sees everyone's (helpful when the planner does the chat and the couple does review).
+- `applyProposal(id, override?)` — loads the proposal, re-validates payload+override against the kind's schema, converts to `FormData`, and calls `createTaskAction` / `createScheduleEventAction`. The existing actions do the permission check (`requireEdit("tasks")` / `requireEdit("schedule")`), the write, the audit log, and the `revalidatePath`. Apply then updates `AiProposal.status` (APPLIED or EDITED_AND_APPLIED depending on whether an override was provided), sets `appliedEntityId`, and logs its own `ai.proposal.applied` audit row so the review action shows up in the audit history alongside the underlying create.
+- `dismissProposal(id)` — same permission gate, sets DISMISSED + reviewedAt + audit row.
+
+Both actions gate on `canEdit("ai_write")` so a wedding-party user without permissions can't apply proposals even if they somehow got the id.
+
+**Non-breaking action signature change**: [createTask](src/app/(app)/tasks/actions.ts) and [createScheduleEvent](src/app/(app)/schedule/actions.ts) now return `{id: created.id}` at the end. Existing FormData callers ignore the return value; applyProposal reads it to link the AiProposal to the row it produced.
+
+**FormData bridge** — `taskPayloadToFormData` and `eventPayloadToFormData` in `actions.ts` are the only awkward part of the reuse strategy. The event helper splits the AI's ISO datetime (`2026-09-15T10:00:00Z`) into the `startDate` / `startTime` fields the existing schedule action expects. Topic links (bookSections / navTags / guestGroups) get bundled into the `topicKeys` array format `parseTopicKeys()` reads.
+
+**Chat panel** ([src/components/ai/ChatPanel.tsx](src/components/ai/ChatPanel.tsx)):
+
+New `LocalProposal` + `ProposalCard` render. Each proposal appears inline under the current assistant bubble with:
+- Kind label ("New task" / "New event")
+- Title
+- Apply button (calls `applyProposal(id)` via server action, updates local state on success)
+- Dismiss button (calls `dismissProposal(id)`)
+- After Apply/Dismiss: an inline status badge; on error, the error message. The card doesn't disappear so the couple can see what they did in the chat history.
+
+**/ai dashboard** ([src/app/(app)/ai/page.tsx](src/app/(app)/ai/page.tsx)):
+
+Replaces the phase-0 "no proposals yet" placeholder with the actual pending list. Each proposal is a [ProposalReviewCard](src/app/(app)/ai/ProposalReviewCard.tsx) with the summary, rationale, "why the AI suggested this", Apply/Dismiss buttons, and a collapsible "Show details" that pretty-prints the raw payload — useful for spot-checking before Apply. Non-couple viewers with pending proposals but without `ai_write` get an inline "you'll need permission to Apply" message.
+
+**Foot-guns:**
+
+- The FormData bridge is one-way (payload → FormData). If we ever want to *pre-fill* a form UI from an existing proposal (edit-before-apply UX in phase 4), we'll need the inverse. For now editing means composing an `override` object programmatically.
+- `applyProposal` merges `{...payload, ...override}` at the top level — nested objects (arrays of assignees, topic ids) get *replaced*, not merged. Callers doing an edit-first flow need to include the full array they want.
+- The Apply path revalidates `/ai` but the underlying `createTaskAction` also revalidates `/tasks`, `/questions`, `/`, `/book`. If we ever bulk-apply proposals from the dashboard (proto-batch-apply), those revalidates fire N times. Fine for a 5-user app.
+- The system prompt now branches on `canWrite`. That means the *cached* system prefix differs between read-only and write-enabled callers. Once we turn on prompt caching in phase 4, plan the two flavours as separate cache entries — don't try to share a prefix across the boundary.
+- If Apply calls `createScheduleEventAction` and it *throws* (e.g. `requireEdit("schedule")` fails because we forgot to grant), the AiProposal stays PENDING. That's intentional — the reviewer sees the error inline and can retry — but it means `AiProposal.status` isn't a reliable "did the AI touch anything?" signal on its own. Use audit rows for that.
+
+### 2026-07-01 · v2.1.0-beta — AI chat + read tools (phase 1)
+
+Continues from the phase-0 foundation earlier the same day. Phase 1 turns the AI surface from scaffolding into something the couple can actually talk to — a global side panel that streams responses token-by-token, with six read tools that let the model reason about real data (tasks, events, guests, wedding book, budget, stats) instead of making things up.
+
+**Read tools** ([src/lib/ai/tools/](src/lib/ai/tools/), new):
+
+- `types.ts` — the `AiTool<TSchema>` contract: name, description, Zod input schema, Anthropic tool definition (raw JSON Schema so we don't pull in `zod-to-json-schema`), handler that takes `(input, ctx)` and returns `{ok, data} | {ok:false, error}`, plus a `progressLabel` shown in the chat panel while the tool runs.
+- `read-stats.ts` — the compact snapshot (`buildWeddingContext()` + `renderWeddingContext()`, phase 0). Called at the start of most chats.
+- `read-tasks.ts` — filter by status / type / priority / due-date range, plus an `overdue: true` shortcut. Returns id + title + status + priority + due-date + first-line notes + assignee first-names. Task IDs are useful for phase-2 proposal wiring.
+- `read-events.ts` — schedule between two dates.
+- `read-guests.ts` — filter by RSVP / side / hasDietary / isChild; always returns aggregate counts alongside the filtered list so "how many attending?" doesn't need a full scan of the list.
+- `read-book.ts` — without a slug returns the section index; with a slug returns cards in that section (title + kind). `includeBody: true` pulls TEXT card contents (HTML-stripped, capped at 500 chars). Respects COUPLE_ONLY visibility per-caller.
+- `read-budget.ts` — per-category totals of estimated / actual / paid, plus the top 10 upcoming payments. Gated on `canView("budget")` — the AI gets `"Budget is couple-only; caller doesn't have access."` back when a non-couple user asks, which the planner prompt tells it to relay honestly.
+- `registry.ts` — collects tools, dispatches by name, safe-parses inputs, catches handler throws so the model gets a JSON error blob instead of a crash. Uses `AiTool<any>[]` at the collection boundary because generic invariance can't accept a heterogeneous list.
+
+**System prompt** ([src/lib/ai/prompts/system-planner.ts](src/lib/ai/prompts/system-planner.ts), new):
+
+`buildPlannerSystem(user)` returns a two-part string — a stable "you are a wedding planner..." preamble with ground rules, format guide, and access rules, followed by the current wedding snapshot. The preamble lives at the top of the prefix so once we add `cache_control` (phase 4 polish), the preamble caches and the volatile snapshot at the end doesn't invalidate it.
+
+Notably, the prompt explicitly tells the model *"You cannot write to the app's data yet"* and *"You cannot send emails"* — phase 1 is read-only by contract. Phase 2 relaxes this once the proposal tools ship.
+
+**Streaming chat loop** ([src/lib/ai/chat.ts](src/lib/ai/chat.ts), new):
+
+`runChatTurn({user, threadId, text})` is an async generator that yields structured `ChatEvent`s: `thread` (when a new one gets created), `text` (delta bytes), `tool_start` / `tool_end` (progress markers), `message_end` (per-iteration cost), `done`, `error`. The loop:
+
+1. Reserves budget + rate limit *before* opening the stream.
+2. Resolves or creates the thread; asserts caller owns it.
+3. Persists the user message.
+4. Reconstructs history from `AiMessage` rows — user rows become `{role: "user", content: text}`, assistant rows deserialize `toolCalls` JSON back into `ContentBlock[]`, tool rows deserialize the `ToolResultBlockParam[]` payload we saved. Everything the model sees on turn N was reconstructed from the DB.
+5. Streams the Anthropic call; forwards `text_delta` deltas as they arrive.
+6. On `stop_reason: "tool_use"`, dispatches each `ToolUseBlock` through the registry, appends `ToolResultBlockParam`s to the message list, persists a `role:"tool"` row for future turns to replay, loops back. Capped at 6 iterations — if the model wants a 7th we abort with an error rather than loop forever.
+7. Per iteration: writes `AiUsage` + an `audit(action:"ai.call", entity:"AiUsage", metadata:{...threadId, iteration})` entry. Both are `void Promise.all(...)`'d so a write failure doesn't kill the stream.
+
+**Streaming API route** ([src/app/api/ai/chat/route.ts](src/app/api/ai/chat/route.ts), new):
+
+`POST /api/ai/chat` — auth-gated, honours `AI_ENABLED`. Wraps `runChatTurn()` in a `ReadableStream<Uint8Array>` that writes each event as an SSE frame (`event: <type>\ndata: <json>\n\n`). `runtime: "nodejs"` so the Prisma client + Anthropic SDK work.
+
+**Server actions** ([src/app/(app)/ai/actions.ts](src/app/(app)/ai/actions.ts), new):
+
+`listMyThreads()` and `getThread(threadId)` — read-only, respect `canView("ai_chat")`, only return the caller's own rows. Writes stay behind the `/api/ai/chat` route so token accounting can't be routed around. `tool` rows are filtered out of `getThread`'s transcript — they're internal plumbing, not user-facing.
+
+**Global side panel** ([src/components/ai/](src/components/ai/), new):
+
+- `ChatPanelHost.tsx` — server component. Runs the `auth()` + `canView("ai_chat")` + `AI_ENABLED` check server-side and returns null when any fails. Passes the caller's first name into the client panel.
+- `ChatPanel.tsx` — client component. Renders (a) a floating "✨" trigger button bottom-right (bottom-20 on mobile so the tab bar doesn't cover it), (b) a slide-in `<aside>` from the right (380px on desktop, full-width on mobile with a backdrop for click-away close), (c) a message transcript, (d) a textarea with Enter-to-send (Shift+Enter for newline). Mounted via `createPortal(..., document.body)` so it survives client navigation and isn't scoped to any page container.
+- SSE parsing lives inline — `res.body.getReader()` + `TextDecoder`, split on `\n\n`, dispatch by `evt.type`. No SSE library needed for one endpoint.
+- Tool markers render as small pill-chips under the current assistant bubble ("… Reading tasks…" → "✓ Reading tasks…" when done). Feels like actual work is happening even during the several-second gaps while a tool runs.
+
+`AppShell` mounts `<ChatPanelHost />` once at the layout root, next to `<Toaster />` and `<QuickCapture />`.
+
+**Foot-guns for future me:**
+
+- The chat history in `AiMessage` stores assistant `content` as *both* a text field (for search / display) *and* the full `toolCalls` blob (`ContentBlock[]` as JSON) — the loop rehydrates from `toolCalls` when non-empty because a plain-text-only echo would drop tool_use blocks and confuse the model on the next turn. Never treat `AiMessage.content` alone as the round-trip source.
+- `tool` rows persist the entire tool_result batch as a JSON-stringified `ToolResultBlockParam[]`. If the batch is huge (large `read_book` payload with `includeBody:true`), that row is big. Currently fine because our biggest read tool caps output at ~500 chars per card × maybe 20 cards → 10 KB. If a future tool returns megabytes, split the persistence.
+- Rate limit for chat: 20 messages / 5 min / user. On a fast conversation with multiple tool iterations per turn, that's per *turn* not per iteration — because we only call `rateLimit()` once at the start of `runChatTurn()`. Watch this if we ever open the app up to non-couple users.
+- The `MAX_TOOL_ITERATIONS = 6` cap is a bit tight — a model that wants to `read_stats` → `read_tasks` → `read_events` → `read_guests` → `read_book` → `read_budget` uses all 6 in one turn with no room for a final synthesis. Bump to 8 if we see the abort message in practice.
+- SSE bytes flow through Next.js's `Response` stream. In production behind Caddy, `X-Accel-Buffering: no` (already set) prevents buffering; if we ever swap Caddy for nginx, that header keeps working.
+- The client panel filters `tool` messages out of the display, but the chat loop still uses them to reconstruct context. If a phase-2 proposal-review UI shows the pending queue *inside* the panel, don't accidentally hide the proposal-generating tool_use markers as well.
+
+### 2026-07-01 · v2.1.0-alpha — AI planner foundation (phase 0)
+
+User: "Can we add AI to the wedding app?" — with a follow-up describing the wanted shape: an AI wedding planner covering timeline management, due-date suggestions, chat, task/content generation, notes summarize, and guest helpers, 12 weeks until the wedding, toddler-limited time. Locked-in decisions from the follow-up: Anthropic API (Claude), propose-then-approve for every write, global side panel for chat, £10–30/month soft cap, per-feature access gating.
+
+Phase 0 lays the foundation only — no chat, no proposals in the UI yet. What ships:
+
+**Schema** (`prisma/migrations/20260701000000_ai_planner_scaffold/migration.sql`, new):
+
+1. New enum `AiProposalStatus` (`PENDING` / `APPLIED` / `DISMISSED` / `EDITED_AND_APPLIED`).
+2. New tables `AiThread` (per-user chat threads), `AiMessage` (turns with `role` / `content` / `toolCalls` / per-message token counts), `AiProposal` (the propose-then-approve queue — `kind` + `payload` + `rationale` + `status`, links back to `AiMessage` via `messageId` and to `User` via `createdById`), `AiUsage` (per-call token + pre-computed `costPence` ledger, keyed by `feature` label for per-surface breakdown).
+3. `WeddingSettings.aiMonthlyCapPence Int?` — user-editable budget cap; NULL falls through to `AI_MONTHLY_CAP_PENCE` env, then to a 3000-pence (£30) hard default.
+
+Append-only migration — no existing table structure changes, safe on a live prod DB.
+
+**Permissions** (`src/lib/permissions.ts`):
+
+- Added `ai_chat` and `ai_write` to the `SECTIONS` union. `ai_chat` gates the (upcoming) side-panel and read-only tool calls; `ai_write` gates proposal creation + apply — anything that would touch real data. Couple bypass grants both automatically. Wired into both `MemberOverridesBlock` and `PermissionGroupsBlock` label maps so the Settings matrix renders the new toggles.
+
+**AI library** (`src/lib/ai/`, new):
+
+- `config.ts` — three model tiers (`fast` → `claude-haiku-4-5`, `balanced` → `claude-sonnet-4-6`, `deep` → `claude-opus-4-8`), feature label registry, `AI_ENABLED` kill-switch, `assertConfigured()` throwing `AiDisabledError` when the API key is missing.
+- `cost.ts` — Anthropic pricing table in USD-cents per 1M tokens, rough £ conversion (`USD_CENT_TO_PENCE = 0.79`), `computeCostPence()` rounds up so aggregate spend is never under-reported to the budget guard.
+- `guards.ts` — `budgetGuard()` sums this calendar month's `AiUsage.costPence` and throws `BudgetExceeded` when spent ≥ cap. `rateLimit(userId, feature)` counts recent `AiUsage` rows for a rolling window per feature. `readCapState()` surfaces spent / cap / remaining / weeks-to-wedding for the dashboard.
+- `context.ts` — `buildWeddingContext()` snapshots the couple's wedding date, weeks/days remaining, venue, task counts by status (including `overdue`), and guest RSVP counts. `renderWeddingContext()` writes it as a compact text block for the system prompt.
+- `client.ts` — `sendMessage()` wraps `client.messages.create`; reserves the budget guard + rate limit *before* the outbound call; uses adaptive thinking (`{type: "adaptive"}`) when requested (only supported "on" mode on Opus 4.7+); writes an `AiUsage` row and an `audit(action: "ai.call", entity: "AiUsage")` entry on every response; returns `{content, stopReason, model, usage, costPence}`.
+
+**Env vars** — `ANTHROPIC_API_KEY`, `AI_MONTHLY_CAP_PENCE`, `AI_ENABLED` added to [.env.production.example](.env.production.example) with a new "AI planner (v2.1.0)" section, and to the [CLAUDE.md](CLAUDE.md) env-vars table.
+
+**Smoke test surface**:
+
+- `src/app/api/ai/ping/route.ts` — POST-only route that auth-gates on `requireUser`, honours `AI_ENABLED`, runs one Haiku call ("Reply with a single word: pong."), returns `{ok, model, costPence, reply}` or a structured error. Costs about a tenth of a pence per call.
+- `src/app/(app)/ai/page.tsx` — new `/ai` route, gated on `canView("ai_chat")`. Shows this month's spend vs cap, a placeholder for the proposal review list (phase 2 fills it in), and a "Send test ping" button (client component in `PingButton.tsx`) that hits `/api/ai/ping` so we can confirm the whole pipeline from a browser.
+
+**What's deferred to later phases** (recap of the plan): phase 1 — streaming chat via `/api/ai/chat`, `ChatPanel` mounted at the app-shell layout via a portal, read-tools for tasks/events/guests/book/budget; phase 2 — `propose-task` / `propose-event` tools + review UI + apply/dismiss actions; phase 3 — book summarize + guest helpers; phase 4 — polish + usage dashboard + prompt tuning.
+
+**Foot-guns to watch when phase 1 lands:**
+
+- The SDK types (`@anthropic-ai/sdk@0.109`) already model `{type: "adaptive"}` — no need for the `budget_tokens` escape hatch, which would 400 on Opus 4.8/4.7 anyway. Keep future call sites on adaptive.
+- `computeCostPence` uses a static FX rate. If the £/$ rate shifts materially, edit `USD_CENT_TO_PENCE` — do not backfill old rows; they represent what we were charged at the time.
+- The rate limits in `guards.ts` count `AiUsage` rows, which get written *after* the call succeeds. Under high concurrency the counter can lag by one or two calls. Fine for a 5-user app; revisit if it ever grows.
+- `AiUsage.userId` cascades on user delete. That's intentional — a deleted user's usage rows going away is desirable — but it means the monthly ledger loses history if you delete an account mid-month. If audit continuity matters more than tidy deletes, soft-archive the user instead.
+
 ### 2026-05-25 · v2.0.0 — Drop LEGAL card kind
 
 User: "can we drop the legal stuff from the wedding book, not sure this is UK Centric."
