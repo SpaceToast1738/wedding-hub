@@ -94,7 +94,7 @@ You do not have write permission in this app. If the user asks you to create a t
  *  Split point: the stable preamble (BASE + write/read addendum) gets
  *  a `cache_control: ephemeral` marker; the volatile wedding snapshot
  *  lives in a separate trailing block with no marker. Once the prefix
- *  exceeds Sonnet 4.6's ~2K-token cache minimum, subsequent turns bill
+ *  exceeds the Sonnet-tier ~2K-token cache minimum, subsequent turns bill
  *  the preamble at cache-read rates (~0.1×). See shared/prompt-caching
  *  in the skill for the invariants. */
 export async function buildPlannerSystem(

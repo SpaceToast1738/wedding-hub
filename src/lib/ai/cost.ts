@@ -27,7 +27,11 @@ const PRICING_USD_CENTS_PER_MTOK: Record<ModelId, {
   cacheWrite: number;
 }> = {
   "claude-haiku-4-5":  { input: 100,  output: 500,  cacheRead: 10,  cacheWrite: 125 },
-  "claude-sonnet-4-6": { input: 300,  output: 1500, cacheRead: 30,  cacheWrite: 375 },
+  // Sonnet 5 launched 2026-06-30 with intro pricing ($2/$10 per MTok)
+  // until 2026-08-31, then $3/$15. Encoded at the PERMANENT price —
+  // over-reporting during the intro window is safe; under-reporting
+  // after September would leak past the budget guard.
+  "claude-sonnet-5":   { input: 300,  output: 1500, cacheRead: 30,  cacheWrite: 375 },
   "claude-opus-4-8":   { input: 500,  output: 2500, cacheRead: 50,  cacheWrite: 625 },
 };
 

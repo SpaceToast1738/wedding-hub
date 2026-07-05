@@ -963,6 +963,14 @@ When wrapping up a meaningful iteration:
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
 
+### 2026-07-05 · v2.4.1 — Balanced tier moves to Claude Sonnet 5
+
+User: "can we use sonnet 5?" — Sonnet 5 shipped 2026-06-30 (`claude-sonnet-5`): near-Opus-4.8 capability at Sonnet prices, with intro pricing ($2/$10 per MTok) until 2026-08-31, then $3/$15 (identical to Sonnet 4.6's standard rate). Strict upgrade for the chat/parse/summarize/breakdown surfaces.
+
+- [config.ts](src/lib/ai/config.ts): `balanced` tier `claude-sonnet-4-6` → `claude-sonnet-5`. `deep` stays Opus 4.8 for now — Sonnet 5 reportedly gets close, so pointing deep at it later would cut one-shot costs ~5×; revisit after a few weeks of real use.
+- [cost.ts](src/lib/ai/cost.ts): pricing entry encoded at the PERMANENT rate (300/1500 US-cents per MTok), not the intro rate — over-reporting during the intro window is safe; under-reporting after September would leak past the budget guard. Historical AiUsage rows untouched per the module's standing rule.
+- Foot-gun: the model change invalidates the prompt cache once at deploy (cache is per-model) — expected, same as any tier change.
+
 ### 2026-07-05 · v2.4.0 — Full-surface AI planner: every area readable, every area editable via proposals
 
 User: "Also allow the bot to update all cards in the wedding book. Make the AI bot feature full and really as robust as possible to help me plan my wedding, tasks need to be broken down. Everything needs to be really in depth and edit features fully available to the bot across all areas." Built as a multi-agent orchestration: 6 mapping agents + 2 design agents produced the spec, 7 implementation agents built the surface in parallel (disjoint file ownership), and a 26-agent adversarial review (6 finders → 20 findings → per-finding refutation) ran before ship. **All 20 confirmed findings fixed pre-commit. No migrations.**
