@@ -963,6 +963,32 @@ When wrapping up a meaningful iteration:
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
 
+### 2026-07-05 · v2.3.0 — AI can manage suppliers; Gap Analysis button
+
+User: "Can we also allow the AI to update the suppliers directly? & manage. And lets add the gap analysis button" — following up on an earlier exploratory answer that gap analysis wasn't a dedicated feature yet, just something chat could reason about ad hoc if asked directly.
+
+**AI supplier management — three new proposal kinds, same propose-then-approve model as everything else:**
+
+- `supplier.create` / `supplier.update` / `supplier.log_communication` added to [proposals/schemas.ts](src/lib/ai/proposals/schemas.ts), each with a Zod payload schema, `humanLabel`, and `summariseProposal` case. `supplier.create` deliberately excludes `amountAgreed` — no read tool surfaces existing amounts to the AI either (`read_suppliers` omits it), so this keeps write parity with read visibility instead of opening a new money-write surface.
+- **`supplier.update` is a partial patch**, unlike the real `updateSupplier` action which requires the full record on every call and reads each field as `formData.get(x) || null` — an omitted field would read as null and wipe the existing value. The new async `supplierUpdatePayloadToFormData` bridge in [ai/actions.ts](src/app/(app)/ai/actions.ts) loads the supplier's current row and appends every field every time (the AI's patch value where touched, the current value otherwise) — the same trap `taskUpdatePayloadToFormData` already solved for relations, here for scalars. `amountAgreed` always round-trips the current value untouched.
+- **`supplier.log_communication`** reuses `createSupplierCommunication` as-is, including its existing auto-follow-up-task behavior (`decideFollowUpTask`) when `followUpAt` is set — Applying one of these proposals can produce two real rows (the communication + a bonus task) from one click, exactly like the manual form. The review UI's detail line now says so explicitly ("auto-creates a follow-up task · due …") rather than leaving it a surprise.
+- `name` is deliberately NOT exposed on `propose_supplier_update`'s tool input — a wrong `supplierId` plus an AI "correction" would silently relabel the wrong vendor, a quieter failure than a wrong status. `createSupplier` now returns `{id}` (non-breaking — its one call site discards the return value) so the apply bridge can link the produced row, matching the existing `createTask`/`createHousehold`/`createGuest` precedent.
+- Three new tool files (`propose-supplier-create.ts`, `propose-supplier-update.ts`, `propose-supplier-log-communication.ts`) follow the `propose_task` pattern exactly: `ctx.canWrite` gate, `resolveRefs` validation before writing, structural no-op guard on updates (same as `propose_task_update`). Registered in [registry.ts](src/lib/ai/tools/registry.ts); [system-planner.ts](src/lib/ai/prompts/system-planner.ts)'s write addendum gained a "Managing suppliers" section.
+
+**Gap Analysis — a dedicated feature, not just ad hoc chat reasoning:**
+
+- New `runGapAnalysis()` one-shot in [ai/actions.ts](src/app/(app)/ai/actions.ts), following the `suggestDueDates` shape: gate on `ai_write` → pull up to 100 tasks + 60 supplier categories/statuses → deep-tier call against a fixed curated checklist → up to 8 `task.create` proposals sharing one batchId → `/ai` revalidate.
+- The checklist (18 categories: Legal/Admin, Ceremony, Attire, Photography, Catering, Drinks, Flowers, Music, Transport, Accommodation, Stationery, Favors, Hair/Beauty, Insurance, Day-of logistics, Speeches, Rings, Honeymoon — UK-specific admin called out explicitly) is baked into the system prompt so a run is a systematic diff against a fixed rubric, not the model improvising "what weddings need" fresh each time. Timing guidance (12+/4-12/under-4 weeks out) shifts which categories matter as the date approaches. A supplier with BOOKED/PAID status counts as coverage even with few explicit tasks.
+- `category` is prompt-guidance and grouping metadata only — used to build the button's "Found N gaps in X, Y, Z" message, then dropped before the gap becomes a `task.create` payload (mirrors how `suggestDueDates`' rationale never gets copied onto the real Task row either).
+- New `gapAnalysisSchema` in [output-schemas.ts](src/lib/ai/output-schemas.ts) (`additionalProperties: false` on every node, per the standing rule since the production 400 this exact omission caused) + added to the schema-walker regression test. New `gap-analysis` feature key, rate-limited to 3/hour (matching `review-wedding`'s "deliberate periodic check" framing, not `suggest-due-dates`'s cheaper 5/hour utility framing — the curated checklist makes this prompt noticeably heavier).
+- **[GapAnalysisButton.tsx](src/app/(app)/tasks/GapAnalysisButton.tsx)** on `/tasks`, gated the same as Suggest Due Dates (`ai_write`), placed to its left — find what's missing first, then schedule everything including the newly-added tasks.
+
+**Design review**: an independent agent re-verified every claim above against the live code (confirmed `createSupplier`'s only call site discards its return value; confirmed `amountAgreed` has zero write-time gating today, pre-existing and out of scope; confirmed the FormData field names against `createSupplierCommunication`'s actual body) before this shipped.
+
+**Known-accepted**: like `suggestDueDates`, gap analysis doesn't check `read_proposals` before generating — running it twice before Applying could re-propose the same gap twice. Pre-existing limitation class, not a new regression; left unfixed for both features together for a future pass.
+
+605 unit tests (3 new gap-analysis-schema assertions). Typecheck + lint clean.
+
 ### 2026-07-05 · v2.2.1 — AI chat renders markdown instead of literal `**`/`##`
 
 User pasted a screenshot: the assistant's "Top 5 Next Actions" reply showed literal `##` and `**` characters instead of a heading and bold text. Root cause: `ChatPanel`'s assistant bubble rendered `{msg.text}` in a plain `whitespace-pre-wrap` div — the model's markdown-formatted output (the system prompt explicitly asks for headings/bullets/bold) was never parsed, just dumped as raw text.

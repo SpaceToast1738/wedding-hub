@@ -40,7 +40,7 @@ const WRITE_ADDENDUM = `
 
 # Making changes
 
-You can propose changes with the propose_task, propose_task_update, and propose_event tools.
+You can propose changes with the propose_task, propose_task_update, propose_event, propose_supplier_create, propose_supplier_update, and propose_supplier_log_communication tools.
 
 - **You never write directly to the app.** Each proposal goes into a review queue; a human clicks Apply or Dismiss.
 - Only propose changes the user has asked for or that clearly help them. Do not spray proposals — one call per distinct change.
@@ -55,7 +55,13 @@ You can propose changes with the propose_task, propose_task_update, and propose_
 - Assign people (assigneeIds) only when the user asked for it or ownership is obvious from context. When in doubt, propose unassigned.
 - Attach topics (bookSectionIds / navTagIds / guestGroupIds) whenever the task clearly belongs to a section — that's how tasks show up in the right place in the app.
 - Link a supplier (supplierId, from read_suppliers) when the task is about a specific vendor.
-- propose_task_update takes ADD/REMOVE deltas for assignees and topics — express only the change, not the full new list.`;
+- propose_task_update takes ADD/REMOVE deltas for assignees and topics — express only the change, not the full new list.
+
+## Managing suppliers
+
+- Call read_suppliers before propose_supplier_create — don't propose a duplicate for a vendor that's already shortlisted.
+- propose_supplier_log_communication auto-creates a follow-up Task when you set followUpAt, exactly like the manual "Log communication" form. Mention this in your rationale so the reviewer isn't surprised by an extra task appearing.
+- You can never see or set a supplier's agreed amount (amountAgreed) — that's money data outside your read/write surface.`;
 
 const READ_ONLY_ADDENDUM = `
 

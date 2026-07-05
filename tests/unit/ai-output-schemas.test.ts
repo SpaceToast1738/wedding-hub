@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   dueDateSuggestionSchema,
+  gapAnalysisSchema,
   guestExtractionSchema,
   weddingReviewSchema,
 } from "@/lib/ai/output-schemas";
@@ -36,6 +37,7 @@ const SCHEMAS: [string, JsonSchemaNode][] = [
   ["guestExtractionSchema", guestExtractionSchema as unknown as JsonSchemaNode],
   ["dueDateSuggestionSchema", dueDateSuggestionSchema as unknown as JsonSchemaNode],
   ["weddingReviewSchema", weddingReviewSchema as unknown as JsonSchemaNode],
+  ["gapAnalysisSchema", gapAnalysisSchema as unknown as JsonSchemaNode],
 ];
 
 describe("ai output schemas — Anthropic strict-output invariants", () => {

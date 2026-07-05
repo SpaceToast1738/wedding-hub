@@ -18,6 +18,7 @@ import { AI_FEATURES, AiDisabledError } from "@/lib/ai/config";
 import { BudgetExceeded, RateLimited } from "@/lib/ai/guards";
 import {
   dueDateSuggestionSchema,
+  gapAnalysisSchema,
   guestExtractionSchema,
   weddingReviewSchema,
 } from "@/lib/ai/output-schemas";
@@ -33,6 +34,9 @@ import {
   guestCreateSchema,
   humanLabel,
   summariseProposal,
+  supplierCommunicationSchema,
+  supplierCreateSchema,
+  supplierUpdateSchema,
   taskCreateSchema,
   taskUpdateSchema,
   type ProposalKind,
@@ -47,6 +51,11 @@ import {
   createGuest as createGuestAction,
 } from "@/app/(app)/guests/actions";
 import { updateBookSubsection as updateBookSubsectionAction } from "@/app/(app)/book/actions";
+import {
+  createSupplier as createSupplierAction,
+  updateSupplier as updateSupplierAction,
+  createSupplierCommunication as createSupplierCommunicationAction,
+} from "@/app/(app)/suppliers/actions";
 
 export type ThreadListItem = {
   id: string;
@@ -216,6 +225,15 @@ function collectRefIds(kind: string, payload: Record<string, unknown>) {
       supplierIds: [],
     };
   }
+  if (kind === "supplier.update" || kind === "supplier.log_communication") {
+    return {
+      userIds: [],
+      navTagIds: [],
+      bookSectionIds: [],
+      guestGroupIds: [],
+      supplierIds: payload.supplierId ? [String(payload.supplierId)] : [],
+    };
+  }
   return { userIds: [], navTagIds: [], bookSectionIds: [], guestGroupIds: [], supplierIds: [] };
 }
 
@@ -266,6 +284,25 @@ function buildProposalDetail(
         : r.replace(/^builtin:/, ""),
     );
     if (attendees.length) segments.push(`attendees: ${attendees.join(", ")}`);
+  } else if (kind === "supplier.create") {
+    if (typeof payload.category === "string") segments.push(payload.category);
+  } else if (kind === "supplier.update") {
+    if (payload.supplierId) {
+      segments.push(nameOf(names.suppliers, String(payload.supplierId)));
+    }
+    const changes: string[] = [];
+    if (typeof payload.name === "string") changes.push(`name → "${payload.name}"`);
+    if (typeof payload.category === "string") changes.push(`category → ${payload.category}`);
+    if (typeof payload.status === "string") changes.push(`status → ${payload.status}`);
+    if (changes.length) segments.push(changes.join(", "));
+  } else if (kind === "supplier.log_communication") {
+    if (payload.supplierId) {
+      segments.push(nameOf(names.suppliers, String(payload.supplierId)));
+    }
+    if (typeof payload.channel === "string") segments.push(payload.channel);
+    if (typeof payload.followUpAt === "string" && payload.followUpAt) {
+      segments.push(`auto-creates a follow-up task · due ${payload.followUpAt}`);
+    }
   }
   return segments.length ? segments.join(" · ") : null;
 }
@@ -554,6 +591,77 @@ function eventPayloadToFormData(payload: Record<string, unknown>): FormData {
   return fd;
 }
 
+/** supplier.create payload → FormData for createSupplier. amountAgreed
+ *  is deliberately never appended — createSupplier's own
+ *  `formData.get("amountAgreed") || null` then parses to null, same as
+ *  a human leaving the Amount field blank on a brand-new supplier. */
+function supplierPayloadToFormData(payload: Record<string, unknown>): FormData {
+  const fd = new FormData();
+  fd.append("name", String(payload.name ?? ""));
+  fd.append("category", String(payload.category ?? ""));
+  fd.append("status", String(payload.status ?? "SHORTLIST"));
+  if (payload.website) fd.append("website", String(payload.website));
+  if (payload.notes) fd.append("notes", String(payload.notes));
+  return fd;
+}
+
+/** supplier.update payload → FormData for updateSupplier.
+ *
+ *  updateSupplier's own Zod schema requires the FULL record on every
+ *  call and reads each field as `formData.get(x) || null` — an omitted
+ *  field reads as null and WIPES the existing value. So this bridge
+ *  loads the supplier's CURRENT row and appends every field every
+ *  time: the AI's patch value when the patch touches it, otherwise the
+ *  current value. Mirrors the trap taskUpdatePayloadToFormData solves
+ *  for relations, here for scalar fields.
+ *
+ *  amountAgreed is never AI-writable — it always carries the CURRENT
+ *  amount through untouched, so a supplier.update proposal can never
+ *  zero out money the AI was never shown. */
+async function supplierUpdatePayloadToFormData(
+  payload: Record<string, unknown>,
+): Promise<FormData> {
+  const supplierId = String(payload.supplierId ?? "");
+  const current = await db.supplier.findUnique({ where: { id: supplierId } });
+  if (!current) {
+    throw new Error("Supplier not found — it may have been deleted since the proposal was made.");
+  }
+
+  const fd = new FormData();
+  fd.append("name", payload.name !== undefined ? String(payload.name) : current.name);
+  fd.append(
+    "category",
+    payload.category !== undefined ? String(payload.category) : current.category,
+  );
+  fd.append("status", payload.status !== undefined ? String(payload.status) : current.status);
+
+  const website = payload.website !== undefined ? payload.website : current.website;
+  if (website) fd.append("website", String(website));
+
+  const notes = payload.notes !== undefined ? payload.notes : current.notes;
+  if (notes) fd.append("notes", String(notes));
+
+  if (current.amountAgreed != null) {
+    fd.append("amountAgreed", current.amountAgreed.toString());
+  }
+
+  return fd;
+}
+
+/** supplier.log_communication payload → FormData for
+ *  createSupplierCommunication. That action returns void, so the
+ *  dispatch branch below uses the already-known supplierId as the
+ *  "entity" the proposal affected — same convention as
+ *  book.card.append's subsectionId. */
+function supplierCommunicationPayloadToFormData(payload: Record<string, unknown>): FormData {
+  const fd = new FormData();
+  fd.append("supplierId", String(payload.supplierId ?? ""));
+  fd.append("channel", String(payload.channel ?? ""));
+  fd.append("summary", String(payload.summary ?? ""));
+  if (payload.followUpAt) fd.append("followUpAt", String(payload.followUpAt));
+  return fd;
+}
+
 /** Shared core of single + bulk apply: takes an already-loaded, owned
  *  proposal, dispatches by kind through the SAME human server actions,
  *  updates the AiProposal row, writes the per-proposal audit entry.
@@ -638,6 +746,23 @@ async function applyLoadedProposal(
       const { subsectionId, formData } = await bookCardAppendToFormData(parsed);
       await updateBookSubsectionAction(subsectionId, formData);
       created = { id: subsectionId };
+    } else if (proposal.kind === "supplier.create") {
+      const parsed = supplierCreateSchema.parse(merged);
+      const result = await createSupplierAction(supplierPayloadToFormData(parsed));
+      if (!result?.id) throw new Error("createSupplier did not return an id.");
+      created = { id: result.id };
+    } else if (proposal.kind === "supplier.update") {
+      const parsed = supplierUpdateSchema.parse(merged);
+      await updateSupplierAction(parsed.supplierId, await supplierUpdatePayloadToFormData(parsed));
+      // updateSupplier returns void; the entity id IS the supplierId.
+      created = { id: parsed.supplierId };
+    } else if (proposal.kind === "supplier.log_communication") {
+      const parsed = supplierCommunicationSchema.parse(merged);
+      await createSupplierCommunicationAction(supplierCommunicationPayloadToFormData(parsed));
+      // createSupplierCommunication returns void; use the known
+      // supplierId as the affected entity, same convention as
+      // book.card.append's subsectionId.
+      created = { id: parsed.supplierId };
     } else {
       await rollbackClaim(proposal.id);
       return { ok: false, error: `Unknown proposal kind: ${proposal.kind}` };
@@ -1585,6 +1710,202 @@ export async function reviewWeddingState(): Promise<
     return {
       ok: false,
       error: err instanceof Error ? err.message : "Review failed.",
+    };
+  }
+}
+
+// ─── Gap analysis ───────────────────────────────────────────────────
+
+const GAP_ANALYSIS_CAP = 8;
+
+/** Curated UK-wedding-planning checklist the gap-analysis call scores
+ *  the couple's tasks + suppliers against. Kept as a fixed rubric
+ *  (rather than letting the model invent categories each run) so
+ *  "gap analysis" means a systematic diff, not just "suggest some
+ *  tasks" — which chat can already do ad hoc without this feature. */
+function gapAnalysisSystemPrompt(
+  weddingDateIso: string,
+  daysToWedding: number,
+  weeks: number,
+): string {
+  const today = new Date().toISOString().slice(0, 10);
+  return `You are a UK wedding planner running a GAP ANALYSIS: comparing this couple's actual task list against a curated checklist of what UK weddings typically need at this stage, and flagging categories that are genuinely under-covered. This is not "suggest some tasks" — it is a systematic diff against a fixed rubric.
+
+# Wedding
+- Wedding is ${weddingDateIso} (in ${daysToWedding} days, ~${weeks} weeks).
+- Today is ${today}.
+- This is a UK wedding. Assume UK-specific admin (giving notice of marriage at the register office; no US-style marriage license) unless told otherwise.
+
+# The checklist — use this rubric, do not invent your own categories
+
+Score each category as COVERED (2+ relevant open/done tasks already exist, or a BOOKED/PAID supplier in a matching category), THIN (0-1 relevant tasks and no matching booked supplier), or NOT_APPLICABLE. Only propose tasks for THIN categories that are also relevant at the current weeks-to-wedding stage.
+
+1. Legal/Admin — notice of marriage at the register office (in person, 28 days minimum before the wedding, both partners resident 7+ days first), name-change paperwork, marriage schedule/certificate collection.
+2. Ceremony & Officiant — vows, readings, order of service, rehearsal.
+3. Attire — dress/suit, alterations, accessories, shoes.
+4. Photography/Video — booking, shot list, second shooter, engagement shoot.
+5. Catering/Menu — menu tasting, final headcount to caterer, dietary requirements collected.
+6. Drinks — bar plan, toast drink, corkage.
+7. Flowers/Décor — florist booking, centerpieces, ceremony flowers.
+8. Music/Entertainment — ceremony music, band or DJ, first dance, playlist.
+9. Transport — wedding party transport, guest transport and parking.
+10. Accommodation for guests — room block, recommended hotels list.
+11. Stationery/Invites — save-the-dates, invitations, RSVPs chased, order-of-service printing.
+12. Favors/Gifts — guest favors, wedding party gifts.
+13. Hair/Beauty — trial, day-of booking.
+14. Insurance — wedding insurance policy.
+15. Day-of logistics — setup/teardown plan, emergency kit, day timeline, vendor point of contact.
+16. Speeches — who is speaking, running order.
+17. Rings — ordering, engraving, insurance, collection.
+18. Honeymoon — booking, passports or visas if needed, currency.
+
+# Timing guidance
+- 12+ weeks out: prioritise Legal/Admin, Attire, Photography, Catering, Flowers, Music, Transport, Accommodation, Stationery, Honeymoon — the long-lead-time items.
+- 4-12 weeks out: the above should already be in progress; also start Favors, Hair/Beauty trial, Speeches planning, Rings.
+- Under 4 weeks out: focus almost entirely on Day-of logistics, final headcounts, confirming suppliers, insurance, and anything above that is still untouched — these become urgent.
+
+# Rules
+- Only flag a category that is genuinely thin AND relevant at this stage. Do not dump the whole checklist regardless of what already exists.
+- Cross-reference the supplier list: a category with a BOOKED or PAID supplier counts as covered even with few explicit tasks.
+- Return at most 8 gaps total, across at most 8 distinct categories. Prioritise categories most likely to cause real problems if missed (legal deadlines, long-lead-time items) over cosmetic ones.
+- 1 to 3 concrete tasks per genuinely-missing category, not the whole checklist for that category.
+- Task titles must be concrete imperative actions, e.g. "Book hair and makeup trial" — not the bare category name.
+- One rationale per task, one sentence, explaining why it is needed now.
+- If a category is already well covered, do not mention it at all. Do not pad the list with filler.`;
+}
+
+/** One-shot: diff the couple's task list + supplier roster against a
+ *  curated UK-wedding checklist, emit up to 8 task.create proposals
+ *  for genuinely under-covered categories sharing one batchId.
+ *  `category` is prompt-guidance only — it's never written onto the
+ *  Task row, only used to build the button's result message. */
+export async function runGapAnalysis(): Promise<
+  | { ok: true; count: number; categories: string[] }
+  | { ok: false; error: string }
+> {
+  const user = await requireUser();
+  if (!(await canEdit(user, "ai_write"))) {
+    return { ok: false, error: "You need ai_write permission." };
+  }
+
+  const settings = await import("@/lib/wedding-settings");
+  const wedding = await settings.getWeddingSettings();
+  const daysToWedding = Math.max(
+    0,
+    Math.ceil((wedding.weddingDate.getTime() - Date.now()) / (24 * 60 * 60 * 1000)),
+  );
+  const weeks = Math.floor(daysToWedding / 7);
+
+  // Titles + status + priority only, not notes — enough signal for
+  // "is this category covered" without spending tokens on notes
+  // bodies. DONE tasks count as coverage too, so open AND closed
+  // tasks are included (unlike suggestDueDates, which only wants
+  // open ones).
+  const existingTasks = await db.task.findMany({
+    where: { type: "TASK" },
+    take: 100,
+    orderBy: { updatedAt: "desc" },
+    select: { title: true, priority: true, status: true },
+  });
+  // category + status only — never amountAgreed. Mirrors
+  // reviewWeddingState's supplier cross-reference.
+  const suppliers = await db.supplier.findMany({
+    select: { category: true, status: true },
+    take: 60,
+  });
+
+  const taskList =
+    existingTasks.map((t) => `- [${t.status}/${t.priority}] ${t.title}`).join("\n") ||
+    "(no tasks yet)";
+  const supplierList =
+    suppliers.map((s) => `- ${s.category}: ${s.status}`).join("\n") || "(no suppliers yet)";
+
+  try {
+    const result = await sendMessage({
+      userId: user.id,
+      feature: AI_FEATURES.gapAnalysis,
+      tier: "deep",
+      maxTokens: 4096,
+      system: gapAnalysisSystemPrompt(
+        wedding.weddingDate.toISOString().slice(0, 10),
+        daysToWedding,
+        weeks,
+      ),
+      messages: [
+        {
+          role: "user",
+          content: `Existing tasks (${existingTasks.length}${existingTasks.length === 100 ? "+" : ""}):\n${taskList}\n\nSuppliers (${suppliers.length}):\n${supplierList}`,
+        },
+      ],
+      outputConfig: {
+        format: {
+          type: "json_schema",
+          schema: gapAnalysisSchema as unknown as Record<string, unknown>,
+        },
+      },
+    });
+
+    const text = result.content
+      .filter((b): b is Extract<typeof b, { type: "text" }> => b.type === "text")
+      .map((b) => b.text)
+      .join("")
+      .trim();
+
+    let parsed: {
+      gaps?: Array<{ title: string; category: string; priority: string; rationale: string }>;
+    };
+    try {
+      parsed = JSON.parse(text) as typeof parsed;
+    } catch {
+      return { ok: false, error: "The AI didn't return valid JSON." };
+    }
+    const gaps = (parsed.gaps ?? []).slice(0, GAP_ANALYSIS_CAP);
+    if (gaps.length === 0) {
+      return { ok: false, error: "No gaps found — the plan looks well covered for this stage." };
+    }
+
+    const batchId = randomUUID();
+    const categories = new Set<string>();
+    const validPriorities = new Set(["LOW", "MEDIUM", "HIGH", "URGENT"]);
+    let count = 0;
+
+    for (const g of gaps) {
+      if (!g.title || !g.rationale) continue;
+      const priority = validPriorities.has(g.priority) ? g.priority : "MEDIUM";
+      await db.aiProposal.create({
+        data: {
+          createdById: user.id,
+          kind: "task.create",
+          batchId,
+          payload: {
+            title: g.title,
+            type: "TASK",
+            status: "OPEN",
+            priority,
+            dueDate: null,
+            notes: null,
+            supplierId: null,
+            assigneeIds: [],
+            bookSectionIds: [],
+            navTagIds: [],
+            guestGroupIds: [],
+          } as unknown as object,
+          rationale: g.rationale,
+        },
+      });
+      categories.add(g.category || "General");
+      count++;
+    }
+
+    revalidatePath("/ai");
+    return { ok: true, count, categories: [...categories] };
+  } catch (err) {
+    if (err instanceof BudgetExceeded || err instanceof RateLimited || err instanceof AiDisabledError) {
+      return { ok: false, error: err.message };
+    }
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : "Gap analysis failed.",
     };
   }
 }

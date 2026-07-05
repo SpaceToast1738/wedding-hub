@@ -17,8 +17,22 @@ export const PROPOSAL_KINDS = [
   "event.create",
   "guest.create",
   "book.card.append",
+  "supplier.create",
+  "supplier.update",
+  "supplier.log_communication",
 ] as const;
 export type ProposalKind = (typeof PROPOSAL_KINDS)[number];
+
+// Kept separate from Prisma's SupplierStatus enum re-export so this
+// module has zero Prisma dependency (matches every other schema here).
+export const SUPPLIER_STATUSES = [
+  "SHORTLIST",
+  "CONTACTED",
+  "QUOTED",
+  "BOOKED",
+  "PAID",
+  "REJECTED",
+] as const;
 
 export const taskCreateSchema = z.object({
   title: z.string().min(1).max(200),
@@ -118,6 +132,46 @@ export const bookCardAppendSchema = z.object({
 });
 export type BookCardAppendPayload = z.infer<typeof bookCardAppendSchema>;
 
+/** New supplier/vendor. Deliberately excludes `amountAgreed` — that's
+ *  a money field, and no read tool surfaces existing amounts to the
+ *  AI either (read_suppliers omits it). Keeping write parity with
+ *  read visibility rather than opening a new money-write surface. */
+export const supplierCreateSchema = z.object({
+  name: z.string().min(1).max(200),
+  category: z.string().min(1).max(100),
+  status: z.enum(SUPPLIER_STATUSES).default("SHORTLIST"),
+  website: z.string().max(500).optional().nullable(),
+  notes: z.string().max(5000).optional().nullable(),
+});
+export type SupplierCreatePayload = z.infer<typeof supplierCreateSchema>;
+
+/** Partial patch to an existing supplier. All fields but `supplierId`
+ *  are optional — Apply only writes what's set, merging against the
+ *  supplier's current row (see supplierUpdatePayloadToFormData in
+ *  src/app/(app)/ai/actions.ts) because updateSupplier's own Zod
+ *  schema requires the full record on every call. */
+export const supplierUpdateSchema = z.object({
+  supplierId: z.string().min(1),
+  name: z.string().min(1).max(200).optional(),
+  category: z.string().min(1).max(100).optional(),
+  status: z.enum(SUPPLIER_STATUSES).optional(),
+  website: z.string().max(500).optional().nullable(),
+  notes: z.string().max(5000).optional().nullable(),
+});
+export type SupplierUpdatePayload = z.infer<typeof supplierUpdateSchema>;
+
+/** Log a call/email/meeting with a supplier. Mirrors
+ *  createSupplierCommunication's own schema; an optional followUpAt
+ *  auto-creates a follow-up task via decideFollowUpTask() the same
+ *  way a human logging it from the UI would. */
+export const supplierCommunicationSchema = z.object({
+  supplierId: z.string().min(1),
+  channel: z.enum(["email", "call", "meeting", "message"]),
+  summary: z.string().min(1).max(2000),
+  followUpAt: z.string().optional().nullable(),
+});
+export type SupplierCommunicationPayload = z.infer<typeof supplierCommunicationSchema>;
+
 export function schemaForKind(kind: string): z.ZodTypeAny | null {
   switch (kind) {
     case "task.create":
@@ -130,6 +184,12 @@ export function schemaForKind(kind: string): z.ZodTypeAny | null {
       return guestCreateSchema;
     case "book.card.append":
       return bookCardAppendSchema;
+    case "supplier.create":
+      return supplierCreateSchema;
+    case "supplier.update":
+      return supplierUpdateSchema;
+    case "supplier.log_communication":
+      return supplierCommunicationSchema;
     default:
       return null;
   }
@@ -147,6 +207,12 @@ export function humanLabel(kind: ProposalKind): string {
       return "New guest";
     case "book.card.append":
       return "Append to wedding book";
+    case "supplier.create":
+      return "New supplier";
+    case "supplier.update":
+      return "Update supplier";
+    case "supplier.log_communication":
+      return "Log supplier contact";
   }
 }
 
@@ -199,6 +265,27 @@ export function summariseProposal(kind: string, payload: unknown): string {
     const heading = typeof p.heading === "string" ? p.heading : "Summary";
     const text = typeof p.text === "string" ? p.text : "";
     return `${heading}: ${text.slice(0, 80)}${text.length > 80 ? "…" : ""}`;
+  }
+  if (kind === "supplier.create") {
+    const name = typeof p.name === "string" ? p.name : "(unnamed)";
+    const category = typeof p.category === "string" ? p.category : "";
+    return category ? `${name} · ${category}` : name;
+  }
+  if (kind === "supplier.update") {
+    const bits: string[] = [];
+    if (typeof p.name === "string") bits.push(`name → "${p.name}"`);
+    if (typeof p.category === "string") bits.push(`category → ${p.category}`);
+    if (typeof p.status === "string") bits.push(`status → ${p.status}`);
+    if (typeof p.website === "string") bits.push("website updated");
+    if (typeof p.notes === "string") bits.push("notes updated");
+    return bits.join(", ") || "small tweak";
+  }
+  if (kind === "supplier.log_communication") {
+    const channel = typeof p.channel === "string" ? p.channel : "contact";
+    const summary = typeof p.summary === "string" ? p.summary : "";
+    const followUp =
+      typeof p.followUpAt === "string" && p.followUpAt ? ` · follow-up ${p.followUpAt}` : "";
+    return `${channel}: ${summary.slice(0, 80)}${summary.length > 80 ? "…" : ""}${followUp}`;
   }
   return "";
 }

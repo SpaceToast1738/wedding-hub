@@ -18,6 +18,9 @@ import { readProposals } from "./read-proposals";
 import { proposeTask } from "./propose-task";
 import { proposeTaskUpdate } from "./propose-task-update";
 import { proposeEvent } from "./propose-event";
+import { proposeSupplierCreate } from "./propose-supplier-create";
+import { proposeSupplierUpdate } from "./propose-supplier-update";
+import { proposeSupplierLogCommunication } from "./propose-supplier-log-communication";
 
 // AiTool<TSchema> is invariant in TSchema, so a heterogeneous list of
 // tools with different Zod object shapes can't share a single default
@@ -37,7 +40,14 @@ const READ_TOOLS: AiTool<any>[] = [
 ];
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const WRITE_TOOLS: AiTool<any>[] = [proposeTask, proposeTaskUpdate, proposeEvent];
+const WRITE_TOOLS: AiTool<any>[] = [
+  proposeTask,
+  proposeTaskUpdate,
+  proposeEvent,
+  proposeSupplierCreate,
+  proposeSupplierUpdate,
+  proposeSupplierLogCommunication,
+];
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const ALL_TOOLS: AiTool<any>[] = [...READ_TOOLS, ...WRITE_TOOLS];

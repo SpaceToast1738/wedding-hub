@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { SuggestDueDatesButton } from "./SuggestDueDatesButton";
+import { GapAnalysisButton } from "./GapAnalysisButton";
 import { canEdit, canView } from "@/lib/permissions";
 import { requireUser } from "@/lib/actions";
 import type { CustomFieldDef } from "@/lib/custom-fields";
@@ -148,6 +149,7 @@ export default async function TasksPage({
         actions={
           editable ? (
             <>
+              {canWriteAi && <GapAnalysisButton />}
               {canWriteAi && <SuggestDueDatesButton />}
               <Link
                 href="/tasks/import"

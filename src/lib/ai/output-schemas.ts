@@ -74,6 +74,36 @@ export const dueDateSuggestionSchema = {
   required: ["dates"],
 } as const;
 
+/** runGapAnalysis — curated-checklist diff against the couple's
+ *  current task list + supplier roster. `category` is a label from
+ *  the curated checklist baked into the gap-analysis system prompt —
+ *  NOT a bookSectionId/navTagId. It's used only to group the button's
+ *  result message; it is dropped before a gap becomes a task.create
+ *  proposal (see runGapAnalysis in src/app/(app)/ai/actions.ts). */
+export const gapAnalysisSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    gaps: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          title: { type: "string" },
+          category: { type: "string" },
+          priority: { type: "string", enum: ["LOW", "MEDIUM", "HIGH", "URGENT"] },
+          rationale: { type: "string" },
+        },
+        required: ["title", "category", "priority", "rationale"],
+      },
+      description:
+        "At most 8 concrete, missing tasks — one to three per genuinely under-covered category.",
+    },
+  },
+  required: ["gaps"],
+} as const;
+
 /** reviewWeddingState — the structured state-of-the-wedding report. */
 export const weddingReviewSchema = {
   type: "object",

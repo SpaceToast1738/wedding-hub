@@ -127,6 +127,7 @@ export const AI_FEATURES = {
   summarizeCard: "summarize-card",
   suggestTasks: "suggest-tasks",
   suggestDueDates: "suggest-due-dates",
+  gapAnalysis: "gap-analysis",
   generateTimeline: "generate-timeline",
   parseGuestList: "parse-guest-list",
   draftGuestMessage: "draft-guest-message",

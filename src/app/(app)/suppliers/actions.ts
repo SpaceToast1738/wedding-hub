@@ -29,7 +29,7 @@ function parseAmount(s: string | null | undefined): number | null {
   return isNaN(n) ? null : n;
 }
 
-export async function createSupplier(formData: FormData) {
+export async function createSupplier(formData: FormData): Promise<{ id: string }> {
   const user = await requireEdit("suppliers");
   const parsed = supplierSchema.parse({
     name: formData.get("name"),
@@ -60,6 +60,11 @@ export async function createSupplier(formData: FormData) {
     },
   });
   revalidatePath("/suppliers");
+  // v2.3.0: return the id so the AI proposal apply-bridge can link the
+  // AiProposal to the row it just produced. Only call site
+  // (AddSupplierToggle.tsx) discards the return value today — same
+  // non-breaking precedent as createTask / createHousehold / createGuest.
+  return { id: created.id };
 }
 
 // v1.74.0: minimal supplier create that returns the new id, used by
