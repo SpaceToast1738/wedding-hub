@@ -128,6 +128,7 @@ export const AI_FEATURES = {
   suggestTasks: "suggest-tasks",
   suggestDueDates: "suggest-due-dates",
   gapAnalysis: "gap-analysis",
+  breakdownTask: "breakdown-task",
   generateTimeline: "generate-timeline",
   parseGuestList: "parse-guest-list",
   draftGuestMessage: "draft-guest-message",

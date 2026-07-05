@@ -2,6 +2,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { taskCreateSchema } from "@/lib/ai/proposals/schemas";
 import { buildDetailLine, resolveRefs, unknownIdsError } from "./validate-refs";
+import { takeProposalSlots } from "./propose-common";
 import type { AiTool } from "./types";
 
 const inputSchema = z.object({
@@ -80,13 +81,8 @@ export const proposeTask: AiTool<typeof inputSchema> = {
     },
   },
   async handler(input, ctx) {
-    if (!ctx.canWrite) {
-      return {
-        ok: false,
-        error:
-          "You don't have permission to write proposals in this app. Tell the user to ask the couple for ai_write access.",
-      };
-    }
+    const guard = takeProposalSlots(ctx);
+    if (guard) return guard;
 
     // Validate every referenced id BEFORE the proposal is written so a
     // hallucinated id can never reach the Apply path.

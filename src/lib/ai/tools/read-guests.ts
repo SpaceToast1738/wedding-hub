@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { db } from "@/lib/db";
+import { canView } from "@/lib/permissions";
 import type { AiTool } from "./types";
 
 const RSVP = ["PENDING", "ATTENDING", "DECLINED", "MAYBE"] as const;
@@ -9,19 +10,42 @@ const inputSchema = z.object({
   side: z.enum(["BRIDE", "GROOM", "BOTH"]).optional(),
   hasDietary: z.boolean().optional(),
   isChild: z.boolean().optional(),
+  nameContains: z.string().max(120).optional(),
+  householdId: z.string().optional(),
   limit: z.number().int().min(1).max(50).optional(),
 });
+
+function trimNotes(notes: string | null): string | null {
+  if (!notes) return null;
+  return notes.length > 300 ? notes.slice(0, 300) + "…" : notes;
+}
+
+/** Same shape as read_tasks' resolver — see the comment there. */
+function resolveCustomFields(
+  defs: { id: string; name: string }[],
+  values: unknown,
+): Record<string, string | number> | undefined {
+  if (!values || typeof values !== "object") return undefined;
+  const bag = values as Record<string, unknown>;
+  const out: Record<string, string | number> = {};
+  for (const def of defs) {
+    const v = bag[def.id];
+    if (typeof v === "string" && v.trim() !== "") out[def.name] = v;
+    else if (typeof v === "number") out[def.name] = v;
+  }
+  return Object.keys(out).length ? out : undefined;
+}
 
 export const readGuests: AiTool<typeof inputSchema> = {
   name: "read_guests",
   description:
-    "Read guests matching the given filters. Also returns aggregate counts so you can answer 'how many are attending?' without listing everyone. Excludes archived guests.",
+    "Read guests matching the given filters. Also returns aggregate counts so you can answer 'how many are attending?' without listing everyone. Excludes archived guests. Each guest includes household (with id), contact details, group memberships, and resolved custom fields — use `nameContains` to find one guest, or `householdId` to list a whole household.",
   inputSchema,
   progressLabel: "Reading guests…",
   definition: {
     name: "read_guests",
     description:
-      "Read guests matching the given filters. Also returns aggregate counts so you can answer 'how many are attending?' without listing everyone. Excludes archived guests.",
+      "Read guests matching the given filters. Also returns aggregate counts so you can answer 'how many are attending?' without listing everyone. Excludes archived guests. Each guest includes household (with id), contact details, group memberships, and resolved custom fields.",
     input_schema: {
       type: "object",
       properties: {
@@ -29,18 +53,35 @@ export const readGuests: AiTool<typeof inputSchema> = {
         side: { type: "string", enum: ["BRIDE", "GROOM", "BOTH"] },
         hasDietary: { type: "boolean", description: "Only guests with at least one dietary tag." },
         isChild: { type: "boolean" },
+        nameContains: {
+          type: "string",
+          description: "Case-insensitive substring match on first OR last name.",
+        },
+        householdId: { type: "string", description: "Only guests in this household." },
         limit: { type: "integer", minimum: 1, maximum: 50, description: "Default 20." },
       },
     },
   },
-  async handler(input) {
+  async handler(input, ctx) {
+    // v2.4.0 review fix: the section gate — ai_chat access alone must
+    // not bypass a NONE permission on the underlying section.
+    if (!(await canView(ctx.user, "guests"))) {
+      return { ok: false, error: "Guests aren't visible to this user." };
+    }
     const where: Record<string, unknown> = { archived: false };
     if (input.rsvp) where.rsvp = input.rsvp;
     if (input.side) where.side = input.side;
     if (input.isChild != null) where.isChild = input.isChild;
     if (input.hasDietary) where.dietary = { isEmpty: false };
+    if (input.householdId) where.householdId = input.householdId;
+    if (input.nameContains) {
+      where.OR = [
+        { firstName: { contains: input.nameContains, mode: "insensitive" } },
+        { lastName: { contains: input.nameContains, mode: "insensitive" } },
+      ];
+    }
 
-    const [guests, aggregate] = await Promise.all([
+    const [guests, aggregate, fieldDefs] = await Promise.all([
       db.guest.findMany({
         where,
         take: input.limit ?? 20,
@@ -52,16 +93,29 @@ export const readGuests: AiTool<typeof inputSchema> = {
           rsvp: true,
           side: true,
           isChild: true,
+          needsHighchair: true,
           dietary: true,
           plusOneAllowed: true,
           plusOneName: true,
+          parentGuestId: true,
           role: true,
+          email: true,
+          phone: true,
+          notes: true,
+          customFieldValues: true,
+          household: { select: { id: true, name: true, side: true } },
+          groups: { orderBy: { name: "asc" }, select: { id: true, name: true } },
         },
       }),
       db.guest.groupBy({
         by: ["rsvp"],
         where: { archived: false },
         _count: { _all: true },
+      }),
+      db.customField.findMany({
+        where: { entity: "guest" },
+        orderBy: { order: "asc" },
+        select: { id: true, name: true },
       }),
     ]);
 
@@ -83,14 +137,30 @@ export const readGuests: AiTool<typeof inputSchema> = {
         guests: guests.map((g) => ({
           id: g.id,
           name: `${g.firstName} ${g.lastName}`.trim(),
+          firstName: g.firstName,
+          lastName: g.lastName,
+          household: g.household
+            ? { id: g.household.id, name: g.household.name, side: g.household.side }
+            : null,
           rsvp: g.rsvp,
           side: g.side,
           isChild: g.isChild,
+          needsHighchair: g.needsHighchair,
           dietary: g.dietary,
+          plusOneAllowed: g.plusOneAllowed,
           plusOne: g.plusOneAllowed
             ? g.plusOneName ?? "(name pending)"
             : null,
+          // Materialised +1 rows point back at their host via
+          // parentGuestId — they're real Guest rows, so flag them
+          // rather than letting the AI double-count "invitations".
+          isPlusOne: g.parentGuestId != null,
           role: g.role,
+          email: g.email,
+          phone: g.phone,
+          notes: trimNotes(g.notes),
+          groups: g.groups.length ? g.groups : undefined,
+          customFields: resolveCustomFields(fieldDefs, g.customFieldValues),
         })),
       },
     };

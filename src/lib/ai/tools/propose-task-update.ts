@@ -2,6 +2,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { taskUpdateSchema } from "@/lib/ai/proposals/schemas";
 import { buildDetailLine, resolveRefs, unknownIdsError } from "./validate-refs";
+import { takeProposalSlots } from "./propose-common";
 import type { AiTool } from "./types";
 
 const inputSchema = z.object({
@@ -79,13 +80,8 @@ export const proposeTaskUpdate: AiTool<typeof inputSchema> = {
     },
   },
   async handler(input, ctx) {
-    if (!ctx.canWrite) {
-      return {
-        ok: false,
-        error:
-          "You don't have permission to write proposals. Ask the couple for ai_write access.",
-      };
-    }
+    const guard = takeProposalSlots(ctx);
+    if (guard) return guard;
 
     const existing = await db.task.findUnique({
       where: { id: input.taskId },

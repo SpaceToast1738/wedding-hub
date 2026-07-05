@@ -21,6 +21,11 @@ export type ToolContext = {
    *  turn (or one one-shot run) so the review UIs can group them into
    *  a single approve-all card. Absent → proposals are singletons. */
   batchId?: string;
+  /** v2.4.0: mutable per-turn proposal counter shared by every propose
+   *  tool in one chat turn. Tools refuse past PROPOSAL_TURN_CAP so a
+   *  runaway turn can't flood the review queue. Absent → uncapped
+   *  (one-shots manage their own caps). */
+  proposalsCreated?: { count: number };
 };
 
 export type ToolResult = { ok: true; data: unknown } | { ok: false; error: string };

@@ -71,7 +71,11 @@ export type ChatEvent =
 // read_tasks + serialized propose calls + a closing prose turn; the
 // prompt nudges parallel tool calls (which land in ONE iteration) but
 // Sonnet sometimes serializes anyway. Keep a hard stop against loops.
-const MAX_TOOL_ITERATIONS = 8;
+// v2.4.0: 8 → 12. Book edits are now read_book → read_book_card →
+// propose (3 round trips) and breakdown adds read_tasks +
+// read_proposals; 12 covers the deeper read-before-write chains while
+// still stopping runaway loops.
+const MAX_TOOL_ITERATIONS = 12;
 const CHAT_HISTORY_LIMIT = 40;
 // v2.2.0: 4096 → 8192. A parallel propose batch carries many tool_use
 // blocks; max_tokens is a ceiling not a cost, and hitting it
@@ -280,7 +284,10 @@ export async function* runChatTurn(args: {
   // v2.2.0: every proposal created during this turn shares one batch
   // id so the review UIs can offer approve-all.
   const batchId = randomUUID();
-  const ctx = { user, canWrite, batchId };
+  // v2.4.0: shared mutable proposal counter — every propose tool
+  // increments it via takeProposalSlots so one turn can't flood the
+  // review queue past PROPOSAL_TURN_CAP.
+  const ctx = { user, canWrite, batchId, proposalsCreated: { count: 0 } };
   const tools = toolDefinitions({ canWrite });
   const model = MODEL_TIERS.balanced;
   const client = await getClient();
@@ -289,6 +296,24 @@ export async function* runChatTurn(args: {
 
   // ─── agentic loop ────────────────────────────────────────────────
   for (let iter = 0; iter < MAX_TOOL_ITERATIONS; iter++) {
+    // v2.4.0: re-check the monthly pot every iteration, not just once
+    // per turn — at 12 iterations × 8K max output tokens, a single
+    // deep turn could otherwise run several calls past an exhausted
+    // cap. First iteration is covered by the pre-turn guard; this
+    // catches mid-turn exhaustion cheaply (one aggregate query).
+    if (iter > 0) {
+      try {
+        await budgetGuard();
+      } catch (err) {
+        yield {
+          type: "error",
+          error:
+            err instanceof Error ? err.message : "AI monthly budget exceeded mid-turn.",
+          code: "AI_BUDGET_EXCEEDED",
+        };
+        return;
+      }
+    }
     let accumulatedText = "";
     let stream: Awaited<ReturnType<Anthropic["messages"]["stream"]>>;
     try {
@@ -410,11 +435,31 @@ export async function* runChatTurn(args: {
 
       // v2.1.0 phase 2: surface newly-created proposals to the panel
       // so it can render Apply/Dismiss cards inline in the transcript.
+      // v2.4.0: batch-producing tools (propose_task_breakdown) return
+      // `proposals` (plural) — emit one event per entry so the panel
+      // renders its normal batch card instead of nothing.
       if (result.ok && isProposeTool(t.name)) {
         const data = result.data as
-          | { proposalId?: string; kind?: string; title?: string; detail?: string }
+          | {
+              proposalId?: string;
+              kind?: string;
+              title?: string;
+              detail?: string;
+              proposals?: Array<{ proposalId: string; kind: string; title: string }>;
+            }
           | undefined;
-        if (data?.proposalId && data.kind && data.title) {
+        if (Array.isArray(data?.proposals)) {
+          for (const p of data.proposals) {
+            if (!p.proposalId || !p.kind || !p.title) continue;
+            yield {
+              type: "proposal_created",
+              proposalId: p.proposalId,
+              kind: p.kind,
+              title: p.title,
+              batchId,
+            };
+          }
+        } else if (data?.proposalId && data.kind && data.title) {
           yield {
             type: "proposal_created",
             proposalId: data.proposalId,

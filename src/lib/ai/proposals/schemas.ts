@@ -15,16 +15,52 @@ export const PROPOSAL_KINDS = [
   "task.create",
   "task.update",
   "event.create",
+  "event.update",
   "guest.create",
+  "guest.update",
+  "guest.set_rsvp",
+  "guest.archive",
+  "household.update",
   "book.card.append",
+  "book.card.replace_text",
+  "book.card.rename",
+  "book.card.create",
+  "book.section.create",
+  "book.field.set",
+  "book.recipe.update",
+  "book.shot.add",
+  "book.shot.update",
+  "book.outfit.update",
+  "book.build.update",
+  "book.menu.update",
+  "book.bar.update",
+  "book.setup.update",
+  "book.stay.update",
+  "book.lodging.update",
+  "book.dresscode.update",
+  "book.weddingparty.set_cell",
+  "book.weddingparty.add_member",
+  "book.weddingparty.add_item",
+  "book.weddingparty.update_header",
   "supplier.create",
   "supplier.update",
   "supplier.log_communication",
+  "budget.category.create",
+  "budget.line.create",
+  "budget.line.update",
+  "payment.create",
+  "payment.update",
+  "payment.set_status",
+  "question.answer",
+  "song.add",
+  "custom_field.set",
+  "seat.assign",
 ] as const;
 export type ProposalKind = (typeof PROPOSAL_KINDS)[number];
 
-// Kept separate from Prisma's SupplierStatus enum re-export so this
-// module has zero Prisma dependency (matches every other schema here).
+// Kept separate from Prisma's enum re-exports so this module has zero
+// Prisma dependency (every schema here re-declares its enum values as
+// string const arrays; a drift test would catch a rename upstream).
 export const SUPPLIER_STATUSES = [
   "SHORTLIST",
   "CONTACTED",
@@ -33,6 +69,45 @@ export const SUPPLIER_STATUSES = [
   "PAID",
   "REJECTED",
 ] as const;
+
+export const SIDES = ["BRIDE", "GROOM", "BOTH"] as const;
+export const RSVP_STATUSES = ["PENDING", "ATTENDING", "DECLINED", "MAYBE"] as const;
+export const PAYMENT_STATUSES = ["DUE", "SCHEDULED", "PAID", "OVERDUE", "CANCELLED"] as const;
+export const FUND_SOURCES = ["JOINT", "PERSONAL_BRIDE", "PERSONAL_GROOM", "OTHER"] as const;
+export const PER_HEAD_SOURCES = [
+  "ALL_INVITED",
+  "CONFIRMED_PLUS_PENDING",
+  "ALL_CONFIRMED",
+  "ADULTS_CONFIRMED",
+  "CHILDREN_CONFIRMED",
+  "ADULTS_PENDING_OR_CONFIRMED",
+  "CHILDREN_PENDING_OR_CONFIRMED",
+  "MANUAL",
+] as const;
+export const BOOK_KINDS = [
+  "TEXT",
+  "FIELD",
+  "RECIPE",
+  "SHOT_LIST",
+  "OUTFIT",
+  "BUILD",
+  "MENU",
+  "BAR",
+  "SETUP",
+  "STAY",
+  "LODGING_GUIDE",
+  "DRESS_CODE",
+  "WEDDING_PARTY",
+] as const;
+/** WeddingParty cell statuses — free strings in the DB, but the app's
+ *  editor only ever writes these five (VALID_CELL_STATUSES in
+ *  book/actions.ts). */
+export const WP_CELL_STATUSES = ["NEED", "ORDERED", "HAVE", "ALREADY_OWN", "N_A"] as const;
+/** Outfit item statuses — free strings in the DB; these four are what
+ *  the editor's select offers. */
+export const OUTFIT_ITEM_STATUSES = ["Planned", "Purchased", "Received", "Already own"] as const;
+/** Build card statuses — free strings in the DB; editor vocabulary. */
+export const BUILD_STATUSES = ["Designing", "Prototyping", "Producing", "Done"] as const;
 
 export const taskCreateSchema = z.object({
   title: z.string().min(1).max(200),
@@ -50,6 +125,10 @@ export const taskCreateSchema = z.object({
   supplierId: z.string().optional().nullable(),
   assigneeIds: z.array(z.string()).default([]),
   bookSectionIds: z.array(z.string()).default([]),
+  // v2.4.0: card-level links, mainly so breakdown subtasks can inherit
+  // the parent's bookSubsection links. createTask's parseTopicKeys
+  // already understands the bookSubsection: prefix.
+  bookSubsectionIds: z.array(z.string()).default([]),
   navTagIds: z.array(z.string()).default([]),
   guestGroupIds: z.array(z.string()).default([]),
 });
@@ -172,6 +251,595 @@ export const supplierCommunicationSchema = z.object({
 });
 export type SupplierCommunicationPayload = z.infer<typeof supplierCommunicationSchema>;
 
+// ─── v2.4.0: full-surface proposal payloads ─────────────────────────
+//
+// Conventions shared by every *.update kind below:
+// - `undefined` (field omitted) = keep the current value. The apply
+//   bridge loads the live row and carries current values for every
+//   field the payload doesn't touch — the underlying human actions
+//   mostly read `formData.get(x) || null`, where omission WIPES.
+// - `null` = explicitly clear (only meaningful on nullable columns).
+// - Child-row edits are DELTAS (add*/update*/remove*Ids). The bridge
+//   reconstructs the COMPLETE child array from the live rows at apply
+//   time, so rows the AI never named are always preserved — the
+//   underlying save* actions delete any row missing from their input.
+// - No money field (`*Pence`, amounts, paid flags, budget links) is
+//   ever AI-writable on book/guest/task surfaces; bridges round-trip
+//   current values byte-identical. Money changes go only through the
+//   budget.*/payment.* kinds, whose apply path is couple-only via
+//   requireEdit("budget"/"payments").
+
+const nullable = <T extends z.ZodTypeAny>(t: T) => t.optional().nullable();
+const cid = z.string().min(1).max(64);
+
+// ── Book ──
+
+export const bookSectionCreateSchema = z.object({
+  title: z.string().min(1).max(120),
+  subtitle: nullable(z.string().max(240)),
+});
+export type BookSectionCreatePayload = z.infer<typeof bookSectionCreateSchema>;
+
+export const bookCardCreateSchema = z.object({
+  sectionId: cid,
+  title: z.string().min(1).max(120),
+  kind: z.enum(BOOK_KINDS).default("TEXT"),
+  /** TEXT cards only — propose tool rejects body on other kinds. */
+  body: nullable(z.string().max(20000)),
+});
+export type BookCardCreatePayload = z.infer<typeof bookCardCreateSchema>;
+
+export const bookCardRenameSchema = z.object({
+  subsectionId: cid,
+  title: z.string().min(1).max(120),
+});
+export type BookCardRenamePayload = z.infer<typeof bookCardRenameSchema>;
+
+/** Whole-body overwrite of a TEXT card. The ONLY whole-content
+ *  replacement kind, so it carries the only hard staleness fence:
+ *  baseBodyHash is the sha256 of the bodyHtml the AI read via
+ *  read_book_card; the bridge recomputes against the live row and
+ *  refuses on mismatch ("re-read and re-propose"). */
+export const bookCardReplaceTextSchema = z.object({
+  subsectionId: cid,
+  text: z.string().min(1).max(20000),
+  baseBodyHash: z.string().min(1).max(128),
+});
+export type BookCardReplaceTextPayload = z.infer<typeof bookCardReplaceTextSchema>;
+
+export const bookFieldSetSchema = z.object({
+  subsectionId: cid,
+  defId: cid,
+  /** null clears the value (server rejects clearing required fields). */
+  value: z.string().max(2000).nullable(),
+  /** Display-only: the def's label, denormalised at propose time
+   *  (verified against the real def) so the review card can say WHICH
+   *  field changes. The apply bridge never posts it. */
+  fieldName: z.string().max(120).optional(),
+});
+export type BookFieldSetPayload = z.infer<typeof bookFieldSetSchema>;
+
+export const bookRecipeUpdateSchema = z.object({
+  subsectionId: cid,
+  /** Full replacement list for ingredients (simple strings — no ids
+   *  to delta against). Omit to keep the current list. */
+  setIngredients: z.array(z.string().min(1).max(500)).max(80).optional(),
+  notes: nullable(z.string().max(4000)),
+  servingsBase: nullable(z.number().int().min(1).max(1000)),
+  addSteps: z
+    .array(
+      z.object({
+        instruction: z.string().min(1).max(2000),
+        durationMinutes: nullable(z.number().int().min(0).max(2880)),
+        dayBefore: z.boolean().default(false),
+      }),
+    )
+    .max(40)
+    .optional(),
+  updateSteps: z
+    .array(
+      z.object({
+        stepId: cid,
+        instruction: z.string().min(1).max(2000).optional(),
+        durationMinutes: nullable(z.number().int().min(0).max(2880)),
+        dayBefore: z.boolean().optional(),
+      }),
+    )
+    .max(40)
+    .optional(),
+  removeStepIds: z.array(cid).max(40).optional(),
+});
+export type BookRecipeUpdatePayload = z.infer<typeof bookRecipeUpdateSchema>;
+
+export const bookShotAddSchema = z.object({
+  subsectionId: cid,
+  title: z.string().min(1).max(200),
+  category: nullable(z.string().max(60)),
+  location: nullable(z.string().max(200)),
+  notes: nullable(z.string().max(2000)),
+  estimatedMinutes: nullable(z.number().int().min(0).max(600)),
+  withWhom: z.array(z.string().max(120)).max(20).default([]),
+});
+export type BookShotAddPayload = z.infer<typeof bookShotAddSchema>;
+
+export const bookShotUpdateSchema = z.object({
+  shotId: cid,
+  title: z.string().min(1).max(200).optional(),
+  category: nullable(z.string().max(60)),
+  location: nullable(z.string().max(200)),
+  notes: nullable(z.string().max(2000)),
+  estimatedMinutes: nullable(z.number().int().min(0).max(600)),
+  captured: z.boolean().optional(),
+});
+export type BookShotUpdatePayload = z.infer<typeof bookShotUpdateSchema>;
+
+const outfitItemFields = {
+  description: nullable(z.string().max(2000)),
+  supplier: nullable(z.string().max(120)),
+  website: nullable(z.string().max(500)),
+  status: nullable(z.enum(OUTFIT_ITEM_STATUSES)),
+  notes: nullable(z.string().max(2000)),
+};
+export const bookOutfitUpdateSchema = z.object({
+  subsectionId: cid,
+  personName: nullable(z.string().max(120)),
+  role: nullable(z.string().max(60)),
+  notes: nullable(z.string().max(4000)),
+  addItems: z
+    .array(z.object({ itemLabel: z.string().min(1).max(160), ...outfitItemFields }))
+    .max(20)
+    .optional(),
+  updateItems: z
+    .array(
+      z.object({
+        itemId: cid,
+        itemLabel: z.string().min(1).max(160).optional(),
+        ...outfitItemFields,
+      }),
+    )
+    .max(20)
+    .optional(),
+  removeItemIds: z.array(cid).max(20).optional(),
+});
+export type BookOutfitUpdatePayload = z.infer<typeof bookOutfitUpdateSchema>;
+
+const buildMaterialFields = {
+  quantity: nullable(z.number().min(0)),
+  unit: nullable(z.string().max(40)),
+  supplier: nullable(z.string().max(120)),
+  website: nullable(z.string().max(500)),
+  notes: nullable(z.string().max(2000)),
+};
+export const bookBuildUpdateSchema = z.object({
+  subsectionId: cid,
+  quantityNeeded: nullable(z.number().int().min(0)),
+  targetDate: nullable(z.string().max(30)),
+  status: nullable(z.enum(BUILD_STATUSES)),
+  prototypeDone: z.boolean().optional(),
+  prototypeNotes: nullable(z.string().max(2000)),
+  estimatedMinutesPerUnit: nullable(z.number().int().min(0)),
+  notes: nullable(z.string().max(4000)),
+  addMaterials: z
+    .array(
+      z.object({
+        name: z.string().min(1).max(120),
+        ordered: z.boolean().default(false),
+        arrived: z.boolean().default(false),
+        ...buildMaterialFields,
+      }),
+    )
+    .max(30)
+    .optional(),
+  updateMaterials: z
+    .array(
+      z.object({
+        materialId: cid,
+        name: z.string().min(1).max(120).optional(),
+        ordered: z.boolean().optional(),
+        arrived: z.boolean().optional(),
+        ...buildMaterialFields,
+      }),
+    )
+    .max(30)
+    .optional(),
+  removeMaterialIds: z.array(cid).max(30).optional(),
+});
+export type BookBuildUpdatePayload = z.infer<typeof bookBuildUpdateSchema>;
+
+const menuOptionFields = {
+  description: nullable(z.string().max(2000)),
+  dietary: z.array(z.string().max(40)).max(10).optional(),
+  isVegetarianMain: z.boolean().optional(),
+  isKidsMeal: z.boolean().optional(),
+};
+/** Menu deltas. NO removeCourseIds — deleting a course cascades all
+ *  its options; that stays a human-only action in the editor. */
+export const bookMenuUpdateSchema = z.object({
+  subsectionId: cid,
+  serviceType: nullable(z.string().max(60)),
+  serviceTime: nullable(z.string().max(60)),
+  notes: nullable(z.string().max(4000)),
+  addCourses: z.array(z.object({ courseLabel: z.string().min(1).max(60) })).max(6).optional(),
+  renameCourses: z
+    .array(z.object({ courseId: cid, courseLabel: z.string().min(1).max(60) }))
+    .max(6)
+    .optional(),
+  addOptions: z
+    .array(
+      z.object({
+        courseId: cid,
+        label: z.string().min(1).max(160),
+        ...menuOptionFields,
+      }),
+    )
+    .max(20)
+    .optional(),
+  updateOptions: z
+    .array(
+      z.object({
+        optionId: cid,
+        label: z.string().min(1).max(160).optional(),
+        ...menuOptionFields,
+      }),
+    )
+    .max(20)
+    .optional(),
+  removeOptionIds: z.array(cid).max(20).optional(),
+});
+export type BookMenuUpdatePayload = z.infer<typeof bookMenuUpdateSchema>;
+
+const barItemFields = {
+  quantityPlanned: nullable(z.number().min(0)),
+  unit: nullable(z.string().max(40)),
+  supplier: nullable(z.string().max(120)),
+  website: nullable(z.string().max(500)),
+  timing: nullable(z.string().max(60)),
+  notes: nullable(z.string().max(2000)),
+};
+export const bookBarUpdateSchema = z.object({
+  subsectionId: cid,
+  barType: nullable(z.string().max(60)),
+  toastDrink: nullable(z.string().max(60)),
+  notes: nullable(z.string().max(4000)),
+  addItems: z
+    .array(
+      z.object({
+        category: z.string().min(1).max(60),
+        name: z.string().min(1).max(160),
+        ...barItemFields,
+      }),
+    )
+    .max(30)
+    .optional(),
+  updateItems: z
+    .array(
+      z.object({
+        itemId: cid,
+        category: z.string().min(1).max(60).optional(),
+        name: z.string().min(1).max(160).optional(),
+        ...barItemFields,
+      }),
+    )
+    .max(30)
+    .optional(),
+  removeItemIds: z.array(cid).max(30).optional(),
+});
+export type BookBarUpdatePayload = z.infer<typeof bookBarUpdateSchema>;
+
+const setupItemFields = {
+  // int to match saveSetupCard's own zod.
+  quantity: nullable(z.number().int().min(0)),
+  location: nullable(z.string().max(160)),
+  source: nullable(z.string().max(120)),
+  website: nullable(z.string().max(500)),
+  packDownPlan: nullable(z.string().max(2000)),
+  notes: nullable(z.string().max(2000)),
+};
+export const bookSetupUpdateSchema = z.object({
+  subsectionId: cid,
+  space: nullable(z.string().max(120)),
+  setupStartsAt: nullable(z.string().max(60)),
+  setupOwner: nullable(z.string().max(120)),
+  notes: nullable(z.string().max(4000)),
+  addItems: z
+    .array(
+      z.object({
+        name: z.string().min(1).max(160),
+        packed: z.boolean().default(false),
+        placed: z.boolean().default(false),
+        ...setupItemFields,
+      }),
+    )
+    .max(40)
+    .optional(),
+  updateItems: z
+    .array(
+      z.object({
+        itemId: cid,
+        name: z.string().min(1).max(160).optional(),
+        packed: z.boolean().optional(),
+        placed: z.boolean().optional(),
+        ...setupItemFields,
+      }),
+    )
+    .max(40)
+    .optional(),
+  removeItemIds: z.array(cid).max(40).optional(),
+});
+export type BookSetupUpdatePayload = z.infer<typeof bookSetupUpdateSchema>;
+
+export const bookStayUpdateSchema = z.object({
+  subsectionId: cid,
+  propertyName: nullable(z.string().max(160)),
+  propertyContact: nullable(z.string().max(400)),
+  bookingReference: nullable(z.string().max(120)),
+  // Strict ISO dates — saveStayCard's parseISODate silently NULLS an
+  // unparseable string instead of erroring, which would clear a date
+  // while the proposal reads as applied.
+  checkInDate: nullable(z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD")),
+  checkOutDate: nullable(z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD")),
+  addOccupants: z.array(z.string().min(1).max(120)).max(10).optional(),
+  removeOccupants: z.array(z.string().min(1).max(120)).max(10).optional(),
+  notes: nullable(z.string().max(4000)),
+});
+export type BookStayUpdatePayload = z.infer<typeof bookStayUpdateSchema>;
+
+const lodgingItemFields = {
+  distanceFromVenue: nullable(z.string().max(120)),
+  priceRangeLabel: nullable(z.string().max(20)),
+  // Caps match saveLodgingCard's own zod — a looser AI cap would mint
+  // proposals that can never be applied.
+  phone: nullable(z.string().max(40)),
+  website: nullable(z.string().max(400)),
+  groupRateCode: nullable(z.string().max(80)),
+  notes: nullable(z.string().max(2000)),
+};
+export const bookLodgingUpdateSchema = z.object({
+  subsectionId: cid,
+  notes: nullable(z.string().max(4000)),
+  addItems: z
+    .array(z.object({ name: z.string().min(1).max(160), ...lodgingItemFields }))
+    .max(30)
+    .optional(),
+  updateItems: z
+    .array(
+      z.object({
+        itemId: cid,
+        name: z.string().min(1).max(160).optional(),
+        ...lodgingItemFields,
+      }),
+    )
+    .max(30)
+    .optional(),
+  removeItemIds: z.array(cid).max(30).optional(),
+});
+export type BookLodgingUpdatePayload = z.infer<typeof bookLodgingUpdateSchema>;
+
+export const bookDressCodeUpdateSchema = z.object({
+  subsectionId: cid,
+  dressCode: nullable(z.string().max(120)),
+  summary: nullable(z.string().max(600)),
+  /** Plain text — the bridge renders it to allowed-tag HTML the same
+   *  way book.card.append does; the server re-sanitises anyway.
+   *  16000 not 20000: HTML escaping + <p>/<br/> wrappers expand the
+   *  text, and saveDressCodeCard caps bodyHtml at 20000 — a payload
+   *  that passes here must still fit after expansion. */
+  bodyText: nullable(z.string().max(16000)),
+  colourGuidance: nullable(z.string().max(600)),
+  footwear: nullable(z.string().max(600)),
+  weather: nullable(z.string().max(600)),
+  accessories: nullable(z.string().max(600)),
+});
+export type BookDressCodeUpdatePayload = z.infer<typeof bookDressCodeUpdateSchema>;
+
+export const bookWpSetCellSchema = z.object({
+  memberId: cid,
+  itemId: cid,
+  status: z.enum(WP_CELL_STATUSES),
+  notes: nullable(z.string().max(2000)),
+});
+export type BookWpSetCellPayload = z.infer<typeof bookWpSetCellSchema>;
+
+export const bookWpAddMemberSchema = z.object({
+  subsectionId: cid,
+  name: z.string().min(1).max(120),
+  role: nullable(z.string().max(60)),
+});
+export type BookWpAddMemberPayload = z.infer<typeof bookWpAddMemberSchema>;
+
+export const bookWpAddItemSchema = z.object({
+  subsectionId: cid,
+  label: z.string().min(1).max(160),
+  notes: nullable(z.string().max(2000)),
+});
+export type BookWpAddItemPayload = z.infer<typeof bookWpAddItemSchema>;
+
+export const bookWpUpdateHeaderSchema = z.object({
+  subsectionId: cid,
+  groupLabel: nullable(z.string().max(80)),
+  notes: nullable(z.string().max(4000)),
+});
+export type BookWpUpdateHeaderPayload = z.infer<typeof bookWpUpdateHeaderSchema>;
+
+// ── Guests + households ──
+
+/** Partial guest patch. Deliberately excludes `rsvp` (guest.set_rsvp
+ *  is the only RSVP path — it keeps `attending` in sync and cascades
+ *  to the +1) and `householdId` (moving households is human-only). */
+export const guestUpdateSchema = z.object({
+  guestId: cid,
+  firstName: z.string().min(1).max(100).optional(),
+  lastName: z.string().min(1).max(100).optional(),
+  email: nullable(z.string().max(200)),
+  phone: nullable(z.string().max(50)),
+  side: z.enum(SIDES).optional(),
+  isChild: z.boolean().optional(),
+  needsHighchair: z.boolean().optional(),
+  plusOneAllowed: z.boolean().optional(),
+  plusOneName: nullable(z.string().max(200)),
+  role: nullable(z.string().max(80)),
+  dietary: nullable(z.string().max(500)),
+  notes: nullable(z.string().max(2000)),
+});
+export type GuestUpdatePayload = z.infer<typeof guestUpdateSchema>;
+
+export const guestSetRsvpSchema = z.object({
+  guestId: cid,
+  rsvp: z.enum(RSVP_STATUSES),
+});
+export type GuestSetRsvpPayload = z.infer<typeof guestSetRsvpSchema>;
+
+/** Soft archive (reversible from the guest list). Frees their seat
+ *  and archives their +1 in one transaction — same as the UI. */
+export const guestArchiveSchema = z.object({ guestId: cid });
+export type GuestArchivePayload = z.infer<typeof guestArchiveSchema>;
+
+export const householdUpdateSchema = z.object({
+  householdId: cid,
+  name: z.string().min(1).max(200).optional(),
+  side: z.enum(SIDES).optional(),
+  notes: nullable(z.string().max(2000)),
+});
+export type HouseholdUpdatePayload = z.infer<typeof householdUpdateSchema>;
+
+// ── Schedule ──
+
+/** Partial event patch. Attendees are ADD/REMOVE deltas over the
+ *  canonical attendeeRefs strings ("user:<id>" / "builtin:<slug>" /
+ *  "group:<slug>") — updateScheduleEvent replaces the whole array, so
+ *  the bridge merges deltas against the live row (with the legacy
+ *  attendeeIds expansion for pre-v1.41 rows). endTime: null clears. */
+export const eventUpdateSchema = z.object({
+  eventId: cid,
+  title: z.string().min(1).max(200).optional(),
+  startTime: z.string().min(1).optional(),
+  endTime: nullable(z.string()),
+  location: nullable(z.string().max(200)),
+  notes: nullable(z.string().max(2000)),
+  allDay: z.boolean().optional(),
+  // max(80) matches eventSchema's own per-ref cap in schedule/actions.ts
+  // — a longer ref would pass propose-time and fail at apply.
+  addAttendeeRefs: z.array(z.string().min(1).max(80)).max(15).optional(),
+  removeAttendeeRefs: z.array(z.string().min(1).max(80)).max(15).optional(),
+});
+export type EventUpdatePayload = z.infer<typeof eventUpdateSchema>;
+
+// ── Budget + payments (couple-only at apply via requireEdit) ──
+//
+// All money in payloads is INTEGER PENCE. Bridges format pound-strings
+// ((p / 100).toFixed(2)) for the actions' parseAmount/parsePence, so
+// the silent NaN→null parser path and the 100x-unit mistake are both
+// unreachable.
+
+export const budgetCategoryCreateSchema = z.object({
+  name: z.string().min(1).max(100),
+});
+export type BudgetCategoryCreatePayload = z.infer<typeof budgetCategoryCreateSchema>;
+
+const budgetLineFields = {
+  estimatedPence: nullable(z.number().int().min(0).max(100_000_000)),
+  supplierId: nullable(cid),
+  notes: nullable(z.string().max(2000)),
+  perHeadPence: nullable(z.number().int().min(0).max(100_000_000)),
+  headcountSource: nullable(z.enum(PER_HEAD_SOURCES)),
+  manualHeadcount: nullable(z.number().int().min(0).max(10_000)),
+  minimumHeadcount: nullable(z.number().int().min(0).max(10_000)),
+  fundSource: nullable(z.enum(FUND_SOURCES)),
+  fundLabel: nullable(z.string().max(120)),
+};
+export const budgetLineCreateSchema = z.object({
+  categoryId: cid,
+  description: z.string().min(1).max(200),
+  ...budgetLineFields,
+});
+export type BudgetLineCreatePayload = z.infer<typeof budgetLineCreateSchema>;
+
+/** No categoryId — a wrong category silently relocates the line, so
+ *  moves stay human-only. `actual`/`paid` are never in the payload:
+ *  the bridge always carries the current values, so the AI can never
+ *  pin or unpin the actual-override. */
+export const budgetLineUpdateSchema = z.object({
+  lineId: cid,
+  description: z.string().min(1).max(200).optional(),
+  ...budgetLineFields,
+});
+export type BudgetLineUpdatePayload = z.infer<typeof budgetLineUpdateSchema>;
+
+const paymentFields = {
+  dueDate: nullable(z.string().max(30)),
+  method: nullable(z.string().max(100)),
+  supplierId: nullable(cid),
+  budgetLineId: nullable(cid),
+  budgetLineComponentId: nullable(cid),
+  fundSource: nullable(z.enum(FUND_SOURCES)),
+  fundLabel: nullable(z.string().max(120)),
+  notes: nullable(z.string().max(2000)),
+};
+export const paymentCreateSchema = z.object({
+  description: z.string().min(1).max(200),
+  amountPence: z.number().int().min(1).max(100_000_000),
+  status: z.enum(PAYMENT_STATUSES).default("DUE"),
+  ...paymentFields,
+});
+export type PaymentCreatePayload = z.infer<typeof paymentCreateSchema>;
+
+export const paymentUpdateSchema = z.object({
+  paymentId: cid,
+  description: z.string().min(1).max(200).optional(),
+  amountPence: z.number().int().min(1).max(100_000_000).optional(),
+  status: z.enum(PAYMENT_STATUSES).optional(),
+  ...paymentFields,
+});
+export type PaymentUpdatePayload = z.infer<typeof paymentUpdateSchema>;
+
+/** Marking PAID stamps today's date; moving off PAID clears the
+ *  recorded paid date — the review card says so. */
+export const paymentSetStatusSchema = z.object({
+  paymentId: cid,
+  status: z.enum(PAYMENT_STATUSES),
+});
+export type PaymentSetStatusPayload = z.infer<typeof paymentSetStatusSchema>;
+
+// ── Long tail ──
+
+/** min(1) is load-bearing: answerQuestion's empty branch would wipe
+ *  the answer AND reopen the question. */
+export const questionAnswerSchema = z.object({
+  taskId: cid,
+  answer: z.string().min(1).max(4000),
+});
+export type QuestionAnswerPayload = z.infer<typeof questionAnswerSchema>;
+
+export const songAddSchema = z.object({
+  playlistId: cid,
+  title: z.string().min(1).max(200),
+  artist: nullable(z.string().max(200)),
+  source: nullable(z.string().max(100)),
+});
+export type SongAddPayload = z.infer<typeof songAddSchema>;
+
+/** One kind, entity-discriminated. Clearing values is out of scope
+ *  (min(1)) — null deletes the key, and that's a human call. */
+export const customFieldSetSchema = z.object({
+  entity: z.enum(["guest", "task", "supplier"]),
+  targetId: cid,
+  fieldId: cid,
+  value: z.string().min(1).max(2000),
+  /** Display-only: the field's name, denormalised at propose time so
+   *  the review card names the field. The apply bridge ignores it. */
+  fieldName: z.string().max(120).optional(),
+});
+export type CustomFieldSetPayload = z.infer<typeof customFieldSetSchema>;
+
+/** Seat a guest. The propose tool refuses occupied seats outright and
+ *  the bridge re-checks occupancy at apply — the underlying action's
+ *  silent-eviction path is never reachable through the AI. */
+export const seatAssignSchema = z.object({
+  seatId: cid,
+  guestId: cid,
+});
+export type SeatAssignPayload = z.infer<typeof seatAssignSchema>;
+
 export function schemaForKind(kind: string): z.ZodTypeAny | null {
   switch (kind) {
     case "task.create":
@@ -190,6 +858,76 @@ export function schemaForKind(kind: string): z.ZodTypeAny | null {
       return supplierUpdateSchema;
     case "supplier.log_communication":
       return supplierCommunicationSchema;
+    case "event.update":
+      return eventUpdateSchema;
+    case "guest.update":
+      return guestUpdateSchema;
+    case "guest.set_rsvp":
+      return guestSetRsvpSchema;
+    case "guest.archive":
+      return guestArchiveSchema;
+    case "household.update":
+      return householdUpdateSchema;
+    case "book.card.replace_text":
+      return bookCardReplaceTextSchema;
+    case "book.card.rename":
+      return bookCardRenameSchema;
+    case "book.card.create":
+      return bookCardCreateSchema;
+    case "book.section.create":
+      return bookSectionCreateSchema;
+    case "book.field.set":
+      return bookFieldSetSchema;
+    case "book.recipe.update":
+      return bookRecipeUpdateSchema;
+    case "book.shot.add":
+      return bookShotAddSchema;
+    case "book.shot.update":
+      return bookShotUpdateSchema;
+    case "book.outfit.update":
+      return bookOutfitUpdateSchema;
+    case "book.build.update":
+      return bookBuildUpdateSchema;
+    case "book.menu.update":
+      return bookMenuUpdateSchema;
+    case "book.bar.update":
+      return bookBarUpdateSchema;
+    case "book.setup.update":
+      return bookSetupUpdateSchema;
+    case "book.stay.update":
+      return bookStayUpdateSchema;
+    case "book.lodging.update":
+      return bookLodgingUpdateSchema;
+    case "book.dresscode.update":
+      return bookDressCodeUpdateSchema;
+    case "book.weddingparty.set_cell":
+      return bookWpSetCellSchema;
+    case "book.weddingparty.add_member":
+      return bookWpAddMemberSchema;
+    case "book.weddingparty.add_item":
+      return bookWpAddItemSchema;
+    case "book.weddingparty.update_header":
+      return bookWpUpdateHeaderSchema;
+    case "budget.category.create":
+      return budgetCategoryCreateSchema;
+    case "budget.line.create":
+      return budgetLineCreateSchema;
+    case "budget.line.update":
+      return budgetLineUpdateSchema;
+    case "payment.create":
+      return paymentCreateSchema;
+    case "payment.update":
+      return paymentUpdateSchema;
+    case "payment.set_status":
+      return paymentSetStatusSchema;
+    case "question.answer":
+      return questionAnswerSchema;
+    case "song.add":
+      return songAddSchema;
+    case "custom_field.set":
+      return customFieldSetSchema;
+    case "seat.assign":
+      return seatAssignSchema;
     default:
       return null;
   }
@@ -213,6 +951,76 @@ export function humanLabel(kind: ProposalKind): string {
       return "Update supplier";
     case "supplier.log_communication":
       return "Log supplier contact";
+    case "event.update":
+      return "Update schedule event";
+    case "guest.update":
+      return "Update guest";
+    case "guest.set_rsvp":
+      return "Set RSVP";
+    case "guest.archive":
+      return "Archive guest";
+    case "household.update":
+      return "Update household";
+    case "book.card.replace_text":
+      return "Rewrite book card text";
+    case "book.card.rename":
+      return "Rename book card";
+    case "book.card.create":
+      return "New book card";
+    case "book.section.create":
+      return "New book section";
+    case "book.field.set":
+      return "Set book field";
+    case "book.recipe.update":
+      return "Update recipe card";
+    case "book.shot.add":
+      return "Add photo shot";
+    case "book.shot.update":
+      return "Update photo shot";
+    case "book.outfit.update":
+      return "Update outfit card";
+    case "book.build.update":
+      return "Update build card";
+    case "book.menu.update":
+      return "Update menu card";
+    case "book.bar.update":
+      return "Update bar card";
+    case "book.setup.update":
+      return "Update setup card";
+    case "book.stay.update":
+      return "Update stay card";
+    case "book.lodging.update":
+      return "Update lodging guide";
+    case "book.dresscode.update":
+      return "Update dress code card";
+    case "book.weddingparty.set_cell":
+      return "Set wedding-party status";
+    case "book.weddingparty.add_member":
+      return "Add wedding-party member";
+    case "book.weddingparty.add_item":
+      return "Add wedding-party item";
+    case "book.weddingparty.update_header":
+      return "Update wedding-party card";
+    case "budget.category.create":
+      return "New budget category";
+    case "budget.line.create":
+      return "New budget line";
+    case "budget.line.update":
+      return "Update budget line";
+    case "payment.create":
+      return "New payment";
+    case "payment.update":
+      return "Update payment";
+    case "payment.set_status":
+      return "Set payment status";
+    case "question.answer":
+      return "Answer question (marks it Done)";
+    case "song.add":
+      return "Add song";
+    case "custom_field.set":
+      return "Set custom field";
+    case "seat.assign":
+      return "Seat a guest";
   }
 }
 
@@ -287,5 +1095,267 @@ export function summariseProposal(kind: string, payload: unknown): string {
       typeof p.followUpAt === "string" && p.followUpAt ? ` · follow-up ${p.followUpAt}` : "";
     return `${channel}: ${summary.slice(0, 80)}${summary.length > 80 ? "…" : ""}${followUp}`;
   }
+
+  // v2.4.0 kinds. Shared helpers keep the delta-kind summaries uniform:
+  // header-field mentions + add/update/remove counts.
+  const str = (v: unknown): string | null => (typeof v === "string" ? v : null);
+  const clip = (v: unknown, n = 60): string => {
+    const s = str(v) ?? "";
+    return s.length > n ? `${s.slice(0, n)}…` : s;
+  };
+  const deltaBits = (labels: [string, string][]): string => {
+    const bits: string[] = [];
+    for (const [key, label] of labels) {
+      const v = p[key];
+      if (Array.isArray(v) && v.length) bits.push(`${label} ${v.length}`);
+    }
+    return bits.join(", ");
+  };
+  const headerBits = (keys: string[]): string => {
+    const touched = keys.filter((k) => p[k] !== undefined);
+    return touched.length ? `sets ${touched.join(", ")}` : "";
+  };
+  const joinBits = (...bits: string[]): string =>
+    bits.filter(Boolean).join(" · ") || "small tweak";
+
+  if (kind === "event.update") {
+    return joinBits(
+      headerBits(["title", "startTime", "endTime", "location", "notes", "allDay"]),
+      deltaBits([
+        ["addAttendeeRefs", "+attendees"],
+        ["removeAttendeeRefs", "−attendees"],
+      ]),
+    );
+  }
+  if (kind === "guest.update") {
+    return joinBits(
+      headerBits([
+        "firstName",
+        "lastName",
+        "email",
+        "phone",
+        "side",
+        "isChild",
+        "needsHighchair",
+        "plusOneAllowed",
+        "plusOneName",
+        "role",
+        "dietary",
+        "notes",
+      ]),
+    );
+  }
+  if (kind === "guest.set_rsvp") return `RSVP → ${str(p.rsvp) ?? "?"}`;
+  if (kind === "guest.archive") return "Archive (reversible) — unseats them, archives their +1";
+  if (kind === "household.update") {
+    return joinBits(headerBits(["name", "side", "notes"]));
+  }
+  if (kind === "book.card.replace_text") {
+    return `Rewrites the card body (${clip(p.text, 80)})`;
+  }
+  if (kind === "book.card.rename") return `Title → "${clip(p.title, 80)}"`;
+  if (kind === "book.card.create") {
+    return `${clip(p.title, 60)} (${str(p.kind) ?? "TEXT"})`;
+  }
+  if (kind === "book.section.create") return clip(p.title, 80) || "(untitled)";
+  if (kind === "book.field.set") {
+    const field = str(p.fieldName) ?? "Field";
+    return p.value === null ? `Clears "${field}"` : `${field} → ${clip(p.value, 60)}`;
+  }
+  if (kind === "book.recipe.update") {
+    return joinBits(
+      headerBits(["notes", "servingsBase"]),
+      Array.isArray(p.setIngredients) ? `replaces ingredients (${p.setIngredients.length})` : "",
+      deltaBits([
+        ["addSteps", "+steps"],
+        ["updateSteps", "~steps"],
+        ["removeStepIds", "−steps"],
+      ]),
+    );
+  }
+  if (kind === "book.shot.add") return clip(p.title, 80) || "(untitled shot)";
+  if (kind === "book.shot.update") {
+    return joinBits(
+      headerBits(["title", "category", "location", "notes", "estimatedMinutes", "captured"]),
+    );
+  }
+  if (kind === "book.outfit.update") {
+    return joinBits(
+      headerBits(["personName", "role", "notes"]),
+      deltaBits([
+        ["addItems", "+items"],
+        ["updateItems", "~items"],
+        ["removeItemIds", "−items"],
+      ]),
+    );
+  }
+  if (kind === "book.build.update") {
+    return joinBits(
+      headerBits([
+        "quantityNeeded",
+        "targetDate",
+        "status",
+        "prototypeDone",
+        "prototypeNotes",
+        "estimatedMinutesPerUnit",
+        "notes",
+      ]),
+      deltaBits([
+        ["addMaterials", "+materials"],
+        ["updateMaterials", "~materials"],
+        ["removeMaterialIds", "−materials"],
+      ]),
+    );
+  }
+  if (kind === "book.menu.update") {
+    return joinBits(
+      headerBits(["serviceType", "serviceTime", "notes"]),
+      deltaBits([
+        ["addCourses", "+courses"],
+        ["renameCourses", "~courses"],
+        ["addOptions", "+options"],
+        ["updateOptions", "~options"],
+        ["removeOptionIds", "−options"],
+      ]),
+    );
+  }
+  if (kind === "book.bar.update") {
+    return joinBits(
+      headerBits(["barType", "toastDrink", "notes"]),
+      deltaBits([
+        ["addItems", "+items"],
+        ["updateItems", "~items"],
+        ["removeItemIds", "−items"],
+      ]),
+    );
+  }
+  if (kind === "book.setup.update") {
+    return joinBits(
+      headerBits(["space", "setupStartsAt", "setupOwner", "notes"]),
+      deltaBits([
+        ["addItems", "+items"],
+        ["updateItems", "~items"],
+        ["removeItemIds", "−items"],
+      ]),
+    );
+  }
+  if (kind === "book.stay.update") {
+    return joinBits(
+      headerBits([
+        "propertyName",
+        "propertyContact",
+        "bookingReference",
+        "checkInDate",
+        "checkOutDate",
+        "notes",
+      ]),
+      deltaBits([
+        ["addOccupants", "+occupants"],
+        ["removeOccupants", "−occupants"],
+      ]),
+    );
+  }
+  if (kind === "book.lodging.update") {
+    return joinBits(
+      headerBits(["notes"]),
+      deltaBits([
+        ["addItems", "+options"],
+        ["updateItems", "~options"],
+        ["removeItemIds", "−options"],
+      ]),
+    );
+  }
+  if (kind === "book.dresscode.update") {
+    return joinBits(
+      headerBits([
+        "dressCode",
+        "summary",
+        "bodyText",
+        "colourGuidance",
+        "footwear",
+        "weather",
+        "accessories",
+      ]),
+    );
+  }
+  if (kind === "book.weddingparty.set_cell") {
+    return `Status → ${str(p.status) ?? "?"}${p.notes ? ` · ${clip(p.notes, 40)}` : ""}`;
+  }
+  if (kind === "book.weddingparty.add_member") {
+    return `${clip(p.name, 60)}${p.role ? ` (${clip(p.role, 30)})` : ""}`;
+  }
+  if (kind === "book.weddingparty.add_item") return clip(p.label, 80) || "(untitled)";
+  if (kind === "book.weddingparty.update_header") {
+    return joinBits(headerBits(["groupLabel", "notes"]));
+  }
+  if (kind === "budget.category.create") return clip(p.name, 80) || "(unnamed)";
+  if (kind === "budget.line.create") {
+    const est =
+      typeof p.estimatedPence === "number" ? ` · est £${(p.estimatedPence / 100).toFixed(2)}` : "";
+    return `${clip(p.description, 60)}${est}`;
+  }
+  if (kind === "budget.line.update") {
+    const bits: string[] = [];
+    if (p.description !== undefined) bits.push(`description → "${clip(p.description, 40)}"`);
+    if (typeof p.estimatedPence === "number")
+      bits.push(`estimated → £${(p.estimatedPence / 100).toFixed(2)}`);
+    if (p.estimatedPence === null) bits.push("clears estimated");
+    for (const k of [
+      "supplierId",
+      "notes",
+      "perHeadPence",
+      "headcountSource",
+      "manualHeadcount",
+      "minimumHeadcount",
+      "fundSource",
+      "fundLabel",
+    ]) {
+      if (p[k] !== undefined) bits.push(`sets ${k}`);
+    }
+    return bits.join(", ") || "small tweak";
+  }
+  if (kind === "payment.create") {
+    const amt = typeof p.amountPence === "number" ? ` · £${(p.amountPence / 100).toFixed(2)}` : "";
+    const due = str(p.dueDate) ? ` · due ${p.dueDate}` : "";
+    return `${clip(p.description, 60)}${amt}${due}`;
+  }
+  if (kind === "payment.update") {
+    const bits: string[] = [];
+    if (p.description !== undefined) bits.push(`description → "${clip(p.description, 40)}"`);
+    if (typeof p.amountPence === "number")
+      bits.push(`amount → £${(p.amountPence / 100).toFixed(2)}`);
+    if (p.status !== undefined) bits.push(`status → ${str(p.status)}`);
+    for (const k of [
+      "dueDate",
+      "method",
+      "supplierId",
+      "budgetLineId",
+      "budgetLineComponentId",
+      "fundSource",
+      "fundLabel",
+      "notes",
+    ]) {
+      if (p[k] !== undefined) bits.push(`sets ${k}`);
+    }
+    return bits.join(", ") || "small tweak";
+  }
+  if (kind === "payment.set_status") {
+    const s = str(p.status) ?? "?";
+    return s === "PAID"
+      ? "Status → PAID (stamps today as the paid date)"
+      : `Status → ${s}`;
+  }
+  if (kind === "question.answer") {
+    return `${clip(p.answer, 100)} (marks the question Done)`;
+  }
+  if (kind === "song.add") {
+    const artist = str(p.artist) ? ` — ${clip(p.artist, 40)}` : "";
+    return `${clip(p.title, 60)}${artist}`;
+  }
+  if (kind === "custom_field.set") {
+    const field = str(p.fieldName) ?? `${str(p.entity) ?? "?"} field`;
+    return `${field} → ${clip(p.value, 60)}`;
+  }
+  if (kind === "seat.assign") return "Seat a guest at a specific seat";
   return "";
 }

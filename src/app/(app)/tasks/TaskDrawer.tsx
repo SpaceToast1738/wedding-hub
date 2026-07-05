@@ -7,6 +7,7 @@ import { MentionableTextarea } from "@/components/ui/MentionableTextarea";
 import { notify } from "@/lib/notify";
 import { isoForInput } from "@/lib/format";
 import { deleteTask, updateTask } from "./actions";
+import { suggestTaskBreakdown } from "@/app/(app)/ai/actions";
 import type { UserOpt, SupplierOpt, BookSectionOpt, NavTagOpt, GuestGroupOpt } from "./TaskForm";
 import { TopicPicker, type BookSubsectionOpt } from "./TopicPicker";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
@@ -197,6 +198,26 @@ export function TaskDrawer({
         onClose();
       } catch (err) {
         notify("error", err instanceof Error ? err.message : "Couldn't delete");
+      }
+    });
+  }
+
+  // v2.4.0: one-shot AI breakdown. Emits 3–8 task.create proposals
+  // (one approval batch on /ai); this task itself is untouched until
+  // someone reviews them.
+  function onBreakdown() {
+    startTransition(async () => {
+      try {
+        const res = await suggestTaskBreakdown(task.id);
+        if (res.ok) {
+          notify("success", `Drafted ${res.count} subtasks — review them on /ai`);
+        } else {
+          notify("error", res.error);
+        }
+      } catch (err) {
+        // Network-level failure of the action POST itself — app-level
+        // failures come back as { ok: false } above.
+        notify("error", err instanceof Error ? err.message : "Breakdown failed");
       }
     });
   }
@@ -505,9 +526,19 @@ export function TaskDrawer({
 
         {canEdit && (
           <footer className="px-5 py-3 border-t border-border-soft flex justify-between items-center">
-            <Button variant="ghost" size="sm" onClick={onDelete} disabled={pending}>
-              Delete
-            </Button>
+            <div className="flex gap-2 items-center">
+              <Button variant="ghost" size="sm" onClick={onDelete} disabled={pending}>
+                Delete
+              </Button>
+              {type === "TASK" && (
+                // v2.4.0: one-shot AI breakdown — splits this task into
+                // 3–8 subtask proposals on /ai. Server action gates on
+                // ai_write; without it the click just reports the error.
+                <Button variant="ghost" size="sm" onClick={onBreakdown} disabled={pending}>
+                  ✨ Break down
+                </Button>
+              )}
+            </div>
             <div className="flex gap-2">
               <Button variant="ghost" size="sm" onClick={onClose} disabled={pending}>
                 Cancel

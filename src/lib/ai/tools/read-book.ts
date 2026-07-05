@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { db } from "@/lib/db";
+import { canView } from "@/lib/permissions";
 import type { AiTool } from "./types";
 
 const inputSchema = z.object({
@@ -20,13 +21,13 @@ function stripHtml(html: string | null | undefined): string {
 export const readBook: AiTool<typeof inputSchema> = {
   name: "read_book",
   description:
-    "Read the Wedding Book. Without `sectionSlug`, returns the list of all sections with their card counts. With `sectionSlug`, returns that section and every card inside it (title + kind). Set `includeBody: true` on a section fetch to also pull TEXT card contents (up to 500 chars per card). Filters COUPLE_ONLY items based on caller's permissions — but if the caller is the couple, they see everything.",
+    "Read the Wedding Book. Without `sectionSlug`, returns the list of all sections with their card counts. With `sectionSlug`, returns that section and every card inside it (id + title + kind + visibility). Set `includeBody: true` on a section fetch to also pull TEXT card contents (up to 500 chars per card). Filters COUPLE_ONLY items based on caller's permissions — but if the caller is the couple, they see everything. Use read_book_card with a card id for full content + child-row ids before proposing any book update.",
   inputSchema,
   progressLabel: "Reading the wedding book…",
   definition: {
     name: "read_book",
     description:
-      "Read the Wedding Book. Without `sectionSlug`, returns the list of all sections. With `sectionSlug`, returns that section and every card inside it. Set `includeBody: true` to also pull TEXT card contents.",
+      "Read the Wedding Book. Without `sectionSlug`, returns the list of all sections. With `sectionSlug`, returns that section and every card inside it (id + title + kind + visibility). Set `includeBody: true` to also pull TEXT card contents. Use read_book_card with a card id for full content + child-row ids before proposing any book update.",
     input_schema: {
       type: "object",
       properties: {
@@ -36,6 +37,11 @@ export const readBook: AiTool<typeof inputSchema> = {
     },
   },
   async handler(input, ctx) {
+    // v2.4.0 review fix: the section gate — ai_chat access alone must
+    // not bypass a NONE permission on the underlying section.
+    if (!(await canView(ctx.user, "book"))) {
+      return { ok: false, error: "The Wedding Book isn't visible to this user." };
+    }
     const visibilityFilter = ctx.user.isCouple
       ? undefined
       : { visibility: "EVERYONE" as const };
@@ -45,6 +51,7 @@ export const readBook: AiTool<typeof inputSchema> = {
         where: visibilityFilter,
         orderBy: { order: "asc" },
         select: {
+          id: true,
           slug: true,
           title: true,
           subtitle: true,
@@ -55,6 +62,7 @@ export const readBook: AiTool<typeof inputSchema> = {
         ok: true,
         data: {
           sections: sections.map((s) => ({
+            id: s.id,
             slug: s.slug,
             title: s.title,
             subtitle: s.subtitle,
@@ -67,6 +75,7 @@ export const readBook: AiTool<typeof inputSchema> = {
     const section = await db.bookSection.findUnique({
       where: { slug: input.sectionSlug },
       select: {
+        id: true,
         slug: true,
         title: true,
         subtitle: true,
@@ -96,6 +105,7 @@ export const readBook: AiTool<typeof inputSchema> = {
       ok: true,
       data: {
         section: {
+          id: section.id,
           slug: section.slug,
           title: section.title,
           subtitle: section.subtitle,
@@ -106,9 +116,11 @@ export const readBook: AiTool<typeof inputSchema> = {
               ? stripHtml(c.bodyHtml ?? c.body).slice(0, 500)
               : null;
           return {
+            id: c.id,
             slug: c.slug,
             title: c.title,
             kind: c.kind,
+            visibility: c.visibility,
             body: body || undefined,
           };
         }),

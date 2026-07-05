@@ -63,7 +63,7 @@ const subsectionSchema = z.object({
   kind: z.nativeEnum(BookSubsectionKind).default(BookSubsectionKind.TEXT),
 });
 
-export async function createBookSection(formData: FormData) {
+export async function createBookSection(formData: FormData): Promise<{ id: string }> {
   const user = await requireEdit("book");
   const parsed = sectionSchema.parse({
     title: formData.get("title"),
@@ -107,6 +107,10 @@ export async function createBookSection(formData: FormData) {
     },
   });
   revalidatePath("/book");
+  // v2.4.0: return the id so the AI proposal apply-bridge can link the
+  // AiProposal to the row it just produced. Form callers discard the
+  // return value — same non-breaking precedent as createTask.
+  return { id: created.id };
 }
 
 // v1.94.0: edit title + subtitle on an existing section. Slug stays
@@ -188,7 +192,7 @@ export async function deleteBookSection(id: string) {
 
 // v1.26.0: kind-aware. Every new card seeds the per-kind structured
 // data so the renderer never has to handle a missing relation.
-export async function createBookSubsection(formData: FormData) {
+export async function createBookSubsection(formData: FormData): Promise<{ id: string }> {
   const user = await requireEdit("book");
   // v1.60.0 (P7): drop the bogus `as BookSubsectionKind | null` cast —
   // the schema's `z.nativeEnum(BookSubsectionKind).default(TEXT)` does
@@ -314,6 +318,9 @@ export async function createBookSubsection(formData: FormData) {
   revalidatePath("/book");
   const section = await db.bookSection.findUnique({ where: { id: parsed.sectionId } });
   if (section) revalidatePath(`/book/${section.slug}`);
+  // v2.4.0: return the id so the AI proposal apply-bridge can link the
+  // AiProposal to the row it just produced. Form callers discard it.
+  return { id: created.id };
 }
 
 export async function updateBookSubsection(id: string, formData: FormData) {

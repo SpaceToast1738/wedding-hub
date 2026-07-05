@@ -78,7 +78,7 @@ export async function deletePlaylist(id: string) {
   revalidatePath("/songs");
 }
 
-export async function createSong(formData: FormData) {
+export async function createSong(formData: FormData): Promise<{ id: string }> {
   const user = await requireEdit("songs");
   const parsed = songSchema.parse({
     playlistId: formData.get("playlistId"),
@@ -114,6 +114,8 @@ export async function createSong(formData: FormData) {
     },
   });
   revalidatePath("/songs");
+  // v2.4.0: return the id so the AI apply-bridge can link the row.
+  return { id: created.id };
 }
 
 export async function deleteSong(id: string) {

@@ -65,7 +65,7 @@ function decimalToNumber(d: { toString: () => string } | null | undefined): numb
   return isNaN(n) ? null : n;
 }
 
-export async function createCategory(formData: FormData) {
+export async function createCategory(formData: FormData): Promise<{ id: string }> {
   const user = await requireEdit("budget");
   const parsed = categorySchema.parse({ name: formData.get("name") });
   const last = await db.budgetCategory.findFirst({ orderBy: { order: "desc" } });
@@ -78,6 +78,8 @@ export async function createCategory(formData: FormData) {
     metadata: { name: created.name, order: created.order },
   });
   revalidatePath("/budget");
+  // v2.4.0: return the id so the AI apply-bridge can link the row.
+  return { id: created.id };
 }
 
 // v1.53.0 (C1): result-shape return so caller can render a real
@@ -186,7 +188,7 @@ export async function deleteCategory(id: string): Promise<DeleteResult> {
   }
 }
 
-export async function createLine(formData: FormData) {
+export async function createLine(formData: FormData): Promise<{ id: string }> {
   const user = await requireEdit("budget");
   const parsed = lineSchema.parse({
     categoryId: formData.get("categoryId"),
@@ -241,6 +243,8 @@ export async function createLine(formData: FormData) {
     },
   });
   revalidatePath("/budget");
+  // v2.4.0: return the id so the AI apply-bridge can link the row.
+  return { id: created.id };
 }
 
 export async function updateLine(id: string, formData: FormData) {

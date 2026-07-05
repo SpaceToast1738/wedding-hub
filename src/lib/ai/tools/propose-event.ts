@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { eventCreateSchema } from "@/lib/ai/proposals/schemas";
 import { BUILTIN_GROUP_SLUGS } from "@/lib/group-members";
 import { buildDetailLine, resolveRefs, unknownIdsError } from "./validate-refs";
+import { takeProposalSlots } from "./propose-common";
 import type { AiTool } from "./types";
 
 const inputSchema = z.object({
@@ -66,13 +67,8 @@ export const proposeEvent: AiTool<typeof inputSchema> = {
     },
   },
   async handler(input, ctx) {
-    if (!ctx.canWrite) {
-      return {
-        ok: false,
-        error:
-          "You don't have permission to write proposals. Ask the couple for ai_write access.",
-      };
-    }
+    const guard = takeProposalSlots(ctx);
+    if (guard) return guard;
 
     // Validate attendee refs: user:<id> against real users,
     // builtin:<slug> against the builtin group registry. Anything

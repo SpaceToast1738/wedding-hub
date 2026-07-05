@@ -82,6 +82,7 @@ const DEFAULT_LIMITS: Partial<Record<AiFeature, { max: number; windowSec: number
   "suggest-tasks": { max: 5, windowSec: 60 * 60 },
   "suggest-due-dates": { max: 5, windowSec: 60 * 60 },
   "gap-analysis": { max: 3, windowSec: 60 * 60 },
+  "breakdown-task": { max: 10, windowSec: 60 * 60 },
   "generate-timeline": { max: 3, windowSec: 60 * 60 },
   "parse-guest-list": { max: 10, windowSec: 60 * 60 },
   "draft-guest-message": { max: 20, windowSec: 60 * 60 },

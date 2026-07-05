@@ -104,6 +104,36 @@ export const gapAnalysisSchema = {
   required: ["gaps"],
 } as const;
 
+/** suggestTaskBreakdown — one-shot "Break down" button on a task.
+ *  Subtasks become task.create proposals (batch); dueWeeksBeforeWedding
+ *  is relative so the server can clamp against the real date. */
+export const taskBreakdownSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    subtasks: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          title: { type: "string" },
+          priority: { type: "string", enum: ["LOW", "MEDIUM", "HIGH", "URGENT"] },
+          notes: { type: ["string", "null"] },
+          dueWeeksBeforeWedding: {
+            type: ["number", "null"],
+            description:
+              "How many weeks before the wedding this subtask should be done. Null when timing doesn't matter.",
+          },
+        },
+        required: ["title", "priority"],
+      },
+      description: "3–8 concrete, independently-actionable subtasks in doing order.",
+    },
+  },
+  required: ["subtasks"],
+} as const;
+
 /** reviewWeddingState — the structured state-of-the-wedding report. */
 export const weddingReviewSchema = {
   type: "object",

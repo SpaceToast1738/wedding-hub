@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { supplierCreateSchema, SUPPLIER_STATUSES } from "@/lib/ai/proposals/schemas";
+import { takeProposalSlots } from "./propose-common";
 import type { AiTool } from "./types";
 
 const inputSchema = z.object({
@@ -50,13 +51,8 @@ export const proposeSupplierCreate: AiTool<typeof inputSchema> = {
     },
   },
   async handler(input, ctx) {
-    if (!ctx.canWrite) {
-      return {
-        ok: false,
-        error:
-          "You don't have permission to write proposals in this app. Tell the user to ask the couple for ai_write access.",
-      };
-    }
+    const guard = takeProposalSlots(ctx);
+    if (guard) return guard;
 
     const payloadResult = supplierCreateSchema.safeParse({
       name: input.name,

@@ -2,6 +2,7 @@ import { z } from "zod";
 import { supplierUpdateSchema, SUPPLIER_STATUSES } from "@/lib/ai/proposals/schemas";
 import { db } from "@/lib/db";
 import { resolveRefs, unknownIdsError } from "./validate-refs";
+import { takeProposalSlots } from "./propose-common";
 import type { AiTool } from "./types";
 
 // `name` is deliberately NOT exposed here — a supplier's name is the
@@ -57,12 +58,8 @@ export const proposeSupplierUpdate: AiTool<typeof inputSchema> = {
     },
   },
   async handler(input, ctx) {
-    if (!ctx.canWrite) {
-      return {
-        ok: false,
-        error: "You don't have permission to write proposals. Ask the couple for ai_write access.",
-      };
-    }
+    const guard = takeProposalSlots(ctx);
+    if (guard) return guard;
 
     const { invalid, names } = await resolveRefs({ supplierIds: [input.supplierId] });
     if (invalid.length) {

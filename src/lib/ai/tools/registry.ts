@@ -11,22 +11,66 @@ import { readTasks } from "./read-tasks";
 import { readEvents } from "./read-events";
 import { readGuests } from "./read-guests";
 import { readBook } from "./read-book";
+import { readBookCard } from "./read-book-card";
 import { readBudget } from "./read-budget";
 import { readStats } from "./read-stats";
 import { readSuppliers } from "./read-suppliers";
 import { readProposals } from "./read-proposals";
+import { readPayments } from "./read-payments";
+import { readSeating } from "./read-seating";
+import { readSongs } from "./read-songs";
+import { readFiles } from "./read-files";
 import { proposeTask } from "./propose-task";
 import { proposeTaskUpdate } from "./propose-task-update";
+import { proposeTaskBreakdown } from "./propose-task-breakdown";
 import { proposeEvent } from "./propose-event";
+import { proposeEventUpdate } from "./propose-event-update";
 import { proposeSupplierCreate } from "./propose-supplier-create";
 import { proposeSupplierUpdate } from "./propose-supplier-update";
 import { proposeSupplierLogCommunication } from "./propose-supplier-log-communication";
+import { proposeGuestUpdate } from "./propose-guest-update";
+import { proposeGuestSetRsvp } from "./propose-guest-set-rsvp";
+import { proposeGuestArchive } from "./propose-guest-archive";
+import { proposeHouseholdUpdate } from "./propose-household-update";
+import { proposeBookSectionCreate } from "./propose-book-section-create";
+import { proposeBookCardCreate } from "./propose-book-card-create";
+import { proposeBookCardRename } from "./propose-book-card-rename";
+import { proposeBookCardReplaceText } from "./propose-book-card-replace-text";
+import { proposeBookFieldSet } from "./propose-book-field-set";
+import { proposeBookRecipeUpdate } from "./propose-book-recipe-update";
+import { proposeBookShotAdd } from "./propose-book-shot-add";
+import { proposeBookShotUpdate } from "./propose-book-shot-update";
+import { proposeBookOutfitUpdate } from "./propose-book-outfit-update";
+import { proposeBookBuildUpdate } from "./propose-book-build-update";
+import { proposeBookMenuUpdate } from "./propose-book-menu-update";
+import { proposeBookBarUpdate } from "./propose-book-bar-update";
+import { proposeBookSetupUpdate } from "./propose-book-setup-update";
+import { proposeBookStayUpdate } from "./propose-book-stay-update";
+import { proposeBookLodgingUpdate } from "./propose-book-lodging-update";
+import { proposeBookDresscodeUpdate } from "./propose-book-dresscode-update";
+import { proposeBookWpSetCell } from "./propose-book-weddingparty-set-cell";
+import { proposeBookWpAddMember } from "./propose-book-weddingparty-add-member";
+import { proposeBookWpAddItem } from "./propose-book-weddingparty-add-item";
+import { proposeBookWpUpdateHeader } from "./propose-book-weddingparty-update-header";
+import { proposeBudgetCategoryCreate } from "./propose-budget-category-create";
+import { proposeBudgetLineCreate } from "./propose-budget-line-create";
+import { proposeBudgetLineUpdate } from "./propose-budget-line-update";
+import { proposePaymentCreate } from "./propose-payment-create";
+import { proposePaymentUpdate } from "./propose-payment-update";
+import { proposePaymentSetStatus } from "./propose-payment-set-status";
+import { proposeQuestionAnswer } from "./propose-question-answer";
+import { proposeSongAdd } from "./propose-song-add";
+import { proposeCustomFieldSet } from "./propose-custom-field-set";
+import { proposeSeatAssign } from "./propose-seat-assign";
 
 // AiTool<TSchema> is invariant in TSchema, so a heterogeneous list of
 // tools with different Zod object shapes can't share a single default
 // binding. `any` here loses input-type info at the registry boundary,
 // which is fine — the handler is dispatched by name + safeParse'd
 // against the tool's own schema before it's called.
+// Ordering is deterministic and append-only within a release — the
+// tool definitions render into the CACHED prompt prefix, so a stable
+// order keeps the cache warm between turns.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const READ_TOOLS: AiTool<any>[] = [
   readStats,
@@ -34,19 +78,60 @@ const READ_TOOLS: AiTool<any>[] = [
   readEvents,
   readGuests,
   readBook,
+  readBookCard,
   readBudget,
   readSuppliers,
   readProposals,
+  readPayments,
+  readSeating,
+  readSongs,
+  readFiles,
 ];
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const WRITE_TOOLS: AiTool<any>[] = [
   proposeTask,
   proposeTaskUpdate,
+  proposeTaskBreakdown,
   proposeEvent,
+  proposeEventUpdate,
   proposeSupplierCreate,
   proposeSupplierUpdate,
   proposeSupplierLogCommunication,
+  proposeGuestUpdate,
+  proposeGuestSetRsvp,
+  proposeGuestArchive,
+  proposeHouseholdUpdate,
+  proposeBookSectionCreate,
+  proposeBookCardCreate,
+  proposeBookCardRename,
+  proposeBookCardReplaceText,
+  proposeBookFieldSet,
+  proposeBookRecipeUpdate,
+  proposeBookShotAdd,
+  proposeBookShotUpdate,
+  proposeBookOutfitUpdate,
+  proposeBookBuildUpdate,
+  proposeBookMenuUpdate,
+  proposeBookBarUpdate,
+  proposeBookSetupUpdate,
+  proposeBookStayUpdate,
+  proposeBookLodgingUpdate,
+  proposeBookDresscodeUpdate,
+  proposeBookWpSetCell,
+  proposeBookWpAddMember,
+  proposeBookWpAddItem,
+  proposeBookWpUpdateHeader,
+  proposeBudgetCategoryCreate,
+  proposeBudgetLineCreate,
+  proposeBudgetLineUpdate,
+  proposePaymentCreate,
+  proposePaymentUpdate,
+  proposePaymentSetStatus,
+  proposeQuestionAnswer,
+  proposeSongAdd,
+  proposeCustomFieldSet,
+  proposeSeatAssign,
 ];
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -74,6 +159,21 @@ export function progressLabelFor(name: string): string {
   return BY_NAME.get(name)?.progressLabel ?? `Running ${name}…`;
 }
 
+// v2.4.0: hard ceiling on serialized tool-result size. read_book_card
+// on a 200-shot list (or a pasted-novel notes field) must not evict
+// chat history from the context window. Truncation happens on the
+// serialized text — the model gets a clear marker telling it to
+// narrow the query rather than silently missing rows.
+const MAX_TOOL_RESULT_CHARS = 24_000;
+
+function capText(text: string): string {
+  if (text.length <= MAX_TOOL_RESULT_CHARS) return text;
+  return (
+    text.slice(0, MAX_TOOL_RESULT_CHARS) +
+    `\n…[truncated at ${MAX_TOOL_RESULT_CHARS} chars — narrow your query with filters or a smaller limit]`
+  );
+}
+
 /** Look up a tool by name and run it. Returns a text-serialisable
  *  string suitable for a tool_result content block. */
 export async function runTool(
@@ -98,7 +198,7 @@ export async function runTool(
 
   try {
     const result = await tool.handler(parsed.data, ctx);
-    return { result, text: JSON.stringify(result) };
+    return { result, text: capText(JSON.stringify(result)) };
   } catch (err) {
     const result: ToolResult = {
       ok: false,

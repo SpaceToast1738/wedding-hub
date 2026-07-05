@@ -2,9 +2,10 @@
 //
 // A compact, ID-bearing listing of the entities the AI needs to
 // reference in propose_* calls: users (assignees / attendees), nav
-// tags, book sections, and guest groups. Rendered into the VOLATILE
-// (uncached) block of the system prompt on every turn, so it's always
-// fresh and never invalidates the cached preamble.
+// tags, book sections, guest groups, and (v2.4.0) custom field defs.
+// Rendered into the VOLATILE (uncached) block of the system prompt on
+// every turn, so it's always fresh and never invalidates the cached
+// preamble.
 //
 // Suppliers are deliberately NOT here — the supplier list is the only
 // unbounded one (30–50 rows on a real wedding), so it lives behind
@@ -22,6 +23,16 @@ export type ReferenceDirectory = {
   navTags: { id: string; name: string }[];
   bookSections: { id: string; title: string; slug: string }[];
   guestGroups: { id: string; name: string; memberCount: number }[];
+  // v2.4.0: custom field defs across all entities — a handful of rows
+  // at most, and propose_custom_field_set needs the fieldId + type +
+  // select options up front (there's no read tool for defs).
+  customFields: {
+    id: string;
+    entity: string;
+    name: string;
+    type: string;
+    options: string[];
+  }[];
 };
 
 export async function buildReferenceDirectory(opts: {
@@ -30,7 +41,7 @@ export async function buildReferenceDirectory(opts: {
    *  would leak their titles into a wedding-party member's prompt. */
   isCouple: boolean;
 }): Promise<ReferenceDirectory> {
-  const [users, navTags, bookSections, guestGroups] = await Promise.all([
+  const [users, navTags, bookSections, guestGroups, customFields] = await Promise.all([
     db.user.findMany({
       orderBy: { createdAt: "asc" },
       select: {
@@ -44,12 +55,14 @@ export async function buildReferenceDirectory(opts: {
       },
     }),
     db.navTag.findMany({
-      orderBy: { order: "asc" },
+      // Secondary key breaks order=0 ties so the rendered block stays
+      // byte-stable between turns (order defaults to 0 on both models).
+      orderBy: [{ order: "asc" }, { name: "asc" }],
       select: { id: true, name: true },
     }),
     db.bookSection.findMany({
       where: opts.isCouple ? undefined : { visibility: "EVERYONE" },
-      orderBy: { order: "asc" },
+      orderBy: [{ order: "asc" }, { slug: "asc" }],
       select: { id: true, title: true, slug: true },
     }),
     db.guestGroup.findMany({
@@ -59,6 +72,13 @@ export async function buildReferenceDirectory(opts: {
         name: true,
         _count: { select: { members: true } },
       },
+    }),
+    // entity → order → name keeps the render byte-stable when two
+    // fields share an order value (the @@unique is [entity, name],
+    // not [entity, order]).
+    db.customField.findMany({
+      orderBy: [{ entity: "asc" }, { order: "asc" }, { name: "asc" }],
+      select: { id: true, entity: true, name: true, type: true, options: true },
     }),
   ]);
 
@@ -76,6 +96,7 @@ export async function buildReferenceDirectory(opts: {
       name: g.name,
       memberCount: g._count.members,
     })),
+    customFields,
   };
 }
 
@@ -107,6 +128,14 @@ export function renderReferenceDirectory(dir: ReferenceDirectory): string {
     ...(dir.guestGroups.length
       ? dir.guestGroups.map(
           (g) => `- id=${g.id} ${g.name} (${g.memberCount} members)`,
+        )
+      : ["- (none)"]),
+    "",
+    "Custom fields (for propose_custom_field_set):",
+    ...(dir.customFields.length
+      ? dir.customFields.map(
+          (f) =>
+            `- id=${f.id} [${f.entity}] ${f.name} (${f.type}${f.options.length ? `: ${f.options.join(" | ")}` : ""})`,
         )
       : ["- (none)"]),
     "",
