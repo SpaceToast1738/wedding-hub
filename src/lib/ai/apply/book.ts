@@ -83,24 +83,13 @@ import {
   patchOrCurrent,
 } from "@/lib/ai/apply/common";
 import { mergeChildren } from "@/lib/ai/proposals/merge-book-children";
+import { markdownToBookHtml } from "@/lib/ai/apply/markdown-to-book-html";
 
 type ApplyUser = { id: string; isCouple: boolean };
 
 const STALE_CARD =
   "The card changed since this was proposed — re-read and re-propose.";
 
-/** Same escape + paragraph pattern as bookCardAppendToFormData in
- *  src/app/(app)/ai/actions.ts — AI text becomes allowed-tag HTML
- *  (sanitizeBookHtml re-runs server-side either way, but escaping
- *  here means literal angle brackets in the AI's prose survive). */
-function textToBookHtml(text: string): string {
-  const esc = (s: string) =>
-    s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  return text
-    .split(/\n{2,}/)
-    .map((p) => `<p>${esc(p).replace(/\n/g, "<br/>")}</p>`)
-    .join("");
-}
 
 /** Kind guard for kinds whose data lives ON BookSubsection itself
  *  (TEXT body, FIELD value bag) — there's no per-kind child row whose
@@ -199,7 +188,7 @@ export async function applyBookProposal(
       if (liveHash !== p.baseBodyHash) throw new Error(STALE_CARD);
       const fd = new FormData();
       fd.append("title", current.title);
-      fd.append("bodyHtml", textToBookHtml(p.text));
+      fd.append("bodyHtml", markdownToBookHtml(p.text));
       await updateBookSubsection(p.subsectionId, fd);
       return { id: p.subsectionId };
     }
@@ -846,7 +835,7 @@ export async function applyBookProposal(
           ? card.bodyHtml
           : p.bodyText === null
             ? null
-            : textToBookHtml(p.bodyText);
+            : markdownToBookHtml(p.bodyText);
       const full: DressCodeSavePayload = {
         dressCode: patchOrCurrent(p.dressCode, card.dressCode),
         summary: patchOrCurrent(p.summary, card.summary),

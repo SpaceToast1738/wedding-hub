@@ -963,6 +963,16 @@ When wrapping up a meaningful iteration:
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
 
+### 2026-07-05 · v2.6.6 — AI can write real formatting into Wedding Book cards
+
+User: screenshot showing the AI planner correctly telling the user "TEXT cards only support plain text... no markdown/rich formatting support" when asked to make a card's layout richer. That refusal was accurate for what the tool could actually produce, but not for what the app supports — confirmed `src/lib/sanitize-book-html.ts`'s allow-list (h2/h3, strong/em/u, ul/ol/li, blockquote, links) matches the Tiptap editor's toolbar exactly. The gap: every AI path that writes TEXT-card body content (`propose_book_card_replace_text`, `summarizeBookCard`, and — found while fixing this — `propose_book_dresscode_update`'s `bodyText`) funneled through a helper that HTML-escaped everything and wrapped only in `<p>`/`<br/>`, with no path to any of the allowed tags.
+
+- New `src/lib/ai/apply/markdown-to-book-html.ts`: a narrow, hand-rolled markdown-subset parser targeting exactly `BOOK_HTML_ALLOWED_TAGS` — `##`/`###` headings, `**bold**`, `_italic_`, `__underline__`, `-`/`*` bullets, `1.` numbered lists, `>` blockquote, `[text](url)` links — not a general-purpose markdown library, since the allow-list is narrow and a hand-rolled parser is easier to reason about and keeps output within what `sanitizeBookHtml` (still re-run server-side regardless) will actually keep. Escaping happens before markdown substitution, so literal `<`/`>`/`&` in the AI's prose can never become a real tag — only the parser's own substitutions do. Unsupported constructs (images, tables, code fences) are left as literal text, never silently dropped.
+- Replaced the duplicated escape-and-wrap logic in both `src/lib/ai/apply/book.ts` (`book.card.replace_text`, `book.dresscode.update`) and `src/app/(app)/ai/actions.ts` (`book.card.append`) with calls to the shared function.
+- Updated `propose_book_card_replace_text` and `propose_book_dresscode_update`'s tool descriptions, `summarizeBookCard`'s system prompt (previously explicitly said "no markdown asterisks in the output" — now asks for a real markdown bullet list), and the `WRITE_ADDENDUM` system-prompt section to tell the model about the capability instead of leaving it to guess or refuse.
+
+13 new unit tests for the parser (652 total, up from 639), typecheck clean, lint clean, full `next build` verified.
+
 ### 2026-07-05 · v2.6.5 — Hide archived tasks from Wedding Book linked-task lists
 
 User: screenshot of a card's "Linked tasks" panel showing an ARCHIVED task ("Games for kids?") still listed alongside OPEN/DONE ones, strikethrough but present, counted in the "4" header total.

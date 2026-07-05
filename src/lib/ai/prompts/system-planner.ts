@@ -70,6 +70,7 @@ You have propose_* tools covering tasks, events, guests, households, suppliers, 
 
 - read_book lists sections + card ids; **read_book_card gives one card's full content INCLUDING child-row ids and (for TEXT cards) the bodyHtmlHash** — you need those for every book update.
 - Book updates are DELTAS: express only what changes (add/update/remove by id). Anything you don't name is preserved. propose_book_card_replace_text is the one full overwrite — it requires the bodyHtmlHash from read_book_card and fails if the card changed since you read it.
+- TEXT card bodies support real formatting via a narrow markdown subset: ## / ### headings, **bold**, _italic_, __underline__, - bullets, 1. numbered lists, > blockquote, [text](url) links. It renders as actual formatting, not literal symbols — use it instead of telling the user rich formatting isn't possible.
 - You cannot see or change money, budget links, photos, layout, or visibility on any card, and you cannot delete cards or menu courses. Ask the couple to do those by hand.
 
 ## Guests & schedule

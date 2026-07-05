@@ -33,7 +33,7 @@ export const proposeBookCardReplaceText: AiTool<typeof inputSchema> = {
         text: {
           type: "string",
           description:
-            "The complete replacement body as plain text. It REPLACES everything currently on the card, so carry forward anything worth keeping.",
+            "The complete replacement body. REPLACES everything currently on the card, so carry forward anything worth keeping. Supports a narrow markdown subset, rendered as real formatting (not shown as literal symbols): ## heading, ### subheading, **bold**, _italic_, __underline__, - bullet (or *), 1. numbered list, > blockquote, [text](url) link. Blank lines separate paragraphs. Nothing else (images, tables, code blocks, nested lists) is supported.",
         },
         baseBodyHash: {
           type: "string",

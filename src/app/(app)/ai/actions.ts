@@ -31,6 +31,7 @@ import {
 import { resolveRefs } from "@/lib/ai/tools/validate-refs";
 import { assertBookCardWritable } from "@/lib/ai/apply/common";
 import { applyBookProposal } from "@/lib/ai/apply/book";
+import { markdownToBookHtml } from "@/lib/ai/apply/markdown-to-book-html";
 import { applyGuestProposal } from "@/lib/ai/apply/guests";
 import { applyEventUpdate } from "@/lib/ai/apply/schedule";
 import { applyMoneyProposal } from "@/lib/ai/apply/money";
@@ -703,17 +704,16 @@ async function bookCardAppendToFormData(
     );
   }
 
-  // Wrap new text in <h3> + <p>. Escape angle brackets and ampersands
-  // — updateBookSubsection re-runs sanitizeBookHtml, but escaping
-  // here means the AI's literal content survives the sanitiser
-  // untouched.
-  const esc = (s: string) =>
-    s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  const paragraphs = newText
-    .split(/\n{2,}/)
-    .map((p) => `<p>${esc(p).replace(/\n/g, "<br/>")}</p>`)
-    .join("");
-  const block = `<h3>${esc(heading)}</h3>${paragraphs}`;
+  // v2.6.6: heading stays a plain escaped <h3> (it's a short label, not
+  // prose); the body goes through markdownToBookHtml so the AI can use
+  // bold/lists/links instead of only plain paragraphs. sanitizeBookHtml
+  // re-runs server-side either way, but escaping here means the AI's
+  // literal content survives the sanitiser untouched.
+  const escHeading = heading
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+  const block = `<h3>${escHeading}</h3>${markdownToBookHtml(newText)}`;
   const nextHtml = (existing.bodyHtml ?? "") + block;
 
   const fd = new FormData();
@@ -1259,7 +1259,7 @@ export async function summarizeBookCard(
       tier: "fast",
       maxTokens: 512,
       system:
-        "You write concise summaries of wedding-book notes for a couple to skim. Aim for 2–4 short bullet points, ≤ 80 words total, no preamble, no closing line. Use plain prose (no markdown asterisks in the output).",
+        "You write concise summaries of wedding-book notes for a couple to skim. Aim for 2–4 short bullet points, ≤ 80 words total, no preamble, no closing line. Write the bullets as an actual markdown list (- item per line) — it renders as a real bulleted list, not literal text. **bold** also renders for anything worth emphasising. No headings, links, or other markdown — just bullets and the occasional bold word.",
       messages: [
         {
           role: "user",
