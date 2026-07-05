@@ -19,6 +19,10 @@ const inputSchema = z.object({
   priority: z.enum(["LOW", "MEDIUM", "HIGH", "URGENT"]).optional(),
   dueDate: z.string().optional().describe("ISO date (YYYY-MM-DD)."),
   notes: z.string().max(2000).optional(),
+  // v2.4.3: link/unlink the task's supplier — the gap the planner
+  // itself reported ("task linking isn't something I can do").
+  // undefined = untouched, null = unlink, id = link.
+  supplierId: z.string().optional().nullable(),
   // v2.2.0: assignee + topic deltas. Applied as a merge against the
   // task's live relations at Apply time — safe under concurrent edits.
   addAssigneeIds: z.array(z.string()).max(10).optional(),
@@ -63,6 +67,11 @@ export const proposeTaskUpdate: AiTool<typeof inputSchema> = {
         priority: { type: "string", enum: ["LOW", "MEDIUM", "HIGH", "URGENT"] },
         dueDate: { type: "string", description: "ISO date (YYYY-MM-DD)." },
         notes: { type: "string" },
+        supplierId: {
+          type: ["string", "null"],
+          description:
+            "Supplier id from read_suppliers — links the task to that vendor. Pass null to unlink. Omit to leave unchanged.",
+        },
         addAssigneeIds: idArray("User ids (reference directory) to ADD as assignees."),
         removeAssigneeIds: idArray("User ids to REMOVE from assignees."),
         addNavTagIds: idArray("Nav tag ids to add as topics."),
@@ -107,6 +116,7 @@ export const proposeTaskUpdate: AiTool<typeof inputSchema> = {
         ...(input.addGuestGroupIds ?? []),
         ...(input.removeGuestGroupIds ?? []),
       ],
+      supplierIds: typeof input.supplierId === "string" ? [input.supplierId] : [],
     });
     if (invalid.length) {
       return { ok: false, error: unknownIdsError(invalid) };
@@ -120,6 +130,7 @@ export const proposeTaskUpdate: AiTool<typeof inputSchema> = {
     if (input.priority !== undefined) patch.priority = input.priority;
     if (input.dueDate !== undefined) patch.dueDate = input.dueDate;
     if (input.notes !== undefined) patch.notes = input.notes;
+    if (input.supplierId !== undefined) patch.supplierId = input.supplierId;
     for (const key of [
       "addAssigneeIds",
       "removeAssigneeIds",
@@ -167,6 +178,12 @@ export const proposeTaskUpdate: AiTool<typeof inputSchema> = {
     );
     const detail = buildDetailLine({
       assignees: [...addedAssignees, ...removedAssignees],
+      supplier:
+        typeof input.supplierId === "string"
+          ? names.suppliers.get(input.supplierId)
+          : input.supplierId === null
+            ? "(unlinked)"
+            : null,
       topics: [
         ...(input.addNavTagIds ?? []).map((id) => `+${names.navTags.get(id)!}`),
         ...(input.removeNavTagIds ?? []).map((id) => `−${names.navTags.get(id)!}`),

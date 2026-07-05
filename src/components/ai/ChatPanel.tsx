@@ -57,6 +57,7 @@ const TOOL_LABELS: Record<string, string> = {
   propose_supplier_create: "Proposed a supplier",
   propose_supplier_update: "Proposed a supplier update",
   propose_supplier_log_communication: "Proposed a supplier log",
+  propose_supplier_contact_add: "Proposed a supplier contact",
   propose_guest_update: "Proposed a guest update",
   propose_guest_set_rsvp: "Proposed an RSVP change",
   propose_guest_archive: "Proposed archiving a guest",

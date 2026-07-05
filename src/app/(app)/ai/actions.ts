@@ -42,6 +42,7 @@ import {
   humanLabel,
   summariseProposal,
   supplierCommunicationSchema,
+  supplierContactAddSchema,
   supplierCreateSchema,
   supplierUpdateSchema,
   taskCreateSchema,
@@ -62,6 +63,7 @@ import {
   createSupplier as createSupplierAction,
   updateSupplier as updateSupplierAction,
   createSupplierCommunication as createSupplierCommunicationAction,
+  createSupplierContact as createSupplierContactAction,
 } from "@/app/(app)/suppliers/actions";
 
 export type ThreadListItem = {
@@ -257,11 +259,20 @@ function collectRefIds(kind: string, payload: Record<string, unknown>): Collecte
       ...arr(payload.addGuestGroupIds),
       ...arr(payload.removeGuestGroupIds),
     ];
+    // v2.4.3: supplier link changes resolve the vendor name.
+    refs.supplierIds =
+      typeof payload.supplierId === "string" && payload.supplierId
+        ? [payload.supplierId]
+        : [];
   } else if (kind === "event.create") {
     refs.userIds = arr(payload.attendeeRefs)
       .filter((r) => r.startsWith("user:"))
       .map((r) => r.slice("user:".length));
-  } else if (kind === "supplier.update" || kind === "supplier.log_communication") {
+  } else if (
+    kind === "supplier.update" ||
+    kind === "supplier.log_communication" ||
+    kind === "supplier.contact.add"
+  ) {
     refs.supplierIds = payload.supplierId ? [String(payload.supplierId)] : [];
   } else if (kind === "book.card.create") {
     refs.bookSectionIds = payload.sectionId ? [String(payload.sectionId)] : [];
@@ -347,6 +358,11 @@ function buildProposalDetail(
     ];
     if (people.length) segments.push(`assignees: ${people.join(", ")}`);
     if (topics.length) segments.push(`topics: ${topics.join(", ")}`);
+    if (typeof payload.supplierId === "string" && payload.supplierId) {
+      segments.push(`supplier → ${nameOf(names.suppliers, payload.supplierId)}`);
+    } else if (payload.supplierId === null) {
+      segments.push("supplier unlinked");
+    }
   } else if (kind === "event.create") {
     const attendees = arr(payload.attendeeRefs).map((r) =>
       r.startsWith("user:")
@@ -373,6 +389,11 @@ function buildProposalDetail(
     if (typeof payload.followUpAt === "string" && payload.followUpAt) {
       segments.push(`auto-creates a follow-up task · due ${payload.followUpAt}`);
     }
+  } else if (kind === "supplier.contact.add") {
+    if (payload.supplierId) {
+      segments.push(`supplier: ${nameOf(names.suppliers, String(payload.supplierId))}`);
+    }
+    if (payload.primary) segments.push("replaces the current primary contact");
   } else if (kind === "book.card.create") {
     if (payload.sectionId) {
       segments.push(`in ${nameOf(names.bookSections, String(payload.sectionId))}`);
@@ -573,6 +594,12 @@ async function taskUpdatePayloadToFormData(
   }
   if (payload.notes !== undefined && payload.notes !== null) {
     fd.append("notes", String(payload.notes));
+  }
+  // v2.4.3: supplier link. updateTask only writes supplierId when the
+  // field is POSTED (get(...) ?? undefined), so omission stays safe;
+  // empty string unlinks (|| null on the write side).
+  if (payload.supplierId !== undefined) {
+    fd.append("supplierId", payload.supplierId === null ? "" : String(payload.supplierId));
   }
 
   const patch = payload as import("@/lib/ai/proposals/merge-task-update").TaskRelationPatch;
@@ -780,6 +807,20 @@ async function supplierUpdatePayloadToFormData(
   return fd;
 }
 
+/** supplier.contact.add payload → FormData for createSupplierContact.
+ *  `primary` posts as the checkbox "on" — the action then unmarks any
+ *  existing primary contact in the same transaction. */
+function supplierContactPayloadToFormData(payload: Record<string, unknown>): FormData {
+  const fd = new FormData();
+  fd.append("supplierId", String(payload.supplierId ?? ""));
+  fd.append("name", String(payload.name ?? ""));
+  if (payload.role) fd.append("role", String(payload.role));
+  if (payload.email) fd.append("email", String(payload.email));
+  if (payload.phone) fd.append("phone", String(payload.phone));
+  if (payload.primary) fd.append("primary", "on");
+  return fd;
+}
+
 /** supplier.log_communication payload → FormData for
  *  createSupplierCommunication. That action returns void, so the
  *  dispatch branch below uses the already-known supplierId as the
@@ -897,6 +938,11 @@ async function applyLoadedProposal(
       // createSupplierCommunication returns void; use the known
       // supplierId as the affected entity, same convention as
       // book.card.append's subsectionId.
+      created = { id: parsed.supplierId };
+    } else if (proposal.kind === "supplier.contact.add") {
+      const parsed = supplierContactAddSchema.parse(merged);
+      await createSupplierContactAction(supplierContactPayloadToFormData(parsed));
+      // Void-returning action — the supplier is the affected entity.
       created = { id: parsed.supplierId };
     } else if (proposal.kind.startsWith("book.")) {
       // v2.4.0: every remaining book.* kind (append is handled above)

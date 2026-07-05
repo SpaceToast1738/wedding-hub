@@ -45,6 +45,7 @@ export const PROPOSAL_KINDS = [
   "supplier.create",
   "supplier.update",
   "supplier.log_communication",
+  "supplier.contact.add",
   "budget.category.create",
   "budget.line.create",
   "budget.line.update",
@@ -172,6 +173,10 @@ export const taskUpdateSchema = z.object({
   priority: z.enum(["LOW", "MEDIUM", "HIGH", "URGENT"]).optional(),
   dueDate: z.string().optional().nullable(),
   notes: z.string().max(2000).optional().nullable(),
+  /** v2.4.3: link/unlink the task's supplier. undefined = untouched
+   *  (updateTask only writes supplierId when the field is posted),
+   *  null = unlink, id = link. */
+  supplierId: z.string().optional().nullable(),
   addAssigneeIds: z.array(z.string()).max(10).optional(),
   removeAssigneeIds: z.array(z.string()).max(10).optional(),
   addNavTagIds: z.array(z.string()).max(5).optional(),
@@ -238,6 +243,19 @@ export const supplierUpdateSchema = z.object({
   notes: z.string().max(5000).optional().nullable(),
 });
 export type SupplierUpdatePayload = z.infer<typeof supplierUpdateSchema>;
+
+/** Add a named contact person to a supplier. `primary: true` also
+ *  unmarks any existing primary contact — createSupplierContact does
+ *  that swap in one transaction, same as the manual form. */
+export const supplierContactAddSchema = z.object({
+  supplierId: z.string().min(1),
+  name: z.string().min(1).max(200),
+  role: z.string().max(100).optional().nullable(),
+  email: z.string().max(200).optional().nullable(),
+  phone: z.string().max(50).optional().nullable(),
+  primary: z.boolean().default(false),
+});
+export type SupplierContactAddPayload = z.infer<typeof supplierContactAddSchema>;
 
 /** Log a call/email/meeting with a supplier. Mirrors
  *  createSupplierCommunication's own schema; an optional followUpAt
@@ -858,6 +876,8 @@ export function schemaForKind(kind: string): z.ZodTypeAny | null {
       return supplierUpdateSchema;
     case "supplier.log_communication":
       return supplierCommunicationSchema;
+    case "supplier.contact.add":
+      return supplierContactAddSchema;
     case "event.update":
       return eventUpdateSchema;
     case "guest.update":
@@ -951,6 +971,8 @@ export function humanLabel(kind: ProposalKind): string {
       return "Update supplier";
     case "supplier.log_communication":
       return "Log supplier contact";
+    case "supplier.contact.add":
+      return "Add supplier contact";
     case "event.update":
       return "Update schedule event";
     case "guest.update":
@@ -1042,6 +1064,8 @@ export function summariseProposal(kind: string, payload: unknown): string {
     if (typeof p.priority === "string") bits.push(`priority → ${p.priority}`);
     if (typeof p.dueDate === "string" && p.dueDate) bits.push(`due → ${p.dueDate}`);
     if (typeof p.title === "string") bits.push(`title → "${p.title}"`);
+    if (p.supplierId === null) bits.push("unlinks supplier");
+    else if (typeof p.supplierId === "string") bits.push("links supplier");
     const rel: string[] = [];
     for (const key of [
       "addAssigneeIds",
@@ -1087,6 +1111,12 @@ export function summariseProposal(kind: string, payload: unknown): string {
     if (typeof p.website === "string") bits.push("website updated");
     if (typeof p.notes === "string") bits.push("notes updated");
     return bits.join(", ") || "small tweak";
+  }
+  if (kind === "supplier.contact.add") {
+    const name = typeof p.name === "string" ? p.name : "(unnamed)";
+    const role = typeof p.role === "string" && p.role ? ` (${p.role})` : "";
+    const primary = p.primary ? " · PRIMARY — replaces the current primary contact" : "";
+    return `${name}${role}${primary}`;
   }
   if (kind === "supplier.log_communication") {
     const channel = typeof p.channel === "string" ? p.channel : "contact";

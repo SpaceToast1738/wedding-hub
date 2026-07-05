@@ -963,6 +963,20 @@ When wrapping up a meaningful iteration:
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
 
+### 2026-07-05 · v2.4.3 — Supplier contacts via AI, task↔supplier linking, contract file links, Suppliers mobile tab
+
+Two sources: the AI planner itself told the user "the app doesn't currently support adding a primary contact through me… the task linking also isn't something I can do" (relayed verbatim), and the user reported contracts not linking to their file plus /suppliers being awkward to reach.
+
+**AI capability gaps closed:**
+- **`supplier.contact.add`** proposal kind + `propose_supplier_contact_add` tool — the AI can now record a vendor's contact person (name/role/email/phone, optional `primary` which swaps the existing primary atomically via `createSupplierContact`'s own transaction). Case-insensitive duplicate fence per supplier.
+- **`task.update` gains `supplierId`** (undefined = untouched, null = unlink — `updateTask` only writes the column when the field is posted, so the partial-patch semantics are native). Exposed on `propose_task_update`; ref-validated; review cards show "supplier → <name>" / "supplier unlinked".
+
+**Supplier contracts finally link to their file:** `SupplierContract.fileId` existed since the model was added but NOTHING could ever set it — no form field, no action, no render. Now: [setSupplierContractFile](src/app/(app)/suppliers/actions.ts) action (attach/detach, result-shaped), a file picker on the add-contract form + an inline "📎 Attach file…" select on existing rows (visibility-filtered list, cap 100), and the canonical `/api/files/<id>` download link on each row (the route re-gates session + `canView("files")` + COUPLE_ONLY server-side). Upload still happens on /files first — no inline upload this pass.
+
+**Suppliers reachability:** promoted to a 5th mobile tab (it was two taps deep in the flat 11-item "More" sheet — the actual source of "awkward"; desktop was always one click). `MobileTabBar`'s More-sheet exclusion list is now derived from `MOBILE_TABS` instead of hardcoded. **Consistency/security fix:** `/suppliers` (list) never checked `canView("suppliers")` while the detail page did — any signed-in user could read the roster; now redirects home like other gated pages.
+
+637 tests green, typecheck + lint clean, full local `next build` exit 0.
+
 ### 2026-07-05 · v2.4.2 — Fix chat 400s: history sanitizer orphaned tool_results at the window head
 
 User hit repeating production errors after a few chat messages: `400 … unexpected tool_use_id found in tool_result blocks … Each tool_result block must have a corresponding tool_use block in the previous message`, pointing at `messages.0`.

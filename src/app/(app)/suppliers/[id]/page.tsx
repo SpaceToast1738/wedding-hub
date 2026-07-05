@@ -48,7 +48,11 @@ export default async function SupplierDetailPage({
     where: { id },
     include: {
       contacts: { orderBy: [{ primary: "desc" }, { name: "asc" }] },
-      contracts: { orderBy: { signedAt: "desc" } },
+      // v2.4.3: + file so contract rows can link the uploaded document.
+      contracts: {
+        orderBy: { signedAt: "desc" },
+        include: { file: { select: { id: true, name: true } } },
+      },
       communications: { orderBy: { createdAt: "desc" } },
       payments: { orderBy: { dueDate: "asc" } },
       // v1.28.0: tasks/questions/decisions linked to this supplier.
@@ -71,6 +75,18 @@ export default async function SupplierDetailPage({
     },
   });
   if (!supplier) notFound();
+
+  // v2.4.3: files an editor can attach to a contract row. COUPLE_ONLY
+  // files are hidden from non-couple editors, mirroring the /files
+  // page and the download route's own gate.
+  const attachableFiles = editable
+    ? await db.file.findMany({
+        where: user.isCouple ? {} : { visibility: "EVERYONE" },
+        orderBy: { createdAt: "desc" },
+        take: 100,
+        select: { id: true, name: true, folder: true },
+      })
+    : [];
 
   // v1.58.0 (XL4): BUILD cards whose budget line is supplier-linked.
   // BookBuildCard → BudgetLine → supplierId chain. Surfaces "this
@@ -236,7 +252,9 @@ export default async function SupplierDetailPage({
               signedAt: c.signedAt,
               amount: c.amount === null ? null : Number(c.amount),
               notes: c.notes,
+              file: c.file ? { id: c.file.id, name: c.file.name } : null,
             }))}
+            attachableFiles={attachableFiles}
             communications={supplier.communications.map((c) => ({
               id: c.id,
               channel: c.channel,

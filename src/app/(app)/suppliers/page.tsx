@@ -1,12 +1,17 @@
+import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { PageHeader } from "@/components/ui/PageHeader";
-import { canEdit, canViewMoney } from "@/lib/permissions";
+import { canEdit, canView, canViewMoney } from "@/lib/permissions";
 import { requireUser } from "@/lib/actions";
 import { AddSupplierToggle } from "./AddSupplierToggle";
 import { SuppliersClient } from "./SuppliersClient";
 
 export default async function SuppliersPage() {
   const user = await requireUser();
+  // v2.4.3: the detail page has gated canView("suppliers") since
+  // v1.x but the list never did — any signed-in user could read the
+  // whole roster regardless of their permission matrix.
+  if (!(await canView(user, "suppliers"))) redirect("/");
   const editable = await canEdit(user, "suppliers");
   // v1.76.0: gate the Agreed amount on each supplier card. Without
   // money permission, users still see the supplier roster + status

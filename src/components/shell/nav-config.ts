@@ -58,9 +58,13 @@ export const NAV_GROUPS: NavGroup[] = [
   },
 ];
 
+// v2.4.3: Suppliers promoted to a real tab — it was two taps away
+// inside the flat "More" sheet, which was the main "awkward to get
+// to" complaint. Five tabs still fit comfortably at 320px.
 export const MOBILE_TABS: { href: string; label: string; icon: string; isMore?: boolean }[] = [
-  { href: "/",       label: "Today",  icon: "◉" },
-  { href: "/tasks",  label: "Tasks",  icon: "✓" },
-  { href: "/guests", label: "Guests", icon: "◎" },
-  { href: "/menu",   label: "More",   icon: "···", isMore: true },
+  { href: "/",          label: "Today",     icon: "◉" },
+  { href: "/tasks",     label: "Tasks",     icon: "✓" },
+  { href: "/guests",    label: "Guests",    icon: "◎" },
+  { href: "/suppliers", label: "Suppliers", icon: "◈" },
+  { href: "/menu",      label: "More",      icon: "···", isMore: true },
 ];

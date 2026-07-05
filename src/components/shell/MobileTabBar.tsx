@@ -21,9 +21,13 @@ export function MobileTabBar({
     items: g.items.filter((i) => !i.coupleOnly || isCouple),
   })).filter((g) => g.items.length > 0);
 
+  // v2.4.3: derive the exclusion from MOBILE_TABS instead of a
+  // hardcoded list — promoting a page to a tab (Suppliers) must
+  // remove it from the More sheet automatically.
+  const tabHrefs = new Set(MOBILE_TABS.filter((t) => !t.isMore).map((t) => t.href));
   const moreItems = visibleGroups
     .flatMap((g) => g.items)
-    .filter((i) => !["/", "/tasks", "/guests"].includes(i.href));
+    .filter((i) => !tabHrefs.has(i.href));
 
   return (
     <>

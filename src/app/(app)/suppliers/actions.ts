@@ -433,6 +433,10 @@ const contractSchema = z.object({
   signedAt: z.string().optional().nullable(),
   amount: z.string().optional().nullable(),
   notes: z.string().max(2000).optional().nullable(),
+  // v2.4.3: optional link to an uploaded File (the signed contract PDF
+  // etc). The column existed since the model was added but nothing
+  // could ever set it.
+  fileId: z.string().optional().nullable(),
 });
 
 export async function createSupplierContract(formData: FormData) {
@@ -443,9 +447,17 @@ export async function createSupplierContract(formData: FormData) {
     signedAt: formData.get("signedAt") || null,
     amount: formData.get("amount") || null,
     notes: formData.get("notes") || null,
+    fileId: formData.get("fileId") || null,
   });
   const signedAt = parsed.signedAt ? new Date(parsed.signedAt) : parsed.signed ? new Date() : null;
   const amount = parsed.amount ? parseAmount(parsed.amount) : null;
+  // A hallucinated/stale file id must not FK-fail the whole create —
+  // verify and drop silently (the attach action below covers fix-up).
+  const fileId =
+    parsed.fileId &&
+    (await db.file.findUnique({ where: { id: parsed.fileId }, select: { id: true } }))
+      ? parsed.fileId
+      : null;
   const created = await db.supplierContract.create({
     data: {
       supplierId: parsed.supplierId,
@@ -453,6 +465,7 @@ export async function createSupplierContract(formData: FormData) {
       signedAt,
       amount,
       notes: parsed.notes ?? null,
+      fileId,
     },
   });
   // Lookup supplier name for the audit row.
@@ -473,6 +486,52 @@ export async function createSupplierContract(formData: FormData) {
     },
   });
   revalidatePath(`/suppliers/${parsed.supplierId}`);
+}
+
+/** v2.4.3: attach (or detach with null) an uploaded File to an
+ *  existing contract row. Result-shaped so the client can toast the
+ *  error instead of relying on prod redaction. */
+export async function setSupplierContractFile(
+  id: string,
+  fileId: string | null,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const user = await requireEdit("suppliers");
+  try {
+    const contract = await db.supplierContract.findUnique({
+      where: { id },
+      select: { supplierId: true, supplier: { select: { name: true } } },
+    });
+    if (!contract) return { ok: false, error: "Contract not found" };
+    let fileName: string | null = null;
+    if (fileId) {
+      const file = await db.file.findUnique({
+        where: { id: fileId },
+        select: { id: true, name: true },
+      });
+      if (!file) return { ok: false, error: "File not found — upload it on /files first" };
+      fileName = file.name;
+    }
+    await db.supplierContract.update({ where: { id }, data: { fileId } });
+    await audit(user, {
+      action: "update",
+      entity: "SupplierContract",
+      entityId: id,
+      metadata: {
+        supplierId: contract.supplierId,
+        supplierName: contract.supplier.name,
+        changedFields: ["fileId"],
+        fileName,
+      },
+    });
+    revalidatePath(`/suppliers/${contract.supplierId}`);
+    return { ok: true };
+  } catch (err) {
+    console.error("setSupplierContractFile failed", err);
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : "Couldn't attach the file",
+    };
+  }
 }
 
 export async function deleteSupplierContract(id: string, supplierId: string) {

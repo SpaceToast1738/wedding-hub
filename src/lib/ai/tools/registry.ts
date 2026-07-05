@@ -28,6 +28,7 @@ import { proposeEventUpdate } from "./propose-event-update";
 import { proposeSupplierCreate } from "./propose-supplier-create";
 import { proposeSupplierUpdate } from "./propose-supplier-update";
 import { proposeSupplierLogCommunication } from "./propose-supplier-log-communication";
+import { proposeSupplierContactAdd } from "./propose-supplier-contact-add";
 import { proposeGuestUpdate } from "./propose-guest-update";
 import { proposeGuestSetRsvp } from "./propose-guest-set-rsvp";
 import { proposeGuestArchive } from "./propose-guest-archive";
@@ -98,6 +99,7 @@ const WRITE_TOOLS: AiTool<any>[] = [
   proposeSupplierCreate,
   proposeSupplierUpdate,
   proposeSupplierLogCommunication,
+  proposeSupplierContactAdd,
   proposeGuestUpdate,
   proposeGuestSetRsvp,
   proposeGuestArchive,

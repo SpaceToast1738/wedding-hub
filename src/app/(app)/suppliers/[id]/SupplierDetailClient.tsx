@@ -12,8 +12,10 @@ import {
   deleteSupplierContact,
   deleteSupplierCommunication,
   deleteSupplierContract,
+  setSupplierContractFile,
 } from "../actions";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
+import { notify } from "@/lib/notify";
 
 type Contact = {
   id: string;
@@ -30,7 +32,14 @@ type Contract = {
   signedAt: Date | null;
   amount: number | null;
   notes: string | null;
+  /** v2.4.3: the uploaded contract document, when attached. */
+  file: { id: string; name: string } | null;
 };
+
+/** v2.4.3: files an editor can attach to a contract (visibility-
+ *  filtered server-side). Downloads go through /api/files/[id], which
+ *  re-gates session + canView("files"). */
+type AttachableFile = { id: string; name: string; folder: string | null };
 
 type Communication = {
   id: string;
@@ -75,6 +84,7 @@ export function SupplierDetailClient({
   contacts,
   contracts,
   communications,
+  attachableFiles = [],
 }: {
   supplierId: string;
   canEdit: boolean;
@@ -83,12 +93,18 @@ export function SupplierDetailClient({
   contacts: Contact[];
   contracts: Contract[];
   communications: Communication[];
+  attachableFiles?: AttachableFile[];
 }) {
   return (
     <>
       <ContactsSection supplierId={supplierId} canEdit={canEdit} contacts={contacts} />
       {showMoney && (
-        <ContractsSection supplierId={supplierId} canEdit={canEdit} contracts={contracts} />
+        <ContractsSection
+          supplierId={supplierId}
+          canEdit={canEdit}
+          contracts={contracts}
+          attachableFiles={attachableFiles}
+        />
       )}
       <CommunicationsSection supplierId={supplierId} canEdit={canEdit} log={communications} />
     </>
@@ -247,10 +263,12 @@ function ContractsSection({
   supplierId,
   canEdit,
   contracts,
+  attachableFiles,
 }: {
   supplierId: string;
   canEdit: boolean;
   contracts: Contract[];
+  attachableFiles: AttachableFile[];
 }) {
   const [adding, setAdding] = useState(false);
   const [pending, startTransition] = useTransition();
@@ -260,6 +278,13 @@ function ContractsSection({
     if (!(await confirm({ title: "Delete this contract entry?", confirmLabel: "Delete", tone: "danger" }))) return;
     startTransition(async () => {
       await deleteSupplierContract(id, supplierId);
+    });
+  }
+
+  function onSetFile(contractId: string, fileId: string | null) {
+    startTransition(async () => {
+      const res = await setSupplierContractFile(contractId, fileId);
+      if (!res.ok) notify("error", res.error);
     });
   }
 
@@ -304,6 +329,26 @@ function ContractsSection({
           <label className="inline-flex items-center gap-1.5 text-xs text-ink-secondary">
             <input type="checkbox" name="signed" defaultChecked /> Marked as signed
           </label>
+          {attachableFiles.length > 0 && (
+            <div>
+              <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">
+                Contract file
+              </label>
+              <select
+                name="fileId"
+                defaultValue=""
+                className="w-full text-sm bg-surface text-ink-primary border border-border-soft rounded-sm px-2 py-1.5 outline-none focus:border-moss-500"
+              >
+                <option value="">— none (upload on Files first) —</option>
+                {attachableFiles.map((f) => (
+                  <option key={f.id} value={f.id}>
+                    {f.folder ? `${f.folder} / ` : ""}
+                    {f.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           <div>
             <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">
               Notes
@@ -350,6 +395,51 @@ function ContractsSection({
                 </div>
                 {c.notes && (
                   <p className="text-xs text-ink-secondary mt-0.5 whitespace-pre-wrap">{c.notes}</p>
+                )}
+                {/* v2.4.3: the uploaded contract document. Download is
+                    re-gated server-side by /api/files/[id]. */}
+                {c.file ? (
+                  <div className="mt-1 flex items-center gap-2 text-xs">
+                    <a
+                      href={`/api/files/${c.file.id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-info hover:underline truncate"
+                    >
+                      📄 {c.file.name}
+                    </a>
+                    {canEdit && (
+                      <button
+                        type="button"
+                        onClick={() => onSetFile(c.id, null)}
+                        disabled={pending}
+                        className="text-ink-tertiary hover:text-danger opacity-0 group-hover:opacity-100 transition-opacity"
+                        title="Detach file"
+                      >
+                        detach
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  canEdit &&
+                  attachableFiles.length > 0 && (
+                    <select
+                      value=""
+                      disabled={pending}
+                      onChange={(e) => {
+                        if (e.target.value) onSetFile(c.id, e.target.value);
+                      }}
+                      className="mt-1 text-xs bg-surface text-ink-tertiary border border-border-soft rounded-sm px-1.5 py-1 outline-none focus:border-moss-500 max-w-[240px]"
+                    >
+                      <option value="">📎 Attach file…</option>
+                      {attachableFiles.map((f) => (
+                        <option key={f.id} value={f.id}>
+                          {f.folder ? `${f.folder} / ` : ""}
+                          {f.name}
+                        </option>
+                      ))}
+                    </select>
+                  )
                 )}
               </div>
               {canEdit && (
