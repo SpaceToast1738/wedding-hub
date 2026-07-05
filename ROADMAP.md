@@ -963,6 +963,14 @@ When wrapping up a meaningful iteration:
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
 
+### 2026-07-05 · v2.6.5 — Hide archived tasks from Wedding Book linked-task lists
+
+User: screenshot of a card's "Linked tasks" panel showing an ARCHIVED task ("Games for kids?") still listed alongside OPEN/DONE ones, strikethrough but present, counted in the "4" header total.
+
+Both linked-task queries in `book/[slug]/page.tsx` — the section-level one (`bookSections: { some: ... }`, feeds `LinkedTasksPanel`) and the per-card one (`bookSubsections: { some: ... }`, feeds every `CardLinkedTasksPanel` via `subsectionTasksById`) — fetched every task regardless of status. Archived tasks are soft-removed from view everywhere else in the app (they don't show on `/tasks`); this was the one place they kept reappearing. Added `status: { not: "ARCHIVED" }` to both `where` clauses — a single fix at the data source covers both panels and corrects their count badges too, since the count is just `tasks.length` on the (now-filtered) array.
+
+Typecheck clean, 639 tests green, lint clean, full `next build` verified.
+
 ### 2026-07-05 · v2.6.4 — Fix stale status pills on the Wedding Party card
 
 User-reported bug, with exact root cause and fix approach already diagnosed: `BookWeddingPartyCard.tsx`'s `optimisticCells` local state (backs the member×item status matrix and the "Sorted X/Y" stat tile) was seeded from the `card.cells` prop once and never actually re-synced — the effect that was supposed to do it only mutated a comparison sentinel, never called `setOptimisticCells`. After a `router.refresh()` (the card's own reorder/hide handlers trigger one) or any other section-page revalidation, the pills and stat tile kept showing whatever was in state at first mount until a full remount. Compounding it: that sentinel was module-scoped with a comment claiming "Next renders this component fresh per subsection id, so there's no cross-card bleeding" — wrong; module scope is shared across every mounted instance, so two WEDDING_PARTY cards on the same page could stomp each other's comparison.

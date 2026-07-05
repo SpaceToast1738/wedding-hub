@@ -187,7 +187,10 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
   // v1.30.5: pull section-level linked tasks (m2m bookSections relation).
   // Replaces v1.30.0's per-subsection link.
   const linkedTasks = await db.task.findMany({
-    where: { bookSections: { some: { id: section.id } } },
+    // Archived tasks are soft-removed from view everywhere else in the
+    // app — showing them here made this list the one place they kept
+    // reappearing.
+    where: { bookSections: { some: { id: section.id } }, status: { not: "ARCHIVED" } },
     orderBy: [{ status: "asc" }, { priority: "desc" }, { dueDate: "asc" }],
     select: {
       id: true,
@@ -208,7 +211,10 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
     subsectionIds.length === 0
       ? []
       : await db.task.findMany({
-          where: { bookSubsections: { some: { id: { in: subsectionIds } } } },
+          where: {
+            bookSubsections: { some: { id: { in: subsectionIds } } },
+            status: { not: "ARCHIVED" },
+          },
           orderBy: [{ status: "asc" }, { priority: "desc" }, { dueDate: "asc" }],
           select: {
             id: true,
