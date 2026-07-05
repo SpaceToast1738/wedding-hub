@@ -168,9 +168,18 @@ html.dark {
 html {
   height: 100%;
   font-size: 100%;
+  /* v2.6.1: safety net — a single element wider than the viewport
+     anywhere in the tree (a fixed px width, a non-wrapping flex row,
+     an unbroken long string) blows out the whole page's layout
+     viewport on mobile, forcing a pinch-zoom-out to read anything at
+     a normal size. Legitimate horizontal scroll (tables, the seating
+     canvas) already scrolls inside its own overflow-x-auto wrapper,
+     so clipping at the page edge doesn't remove any real content. */
+  overflow-x: hidden;
 }
 body {
   height: 100%;
+  overflow-x: hidden;
   background: var(--color-canvas);
   color: var(--color-ink-primary);
   font-family: var(--font-ui);

@@ -74,7 +74,7 @@ export function SpotifyConnectionBanner({
         >
           ♫
         </div>
-        <div className="flex-1 min-w-[200px]">
+        <div className="flex-1 min-w-[140px]">
           <div className="text-[13px] font-semibold mb-0.5">
             Spotify connected · {playlists.length} playlist
             {playlists.length === 1 ? "" : "s"}

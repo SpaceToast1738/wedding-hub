@@ -963,6 +963,14 @@ When wrapping up a meaningful iteration:
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
 
+### 2026-07-05 · v2.6.1 — Fix mobile pinch-zoom-to-fit
+
+User: "Website doesn't fit in scroll some pages and activities require me to pinch zoom out to make it fit." There was no safeguard anywhere against a single oversized element blowing out the whole page's mobile layout viewport — added `overflow-x: hidden` to `html`/`body` as a global stopgap (globals.css), then dispatched a scan to find the real culprits so the fix isn't just clipping content the user needs.
+
+Found two: **`TopicPicker.tsx`**'s dropdown panel (used on `/tasks`, `/questions`, and Wedding Book task-linking dialogs) was `position: absolute; left: 0` with a hardcoded `w-[320px]` — since `left-0` anchors to wherever the picker's trigger happens to sit in its row (not the viewport edge), on a 375–414px phone this can run past the right edge depending on layout context. Capped it to `w-[min(320px,calc(100vw-2rem))]` so it can never exceed the viewport regardless of where it's anchored. **`SpotifyConnectionBanner.tsx`** had a `flex-1 min-w-[200px]` text column that, combined with the fixed 40px icon, could exceed available width on the very smallest (~320px) phones — reduced the floor to `min-w-[140px]`.
+
+637 tests green, typecheck clean, lint clean, full `next build` verified.
+
 ### 2026-07-05 · v2.6.0 — Favicon, PWA manifest, icon-system audit
 
 User: "Review all of the icons etc, are there any improvements we can make to the overall look and polish? We also need a favicon." A 2-agent research audit catalogued every icon/glyph/emoji in the app (~57 distinct glyphs across three uncoordinated systems: a 16-glyph monochrome nav set, ~24 scattered colour emoji, and a badge/reorder glyph family) and confirmed `public/` was genuinely empty — zero favicon, zero manifest, zero apple-touch-icon existed before this entry.

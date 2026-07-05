@@ -284,7 +284,7 @@ export function TopicPicker({
 
       {/* Dropdown panel. Absolute-positioned below the trigger. */}
       {open && canEdit && (
-        <div className="absolute left-0 top-full mt-1 z-30 w-[320px] max-h-[360px] overflow-auto bg-surface border border-border-soft rounded-md shadow-lg">
+        <div className="absolute left-0 top-full mt-1 z-30 w-[min(320px,calc(100vw-2rem))] max-h-[360px] overflow-auto bg-surface border border-border-soft rounded-md shadow-lg">
           {bookSections.length > 0 && (
             <div>
               <div className="px-3 py-1.5 text-[10px] uppercase tracking-wider font-bold text-ink-tertiary border-b border-border-soft bg-canvas/30">
