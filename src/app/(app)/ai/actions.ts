@@ -195,8 +195,9 @@ export type PendingProposal = {
 
 /** All 14 ref families, fresh arrays every call — never share array
  *  instances through a module constant (a caller pushing into one
- *  would corrupt every later call). */
-export const REF_FAMILIES = [
+ *  would corrupt every later call). NOT exported: "use server" files
+ *  may only export async functions (Next enforces this at build). */
+const REF_FAMILIES = [
   "userIds",
   "navTagIds",
   "bookSectionIds",
