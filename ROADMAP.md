@@ -963,6 +963,26 @@ When wrapping up a meaningful iteration:
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
 
+### 2026-07-05 · v2.2.1 — AI chat renders markdown instead of literal `**`/`##`
+
+User pasted a screenshot: the assistant's "Top 5 Next Actions" reply showed literal `##` and `**` characters instead of a heading and bold text. Root cause: `ChatPanel`'s assistant bubble rendered `{msg.text}` in a plain `whitespace-pre-wrap` div — the model's markdown-formatted output (the system prompt explicitly asks for headings/bullets/bold) was never parsed, just dumped as raw text.
+
+**New [src/components/ai/MarkdownMessage.tsx](src/components/ai/MarkdownMessage.tsx)**, built on `react-markdown` + `remark-gfm` (tables/strikethrough/autolinks) + `remark-breaks` (single `\n` → `<br>`, so short chat-style lines don't run together the way bare CommonMark would). No `rehype-raw` — react-markdown escapes literal HTML in the source by default, so model output can't inject markup; this was a deliberate choice, not an oversight.
+
+Two exports:
+- `MarkdownMessage` — full block-level renderer (headings, paragraphs, lists, code, blockquotes) styled with the app's existing `ink-primary`/`ink-secondary`/`border-soft`/`text-info` token classes. Used for the chat transcript, where each assistant turn is its own block.
+- `InlineMarkdown` — a lighter variant for short AI-written strings embedded inside existing flowing UI (a `<span>`, a `<li>` next to other inline content) where the block renderer's `<div>`/`<p>` wrapper would be invalid nesting. Overrides `p` to a `Fragment` so it drops in as plain inline content.
+
+**Wired in:**
+- [ChatPanel.tsx](src/components/ai/ChatPanel.tsx) — assistant bubbles now use `MarkdownMessage` (user + error bubbles stay plain text; only the model's own prose needs parsing).
+- [WeddingReviewPanel.tsx](src/app/(app)/ai/WeddingReviewPanel.tsx) — `headline`, `concerns[].issue`/`suggestion`, `nextSteps[]`, `onTrack[].note` now go through `InlineMarkdown`. These are free-text fields in a strict-JSON schema — `output_config.format` only constrains the JSON *shape*, not whether the model puts `**emphasis**` inside a string value, and unlike `summarizeBookCard`'s prompt, the review/due-date prompts never told it not to.
+- [ProposalReviewCard.tsx](src/app/(app)/ai/ProposalReviewCard.tsx) + [ProposalBatchGroup.tsx](src/app/(app)/ai/ProposalBatchGroup.tsx) — the `rationale` line ("Why: …") through `InlineMarkdown`.
+- `summary` fields were left alone — they're built deterministically by `summariseProposal()` from structured payload fields (title/priority/due date), not raw model prose, so there's nothing to parse.
+
+**Verification:** rendered the exact text from the reported screenshot through `react-markdown` standalone (`renderToStaticMarkup`) — `##` became a real `<h2>`, `**bold**` became `<strong>`, the numbered list became a proper `<ol>`/`<li>` tree. 602 tests green, typecheck clean. Manual in-app verification still pending — needs the couple's running stack (Postgres + Anthropic key) to actually drive a chat turn; note this explicitly rather than claim it as done.
+
+**Foot-gun:** `react-markdown@10` is ESM-only. It imports fine under Next's bundler and under `tsx`, but don't reach for `require()` on it anywhere.
+
 ### 2026-07-03 · v2.2.0 — AI planner: richer proposals, batch approvals, page-aware chat
 
 User: full review of the AI agent + "it can't assign people to tasks, can't assign topics so they show under their sections, and I want one approval for multiple proposed tasks". Review ran as a multi-agent read-only workflow; plan approved with four extras (page-aware chat, thread history, suppliers visibility, AI-sees-pending-proposals).

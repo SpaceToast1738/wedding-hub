@@ -6,6 +6,7 @@
 
 import { useState, useTransition } from "react";
 import { applyProposal, dismissProposal, type PendingProposal } from "./actions";
+import { InlineMarkdown } from "@/components/ai/MarkdownMessage";
 
 export function ProposalReviewCard({ proposal }: { proposal: PendingProposal }) {
   const [pending, startTransition] = useTransition();
@@ -49,7 +50,7 @@ export function ProposalReviewCard({ proposal }: { proposal: PendingProposal }) 
             <div className="text-xs text-ink-secondary mt-0.5">{proposal.detail}</div>
           )}
           <div className="text-sm text-ink-secondary mt-1">
-            <span className="italic">Why:</span> {proposal.rationale}
+            <span className="italic">Why:</span> <InlineMarkdown text={proposal.rationale} />
           </div>
         </div>
         <div className="flex flex-col gap-1 items-end flex-shrink-0">

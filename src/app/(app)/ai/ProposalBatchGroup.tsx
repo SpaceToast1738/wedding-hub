@@ -11,6 +11,7 @@ import {
   type BatchItemResult,
   type PendingProposal,
 } from "./actions";
+import { InlineMarkdown } from "@/components/ai/MarkdownMessage";
 
 type ItemState =
   | { kind: "pending" }
@@ -173,7 +174,7 @@ export function ProposalBatchGroup({ proposals }: { proposals: PendingProposal[]
                   <div className="text-xs text-ink-secondary">{p.detail}</div>
                 )}
                 <div className="text-xs text-ink-secondary mt-0.5">
-                  <span className="italic">Why:</span> {p.rationale}
+                  <span className="italic">Why:</span> <InlineMarkdown text={p.rationale} />
                 </div>
                 {st.kind === "error" && (
                   <div className="text-xs text-rose-700 mt-0.5">{st.message}</div>

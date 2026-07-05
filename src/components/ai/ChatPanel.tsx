@@ -30,6 +30,7 @@ import {
   type ThreadListItem,
   type ThreadMessage,
 } from "@/app/(app)/ai/actions";
+import { MarkdownMessage } from "./MarkdownMessage";
 
 // Client-side copies of the tool progress labels — the server
 // registry imports Prisma-backed modules and can't be bundled into a
@@ -608,8 +609,8 @@ function MessageBubble({
           </div>
         )}
         {msg.text && (
-          <div className="rounded-lg bg-canvas border border-border-soft text-ink-primary px-3 py-2 text-sm whitespace-pre-wrap">
-            {msg.text}
+          <div className="rounded-lg bg-canvas border border-border-soft text-ink-primary px-3 py-2">
+            <MarkdownMessage text={msg.text} />
           </div>
         )}
         {(() => {

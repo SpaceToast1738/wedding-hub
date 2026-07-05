@@ -9,6 +9,7 @@
 
 import { useState, useTransition } from "react";
 import { reviewWeddingState, type WeddingReview } from "./actions";
+import { InlineMarkdown } from "@/components/ai/MarkdownMessage";
 
 const SEVERITY_STYLES: Record<
   "high" | "medium" | "low",
@@ -91,7 +92,7 @@ function ReviewBody({ review }: { review: WeddingReview }) {
           Headline · {review.weeksToWedding} weeks to go · {formatTimeAgo(review.generatedAt)}
         </div>
         <div className="text-base font-semibold text-ink-primary mt-1">
-          {review.headline}
+          <InlineMarkdown text={review.headline} />
         </div>
       </div>
 
@@ -116,9 +117,9 @@ function ReviewBody({ review }: { review: WeddingReview }) {
                     </span>
                     <span className="text-ink-primary font-semibold">{c.area}</span>
                   </div>
-                  <div className="text-ink-primary">{c.issue}</div>
+                  <div className="text-ink-primary"><InlineMarkdown text={c.issue} /></div>
                   <div className="text-ink-secondary mt-1">
-                    <span className="italic">Suggestion:</span> {c.suggestion}
+                    <span className="italic">Suggestion:</span> <InlineMarkdown text={c.suggestion} />
                   </div>
                 </div>
               );
@@ -134,7 +135,7 @@ function ReviewBody({ review }: { review: WeddingReview }) {
           </h3>
           <ol className="list-decimal ml-5 space-y-1 text-sm text-ink-primary">
             {review.nextSteps.map((s, i) => (
-              <li key={i}>{s}</li>
+              <li key={i}><InlineMarkdown text={s} /></li>
             ))}
           </ol>
         </div>
@@ -150,7 +151,7 @@ function ReviewBody({ review }: { review: WeddingReview }) {
               <li key={i}>
                 <span className="text-emerald-700">✓</span>{" "}
                 <span className="text-ink-primary font-medium">{n.area}:</span>{" "}
-                {n.note}
+                <InlineMarkdown text={n.note} />
               </li>
             ))}
           </ul>
