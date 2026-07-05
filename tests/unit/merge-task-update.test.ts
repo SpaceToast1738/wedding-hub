@@ -25,7 +25,7 @@ describe("mergeTaskRelations", () => {
     expect(next.navTagIds).toEqual(["t1"]);
   });
 
-  it("ALWAYS carries bookSubsectionIds through untouched — the REPLACE-trap guard", () => {
+  it("carries bookSubsectionIds through untouched when the patch doesn't mention them", () => {
     const next = mergeTaskRelations(base, {
       addNavTagIds: ["t2"],
       removeBookSectionIds: ["s1"],
@@ -33,6 +33,15 @@ describe("mergeTaskRelations", () => {
     expect(next.bookSubsectionIds).toEqual(["card1", "card2"]);
     expect(next.navTagIds.sort()).toEqual(["t1", "t2"]);
     expect(next.bookSectionIds).toEqual([]);
+  });
+
+  it("adds and removes bookSubsectionIds (card-level links) via the same delta pattern", () => {
+    const next = mergeTaskRelations(base, {
+      addBookSubsectionIds: ["card3"],
+      removeBookSubsectionIds: ["card1"],
+    });
+    expect(next.bookSubsectionIds.sort()).toEqual(["card2", "card3"]);
+    expect(next.assigneeIds.sort()).toEqual(["u1", "u2"]);
   });
 
   it("dedupes an add of an id that's already present", () => {
@@ -69,6 +78,12 @@ describe("patchTouches*", () => {
 
   it("topic-only patch touches topics but not assignees", () => {
     const patch = { removeGuestGroupIds: ["g2"] };
+    expect(patchTouchesAssignees(patch)).toBe(false);
+    expect(patchTouchesTopics(patch)).toBe(true);
+  });
+
+  it("bookSubsectionIds patch touches topics but not assignees", () => {
+    const patch = { addBookSubsectionIds: ["card9"] };
     expect(patchTouchesAssignees(patch)).toBe(false);
     expect(patchTouchesTopics(patch)).toBe(true);
   });

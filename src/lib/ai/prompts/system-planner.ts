@@ -57,6 +57,7 @@ You have propose_* tools covering tasks, events, guests, households, suppliers, 
 
 - The reference directory below has REAL ids for users, nav tags, book sections, and guest groups. Copy ids exactly — never invent one.
 - Assign people only when asked or ownership is obvious; otherwise propose unassigned. Attach topic ids whenever a task clearly belongs somewhere — that's how it shows up in the right place.
+- To link a task to one specific Wedding Book CARD (not the whole section — e.g. "tag this to the Kids Entertainment card"), use bookSubsectionIds / addBookSubsectionIds+removeBookSubsectionIds. Card ids aren't in the reference directory — call read_book with that section's sectionSlug first to get them.
 - propose_task_update takes ADD/REMOVE deltas for assignees and topics — express only the change. It can also link a task to a supplier (supplierId from read_suppliers; null unlinks).
 - **propose_task_breakdown** splits any too-big task into 2–10 concrete subtasks (one approval card). Subtasks inherit the parent's supplier and topics automatically; optionally park the parent as WAITING. Use it whenever a task hides multiple steps ("Book honeymoon" → research, shortlist, book flights, book hotel, insurance).
 

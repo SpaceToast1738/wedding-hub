@@ -963,6 +963,18 @@ When wrapping up a meaningful iteration:
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
 
+### 2026-07-05 · v2.6.2 — AI can link tasks to a specific Wedding Book card
+
+User (with a screenshot): asked the AI planner to make the "Kids Entertainment" card taggable on a task, and it correctly refused — "card-level tagging on tasks isn't one of them [the tools I have]." That refusal was accurate but avoidable: `Task.bookSubsections`, `taskCreateSchema.bookSubsectionIds`, both apply bridges (`taskPayloadToFormData`, `taskUpdatePayloadToFormData`), and `resolveRefs`' subsection family were all already wired end-to-end since v2.4.0 — the ONE missing piece was that `propose_task` and `propose_task_update`'s AI-facing tool schemas never exposed the field. `merge-task-update.ts` even had a comment spelling this out as a known, deliberate gap ("the AI can't modify card-level links").
+
+Closed it:
+- `taskUpdateSchema` gained `addBookSubsectionIds`/`removeBookSubsectionIds` (same add/remove delta pattern as the other three topic relations).
+- `mergeTaskRelations` now actually merges `bookSubsectionIds` instead of passing them through untouched — this is the line the whole gap traced back to.
+- `propose_task` gained `bookSubsectionIds` (create-time link); `propose_task_update` gained the add/remove pair. Both validate through `resolveRefs`' existing `subsectionIds` family (no new plumbing needed there — it already resolved and named `BookSubsection` rows).
+- System prompt: a one-line nudge that card ids aren't in the static reference directory (unlike sections) — the model needs to call `read_book` with a `sectionSlug` first to get them.
+
+2 new unit tests for the merge behavior (639 total, up from 637), typecheck clean, lint clean, full `next build` verified.
+
 ### 2026-07-05 · v2.6.1 — Fix mobile pinch-zoom-to-fit
 
 User: "Website doesn't fit in scroll some pages and activities require me to pinch zoom out to make it fit." There was no safeguard anywhere against a single oversized element blowing out the whole page's mobile layout viewport — added `overflow-x: hidden` to `html`/`body` as a global stopgap (globals.css), then dispatched a scan to find the real culprits so the fix isn't just clipping content the user needs.

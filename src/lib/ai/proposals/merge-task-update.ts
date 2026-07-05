@@ -6,13 +6,18 @@
 // topic relations (bookSections, bookSubsections, navTags,
 // guestGroups) as a single unit whenever ANY topicKeys entry is
 // posted. An apply bridge that posted only the AI's new topic ids
-// would silently wipe every existing link, including the card-level
-// bookSubsection links the AI can't even express.
+// would silently wipe every existing link.
 //
 // So: proposals carry add/remove DELTAS; at apply time we load the
 // task's current relation ids, merge here, and post the full merged
-// set (bookSubsections passed through untouched). Pure function —
-// unit-tested in tests/unit/merge-task-update.test.ts.
+// set. Pure function — unit-tested in tests/unit/merge-task-update.test.ts.
+//
+// v2.6.2: bookSubsectionIds (card-level links) now merge via the same
+// add/remove delta pattern as the other three relations — previously
+// passed through untouched because propose_task_update had no field
+// for it, so re-linking a task to a different Wedding Book card
+// required a manual edit even though the DB relation and both apply
+// bridges already supported it.
 
 export type TaskRelationState = {
   assigneeIds: string[];
@@ -29,6 +34,8 @@ export type TaskRelationPatch = {
   removeNavTagIds?: string[];
   addBookSectionIds?: string[];
   removeBookSectionIds?: string[];
+  addBookSubsectionIds?: string[];
+  removeBookSubsectionIds?: string[];
   addGuestGroupIds?: string[];
   removeGuestGroupIds?: string[];
 };
@@ -60,15 +67,17 @@ export function patchTouchesTopics(patch: TaskRelationPatch): boolean {
       patch.removeNavTagIds?.length ||
       patch.addBookSectionIds?.length ||
       patch.removeBookSectionIds?.length ||
+      patch.addBookSubsectionIds?.length ||
+      patch.removeBookSubsectionIds?.length ||
       patch.addGuestGroupIds?.length ||
       patch.removeGuestGroupIds?.length,
   );
 }
 
 /** Apply the deltas to the task's current relation state. Returns the
- *  full post-merge sets. bookSubsectionIds pass through untouched —
- *  the AI can't modify card-level links, but they MUST be re-posted
- *  when topics change or updateTask's unit-replace wipes them. */
+ *  full post-merge sets — all four topic relations must be re-posted
+ *  as a unit whenever any of them change, or updateTask's unit-replace
+ *  wipes the ones the patch didn't touch. */
 export function mergeTaskRelations(
   current: TaskRelationState,
   patch: TaskRelationPatch,
@@ -84,7 +93,11 @@ export function mergeTaskRelations(
       patch.addBookSectionIds,
       patch.removeBookSectionIds,
     ),
-    bookSubsectionIds: [...current.bookSubsectionIds],
+    bookSubsectionIds: mergeSet(
+      current.bookSubsectionIds,
+      patch.addBookSubsectionIds,
+      patch.removeBookSubsectionIds,
+    ),
     navTagIds: mergeSet(
       current.navTagIds,
       patch.addNavTagIds,

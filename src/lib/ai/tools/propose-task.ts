@@ -15,6 +15,10 @@ const inputSchema = z.object({
   // reference directory in the system prompt (or read tools).
   assigneeIds: z.array(z.string()).max(10).optional(),
   bookSectionIds: z.array(z.string()).max(5).optional(),
+  // v2.6.2: card-level link — id of a specific Wedding Book subsection
+  // (a "card"), from read_book with a sectionSlug. Distinct from
+  // bookSectionIds (whole-section links).
+  bookSubsectionIds: z.array(z.string()).max(5).optional(),
   navTagIds: z.array(z.string()).max(5).optional(),
   guestGroupIds: z.array(z.string()).max(5).optional(),
   supplierId: z.string().optional(),
@@ -57,6 +61,12 @@ export const proposeTask: AiTool<typeof inputSchema> = {
           description:
             "Wedding-book section ids from the reference directory — makes the task show up under that section.",
         },
+        bookSubsectionIds: {
+          type: "array",
+          items: { type: "string" },
+          description:
+            "Wedding-book CARD ids (a specific card inside a section, not the whole section) — call read_book with a sectionSlug first to get card ids. Use this when the user names a specific card (e.g. 'the Kids Entertainment card'), not bookSectionIds.",
+        },
         navTagIds: {
           type: "array",
           items: { type: "string" },
@@ -90,6 +100,7 @@ export const proposeTask: AiTool<typeof inputSchema> = {
       userIds: input.assigneeIds,
       navTagIds: input.navTagIds,
       bookSectionIds: input.bookSectionIds,
+      subsectionIds: input.bookSubsectionIds,
       guestGroupIds: input.guestGroupIds,
       supplierIds: input.supplierId ? [input.supplierId] : [],
     });
@@ -106,6 +117,7 @@ export const proposeTask: AiTool<typeof inputSchema> = {
       supplierId: input.supplierId ?? null,
       assigneeIds: input.assigneeIds ?? [],
       bookSectionIds: input.bookSectionIds ?? [],
+      bookSubsectionIds: input.bookSubsectionIds ?? [],
       navTagIds: input.navTagIds ?? [],
       guestGroupIds: input.guestGroupIds ?? [],
     });
@@ -131,6 +143,7 @@ export const proposeTask: AiTool<typeof inputSchema> = {
       topics: [
         ...(input.navTagIds ?? []).map((id) => names.navTags.get(id)!),
         ...(input.bookSectionIds ?? []).map((id) => names.bookSections.get(id)!),
+        ...(input.bookSubsectionIds ?? []).map((id) => names.subsections.get(id)!),
         ...(input.guestGroupIds ?? []).map((id) => names.guestGroups.get(id)!),
       ],
       supplier: input.supplierId ? names.suppliers.get(input.supplierId) : null,

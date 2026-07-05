@@ -183,6 +183,11 @@ export const taskUpdateSchema = z.object({
   removeNavTagIds: z.array(z.string()).max(5).optional(),
   addBookSectionIds: z.array(z.string()).max(5).optional(),
   removeBookSectionIds: z.array(z.string()).max(5).optional(),
+  // v2.6.2: card-level links — the AI couldn't link/unlink a task to a
+  // specific Wedding Book card (only whole sections), even though
+  // taskCreateSchema and both apply bridges already supported it.
+  addBookSubsectionIds: z.array(z.string()).max(5).optional(),
+  removeBookSubsectionIds: z.array(z.string()).max(5).optional(),
   addGuestGroupIds: z.array(z.string()).max(5).optional(),
   removeGuestGroupIds: z.array(z.string()).max(5).optional(),
 });

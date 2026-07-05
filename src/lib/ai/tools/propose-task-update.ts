@@ -31,6 +31,10 @@ const inputSchema = z.object({
   removeNavTagIds: z.array(z.string()).max(5).optional(),
   addBookSectionIds: z.array(z.string()).max(5).optional(),
   removeBookSectionIds: z.array(z.string()).max(5).optional(),
+  // v2.6.2: card-level links — a specific Wedding Book subsection, not
+  // the whole section. Ids come from read_book with a sectionSlug.
+  addBookSubsectionIds: z.array(z.string()).max(5).optional(),
+  removeBookSubsectionIds: z.array(z.string()).max(5).optional(),
   addGuestGroupIds: z.array(z.string()).max(5).optional(),
   removeGuestGroupIds: z.array(z.string()).max(5).optional(),
   rationale: z
@@ -78,6 +82,10 @@ export const proposeTaskUpdate: AiTool<typeof inputSchema> = {
         removeNavTagIds: idArray("Nav tag ids to remove."),
         addBookSectionIds: idArray("Wedding-book section ids to add as topics."),
         removeBookSectionIds: idArray("Wedding-book section ids to remove."),
+        addBookSubsectionIds: idArray(
+          "Wedding-book CARD ids to link (a specific card inside a section, not the whole section) — call read_book with a sectionSlug first to get card ids. Use this when the user names a specific card.",
+        ),
+        removeBookSubsectionIds: idArray("Wedding-book card ids to unlink."),
         addGuestGroupIds: idArray("Guest group ids to add as topics."),
         removeGuestGroupIds: idArray("Guest group ids to remove."),
         rationale: {
@@ -112,6 +120,10 @@ export const proposeTaskUpdate: AiTool<typeof inputSchema> = {
         ...(input.addBookSectionIds ?? []),
         ...(input.removeBookSectionIds ?? []),
       ],
+      subsectionIds: [
+        ...(input.addBookSubsectionIds ?? []),
+        ...(input.removeBookSubsectionIds ?? []),
+      ],
       guestGroupIds: [
         ...(input.addGuestGroupIds ?? []),
         ...(input.removeGuestGroupIds ?? []),
@@ -138,6 +150,8 @@ export const proposeTaskUpdate: AiTool<typeof inputSchema> = {
       "removeNavTagIds",
       "addBookSectionIds",
       "removeBookSectionIds",
+      "addBookSubsectionIds",
+      "removeBookSubsectionIds",
       "addGuestGroupIds",
       "removeGuestGroupIds",
     ] as const) {
@@ -189,6 +203,8 @@ export const proposeTaskUpdate: AiTool<typeof inputSchema> = {
         ...(input.removeNavTagIds ?? []).map((id) => `−${names.navTags.get(id)!}`),
         ...(input.addBookSectionIds ?? []).map((id) => `+${names.bookSections.get(id)!}`),
         ...(input.removeBookSectionIds ?? []).map((id) => `−${names.bookSections.get(id)!}`),
+        ...(input.addBookSubsectionIds ?? []).map((id) => `+${names.subsections.get(id)!}`),
+        ...(input.removeBookSubsectionIds ?? []).map((id) => `−${names.subsections.get(id)!}`),
         ...(input.addGuestGroupIds ?? []).map((id) => `+${names.guestGroups.get(id)!}`),
         ...(input.removeGuestGroupIds ?? []).map((id) => `−${names.guestGroups.get(id)!}`),
       ],
