@@ -963,6 +963,14 @@ When wrapping up a meaningful iteration:
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
 
+### 2026-07-05 · v2.6.4 — Fix stale status pills on the Wedding Party card
+
+User-reported bug, with exact root cause and fix approach already diagnosed: `BookWeddingPartyCard.tsx`'s `optimisticCells` local state (backs the member×item status matrix and the "Sorted X/Y" stat tile) was seeded from the `card.cells` prop once and never actually re-synced — the effect that was supposed to do it only mutated a comparison sentinel, never called `setOptimisticCells`. After a `router.refresh()` (the card's own reorder/hide handlers trigger one) or any other section-page revalidation, the pills and stat tile kept showing whatever was in state at first mount until a full remount. Compounding it: that sentinel was module-scoped with a comment claiming "Next renders this component fresh per subsection id, so there's no cross-card bleeding" — wrong; module scope is shared across every mounted instance, so two WEDDING_PARTY cards on the same page could stomp each other's comparison.
+
+Fixed by mirroring the `notesValue` re-sync pattern two dozen lines above it in the same file: a `useEffect` that calls `setOptimisticCells(card.cells)` gated on `!editing`. Verified safe before writing it — cell pills are only interactive while `editing` is true (the `<select>` only renders then), so the resync can never clobber an in-flight optimistic click; it catches up the moment the user clicks "Done". Deleted the module-scoped sentinel entirely.
+
+Typecheck clean, 639 tests green, lint clean, full `next build` verified.
+
 ### 2026-07-05 · v2.6.3 — Backdate supplier communication log entries
 
 The v2.5.1 design pass touched Suppliers, but the agent doing it only owned the client-side files, not `actions.ts` — so it left `createSupplierCommunication` always stamping `createdAt` at server "now" with no way to log a call that actually happened days ago. That skewed "last contact" on the detail page and card for anyone backfilling.

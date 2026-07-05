@@ -168,11 +168,14 @@ export function BookWeddingPartyCard({
   const confirm = useConfirm();
 
   // Local optimistic snapshots of the matrix so cell clicks feel
-  // instant. Synced on each prop change.
+  // instant. Re-synced on each prop change, same as notesValue above —
+  // gated on !editing since cell pills are only interactive while
+  // editing (the <select> below only renders then), so a resync can't
+  // clobber an in-flight optimistic update.
   const [optimisticCells, setOptimisticCells] = useState<Cell[]>(card.cells);
-  if (card.cells !== referenceForCells.current) {
-    referenceForCells.current = card.cells;
-  }
+  useEffect(() => {
+    if (!editing) setOptimisticCells(card.cells);
+  }, [card.cells, editing]);
 
   function saveNotes() {
     const next = notesValue.trim() || null;
@@ -528,12 +531,6 @@ function StatTile({ label, value }: { label: string; value: string }) {
     </div>
   );
 }
-
-// Sentinel for re-syncing optimisticCells when the prop changes
-// (avoids a useEffect dep on an array reference). Module-scoped is
-// fine — Next renders this component fresh per subsection id, so
-// there's no cross-card bleeding.
-const referenceForCells = { current: [] as Cell[] };
 
 // ─── Header cells ─────────────────────────────────────────────────
 
