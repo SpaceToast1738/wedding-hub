@@ -36,20 +36,33 @@ import {
 } from "@/lib/guest-group-members";
 import type { PermissionLevel } from "@prisma/client";
 
+// v2.5.0 (design pass #2): shared chip class for the sticky section
+// nav — plain anchors (not the Tag component, which is a button-only
+// primitive) so the browser's native "jump to #id" behaviour works
+// with no client JS. scroll-mt is set on the target sections, not
+// here, since that's what actually needs to account for the nav's
+// own height.
+const SETTINGS_NAV_CHIP =
+  "flex-shrink-0 text-xs px-2.5 py-2 sm:py-1 rounded-full border border-border-soft bg-muted text-ink-secondary hover:bg-canvas hover:text-ink-primary whitespace-nowrap transition-colors";
+
 // v1.44.0: lightweight section wrapper for the settings page. Just
 // a heading + optional subtitle + body. Helps the page read like a
 // document with named sections instead of one long stream of cards.
+// v2.5.0: optional `id` + scroll-mt-* so the sticky chip-nav's anchor
+// links land below the nav bar instead of tucking the heading under it.
 function SettingsSection({
+  id,
   title,
   subtitle,
   children,
 }: {
+  id?: string;
   title: string;
   subtitle?: string;
   children: React.ReactNode;
 }) {
   return (
-    <section className="mb-8 last:mb-0">
+    <section id={id} className="mb-8 last:mb-0 scroll-mt-16">
       <header className="mb-3 px-1">
         <h2 className="text-xs font-bold uppercase tracking-wider text-ink-tertiary">
           {title}
@@ -210,9 +223,54 @@ export default async function SettingsPage({
     groupInherited[u.id] = perSection;
   }
 
+  // v2.5.0 (design pass #4): per-role permission summary for the
+  // invite picker. Only the Couple option carried any warning about
+  // its consequences before — Viewer/Wedding party/Planner gave no
+  // indication of what a new invite would actually be able to see or
+  // edit, which is the single highest-stakes moment on the page.
+  // Computed the same way the real resolver would for a freshly-
+  // invited user with that role (no couple flag, no custom-group
+  // membership yet — those don't exist until the invite is accepted
+  // and the couple deliberately adds them).
+  const ROLE_PREVIEWS = ["VIEWER", "WEDDING_PARTY", "PLANNER"] as const;
+  const rolePermissions: Record<(typeof ROLE_PREVIEWS)[number], { section: string; level: "NONE" | "VIEW" | "EDIT" }[]> = {
+    VIEWER: [],
+    WEDDING_PARTY: [],
+    PLANNER: [],
+  };
+  for (const role of ROLE_PREVIEWS) {
+    const keys = groupKeysForUser(
+      { id: "__invite_preview__", email: "", role, isCouple: false },
+      [],
+    );
+    const map = reduceGroupPermissions(keys, groupPermissionsRaw);
+    rolePermissions[role] = SECTIONS.map((s) => ({
+      section: s,
+      level: (map.get(s) ?? "NONE") as "NONE" | "VIEW" | "EDIT",
+    })).filter((p) => p.level !== "NONE");
+  }
+
   return (
     <>
       <PageHeader title="Settings" subtitle="Your profile, members, and per-section permissions" />
+      {/* v2.5.0 (design pass #2): sticky chip-nav under the header.
+          Settings had grown to ~10 visually-identical panels with no
+          in-page navigation, so less-visited ones (AI planner,
+          Access & members) required scroll-scanning to find. Anchors
+          match the `id`s on each SettingsSection below; couple-only
+          sections are skipped entirely for non-couple viewers rather
+          than linking to a section they'll never see rendered. */}
+      <nav
+        aria-label="Settings sections"
+        className="sticky top-0 z-10 flex items-center gap-1.5 overflow-x-auto border-b border-border-soft bg-canvas/95 backdrop-blur-sm px-4 sm:px-6 py-2 flex-shrink-0"
+      >
+        <a href="#section-account" className={SETTINGS_NAV_CHIP}>Account</a>
+        <a href="#section-wedding" className={SETTINGS_NAV_CHIP}>Wedding</a>
+        {user.isCouple && <a href="#section-ai" className={SETTINGS_NAV_CHIP}>AI</a>}
+        <a href="#section-customisation" className={SETTINGS_NAV_CHIP}>Customisation</a>
+        {user.isCouple && <a href="#section-members" className={SETTINGS_NAV_CHIP}>Members</a>}
+        <a href="#section-log" className={SETTINGS_NAV_CHIP}>Log</a>
+      </nav>
       {/* Vertical-only on the page; horizontal scrolling lives inside the
           permission matrix's own container so the page itself doesn't
           scroll sideways. Stops the trackpad-wobble where two scroll
@@ -224,7 +282,7 @@ export default async function SettingsPage({
               stream of cards. Section headings are small uppercase
               labels — they don't compete with each panel's own h2. */}
 
-          <SettingsSection title="Your account">
+          <SettingsSection id="section-account" title="Your account">
             <MyProfilePanel
               email={me?.email ?? user.email}
               initialFirstName={me?.firstName ?? ""}
@@ -232,7 +290,7 @@ export default async function SettingsPage({
             />
           </SettingsSection>
 
-          <SettingsSection title="Wedding details">
+          <SettingsSection id="section-wedding" title="Wedding details">
             <WeddingSettingsPanel
               initial={{
                 weddingDate: dateForInput,
@@ -251,6 +309,7 @@ export default async function SettingsPage({
 
           {user.isCouple && (
             <SettingsSection
+              id="section-ai"
               title="AI planner"
               subtitle="Anthropic API key + monthly spend cap. Applies across all AI features."
             >
@@ -263,6 +322,7 @@ export default async function SettingsPage({
           )}
 
           <SettingsSection
+            id="section-customisation"
             title="Customisation"
             subtitle="Tags and custom fields that surface across the app."
           >
@@ -290,17 +350,62 @@ export default async function SettingsPage({
                 }))}
               />
             )}
+
+            {/* v2.5.0 (design pass #3): GuestGroupsBlock moved here
+                from "Access & members" — it manages wedding-guest
+                seating/colour categorisation, not app-user access
+                permissions, and living next to PermissionGroupsBlock
+                (identical visual chrome, completely different
+                purpose) made the two easy to confuse. Renamed to
+                "Guest seating groups" in GuestGroupsBlock itself so
+                the distinction is unambiguous at a glance. */}
+            {user.isCouple && (() => {
+              const allGuestsForBlock = allGuests.map((g) => ({
+                id: g.id,
+                name: guestDisplayName(g),
+              }));
+              const guestBuiltins = BUILTIN_GUEST_GROUPS.map((bg) => ({
+                slug: bg.slug,
+                name: bg.name,
+                members: resolveBuiltinGuestGroup(bg.slug, allGuests).map((g) => ({
+                  id: g.id,
+                  name: guestDisplayName(g),
+                })),
+              }));
+              const guestGroupRows = guestGroupsRaw.map((g) => ({
+                id: g.id,
+                slug: g.slug,
+                name: g.name,
+                description: g.description,
+                colour: g.colour,
+                side: g.side as "BRIDE" | "GROOM" | "BOTH",
+                order: g.order,
+                members: g.members
+                  .map((m) => allGuests.find((x) => x.id === m.id))
+                  .filter((x): x is (typeof allGuests)[number] => Boolean(x))
+                  .map((x) => ({ id: x.id, name: guestDisplayName(x) })),
+              }));
+              return (
+                <GuestGroupsBlock
+                  groups={guestGroupRows}
+                  builtins={guestBuiltins}
+                  allGuests={allGuestsForBlock}
+                />
+              );
+            })()}
           </SettingsSection>
 
-          {/* Access & members section — couple-only. Three panels:
-              permission groups (the primary surface), guest groups
-              (organisational), and the per-user override matrix
-              (rare exceptions). Hidden entirely for non-couple
-              members since they can't change anything here. */}
+          {/* Access & members section — couple-only. Permission
+              groups (the primary surface) and the per-user override
+              matrix (rare exceptions). Hidden entirely for non-couple
+              members since they can't change anything here.
+              v2.5.0 (design pass #3): GuestGroupsBlock moved out to
+              Customisation — see the comment there. */}
           {user.isCouple && (
             <SettingsSection
+              id="section-members"
               title="Access & members"
-              subtitle="Permission groups, guest groups, and per-user overrides. Couple-only."
+              subtitle="Permission groups and per-user overrides. Couple-only."
             >
           {/* v1.40.0 (backlog #3): permission-groups admin block.
               Couple-only management of custom groups; built-ins
@@ -362,44 +467,6 @@ export default async function SettingsPage({
             );
           })()}
 
-          {/* v1.42.0: GuestGroups admin block — couple-only.
-              Bundles wedding guests for ceremony seating colour-
-              coding etc. Distinct from PermissionGroups above. */}
-          {user.isCouple && (() => {
-            const allGuestsForBlock = allGuests.map((g) => ({
-              id: g.id,
-              name: guestDisplayName(g),
-            }));
-            const guestBuiltins = BUILTIN_GUEST_GROUPS.map((bg) => ({
-              slug: bg.slug,
-              name: bg.name,
-              members: resolveBuiltinGuestGroup(bg.slug, allGuests).map((g) => ({
-                id: g.id,
-                name: guestDisplayName(g),
-              })),
-            }));
-            const guestGroupRows = guestGroupsRaw.map((g) => ({
-              id: g.id,
-              slug: g.slug,
-              name: g.name,
-              description: g.description,
-              colour: g.colour,
-              side: g.side as "BRIDE" | "GROOM" | "BOTH",
-              order: g.order,
-              members: g.members
-                .map((m) => allGuests.find((x) => x.id === m.id))
-                .filter((x): x is (typeof allGuests)[number] => Boolean(x))
-                .map((x) => ({ id: x.id, name: guestDisplayName(x) })),
-            }));
-            return (
-              <GuestGroupsBlock
-                groups={guestGroupRows}
-                builtins={guestBuiltins}
-                allGuests={allGuestsForBlock}
-              />
-            );
-          })()}
-
           <InviteBlock
             invites={invites.map((i) => ({
               id: i.id,
@@ -409,6 +476,7 @@ export default async function SettingsPage({
               status: i.status,
               createdAt: i.createdAt,
             }))}
+            rolePermissions={rolePermissions}
           />
 
           {/* v1.45.0: per-user editor — replaces the dense
@@ -501,7 +569,7 @@ export default async function SettingsPage({
             </SettingsSection>
           )}
 
-          <SettingsSection title="Notifications & log">
+          <SettingsSection id="section-log" title="Notifications & log">
             {/* v1.25.0: nudges digest, couple-only. The panel
                 self-renders an empty placeholder for non-couple
                 viewers, so we always render it inside the section. */}

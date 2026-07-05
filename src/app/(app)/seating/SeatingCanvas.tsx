@@ -389,10 +389,16 @@ export function SeatingCanvas({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ghostMounted]);
 
+  // v2.5.1 (ADHD note): success toasts for seat assign/unseat — these
+  // only ever notified on error before, so a successful drag looked
+  // identical to nothing happening at all.
   function dropOnSeat(seatId: string, guestId: string) {
+    const g = allGuests.find((x) => x.id === guestId);
+    const guestName = g ? `${g.firstName} ${g.lastName}` : "Guest";
     startTransitionDrop(async () => {
       try {
         await assignGuestToSeat(seatId, guestId);
+        notify("success", `${guestName} seated`);
       } catch (err) {
         notify("error", err instanceof Error ? err.message : "Couldn't assign seat");
       }
@@ -404,9 +410,11 @@ export function SeatingCanvas({
     // is one (otherwise it's a no-op drag from panel → panel).
     const g = allGuests.find((x) => x.id === guestId);
     if (!g?.currentSeatId) return;
+    const guestName = `${g.firstName} ${g.lastName}`;
     startTransitionDrop(async () => {
       try {
         await assignGuestToSeat(g.currentSeatId!, null);
+        notify("success", `${guestName} unseated`);
       } catch (err) {
         notify("error", err instanceof Error ? err.message : "Couldn't unseat");
       }
@@ -755,7 +763,14 @@ export function SeatingCanvas({
           ref={svgRef}
           viewBox={`${viewBox.x} ${viewBox.y} ${viewBox.w} ${viewBox.h}`}
           preserveAspectRatio="xMidYMid meet"
-          className="w-full h-full block touch-none select-none"
+          // v2.5.1 (finding #3): touch-none blocked page scroll the
+          // instant a finger landed anywhere on the canvas — on a
+          // coarse pointer, drag is already disabled (dragEnabled),
+          // so the only remaining gesture is a tap; touch-pan-y keeps
+          // vertical page scroll working while still allowing that
+          // tap. Fine-pointer devices keep touch-none (irrelevant to
+          // mouse input, but harmless).
+          className={`w-full h-full block select-none ${isCoarsePointer ? "touch-pan-y" : "touch-none"}`}
           style={{ background: "var(--color-canvas)" }}
         >
           <defs>
@@ -858,10 +873,20 @@ export function SeatingCanvas({
                             was unreliable on SVG <circle>. PointerDown
                             captures the pointer, pointerMove tracks
                             position + sets state when threshold passed,
-                            pointerUp commits to nearest seat (or unseats
-                            if dropped outside). Stops propagation so the
-                            table-drag handler never fires. */}
-                        {canEdit && occupied && (
+                            pointerUp commits to nearest seat. Stops
+                            propagation so the table-drag handler never
+                            fires.
+                            v2.5.1 (finding #2): gated on `dragEnabled`
+                            (canEdit AND fine pointer) instead of just
+                            `canEdit` — pre-fix this stayed fully
+                            drag-capable on touch even though whole-
+                            table dragging was already disabled there,
+                            so an ordinary tap's finger jitter could
+                            register as a drag and silently unseat the
+                            guest. Touch (and view-only) taps fall
+                            through to the plain click-to-open layer
+                            below instead. */}
+                        {dragEnabled && occupied && (
                           <circle
                             cx={layout.cx}
                             cy={layout.cy}
@@ -965,7 +990,15 @@ export function SeatingCanvas({
                               if (overId && overId !== ds.fromSeatId) {
                                 dropOnSeat(overId, ds.guestId);
                               } else if (overId === null) {
-                                // Dropped outside any seat — unseat.
+                                // v2.5.2 (review fix): this whole drag-
+                                // source only renders when dragEnabled
+                                // (canEdit && fine pointer) — touch
+                                // never reaches this branch at all, so
+                                // the v2.5.1 fine-pointer-only jitter
+                                // fix didn't need to remove this
+                                // desktop drop-to-unseat gesture too.
+                                // dropOnPanel already notifies success/
+                                // error, so this is never silent.
                                 dropOnPanel(ds.guestId);
                               }
                             }}
@@ -979,6 +1012,30 @@ export function SeatingCanvas({
                               setDragOverSeatId(null);
                             }}
                             style={{ cursor: seatDrag?.fromSeatId === seat.id ? "grabbing" : "grab" }}
+                          />
+                        )}
+                        {/* v2.5.1 (finding #2): non-drag-capable tap
+                            layer — renders whenever the drag-source
+                            above doesn't (touch editors, and view-only
+                            users who couldn't previously click a
+                            seated guest at all). Plain onClick so a
+                            finger drag (which touch-pan-y still lets
+                            through as a page scroll) never opens
+                            anything; only a genuine tap does. */}
+                        {!dragEnabled && occupied && (
+                          <circle
+                            cx={layout.cx}
+                            cy={layout.cy}
+                            r={Math.max(12, 8 * dotScale)}
+                            fill="transparent"
+                            onPointerDown={(e) => e.stopPropagation()}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setFocusedId(null);
+                              setFocusedGuestId(seat.guest!.id);
+                            }}
+                            aria-label={`View ${seat.guest!.firstName} ${seat.guest!.lastName}`}
+                            style={{ cursor: "pointer" }}
                           />
                         )}
                         {/* v1.20.6: drop-zone — only renders during a
@@ -1346,7 +1403,7 @@ function ScaleToggle<T extends number>({
             className={[
               "text-xs px-3 py-0.5 rounded-full font-semibold transition-colors",
               value === opt.value
-                ? "bg-moss-500 text-white"
+                ? "bg-moss-500 text-on-moss"
                 : "text-ink-tertiary hover:text-ink-primary",
             ].join(" ")}
             aria-pressed={value === opt.value}
@@ -1379,9 +1436,17 @@ function FocusPanelBody({
   const filled = table.seats.filter((s) => s.guest).length;
 
   function onAssign(seatId: string, guestId: string) {
+    // v2.5.1 (ADHD note): success toast — this picker only ever
+    // notified on error before, so a successful reseat/unseat looked
+    // identical to nothing happening.
+    const source = guestId
+      ? (unseatedGuests.find((x) => x.id === guestId) ?? table.seats.find((s) => s.guest?.id === guestId)?.guest)
+      : null;
+    const guestName = source ? `${source.firstName} ${source.lastName}` : null;
     startTransition(async () => {
       try {
         await assignGuestToSeat(seatId, guestId || null);
+        notify("success", guestName ? `${guestName} seated` : "Seat cleared");
       } catch (err) {
         notify(
           "error",
@@ -1438,11 +1503,15 @@ function FocusPanelBody({
               Seats
             </span>
             <div className="inline-flex items-center gap-2">
+              {/* v2.5.1 (finding #10): w-10/h-10 (40px) touch floor on
+                  mobile, back to the dense 28px at sm+ — these render
+                  in the sidebar on every viewport, including phones
+                  that switch into canvas view. */}
               <button
                 type="button"
                 onClick={() => onCapacity(-1)}
                 disabled={pending || table.capacity <= 1}
-                className="w-7 h-7 rounded-md border border-border-soft bg-surface text-ink-primary text-base font-semibold leading-none hover:border-moss-500 hover:bg-moss-50 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-surface flex items-center justify-center"
+                className="w-10 h-10 sm:w-7 sm:h-7 rounded-md border border-border-soft bg-surface text-ink-primary text-base font-semibold leading-none hover:border-moss-500 hover:bg-moss-50 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-surface flex items-center justify-center"
                 aria-label="Remove a seat"
                 title="Remove a seat (must be empty)"
               >
@@ -1455,7 +1524,7 @@ function FocusPanelBody({
                 type="button"
                 onClick={() => onCapacity(1)}
                 disabled={pending || table.capacity >= 40}
-                className="w-7 h-7 rounded-md border border-border-soft bg-surface text-ink-primary text-base font-semibold leading-none hover:border-moss-500 hover:bg-moss-50 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-surface flex items-center justify-center"
+                className="w-10 h-10 sm:w-7 sm:h-7 rounded-md border border-border-soft bg-surface text-ink-primary text-base font-semibold leading-none hover:border-moss-500 hover:bg-moss-50 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-surface flex items-center justify-center"
                 aria-label="Add a seat"
                 title="Add a seat"
               >

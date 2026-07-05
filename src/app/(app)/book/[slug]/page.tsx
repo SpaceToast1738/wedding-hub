@@ -6,10 +6,9 @@ import { canEdit, canViewMoney } from "@/lib/permissions";
 import { requireUser } from "@/lib/actions";
 import { AddSubsectionToggle } from "./AddSubsectionToggle";
 import { CardRouter } from "./CardRouter";
-import { SubsectionReorderControls } from "./SubsectionReorderControls";
+import { SubsectionCardMenu } from "./SubsectionReorderControls";
 import { SectionVisibilityToggle } from "./SectionVisibilityToggle";
 import { EditSectionToggle } from "./EditSectionToggle";
-import { SubsectionWidthToggle } from "./SubsectionWidthToggle";
 import { BookTopicsProvider } from "./BookTopicsContext";
 import { LinkedTasksPanel } from "./LinkedTasksPanel";
 import { menuRollups } from "@/lib/book-cards";
@@ -596,7 +595,10 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
                 // the user can't edit the book.
                 // v1.95.0: wide cards span both grid columns; narrow
                 // cards take a single column. The flag flips via the
-                // SubsectionWidthToggle in the reorder action-row.
+                // consolidated SubsectionCardMenu's "Layout" menu
+                // (design-pass fix: was two separate glyph-only
+                // controls — reorder ▲/▼ and a width ⇆ toggle — folded
+                // into one clearly-labeled menu).
                 <div
                   key={s.id}
                   className={[
@@ -611,20 +613,15 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
                   ].join(" ")}
                 >
                   {editable && (
-                    <div className="flex items-center justify-end gap-0.5 -mb-2">
-                      <SubsectionWidthToggle
+                    <div className="flex items-center justify-end -mb-2">
+                      <SubsectionCardMenu
                         id={s.id}
                         title={s.title}
                         wide={sRaw.wide}
+                        isFirst={subIdx === 0}
+                        isLast={subIdx === section.subsections.length - 1}
+                        showReorder={section.subsections.length > 1}
                       />
-                      {section.subsections.length > 1 && (
-                        <SubsectionReorderControls
-                          id={s.id}
-                          title={s.title}
-                          isFirst={subIdx === 0}
-                          isLast={subIdx === section.subsections.length - 1}
-                        />
-                      )}
                     </div>
                   )}
                   <CardRouter

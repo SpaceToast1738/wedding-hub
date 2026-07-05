@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { Button } from "@/components/ui/Button";
 import { notify } from "@/lib/notify";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
@@ -19,6 +19,21 @@ import { CardChrome } from "./CardChrome";
 // in the card header. The form keeps the inline-add/edit shape — small
 // enough that the §10a card-editor View / Edit toggle wasn't worth
 // the refactor for this card.
+//
+// Design-pass fix: this was the one card kind that broke the
+// otherwise-consistent interaction model — no card-level Edit toggle
+// at all (per-row Edit/Delete + "+ Add shot" were visible any time
+// `canEdit` was true), and the per-row controls were hover-gated with
+// no mobile fallback. Added a proper Edit/Done toggle in the footer
+// matching every other kind, gated the checkbox + per-row + add-shot
+// affordances behind it (view mode now shows a read-only captured
+// glyph instead of a disabled checkbox, mirroring the WEDDING_PARTY
+// matrix's pills-in-view / dropdowns-in-edit pattern), and fixed the
+// per-row hover pattern to the mobile-safe
+// opacity-100 sm:opacity-0 sm:group-hover:opacity-100
+// sm:focus-within:opacity-100 convention. Every field here already
+// commits instantly (no drafts), so — same reasoning as the
+// WEDDING_PARTY card — the footer button is "Done", not "Cancel/Save".
 
 type GuestOpt = { id: string; name: string };
 
@@ -59,6 +74,7 @@ export function BookShotListCard({
   isCouple: boolean;
 }) {
   const [adding, setAdding] = useState(false);
+  const [editing, setEditing] = useState(false);
 
   const r = shotListRollups(shots);
 
@@ -90,6 +106,21 @@ export function BookShotListCard({
       canEdit={canEdit}
       isCouple={isCouple}
       kindBadge="Shot list"
+      hideHousekeeping={editing}
+      actions={
+        canEdit ? (
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={() => {
+              setEditing((v) => !v);
+              if (editing) setAdding(false);
+            }}
+          >
+            {editing ? "Done" : "Edit"}
+          </Button>
+        ) : undefined
+      }
     >
       {shots.length > 0 && (
         <div className="text-[11px] text-ink-tertiary tabular-nums mb-3 flex items-baseline gap-3 flex-wrap">
@@ -103,7 +134,7 @@ export function BookShotListCard({
           )}
         </div>
       )}
-      {shots.length === 0 && !canEdit ? (
+      {shots.length === 0 && !editing ? (
         <p className="text-xs text-ink-tertiary italic">No shots yet.</p>
       ) : (
         <div className="space-y-3">
@@ -126,7 +157,7 @@ export function BookShotListCard({
                 </header>
                 <ul className="divide-y divide-border-soft border border-border-soft rounded-md">
                   {groupShots.map((shot) => (
-                    <ShotRow key={shot.id} shot={shot} guests={guests} canEdit={canEdit} />
+                    <ShotRow key={shot.id} shot={shot} guests={guests} cardEditing={editing} />
                   ))}
                 </ul>
               </section>
@@ -134,7 +165,7 @@ export function BookShotListCard({
           })}
         </div>
       )}
-      {canEdit && (
+      {editing && (
         <div className="mt-3">
           {adding ? (
             <ShotForm
@@ -164,15 +195,29 @@ function formatMinutes(m: number): string {
 function ShotRow({
   shot,
   guests,
-  canEdit,
+  cardEditing,
 }: {
   shot: Shot;
   guests: GuestOpt[];
-  canEdit: boolean;
+  /** Whether the parent card's Edit/Done toggle is on. Named
+   *  distinctly from the row's own `editing` state below (whether
+   *  THIS row is showing its inline edit form) to avoid confusing the
+   *  two — the card-level toggle gates whether editing is possible at
+   *  all, the row-level state is which row (if any) is mid-edit. */
+  cardEditing: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [pending, startTransition] = useTransition();
   const confirm = useConfirm();
+
+  // v2.5.2 (review fix): the card's Edit/Done toggle already resets
+  // its own "adding a new shot" state on exit, but had no equivalent
+  // for a row's own edit state — clicking Done could leave this row's
+  // full ShotForm open even though the card had visually returned to
+  // read-only view mode.
+  useEffect(() => {
+    if (!cardEditing) setEditing(false);
+  }, [cardEditing]);
 
   const guestById = new Map(guests.map((g) => [g.id, g]));
   const linkedGuestNames = shot.guestIds
@@ -210,13 +255,33 @@ function ShotRow({
 
   return (
     <li className="flex items-start gap-3 px-3 py-2 group">
-      <input
-        type="checkbox"
-        checked={shot.captured}
-        onChange={toggle}
-        disabled={!canEdit || pending}
-        className="accent-moss-500 mt-1 flex-shrink-0"
-      />
+      {/* Design-pass fix: mutating `captured` used to stay live even
+          in view mode (a disabled-when-!canEdit checkbox for non-
+          editors, but always interactive for editors regardless of
+          the card's own Edit toggle). Matches the WEDDING_PARTY
+          matrix's pills-in-view / interactive-in-edit split now —
+          view mode shows a static glyph, edit mode a real checkbox. */}
+      {cardEditing ? (
+        <input
+          type="checkbox"
+          checked={shot.captured}
+          onChange={toggle}
+          disabled={pending}
+          className="accent-moss-500 mt-1 flex-shrink-0"
+        />
+      ) : (
+        <span
+          aria-hidden
+          className={[
+            "mt-1 flex-shrink-0 w-4 h-4 rounded-sm border flex items-center justify-center text-[10px] leading-none",
+            shot.captured
+              ? "bg-moss-50 border-moss-300 text-moss-700"
+              : "border-border-soft text-transparent",
+          ].join(" ")}
+        >
+          ✓
+        </span>
+      )}
       <div className="flex-1 min-w-0">
         <div className="flex items-baseline gap-2 flex-wrap">
           <span
@@ -233,7 +298,10 @@ function ShotRow({
             </span>
           )}
         </div>
-        <div className="text-[11px] text-ink-tertiary mt-0.5 flex flex-wrap gap-x-2">
+        {/* Design-pass fix: this metadata row is real content
+            (guests / location / notes), not a label — bumped from
+            11px ink-tertiary to 12px ink-secondary. */}
+        <div className="text-xs text-ink-secondary mt-0.5 flex flex-wrap gap-x-2">
           {linkedGuestNames.length > 0 && (
             <span title={`Linked guests: ${linkedGuestNames.join(", ")}`}>
               👥 {linkedGuestNames.join(", ")}
@@ -248,8 +316,8 @@ function ShotRow({
           {shot.notes && <span className="italic">{shot.notes}</span>}
         </div>
       </div>
-      {canEdit && (
-        <div className="flex gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity flex-shrink-0">
+      {cardEditing && (
+        <div className="flex gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 transition-opacity flex-shrink-0">
           <Button variant="ghost" size="sm" onClick={() => setEditing(true)} disabled={pending}>
             Edit
           </Button>
@@ -358,7 +426,7 @@ function ShotForm({
       </div>
       {/* Linked guests — multi-select picker */}
       <div>
-        <div className="text-[10px] uppercase tracking-wider text-ink-tertiary font-bold mb-1">
+        <div className="text-[10px] uppercase tracking-wider text-ink-secondary font-bold mb-1">
           Linked guests ({guestIds.length})
         </div>
         {guests.length === 0 ? (

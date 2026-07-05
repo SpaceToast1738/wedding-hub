@@ -31,6 +31,12 @@ import {
   type ThreadMessage,
 } from "@/app/(app)/ai/actions";
 import { MarkdownMessage } from "./MarkdownMessage";
+// v2.5.0: same human-label helper the /ai review dashboard uses (via
+// PendingProposal.kindLabel, computed server-side) — chat cards were
+// falling back to the raw "task.update"-style kind string for most of
+// the ~40 proposal kinds. Pure module (only imports "zod"), safe in a
+// client bundle.
+import { humanLabel, type ProposalKind } from "@/lib/ai/proposals/schemas";
 
 // Client-side copies of the tool progress labels — the server
 // registry imports Prisma-backed modules and can't be bundled into a
@@ -133,6 +139,16 @@ function rand(): string {
   return Math.random().toString(36).slice(2, 10);
 }
 
+// v2.5.0: tappable suggested prompts under the empty-state greeting —
+// starting a conversation shouldn't require composing text from
+// scratch. Three broad, low-risk asks that work regardless of what
+// page the user opened the panel from.
+const SUGGESTED_PROMPTS = [
+  "What should we tackle this week?",
+  "Suggest 3 tasks I've probably forgotten",
+  "What's still outstanding for the wedding?",
+];
+
 function formatRelativeTime(iso: string): string {
   const mins = Math.floor((Date.now() - new Date(iso).getTime()) / 60_000);
   if (mins < 1) return "just now";
@@ -159,6 +175,13 @@ export function ChatPanel({ user }: { user: { id: string; firstName: string } })
   const pathname = usePathname();
   const scrollerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const panelRef = useRef<HTMLElement>(null);
+  // v2.5.0: the floating trigger button unmounts while the panel is
+  // open (see below) and remounts fresh on close, so restoring focus
+  // to it needs a ref that's re-attached on every mount rather than a
+  // snapshot of "whatever had focus before" taken at open time.
+  const triggerButtonRef = useRef<HTMLButtonElement>(null);
+  const openedOnceRef = useRef(false);
 
   useEffect(() => setMounted(true), []);
 
@@ -189,6 +212,70 @@ export function ChatPanel({ user }: { user: { id: string; firstName: string } })
   // Focus input when the panel opens.
   useEffect(() => {
     if (open) requestAnimationFrame(() => inputRef.current?.focus());
+  }, [open]);
+
+  // v2.5.0: Escape closes the panel — matches QuickCapture's own
+  // Escape handling. Only listens while open so it doesn't steal Esc
+  // from other components (ConfirmDialog, QuickCapture) when dormant.
+  useEffect(() => {
+    if (!open) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setOpen(false);
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open]);
+
+  // Track the sm: breakpoint (640px) in JS — below it the panel is a
+  // full-screen overlay (`w-full sm:w-[380px]` below), so a Tab loop
+  // needs to stay inside it rather than escaping into the page behind.
+  const [isNarrow, setIsNarrow] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 639px)");
+    setIsNarrow(mq.matches);
+    const onChange = (e: MediaQueryListEvent) => setIsNarrow(e.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+
+  // Focus trap for the mobile full-screen overlay — same pattern as
+  // ConfirmDialog's trap. Desktop's docked 380px panel leaves the rest
+  // of the page reachable by design, so the trap only engages narrow.
+  useEffect(() => {
+    if (!open || !isNarrow) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key !== "Tab" || !panelRef.current) return;
+      const focusable = panelRef.current.querySelectorAll<HTMLElement>(
+        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+      );
+      if (focusable.length === 0) return;
+      const first = focusable[0]!;
+      const last = focusable[focusable.length - 1]!;
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, isNarrow]);
+
+  // Restore focus to the trigger button once the panel closes — but
+  // not on first mount, where there's nothing to "restore" and
+  // stealing focus into a floating button on page load would be
+  // jarring.
+  useEffect(() => {
+    if (open) {
+      openedOnceRef.current = true;
+      return;
+    }
+    if (openedOnceRef.current) triggerButtonRef.current?.focus();
   }, [open]);
 
   const startNewChat = useCallback(() => {
@@ -249,8 +336,12 @@ export function ChatPanel({ user }: { user: { id: string; firstName: string } })
     [hydrate],
   );
 
-  const send = useCallback(async () => {
-    const text = input.trim();
+  // v2.5.0: accepts an optional override so the suggested-prompt chips
+  // can send immediately without a setInput() + send() race (state
+  // updates aren't synchronous, so send() reading the `input` state
+  // right after a setInput() call would still see the old value).
+  const send = useCallback(async (overrideText?: string) => {
+    const text = (overrideText ?? input).trim();
     if (!text || busy) return;
 
     const userMsg: LocalMsg = { id: `u-${rand()}`, role: "user", text };
@@ -312,6 +403,17 @@ export function ChatPanel({ user }: { user: { id: string; firstName: string } })
       );
     } finally {
       setBusy(false);
+      // v2.5.0: the pending-count strip previously only refreshed on
+      // thread-load — a live turn that created (or resolved) proposals
+      // left it stale until the next history round-trip. Refresh here
+      // too, on every turn, not just when hydrating a past thread.
+      try {
+        const pendingProposals = await listPendingProposals();
+        setPendingCount(pendingProposals.length);
+      } catch {
+        // Non-fatal — the strip just keeps its previous count until
+        // the next refresh trigger.
+      }
     }
   }, [busy, input, threadId, pathname]);
 
@@ -410,31 +512,57 @@ export function ChatPanel({ user }: { user: { id: string; firstName: string } })
   // Portal so the panel isn't scoped to any page-level container.
   return createPortal(
     <>
-      {/* Floating trigger */}
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-label={open ? "Close AI planner" : "Open AI planner"}
-        className="fixed bottom-20 right-4 md:bottom-6 md:right-6 z-[400] rounded-full bg-ink-primary text-canvas w-12 h-12 shadow-lg hover:scale-105 transition-transform flex items-center justify-center"
-      >
-        <span aria-hidden>{open ? "×" : "✨"}</span>
-      </button>
+      {/* Floating trigger — v2.5.0: hidden entirely while the panel is
+          open (the header's own × already covers that job; showing
+          both duplicated the affordance and risked accidental taps
+          over the panel's action buttons). Mobile corner moved from
+          bottom-right to bottom-left — bottom-right is the Toaster's
+          corner (see Toaster.tsx's items-end/justify-end stacking)
+          and the two were visually overlapping. Breakpoint matched to
+          sm: (640px), was md: (768px) — out of step with the rest of
+          the shell. */}
+      {!open && (
+        <button
+          ref={triggerButtonRef}
+          type="button"
+          onClick={() => setOpen(true)}
+          aria-label="Open AI planner"
+          // v2.5.2 (review fix): `left-4` was never cancelled at `sm:`,
+          // and CSS drops `right` on a fixed-width box when both
+          // `left`/`right` are set in LTR — so `sm:right-6` was
+          // silently ignored and the button stayed pinned bottom-left
+          // at every viewport width (confirmed via render). `sm:left-
+          // auto` releases the mobile anchor so the desktop `right-6`
+          // actually takes effect.
+          className="fixed bottom-20 left-4 sm:left-auto sm:bottom-6 sm:right-6 z-[400] rounded-full bg-ink-primary text-canvas w-12 h-12 shadow-lg hover:scale-105 transition-transform flex items-center justify-center"
+        >
+          <span aria-hidden>✨</span>
+        </button>
+      )}
 
       {/* Backdrop for click-away close on mobile */}
       {open && (
         <div
-          className="fixed inset-0 bg-black/20 z-[398] md:hidden"
+          className="fixed inset-0 bg-black/20 z-[398] sm:hidden"
           onClick={() => setOpen(false)}
           aria-hidden
         />
       )}
 
-      {/* Panel */}
+      {/* Panel. v2.5.0: `inert` when closed — aria-hidden alone left
+          every button and the text input in the normal tab order even
+          though the panel was transformed off-screen, so a keyboard
+          user tabbing through any page hit several invisible,
+          non-functional stops before reaching real page content.
+          `inert` genuinely removes it (and its focusability) from the
+          tab order; aria-hidden stays alongside for older AT. */}
       <aside
-        className={`fixed z-[399] bg-surface border-l border-border-soft shadow-xl flex flex-col transition-transform duration-200 top-0 right-0 h-full w-full md:w-[380px] ${
+        ref={panelRef}
+        className={`fixed z-[399] bg-surface border-l border-border-soft shadow-xl flex flex-col transition-transform duration-200 top-0 right-0 h-full w-full sm:w-[380px] ${
           open ? "translate-x-0" : "translate-x-full"
         }`}
         aria-hidden={!open}
+        inert={!open}
       >
         <header className="flex items-center justify-between border-b border-border-soft px-4 py-3">
           <div>
@@ -499,7 +627,7 @@ export function ChatPanel({ user }: { user: { id: string; firstName: string } })
                       type="button"
                       onClick={() => loadThread(t.id)}
                       disabled={loadingThread}
-                      className="w-full text-left py-2 hover:bg-surface-hover rounded-sm px-1 disabled:opacity-60"
+                      className="w-full text-left py-2 hover:bg-muted rounded-sm px-1 disabled:opacity-60"
                     >
                       <div className="text-sm text-ink-primary truncate">
                         {t.title || "Untitled chat"}
@@ -520,11 +648,28 @@ export function ChatPanel({ user }: { user: { id: string; firstName: string } })
           className="flex-1 overflow-y-auto px-4 py-3 space-y-3"
         >
           {messages.length === 0 && (
-            <div className="text-sm text-ink-tertiary">
-              Hi {user.firstName}! Ask me anything about the wedding — I can
-              read your tasks, guests, schedule, and (if you have access)
-              budget. Try &ldquo;what should we tackle this week?&rdquo; to get
-              started.
+            <div className="space-y-2.5">
+              <div className="text-sm text-ink-tertiary">
+                Hi {user.firstName}! Ask me anything about the wedding — I can
+                read your tasks, guests, schedule, and (if you have access)
+                budget.
+              </div>
+              {/* v2.5.0: tappable starter prompts — starting a
+                  conversation shouldn't require composing text from
+                  scratch. */}
+              <div className="flex flex-wrap gap-1.5">
+                {SUGGESTED_PROMPTS.map((prompt) => (
+                  <button
+                    key={prompt}
+                    type="button"
+                    onClick={() => void send(prompt)}
+                    disabled={busy}
+                    className="rounded-full border border-border-soft bg-surface px-2.5 py-1 text-xs text-ink-secondary hover:bg-muted disabled:opacity-50"
+                  >
+                    {prompt}
+                  </button>
+                ))}
+              </div>
             </div>
           )}
           {messages.map((m) => (
@@ -549,7 +694,7 @@ export function ChatPanel({ user }: { user: { id: string; firstName: string } })
             />
           ))}
           {pendingCount !== null && pendingCount > 0 && (
-            <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+            <div className="rounded-md border border-marigold-200 bg-marigold-100 px-3 py-2 text-xs text-marigold-700">
               {pendingCount} proposal{pendingCount === 1 ? "" : "s"} still
               pending —{" "}
               <Link href="/ai" className="underline font-medium">
@@ -627,7 +772,7 @@ function MessageBubble({
   }
   if (msg.role === "error") {
     return (
-      <div className="rounded-md border border-rose-300 bg-rose-50 px-3 py-2 text-sm text-rose-900">
+      <div className="rounded-md border border-danger-border bg-danger-bg px-3 py-2 text-sm text-danger">
         {msg.text || "Something went wrong."}
       </div>
     );
@@ -637,20 +782,30 @@ function MessageBubble({
       <div className="max-w-[95%]">
         {msg.tools && msg.tools.length > 0 && (
           <div className="flex flex-wrap gap-1 mb-1">
-            {msg.tools.map((t) => (
-              <span
-                key={t.id}
-                className={`inline-flex items-center gap-1 rounded-full text-xs px-2 py-0.5 border ${
-                  t.done
-                    ? t.ok === false
-                      ? "border-amber-300 bg-amber-50 text-amber-900"
-                      : "border-emerald-300 bg-emerald-50 text-emerald-900"
-                    : "border-border-soft bg-surface text-ink-tertiary"
-                }`}
-              >
-                {t.done ? "✓" : "…"} {t.label}
-              </span>
-            ))}
+            {msg.tools.map((t) => {
+              // v2.5.0: a failed tool call (t.ok === false) was still
+              // rendering a checkmark — any "done" state read as
+              // success. Now distinguishes in-progress / succeeded /
+              // failed, and uses semantic tokens instead of raw
+              // amber/emerald palette classes (the raw colors don't
+              // remap for dark mode the way the tokens do).
+              const failed = t.done && t.ok === false;
+              const succeeded = t.done && t.ok !== false;
+              return (
+                <span
+                  key={t.id}
+                  className={`inline-flex items-center gap-1 rounded-full text-xs px-2 py-0.5 border ${
+                    failed
+                      ? "border-danger-border bg-danger-bg text-danger"
+                      : succeeded
+                        ? "border-moss-100 bg-moss-50 text-moss-700"
+                        : "border-border-soft bg-surface text-ink-tertiary"
+                  }`}
+                >
+                  {failed ? "✗" : succeeded ? "✓" : "…"} {t.label}
+                </span>
+              );
+            })}
           </div>
         )}
         {msg.text && (
@@ -815,7 +970,7 @@ function ProposalBatchCard({
                 <div className="text-xs text-ink-secondary truncate">{p.detail}</div>
               )}
               {p.status === "error" && p.error && (
-                <div className="text-xs text-rose-700">✗ {p.error} — still selectable to retry</div>
+                <div className="text-xs text-danger">✗ {p.error} — still selectable to retry</div>
               )}
             </div>
           </li>
@@ -837,12 +992,13 @@ function ProposalCard({
   const [pending, startTransition] = useTransition();
   const disabled = pending || locked;
 
-  const kindLabel =
-    proposal.kind === "task.create"
-      ? "New task"
-      : proposal.kind === "event.create"
-        ? "New event"
-        : proposal.kind;
+  // v2.5.0: was a two-case ternary falling back to the raw kind
+  // string ("task.update", "book.weddingparty.set_cell", …) for most
+  // of the ~40 proposal kinds — humanLabel is the same helper the
+  // /ai dashboard already uses, so chat and dashboard never disagree
+  // on naming. Falls back to the raw kind for anything humanLabel
+  // doesn't recognise (e.g. a kind shipped after this client bundle).
+  const kindLabel = humanLabel(proposal.kind as ProposalKind) ?? proposal.kind;
 
   async function onApply() {
     startTransition(async () => {
@@ -902,14 +1058,14 @@ function ProposalCard({
           </div>
         )}
         {proposal.status === "applied" && (
-          <span className="text-xs text-emerald-700 flex-shrink-0">✓ applied</span>
+          <span className="text-xs text-moss-700 flex-shrink-0">✓ applied</span>
         )}
         {proposal.status === "dismissed" && (
           <span className="text-xs text-ink-tertiary flex-shrink-0">dismissed</span>
         )}
       </div>
       {proposal.status === "error" && proposal.error && (
-        <div className="mt-1 text-xs text-rose-700">✗ {proposal.error}</div>
+        <div className="mt-1 text-xs text-danger">✗ {proposal.error}</div>
       )}
     </div>
   );

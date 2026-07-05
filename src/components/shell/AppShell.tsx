@@ -6,6 +6,8 @@ import { Toaster } from "@/components/ui/Toaster";
 import { ConfirmProvider } from "@/components/ui/ConfirmDialog";
 import { ChatPanelHost } from "@/components/ai/ChatPanelHost";
 import { signOut } from "@/auth";
+import { canView } from "@/lib/permissions";
+import { AI_ENABLED } from "@/lib/ai/config";
 import type { Counts } from "@/components/shell/nav-config";
 
 type SessionUser = {
@@ -18,7 +20,13 @@ type SessionUser = {
 };
 
 async function getCounts(user: SessionUser): Promise<Counts> {
-  const [tasks, questions, guests, payments] = await Promise.all([
+  // v2.5.0: mirrors listPendingProposals' own visibility rule (see
+  // ai/actions.ts) — non-couple users only see proposals they
+  // created themselves, the couple sees everyone's. Gated behind the
+  // same AI_ENABLED + ai_chat checks the chat panel itself uses so the
+  // nav badge never counts proposals a user couldn't otherwise reach.
+  const aiVisible = AI_ENABLED && (await canView(user, "ai_chat"));
+  const [tasks, questions, guests, payments, aiProposals] = await Promise.all([
     db.task.count({ where: { status: { not: "DONE" }, type: "TASK" } }),
     // v1.18.0: count both QUESTIONs and DECISIONs — they share the
     // /questions surface and the nav label says "Questions & Decisions".
@@ -28,8 +36,16 @@ async function getCounts(user: SessionUser): Promise<Counts> {
     user.isCouple
       ? db.payment.count({ where: { status: { in: ["DUE", "SCHEDULED", "OVERDUE"] } } })
       : Promise.resolve(0),
+    aiVisible
+      ? db.aiProposal.count({
+          where: {
+            status: "PENDING",
+            ...(user.isCouple ? {} : { createdById: user.id }),
+          },
+        })
+      : Promise.resolve(0),
   ]);
-  return { tasks, questions, guests, payments };
+  return { tasks, questions, guests, payments, aiProposals };
 }
 
 async function signOutAction() {

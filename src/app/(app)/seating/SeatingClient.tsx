@@ -128,16 +128,20 @@ export function SeatingClient({
 
   useEffect(() => {
     try {
-      const saved = localStorage.getItem(VIEW_STORAGE_KEY);
-      if (saved === "canvas" || saved === "list") {
-        setView(saved);
-      } else if (typeof window !== "undefined" && window.innerWidth < 640) {
-        // v1.66.0 (DR-1): mobile users default to list view. The
-        // SVG drag-drop canvas is unusable on touch — too dense, no
-        // pinch-zoom, drag conflicts with page scroll. Existing
-        // saved-view preference still wins; this is just the
-        // first-visit default.
+      // v2.5.1 (finding #3): narrow viewports always start in list
+      // view, full stop — pre-fix a "canvas" preference saved from an
+      // earlier desktop session would win over the mobile default,
+      // forcing the touch-unfriendly drag-drop canvas onto a phone.
+      // The toggle is still right there if the user wants canvas
+      // anyway; this only changes the *default*.
+      const isNarrow = typeof window !== "undefined" && window.innerWidth < 640;
+      if (isNarrow) {
         setView("list");
+      } else {
+        const saved = localStorage.getItem(VIEW_STORAGE_KEY);
+        if (saved === "canvas" || saved === "list") {
+          setView(saved);
+        }
       }
     } catch {}
     setHydrated(true);
@@ -192,10 +196,14 @@ function ViewButton({
     <button
       type="button"
       onClick={onClick}
+      aria-pressed={active}
+      // v2.5.1 (finding #10): min-h-[40px] touch floor on mobile
+      // (dense again at sm+) + aria-pressed — this is an on/off view
+      // toggle, same convention as the shared Tag/filter-pill pattern.
       className={[
-        "text-xs px-2.5 py-1 rounded-sm border transition-colors cursor-pointer",
+        "text-xs px-2.5 py-1 min-h-[40px] sm:min-h-0 rounded-sm border transition-colors cursor-pointer",
         active
-          ? "bg-moss-500 text-white border-moss-500"
+          ? "bg-moss-500 text-on-moss border-moss-500"
           : "bg-canvas text-ink-secondary border-border-soft hover:border-moss-300",
       ].join(" ")}
     >

@@ -104,7 +104,12 @@ function FieldRow({
         <button
           type="button"
           onClick={() => setEditing(true)}
-          className="text-[11px] text-info hover:underline opacity-0 group-hover:opacity-100 focus:opacity-100"
+          // v2.5.2 (review fix): this shared component (used by
+          // Guests/Suppliers/Book fields/Tasks/Settings) was the one
+          // place the design pass's mobile-safe hover-gate sweep
+          // missed — no sm: scoping meant Edit was unreachable on
+          // touch everywhere this renders.
+          className="text-[11px] text-info hover:underline opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100"
         >
           Edit
         </button>

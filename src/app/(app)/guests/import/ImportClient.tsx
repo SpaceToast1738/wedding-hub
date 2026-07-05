@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/Button";
@@ -26,6 +26,26 @@ const ALL_FIELDS: GuestField[] = [
 export function ImportClient() {
   const router = useRouter();
   const [text, setText] = useState("");
+  // v2.5.1 (finding #7): paste-only import with a Notepad-specific
+  // guide, no native file picker anywhere. fileInputRef backs a
+  // hidden <input type=file>; handleFiles reads the chosen/dropped
+  // file's text straight into the same `text` state the paste path
+  // already drives — the mapping/preview pipeline below is unchanged.
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [dragOver, setDragOver] = useState(false);
+  const [fileError, setFileError] = useState<string | null>(null);
+
+  function handleFiles(files: FileList | null) {
+    const file = files?.[0];
+    if (!file) return;
+    setFileError(null);
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") setText(reader.result);
+    };
+    reader.onerror = () => setFileError("Couldn't read that file — try pasting instead.");
+    reader.readAsText(file);
+  }
   const [mapping, setMapping] = useState<GuestField[]>([]);
   const [headers, setHeaders] = useState<string[]>([]);
   const [preview, setPreview] = useState<ImportPreview | null>(null);
@@ -182,34 +202,50 @@ export function ImportClient() {
           </div>
         </div>
 
+        {/* v2.5.1 (finding #7): file picker + drop zone — the primary
+            path now. Reads straight into the same `text` state the
+            paste path below drives; zero server-side changes needed,
+            the existing mapping/preview pipeline is reused as-is. */}
+        <section
+          className={[
+            "border-2 border-dashed rounded-md p-5 text-center transition-colors",
+            dragOver ? "border-moss-500 bg-moss-50/40" : "border-border-soft bg-canvas",
+          ].join(" ")}
+          onDragOver={(e) => {
+            e.preventDefault();
+            setDragOver(true);
+          }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setDragOver(false);
+            handleFiles(e.dataTransfer.files);
+          }}
+        >
+          <p className="text-sm text-ink-secondary mb-2">
+            Drop a <code className="text-[11px] bg-surface border border-border-soft px-1 rounded">.csv</code> or <code className="text-[11px] bg-surface border border-border-soft px-1 rounded">.tsv</code> file here, or
+          </p>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".csv,.tsv,text/csv,text/tab-separated-values"
+            className="hidden"
+            onChange={(e) => handleFiles(e.target.files)}
+          />
+          <Button variant="secondary" size="sm" onClick={() => fileInputRef.current?.click()}>
+            Choose file
+          </Button>
+          {fileError && <p className="text-xs text-danger mt-2">{fileError}</p>}
+        </section>
+
         <details className="bg-surface border border-border-soft rounded-md text-xs">
           <summary className="px-4 py-2.5 cursor-pointer text-ink-secondary hover:text-ink-primary list-none flex items-center gap-1.5">
             <span className="text-ink-tertiary">▸</span>
-            How do I get the CSV out of a downloaded file? <span className="text-ink-tertiary font-normal">(Windows guide)</span>
+            Prefer to paste instead? <span className="text-ink-tertiary font-normal">(Windows Notepad guide)</span>
           </summary>
-          <div className="px-4 pb-3 pt-1 border-t border-border-soft text-ink-secondary space-y-2.5">
-            <p>
-              Say I Do (and most wedding platforms) gives you a <code className="text-[11px] bg-canvas border border-border-soft px-1 rounded">.csv</code> file when you export your guest list. To get the contents into the box above:
-            </p>
-            <ol className="list-decimal list-inside space-y-1.5 text-[12px] leading-relaxed">
-              <li>
-                In <strong>File Explorer</strong>, find the downloaded <code className="text-[11px] bg-canvas border border-border-soft px-1 rounded">.csv</code> (it&apos;s probably in <code className="text-[11px] bg-canvas border border-border-soft px-1 rounded">Downloads</code>).
-              </li>
-              <li>
-                <strong>Right-click</strong> the file → <strong>Open with</strong> → <strong>Notepad</strong>. (If Notepad isn&apos;t in the list: <em>Choose another app</em> → <em>More apps</em> → Notepad.)
-              </li>
-              <li>
-                In Notepad, press <kbd className="text-[10px] bg-canvas border border-border-soft px-1 rounded">Ctrl</kbd>+<kbd className="text-[10px] bg-canvas border border-border-soft px-1 rounded">A</kbd> to select everything, then <kbd className="text-[10px] bg-canvas border border-border-soft px-1 rounded">Ctrl</kbd>+<kbd className="text-[10px] bg-canvas border border-border-soft px-1 rounded">C</kbd> to copy.
-              </li>
-              <li>
-                Click into the textarea above and press <kbd className="text-[10px] bg-canvas border border-border-soft px-1 rounded">Ctrl</kbd>+<kbd className="text-[10px] bg-canvas border border-border-soft px-1 rounded">V</kbd>.
-              </li>
-              <li>
-                Hit <strong>Preview</strong> to see how it parses; <strong>Import</strong> when everything looks right.
-              </li>
-            </ol>
-            <p className="text-[11px] text-ink-tertiary">
-              <strong>Alternative</strong> — open the file in Excel or Google Sheets, select all (<kbd className="text-[10px] bg-canvas border border-border-soft px-1 rounded">Ctrl</kbd>+<kbd className="text-[10px] bg-canvas border border-border-soft px-1 rounded">A</kbd>), copy, paste here. The importer auto-detects tab-separated paste from spreadsheets.
+          <div className="px-4 pb-3 pt-1 border-t border-border-soft text-ink-secondary">
+            <p className="text-[12px] leading-relaxed">
+              Right-click the downloaded <code className="text-[11px] bg-canvas border border-border-soft px-1 rounded">.csv</code> → <strong>Open with</strong> → <strong>Notepad</strong>, select all (<kbd className="text-[10px] bg-canvas border border-border-soft px-1 rounded">Ctrl</kbd>+<kbd className="text-[10px] bg-canvas border border-border-soft px-1 rounded">A</kbd>), copy (<kbd className="text-[10px] bg-canvas border border-border-soft px-1 rounded">Ctrl</kbd>+<kbd className="text-[10px] bg-canvas border border-border-soft px-1 rounded">C</kbd>), then paste into the box below. Excel/Google Sheets works the same way — select all, copy, paste; tab-separated paste is auto-detected.
             </p>
           </div>
         </details>
@@ -217,7 +253,7 @@ export function ImportClient() {
         <section className="bg-surface border border-border-soft rounded-md p-4 shadow-sm">
           <div className="flex items-center justify-between mb-2">
             <label className="text-[11px] font-bold text-ink-tertiary uppercase tracking-wider">
-              CSV / TSV
+              Or paste CSV / TSV
             </label>
             <Button
               variant="ghost"

@@ -2,8 +2,14 @@
 //
 // Phase 1 fills in the pending-proposal list; phase 2 adds the
 // dashboard header (weekly spend chart, per-feature breakdown).
-// For now this is the smoke-test surface — cap state + a ping button
-// prove the pipeline works before the real UI lands.
+//
+// v2.5.0: reordered — Pending proposals (the page's actual job) now
+// leads, ahead of the spend dashboard, state-of-the-wedding summary,
+// and guest-parsing tool that used to bury it fifth on the page. Cap
+// + per-feature usage are merged into one "Usage & spend" section
+// further down, and the smoke test (developer-facing, technical copy)
+// is couple-only now that the chat pipeline has months of production
+// use behind it — not something a wedding-party member needs to see.
 
 import Link from "next/link";
 import { requireUser } from "@/lib/actions";
@@ -55,54 +61,13 @@ export default async function AiPage() {
         subtitle={`${cap.weddingWeeksLeft} weeks until the wedding`}
       />
       <div className="flex-1 overflow-y-auto p-6 space-y-6">
-        <section>
-          <h2 className="text-xs font-bold uppercase tracking-wider text-ink-tertiary mb-2">
-            This month
-          </h2>
-          <div className="rounded-md border border-border-soft bg-surface p-4">
-            <div className="text-2xl font-semibold text-ink-primary">
-              {formatPence(cap.spentPence)}{" "}
-              <span className="text-sm font-normal text-ink-secondary">
-                / {formatPence(cap.capPence)} cap ({pctSpent}%)
-              </span>
-            </div>
-            <div className="text-xs text-ink-tertiary mt-1">
-              {formatPence(cap.remainingPence)} remaining. Edit the cap in{" "}
-              <Link href="/settings" className="underline">Settings</Link>.
-            </div>
-          </div>
-        </section>
-
         {!AI_ENABLED && (
           <section>
-            <div className="rounded-md border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+            <div className="rounded-md border border-marigold-200 bg-marigold-100 p-4 text-sm text-marigold-700">
               AI is currently disabled (<code>AI_ENABLED=false</code>). Set the
               env var to <code>true</code> and recreate the stack to turn it
               back on.
             </div>
-          </section>
-        )}
-
-        <section>
-          <h2 className="text-xs font-bold uppercase tracking-wider text-ink-tertiary mb-2">
-            State of the wedding
-          </h2>
-          <WeddingReviewPanel />
-        </section>
-
-        <section>
-          <h2 className="text-xs font-bold uppercase tracking-wider text-ink-tertiary mb-2">
-            Usage
-          </h2>
-          <UsageDashboard />
-        </section>
-
-        {user.isCouple && (
-          <section>
-            <h2 className="text-xs font-bold uppercase tracking-wider text-ink-tertiary mb-2">
-              Parse a guest list
-            </h2>
-            <ParseGuestsPanel />
           </section>
         )}
 
@@ -117,7 +82,7 @@ export default async function AiPage() {
               forgotten this month.&rdquo;
             </div>
           ) : !canApply ? (
-            <div className="rounded-md border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+            <div className="rounded-md border border-marigold-200 bg-marigold-100 p-4 text-sm text-marigold-700">
               You have {pending.length} proposal{pending.length === 1 ? "" : "s"} to
               review, but Apply/Dismiss needs the <code>ai_write</code>{" "}
               permission — ask the couple to grant it from Settings.
@@ -138,16 +103,62 @@ export default async function AiPage() {
 
         <section>
           <h2 className="text-xs font-bold uppercase tracking-wider text-ink-tertiary mb-2">
-            Smoke test
+            State of the wedding
           </h2>
-          <div className="rounded-md border border-border-soft bg-surface p-4 space-y-2">
-            <div className="text-sm text-ink-secondary">
-              Round-trips one prompt through Anthropic and writes an{" "}
-              <code>AiUsage</code> row. Costs about a tenth of a pence.
+          <WeddingReviewPanel />
+        </section>
+
+        {user.isCouple && (
+          <section>
+            <h2 className="text-xs font-bold uppercase tracking-wider text-ink-tertiary mb-2">
+              Parse a guest list
+            </h2>
+            <ParseGuestsPanel />
+          </section>
+        )}
+
+        {/* v2.5.0: cap + per-feature usage merged into one section —
+            they were two separate headings ("This month" / "Usage")
+            saying the same kind of thing about the same spend. */}
+        <section>
+          <h2 className="text-xs font-bold uppercase tracking-wider text-ink-tertiary mb-2">
+            Usage &amp; spend
+          </h2>
+          <div className="space-y-3">
+            <div className="rounded-md border border-border-soft bg-surface p-4">
+              <div className="text-2xl font-semibold text-ink-primary">
+                {formatPence(cap.spentPence)}{" "}
+                <span className="text-sm font-normal text-ink-secondary">
+                  / {formatPence(cap.capPence)} cap ({pctSpent}%)
+                </span>
+              </div>
+              <div className="text-xs text-ink-tertiary mt-1">
+                {formatPence(cap.remainingPence)} remaining this month. Edit the
+                cap in <Link href="/settings" className="underline">Settings</Link>.
+              </div>
             </div>
-            <PingButton />
+            <UsageDashboard />
           </div>
         </section>
+
+        {/* v2.5.0: couple-only now — developer-facing smoke test with
+            technical jargon ("AiUsage row") shipped to all users. The
+            chat pipeline it proves out has been in daily use for
+            months; this is now a maintenance tool, not a user feature. */}
+        {user.isCouple && (
+          <section>
+            <h2 className="text-xs font-bold uppercase tracking-wider text-ink-tertiary mb-2">
+              Smoke test
+            </h2>
+            <div className="rounded-md border border-border-soft bg-surface p-4 space-y-2">
+              <div className="text-sm text-ink-secondary">
+                Round-trips one prompt through Anthropic and writes an{" "}
+                <code>AiUsage</code> row. Costs about a tenth of a pence.
+              </div>
+              <PingButton />
+            </div>
+          </section>
+        )}
       </div>
     </div>
   );

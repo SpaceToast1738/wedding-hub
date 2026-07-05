@@ -35,7 +35,7 @@ function TabLink({
       className={[
         "text-sm font-semibold px-4 py-1.5 rounded-sm transition-colors",
         active
-          ? "bg-moss-500 text-white"
+          ? "bg-moss-500 text-on-moss"
           : "text-ink-secondary hover:text-ink-primary hover:bg-surface",
       ].join(" ")}
       aria-current={active ? "page" : undefined}

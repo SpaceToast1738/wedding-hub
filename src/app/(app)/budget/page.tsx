@@ -1,12 +1,28 @@
 import { db } from "@/lib/db";
+import type { PerHeadSource } from "@prisma/client";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { PrintButton } from "@/components/ui/PrintButton";
 import { requireUser } from "@/lib/actions";
 import { redirect } from "next/navigation";
 import { formatWeddingDate, getWeddingSettings } from "@/lib/wedding-settings";
+import { formatMoney } from "@/lib/format";
+import { computeComponentEstimated, computeEstimated } from "@/lib/budget";
 import { fetchAllHeadcounts } from "@/lib/headcount";
 import { BudgetClient } from "./BudgetClient";
 import { BudgetDiyLinks } from "./BudgetDiyLinks";
+
+// v2.6.0 (design pass finding 4): resolve a line/component's headcount
+// the same way BudgetClient's client-side resolveHeadcount does, so the
+// server-computed subtitle total agrees with what the page renders.
+function resolveHeadcountForTotal(
+  source: PerHeadSource | null,
+  manual: number | null,
+  counts: Record<Exclude<PerHeadSource, "MANUAL">, number>,
+): number | null {
+  if (source == null) return null;
+  if (source === "MANUAL") return Math.max(0, manual ?? 0);
+  return counts[source];
+}
 
 export default async function BudgetPage() {
   const user = await requireUser();
@@ -105,11 +121,36 @@ export default async function BudgetPage() {
   }
   const buildCardByLineIdObj = Object.fromEntries(buildCardByLineId);
 
+  // v2.6.0 (design pass finding 4): live item count + total planned for
+  // the PageHeader subtitle — was static boilerplate ("Categories,
+  // lines, and totals — couple only") that told the user nothing about
+  // the data on the page, unlike the prototype's live-data subtitle.
+  let totalLines = 0;
+  let totalPlanned = 0;
+  for (const c of categories) {
+    for (const l of c.lines) {
+      totalLines += 1;
+      if (l.components.length > 0) {
+        for (const cmp of l.components) {
+          totalPlanned += computeComponentEstimated(
+            cmp,
+            resolveHeadcountForTotal(cmp.headcountSource, cmp.manualHeadcount, headcounts),
+          );
+        }
+      } else {
+        totalPlanned += computeEstimated(
+          l,
+          resolveHeadcountForTotal(l.headcountSource, l.manualHeadcount, headcounts),
+        );
+      }
+    }
+  }
+
   return (
     <>
       <PageHeader
         title="Budget"
-        subtitle="Categories, lines, and totals — couple only"
+        subtitle={`${totalLines} line item${totalLines === 1 ? "" : "s"} · ${formatMoney(totalPlanned)} planned`}
         actions={<PrintButton />}
       />
       <div className="flex-1 overflow-auto budget-page">

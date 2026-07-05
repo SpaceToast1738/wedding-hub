@@ -1,6 +1,7 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Button } from "@/components/ui/Button";
 
 // v1.99.0: shared widget every per-kind editor renders inside
 // <CardChrome> in place of its handwritten body JSX. Owns the
@@ -52,6 +53,15 @@ type Props = {
   pending?: boolean;
   onReorder: (next: string[]) => void;
   onToggleHidden: (componentId: string, hidden: boolean) => void;
+  // Design-pass fix: hidden components used to vanish in view mode
+  // with zero trace — nobody remembers weeks later that a card has a
+  // hidden photos section, and non-editors have no way to know hidden
+  // content exists at all. When the viewer can edit, view mode now
+  // surfaces a small muted footer note naming how many sections are
+  // hidden. Optional + defaults to false so callers outside this
+  // design pass's file ownership (BookSetupCard, SubsectionEditor)
+  // keep their current (silent) behaviour until they opt in.
+  canEdit?: boolean;
 };
 
 /** Compute the effective render order. Saved order wins for IDs
@@ -90,6 +100,7 @@ export function ReorderableCardBody({
   pending = false,
   onReorder,
   onToggleHidden,
+  canEdit = false,
 }: Props) {
   const byId = new Map(components.map((c) => [c.id, c]));
   const order = effectiveOrder(
@@ -100,6 +111,10 @@ export function ReorderableCardBody({
   // View-mode short circuit — no chrome, just the visible sections in
   // effective order. Keeps the read path light.
   if (!editMode) {
+    // Only sections this card actually has a node for count — a
+    // hiddenIds entry left over from a removed component shouldn't
+    // inflate the count.
+    const hiddenCount = order.filter((id) => hiddenIds.includes(id)).length;
     return (
       <div className="space-y-4">
         {order
@@ -109,6 +124,16 @@ export function ReorderableCardBody({
             if (!c) return null;
             return <div key={c.id}>{c.node}</div>;
           })}
+        {/* Design-pass fix: hidden sections used to vanish with no
+            trace — this is the same "quiet stat line" template as the
+            Sorted N/M tiles and captured-percentage rollups elsewhere
+            on these cards, just for hidden-content awareness instead
+            of progress. */}
+        {canEdit && hiddenCount > 0 && (
+          <p className="text-[11px] text-ink-tertiary italic">
+            {hiddenCount} hidden section{hiddenCount === 1 ? "" : "s"} — edit to show
+          </p>
+        )}
       </div>
     );
   }
@@ -143,58 +168,139 @@ export function ReorderableCardBody({
             {/* v1.99.0: per-section reorder strip. Sits flush with
                 the section node so it reads as a chrome accent
                 rather than a separate row. */}
-            <div className="flex items-center gap-1 mb-1 text-[10px] uppercase tracking-wider text-ink-tertiary">
+            <div className="flex items-center gap-1 mb-1 text-[10px] uppercase tracking-wider text-ink-secondary">
               <span className="font-bold">{c.label}</span>
               {hidden && (
                 <span className="italic text-ink-tertiary/70 normal-case font-normal">
                   — hidden in view mode
                 </span>
               )}
-              <span className="ml-auto flex items-center gap-0.5">
-                <button
-                  type="button"
-                  onClick={() => move(c.id, -1)}
-                  disabled={pending || isFirst}
-                  aria-label={`Move ${c.label} up`}
-                  title="Move up"
-                  className="px-1.5 py-0.5 rounded-sm text-ink-tertiary hover:text-ink-primary disabled:opacity-30 disabled:cursor-not-allowed"
-                >
-                  ▲
-                </button>
-                <button
-                  type="button"
-                  onClick={() => move(c.id, 1)}
-                  disabled={pending || isLast}
-                  aria-label={`Move ${c.label} down`}
-                  title="Move down"
-                  className="px-1.5 py-0.5 rounded-sm text-ink-tertiary hover:text-ink-primary disabled:opacity-30 disabled:cursor-not-allowed"
-                >
-                  ▼
-                </button>
-                {canHide && (
-                  <button
-                    type="button"
-                    onClick={() => onToggleHidden(c.id, !hidden)}
-                    disabled={pending}
-                    aria-pressed={hidden}
-                    aria-label={hidden ? `Show ${c.label}` : `Hide ${c.label}`}
-                    title={hidden ? "Show in view mode" : "Hide from view mode"}
-                    className={[
-                      "px-1.5 py-0.5 rounded-sm transition-colors",
-                      hidden
-                        ? "text-marigold-700 hover:text-marigold-900"
-                        : "text-ink-tertiary hover:text-ink-primary",
-                    ].join(" ")}
-                  >
-                    {hidden ? "🚫" : "👁"}
-                  </button>
-                )}
+              <span className="ml-auto">
+                <ComponentRowMenu
+                  label={c.label}
+                  canHide={canHide}
+                  hidden={hidden}
+                  isFirst={isFirst}
+                  isLast={isLast}
+                  pending={pending}
+                  onMoveUp={() => move(c.id, -1)}
+                  onMoveDown={() => move(c.id, 1)}
+                  onToggleHidden={() => onToggleHidden(c.id, !hidden)}
+                />
               </span>
             </div>
             {c.node}
           </div>
         );
       })}
+    </div>
+  );
+}
+
+// Design-pass fix: this row used to be three bare-glyph buttons
+// (▲ ▼ 👁/🚫) at ~20px hit areas, explained only by hover tooltips.
+// One properly-sized trigger + a text-labeled dropdown reads clearly
+// without a mouse-hover tooltip and gives each action a real tap
+// target.
+function ComponentRowMenu({
+  label,
+  canHide,
+  hidden,
+  isFirst,
+  isLast,
+  pending,
+  onMoveUp,
+  onMoveDown,
+  onToggleHidden,
+}: {
+  label: string;
+  canHide: boolean;
+  hidden: boolean;
+  isFirst: boolean;
+  isLast: boolean;
+  pending: boolean;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
+  onToggleHidden: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    function onPointerDown(e: PointerEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("pointerdown", onPointerDown);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  return (
+    <div ref={ref} className="relative inline-block normal-case tracking-normal">
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        onClick={() => setOpen((v) => !v)}
+        disabled={pending}
+        aria-haspopup="true"
+        aria-expanded={open}
+        aria-label={`${label} section options`}
+        className="!px-2"
+      >
+        ⋯
+      </Button>
+      {open && (
+        <div
+          role="menu"
+          className="absolute right-0 mt-1 z-20 w-40 rounded-md border border-border-soft bg-surface shadow-lg py-1 text-xs font-normal"
+        >
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              onMoveUp();
+              setOpen(false);
+            }}
+            disabled={pending || isFirst}
+            className="w-full text-left px-3 py-2 text-ink-secondary hover:bg-canvas disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            Move up
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              onMoveDown();
+              setOpen(false);
+            }}
+            disabled={pending || isLast}
+            className="w-full text-left px-3 py-2 text-ink-secondary hover:bg-canvas disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            Move down
+          </button>
+          {canHide && (
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                onToggleHidden();
+                setOpen(false);
+              }}
+              disabled={pending}
+              className="w-full text-left px-3 py-2 text-ink-secondary hover:bg-canvas disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {hidden ? "Show in view mode" : "Hide from view mode"}
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

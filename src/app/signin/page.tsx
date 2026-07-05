@@ -2,6 +2,8 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { signIn, isAllowed } from "@/auth";
 import { getWeddingSettings, formatWeddingDateShort } from "@/lib/wedding-settings";
+import { Input } from "@/components/ui/Input";
+import { SubmitButton } from "./SubmitButton";
 
 async function startSignIn(formData: FormData) {
   "use server";
@@ -46,23 +48,22 @@ export default async function SignInPage({
           {wedding.brideFirst} &amp; {wedding.groomFirst} · {formatWeddingDateShort(wedding)}
         </p>
         <form action={startSignIn} className="flex flex-col gap-3">
-          <label className="text-xs font-medium text-ink-secondary uppercase tracking-wider">
-            Email
-          </label>
-          <input
+          {/* v2.5.0: Input's `label` prop wires htmlFor/id — the
+              previous sibling <label> had no association, so screen
+              readers announced the field as unlabeled. */}
+          <Input
+            label="Email"
             type="email"
             name="email"
             required
             autoFocus
             placeholder="you@example.com"
-            className="text-sm bg-surface text-ink-primary border border-border-soft rounded-sm px-3 py-2 outline-none focus:border-moss-500"
           />
-          <button
-            type="submit"
-            className="text-sm font-medium bg-moss-500 text-white rounded-sm px-3 py-2 mt-2 hover:bg-moss-700 transition-colors"
-          >
+          {/* v2.5.0 (design pass #5): pending state so a slow email
+              send can't be double-clicked into sending twice. */}
+          <SubmitButton pendingLabel="Sending…" className="mt-2">
             Email me a sign-in code
-          </button>
+          </SubmitButton>
         </form>
         {error === "invalid" && (
           <p className="text-xs text-danger mt-4">

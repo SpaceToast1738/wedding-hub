@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
+import { notify } from "@/lib/notify";
 import { createSong, deletePlaylist, deleteSong, moveSong, setPlaylistSpotifyUrl, syncPlaylistFromSpotify } from "./actions";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 
@@ -103,7 +104,14 @@ export function PlaylistCard({
     setSpotifyError(null);
     startTransition(async () => {
       const result = await syncPlaylistFromSpotify(playlist.id);
-      if (!result.ok) setSpotifyError(result.error);
+      if (!result.ok) {
+        setSpotifyError(result.error);
+        return;
+      }
+      // v2.6.0 (finding #4): a successful sync previously gave no
+      // feedback beyond a quiet timestamp update — easy to miss,
+      // especially since the button itself just reverts to "Re-sync".
+      notify("success", `Pulled ${result.tracks} track${result.tracks === 1 ? "" : "s"} from Spotify into "${playlist.name}"`);
     });
   }
 
@@ -120,13 +128,29 @@ export function PlaylistCard({
     });
   }
 
-  const accent = playlist.isBlockList ? "border-danger/30 bg-danger-bg/30" : "border-border-soft bg-surface";
+  // v2.6.0 (finding #2): was a faint `/30`-alpha wash — nearly
+  // indistinguishable from a normal card at a glance. Full-strength
+  // tint + solid border now pairs with the "Never play" badge below
+  // so the block-list polarity reads immediately, not just from the
+  // small category label in the metadata line.
+  const accent = playlist.isBlockList ? "border-danger bg-danger-bg" : "border-border-soft bg-surface";
 
   return (
-    <section id={`playlist-${playlist.id}`} className={`border ${accent} rounded-md shadow-sm scroll-mt-4`}>
+    // `<article>` (not `<section>`) so this card matches the
+    // `article[id]:target` one-shot flash rule in globals.css — lets
+    // the summary-card / Spotify-chip anchor links (finding #6) visibly
+    // pulse the destination card instead of just silent-scrolling to it.
+    <article id={`playlist-${playlist.id}`} className={`border ${accent} rounded-md shadow-sm scroll-mt-4`}>
       <header className="flex items-center justify-between px-4 py-3 border-b border-border-soft">
         <div>
-          <h2 className="text-sm font-semibold text-ink-primary">{playlist.name}</h2>
+          <div className="flex items-center gap-2 flex-wrap">
+            <h2 className="text-sm font-semibold text-ink-primary">{playlist.name}</h2>
+            {playlist.isBlockList && (
+              <span className="inline-flex items-center text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-danger text-on-danger">
+                Never play
+              </span>
+            )}
+          </div>
           <div className="text-[11px] text-ink-tertiary">
             {CATEGORY_LABEL[playlist.category] ?? playlist.category} · {playlist.songs.length} {playlist.songs.length === 1 ? "song" : "songs"}
             {playlist.description ? ` · ${playlist.description}` : ""}
@@ -214,9 +238,13 @@ export function PlaylistCard({
           const isLast = i === playlist.songs.length - 1;
           return (
             <li key={s.id} className="flex items-center gap-2 px-4 py-2 group">
-              <span className="text-[10px] text-ink-tertiary tabular-nums w-5 flex-shrink-0">
-                {i + 1}.
-              </span>
+              {/* v2.6.0 (finding #2): row numbering implies a play order,
+                  which is meaningless on a block list — omit it there. */}
+              {!playlist.isBlockList && (
+                <span className="text-[10px] text-ink-tertiary tabular-nums w-5 flex-shrink-0">
+                  {i + 1}.
+                </span>
+              )}
               <div className="flex-1 min-w-0">
                 <div className="text-sm text-ink-primary truncate flex items-center gap-1.5">
                   {spotifyUrl ? (
@@ -240,26 +268,50 @@ export function PlaylistCard({
               </div>
               {s.source && <span className="text-[10px] text-ink-tertiary bg-canvas border border-border-soft px-1.5 py-px rounded-md">{s.source}</span>}
               {canEdit && (
-                <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+                // v2.6.0 (finding #3): mobile-safe hover-reveal — was
+                // hover-only (opacity-0 group-hover:opacity-100), which
+                // is simply unreachable on touch since there's no hover
+                // state to trigger it. Now always visible on mobile,
+                // hover/focus-reveal only at the sm+ desktop breakpoint.
+                // Each control is sized to a ~36px hit area (was ~16-18px)
+                // and carries a real aria-label, not just a title tooltip.
+                <div className="flex items-center gap-0.5 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 transition-opacity">
+                  {/* v2.6.0 (finding #2): order is meaningless on a
+                      block list, so reorder controls don't apply there. */}
+                  {!playlist.isBlockList && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => onMoveSong(s.id, -1)}
+                        disabled={pending || isFirst}
+                        aria-label="Move up"
+                        title="Move up"
+                        className="inline-flex items-center justify-center w-9 h-9 rounded-sm text-sm leading-none text-ink-tertiary hover:text-ink-primary hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                      >
+                        ↑
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onMoveSong(s.id, 1)}
+                        disabled={pending || isLast}
+                        aria-label="Move down"
+                        title="Move down"
+                        className="inline-flex items-center justify-center w-9 h-9 rounded-sm text-sm leading-none text-ink-tertiary hover:text-ink-primary hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                      >
+                        ↓
+                      </button>
+                    </>
+                  )}
                   <button
                     type="button"
-                    onClick={() => onMoveSong(s.id, -1)}
-                    disabled={pending || isFirst}
-                    title="Move up"
-                    className="text-[10px] px-1 text-ink-tertiary hover:text-ink-primary disabled:opacity-30 disabled:cursor-not-allowed"
+                    onClick={() => onDeleteSong(s.id, s.title)}
+                    disabled={pending}
+                    aria-label="Delete song"
+                    title="Delete song"
+                    className="inline-flex items-center justify-center w-9 h-9 rounded-sm text-base leading-none text-ink-tertiary hover:text-danger hover:bg-danger-bg disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                   >
-                    ↑
+                    ×
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => onMoveSong(s.id, 1)}
-                    disabled={pending || isLast}
-                    title="Move down"
-                    className="text-[10px] px-1 text-ink-tertiary hover:text-ink-primary disabled:opacity-30 disabled:cursor-not-allowed"
-                  >
-                    ↓
-                  </button>
-                  <Button variant="ghost" size="sm" onClick={() => onDeleteSong(s.id, s.title)} disabled={pending}>×</Button>
                 </div>
               )}
             </li>
@@ -274,7 +326,7 @@ export function PlaylistCard({
           </li>
         )}
       </ul>
-    </section>
+    </article>
   );
 }
 

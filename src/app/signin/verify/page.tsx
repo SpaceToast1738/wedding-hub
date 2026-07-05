@@ -7,6 +7,7 @@ import {
   recordFailedGuess,
   VERIFY_LIMIT_MAX_PER_EMAIL,
 } from "@/lib/rate-limit";
+import { SubmitButton } from "../SubmitButton";
 
 // v1.50.0: code-entry sign-in. Replaces the v1.20.0 "check your inbox"
 // placeholder. The flow:
@@ -155,7 +156,7 @@ export default async function VerifyPage({
           </p>
           <Link
             href="/signin"
-            className="inline-block text-sm font-medium bg-moss-500 text-white rounded-sm px-3 py-2 hover:bg-moss-700 transition-colors"
+            className="inline-block text-sm font-medium bg-moss-500 text-on-moss rounded-sm px-3 py-2 hover:bg-moss-700 transition-colors"
           >
             Back to sign-in
           </Link>
@@ -182,10 +183,16 @@ export default async function VerifyPage({
         </div>
 
         <form action={verifyCode} className="flex flex-col gap-3">
-          <label className="text-xs font-medium text-ink-secondary uppercase tracking-wider">
+          {/* v2.5.0: htmlFor/id pairing — the label had no association,
+              so screen readers announced the field as unlabeled. Kept
+              as plain elements (not the Input component) since this
+              field's bespoke large/mono/tracked styling doesn't fit
+              Input's default sizing. */}
+          <label htmlFor="code" className="text-xs font-medium text-ink-secondary uppercase tracking-wider">
             6-digit code
           </label>
           <input
+            id="code"
             type="text"
             name="code"
             inputMode="numeric"
@@ -198,12 +205,12 @@ export default async function VerifyPage({
             className="text-2xl font-mono tracking-[0.4em] text-center bg-surface text-ink-primary border border-border-soft rounded-sm px-3 py-2 outline-none focus:border-moss-500"
           />
 
-          <button
-            type="submit"
-            className="text-sm font-medium bg-moss-500 text-white rounded-sm px-3 py-2 mt-2 hover:bg-moss-700 transition-colors"
-          >
+          {/* v2.5.0 (design pass #5): pending state so a slow code
+              check can't be double-clicked into burning an extra
+              attempt against the 5-guess rate limit. */}
+          <SubmitButton pendingLabel="Signing in…" className="mt-2">
             Sign in
-          </button>
+          </SubmitButton>
         </form>
 
         {error === "bad_code" && (

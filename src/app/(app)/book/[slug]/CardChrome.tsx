@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition, type ReactNode } from "react";
+import { useEffect, useRef, useState, useTransition, type ReactNode } from "react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { notify } from "@/lib/notify";
@@ -21,6 +21,34 @@ import type { UserOpt } from "@/app/(app)/tasks/AddTaskToggle";
 // TEXT cards still use the older SubsectionEditor unchanged because
 // it has bespoke body-textarea + dirty-tracking that's awkward to
 // generalise.
+
+// Design-pass fix: with 13 near-identical white cards in a mixed
+// grid, the only thing telling them apart was a tiny uppercase kind
+// badge — reading every card's badge just to orient yourself doesn't
+// scale. A coloured left accent (grouped into 3 families) lets kind
+// recognition happen at a glance instead. Keyed off `kindBadge`
+// (every CardChrome caller already passes this) rather than a typed
+// BookCardKind enum, so the accent applies automatically to the 9
+// per-kind editors outside this design pass's file ownership too —
+// no prop-signature change needed on their end.
+const KIND_ACCENT: Record<string, string> = {
+  // Content-oriented — reference material, low workflow-tracking.
+  Notes: "border-l-moss-300",
+  Field: "border-l-moss-300",
+  Recipe: "border-l-moss-300",
+  "Lodging guide": "border-l-moss-300",
+  // Logistics — physical/production planning.
+  DIY: "border-l-marigold-500",
+  Menu: "border-l-marigold-500",
+  Bar: "border-l-marigold-500",
+  Setup: "border-l-marigold-500",
+  Stay: "border-l-marigold-500",
+  // Trackers — progress/status per person or per shot.
+  "Shot list": "border-l-info",
+  Outfit: "border-l-info",
+  "Wedding party": "border-l-info",
+};
+const DEFAULT_KIND_ACCENT = "border-l-border-soft";
 
 export function CardChrome({
   subsectionId,
@@ -78,6 +106,29 @@ export function CardChrome({
   const [vis, setVis] = useState(visibility);
   const [pending, startTransition] = useTransition();
   const confirm = useConfirm();
+  // Design-pass fix: the housekeeping actions (Make couple-only,
+  // Delete) used to render as two always-visible ghost buttons next
+  // to Edit — three visible actions competing for attention on a card
+  // whose primary job is "Edit". Folded into one small menu so the
+  // default view reads as one primary action (Edit) + one secondary
+  // options trigger.
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!menuOpen) return;
+    function onPointerDown(e: PointerEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setMenuOpen(false);
+    }
+    document.addEventListener("pointerdown", onPointerDown);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [menuOpen]);
 
   function saveTitle() {
     if (!title.trim()) {
@@ -99,6 +150,12 @@ export function CardChrome({
       try {
         await updateBookSubsection(subsectionId, fd);
         setSavedTitle(title);
+        // Design-pass fix: this used to save with zero visual
+        // confirmation — the title is the one CardChrome field that
+        // commits instantly with no Cancel/Save pair around it, so a
+        // brief "Saved" toast is the only signal the blur actually
+        // persisted.
+        notify("success", "Saved");
       } catch (err) {
         setTitle(savedTitle);
         notify("error", err instanceof Error ? err.message : "Couldn't save title");
@@ -111,6 +168,7 @@ export function CardChrome({
     const next = vis === "COUPLE_ONLY" ? "EVERYONE" : "COUPLE_ONLY";
     const prev = vis;
     setVis(next);
+    setMenuOpen(false);
     startTransition(async () => {
       try {
         await setBookSubsectionVisibility(subsectionId, next);
@@ -122,6 +180,7 @@ export function CardChrome({
   }
 
   async function onDelete() {
+    setMenuOpen(false);
     if (!(await confirm({ title: `Delete card "${savedTitle}"?`, confirmLabel: "Delete", tone: "danger" }))) return;
     startTransition(async () => {
       try {
@@ -141,24 +200,44 @@ export function CardChrome({
     // pushes the linked-tasks panel + action footer to the bottom.
     <article
       id={slug}
-      className="bg-surface border border-border-soft rounded-md shadow-sm p-5 scroll-mt-24 flex flex-col flex-1"
+      className={[
+        "bg-surface border border-border-soft rounded-md shadow-sm p-5 scroll-mt-24 flex flex-col flex-1",
+        // Design-pass fix: 13 card kinds used to be visually
+        // identical white boxes distinguished only by the small
+        // kindBadge chip below. A per-kind-family left accent lets
+        // the reader recognise a card's kind at a glance in a mixed
+        // grid instead of reading every badge.
+        "border-l-4",
+        KIND_ACCENT[kindBadge] ?? DEFAULT_KIND_ACCENT,
+      ].join(" ")}
     >
       <div className="flex items-center gap-2 mb-3 flex-wrap">
         {canEdit ? (
-          <Input
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            onBlur={saveTitle}
-            disabled={pending}
-            className="!text-base !font-semibold !border-transparent hover:!border-border-soft focus:!border-moss-500 !p-1 flex-1 min-w-0"
-          />
+          // Design-pass fix: the title input used to look like plain
+          // text until hovered (transparent border, no other cue) —
+          // canEdit users had no persistent signal it was even
+          // editable. The small ✎ glyph stays visible regardless of
+          // hover; the border itself still brightens on hover/focus
+          // as a secondary affordance.
+          <div className="relative flex-1 min-w-0 flex items-center gap-1.5">
+            <Input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              onBlur={saveTitle}
+              disabled={pending}
+              className="!text-base !font-semibold !border-transparent hover:!border-border-soft focus:!border-moss-500 !p-1 flex-1 min-w-0"
+            />
+            <span aria-hidden className="text-ink-tertiary text-xs flex-shrink-0" title="Click to rename">
+              ✎
+            </span>
+          </div>
         ) : (
           <h3 className="text-base font-semibold text-ink-primary flex-1 min-w-0">{title}</h3>
         )}
         {/* v1.97.0: kind-specific chips (e.g. BRIDE / GROOM on OUTFIT)
             sit inline with the title instead of on their own sub-row. */}
         {headerChips}
-        <span className="text-[10px] uppercase tracking-wider text-ink-tertiary border border-border-soft rounded-full px-2 py-0.5 flex-shrink-0">
+        <span className="text-[10px] uppercase tracking-wider text-ink-secondary border border-border-soft rounded-full px-2 py-0.5 flex-shrink-0">
           {kindBadge}
         </span>
         {vis === "COUPLE_ONLY" && (
@@ -193,20 +272,59 @@ export function CardChrome({
           Delete) with the per-kind action slot (Edit / Cancel + Save)
           on a single row. Pre-fix each editor rendered its own Edit
           row above this footer — two rows where one would do. The
-          `hideHousekeeping` flag suppresses Make-couple-only + Delete
-          during transient states (edit mode) so the visual focus
-          stays on Cancel / Save. */}
+          `hideHousekeeping` flag suppresses the options menu during
+          transient states (edit mode) so the visual focus stays on
+          Cancel / Save (or Done).
+          Design-pass fix: Make-couple-only + Delete used to render as
+          two separate always-visible ghost buttons here — three
+          visible actions (those two, plus Edit) on a card whose one
+          primary job is "Edit". Collapsed into a single "⋯ Options"
+          menu so the default footer reads as one primary action +
+          one secondary options trigger. */}
       {canEdit && (!hideHousekeeping || actions) && (
         <div className="flex items-center justify-end gap-1 mt-3 pt-3 border-t border-border-soft">
-          {!hideHousekeeping && isCouple && (
-            <Button variant="ghost" size="sm" onClick={toggleVisibility} disabled={pending}>
-              {vis === "COUPLE_ONLY" ? "Make public" : "Make couple-only"}
-            </Button>
-          )}
           {!hideHousekeeping && (
-            <Button variant="ghost" size="sm" onClick={onDelete} disabled={pending}>
-              Delete
-            </Button>
+            <div ref={menuRef} className="relative inline-block">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setMenuOpen((v) => !v)}
+                disabled={pending}
+                aria-haspopup="true"
+                aria-expanded={menuOpen}
+                aria-label="Card options"
+              >
+                ⋯ Options
+              </Button>
+              {menuOpen && (
+                <div
+                  role="menu"
+                  className="absolute right-0 mt-1 z-20 w-44 rounded-md border border-border-soft bg-surface shadow-lg py-1 text-xs"
+                >
+                  {isCouple && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={toggleVisibility}
+                      disabled={pending}
+                      className="w-full text-left px-3 py-2 text-ink-secondary hover:bg-canvas disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {vis === "COUPLE_ONLY" ? "Make public" : "Make couple-only"}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={onDelete}
+                    disabled={pending}
+                    className="w-full text-left px-3 py-2 text-danger hover:bg-canvas disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Delete card
+                  </button>
+                </div>
+              )}
+            </div>
           )}
           {actions}
         </div>

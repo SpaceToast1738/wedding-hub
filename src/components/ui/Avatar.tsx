@@ -23,7 +23,9 @@ const AVATAR_COLORS = [
   "var(--color-moss-500)",
   "var(--color-marigold-500)",
   "var(--color-info)",
-  "#8A6A9A",
+  // v2.5.0: was a raw hex with no dark-mode counterpart — promoted
+  // to a themed token (globals.css --color-avatar-accent).
+  "var(--color-avatar-accent)",
 ];
 
 function colorFor(name: string): string {
@@ -74,7 +76,9 @@ export function Avatar({
         width: size,
         height: size,
         background: colorFor(name),
-        fontSize: size * 0.35,
+        // v2.5.0: floored at 11px — size*0.35 dropped below 10px for
+        // any avatar under 32px (e.g. 9.8px at the common size=28).
+        fontSize: Math.max(size * 0.35, 11),
       }}
     >
       {initialsFor(name)}

@@ -30,6 +30,12 @@ type Props = {
    *  in groups first ("everyone", "wedding party") before reaching
    *  for individuals. */
   groups?: GroupOpt[];
+  /** v2.5.0 (design pass #7): YYYY-MM-DD prefill for the Date field on
+   *  a fresh (no `initial`) form — nearly every schedule entry lands
+   *  on the wedding day itself, so defaulting there saves a trip to
+   *  the date picker for the common case. Ignored once `initial` is
+   *  set (editing an existing event always shows its own date). */
+  defaultStartDate?: string;
   submitLabel?: string;
   onSubmit: (formData: FormData) => Promise<void>;
   onCancel?: () => void;
@@ -44,6 +50,7 @@ export function EventForm({
   initial,
   users = [],
   groups = [],
+  defaultStartDate,
   submitLabel = "Create",
   onSubmit,
   onCancel,
@@ -52,6 +59,14 @@ export function EventForm({
   const [allDay, setAllDay] = useState<boolean>(initial?.allDay ?? false);
   const [attendeeRefs, setAttendeeRefs] = useState<string[]>(initial?.attendeeRefs ?? []);
   const [error, setError] = useState<string | null>(null);
+  // v2.5.0 (design pass #7): the End date row only renders when the
+  // event actually spans more than one day — starts expanded when
+  // editing a pre-existing multi-day event, collapsed otherwise (the
+  // overwhelming common case: a single-day event where "end date"
+  // is just "same as start").
+  const [showEndDate, setShowEndDate] = useState<boolean>(
+    !!(initial?.endDate && initial?.startDate && initial.endDate !== initial.startDate),
+  );
   // v1.60.0 (P3): dirty-check — `allDay` and `attendeeRefs` are
   // controlled state, the rest of the inputs are uncontrolled. We
   // mirror both sources into a single dirty flag: explicit setters
@@ -71,6 +86,19 @@ export function EventForm({
     formData.set("allDay", allDay ? "true" : "false");
     formData.delete("attendeeRefs");
     attendeeRefs.forEach((ref) => formData.append("attendeeRefs", ref));
+    if (!showEndDate) {
+      // v2.5.0 (design pass #7): the End date field isn't rendered in
+      // the collapsed state — the single Date field feeds both ends.
+      // Only stamp endDate when there's an end time to pair it with;
+      // otherwise leave it blank so open-ended events keep saving
+      // with endTime: null instead of an artificial same-day midnight
+      // (see actions.ts's combineDateTime).
+      const startDateVal = String(formData.get("startDate") ?? "");
+      const endTimeVal = String(formData.get("endTime") ?? "");
+      if (startDateVal && endTimeVal) {
+        formData.set("endDate", startDateVal);
+      }
+    }
     startTransition(async () => {
       try {
         await onSubmit(formData);
@@ -83,12 +111,7 @@ export function EventForm({
 
   return (
     <form action={handle} onChange={() => setDirty(true)} className="space-y-3">
-      <div>
-        <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">
-          Title
-        </label>
-        <Input name="title" defaultValue={initial?.title ?? ""} required placeholder="e.g. Ceremony" />
-      </div>
+      <Input name="title" label="Title" defaultValue={initial?.title ?? ""} required placeholder="e.g. Ceremony" />
 
       <div>
         <label className="inline-flex items-center gap-2 cursor-pointer text-sm">
@@ -103,68 +126,77 @@ export function EventForm({
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <div>
-          <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">
-            Start date
-          </label>
+        {/* v2.5.0 (design pass #7): renamed from "Start date" — this
+            single field now feeds both start and end date unless
+            "Ends on a different day" is expanded below. Prefilled with
+            the wedding date since nearly every entry lands there. */}
+        <Input
+          type="date"
+          name="startDate"
+          label="Date"
+          defaultValue={initial?.startDate ?? defaultStartDate ?? ""}
+          required
+        />
+        {!allDay && (
           <Input
-            type="date"
-            name="startDate"
-            defaultValue={initial?.startDate ?? ""}
+            type="time"
+            name="startTime"
+            label="Start time"
+            defaultValue={initial?.startTime ?? ""}
+            placeholder="14:00"
+            // v2.5.0 (design pass #4): a blank start time used to
+            // silently combine to midnight server-side — required
+            // stops that at the source instead of relying on the
+            // couple to notice a wrong time later.
             required
           />
-        </div>
-        {!allDay && (
-          <div>
-            <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">
-              Start time
-            </label>
-            <Input
-              type="time"
-              name="startTime"
-              defaultValue={initial?.startTime ?? ""}
-              placeholder="14:00"
-            />
-          </div>
         )}
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <div>
-          <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">
-            End date
-          </label>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-start">
+        {!allDay && (
           <Input
-            type="date"
-            name="endDate"
-            defaultValue={initial?.endDate ?? ""}
+            type="time"
+            name="endTime"
+            label="End time"
+            defaultValue={initial?.endTime ?? ""}
             placeholder="optional"
           />
-        </div>
-        {!allDay && (
-          <div>
-            <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">
-              End time
-            </label>
-            <Input
-              type="time"
-              name="endTime"
-              defaultValue={initial?.endTime ?? ""}
-              placeholder="optional"
-            />
-          </div>
         )}
+        <div className={!allDay ? "" : "sm:col-span-2"}>
+          {showEndDate ? (
+            <div>
+              <Input
+                type="date"
+                name="endDate"
+                label="End date"
+                defaultValue={initial?.endDate ?? ""}
+              />
+              <button
+                type="button"
+                onClick={() => setShowEndDate(false)}
+                className="text-[11px] text-ink-tertiary hover:text-ink-primary mt-1 cursor-pointer"
+              >
+                Same day as start
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setShowEndDate(true)}
+              className="text-xs text-ink-tertiary hover:text-moss-700 underline underline-offset-2 decoration-dotted cursor-pointer mt-1 sm:mt-6"
+            >
+              Ends on a different day
+            </button>
+          )}
+        </div>
       </div>
 
-      <div>
-        <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">
-          Location
-        </label>
-        <Input
-          name="location"
-          defaultValue={initial?.location ?? ""}
-          placeholder="e.g. Alveston Manor lawn"
-        />
-      </div>
+      <Input
+        name="location"
+        label="Location"
+        defaultValue={initial?.location ?? ""}
+        placeholder="e.g. Alveston Manor lawn"
+      />
 
       <div>
         <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1.5">
@@ -220,7 +252,7 @@ export function EventForm({
                         className={[
                           "text-xs px-2.5 py-0.5 rounded-full border whitespace-nowrap transition-colors cursor-pointer",
                           active
-                            ? "bg-moss-500 text-white border-moss-500 font-semibold"
+                            ? "bg-moss-500 text-on-moss border-moss-500 font-semibold"
                             : "bg-canvas text-ink-secondary border-border-soft hover:border-moss-300",
                         ].join(" ")}
                         title={u.email}

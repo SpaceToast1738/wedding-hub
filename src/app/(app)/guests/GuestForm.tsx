@@ -8,6 +8,38 @@ import { MentionableTextarea } from "@/components/ui/MentionableTextarea";
 const RSVP = ["PENDING", "ATTENDING", "DECLINED", "MAYBE"] as const;
 const SIDES = ["BRIDE", "GROOM", "BOTH"] as const;
 
+// v2.5.1 (finding #6): canonical dietary values the catering brief can
+// tally cleanly. Anything typed into "Other" still gets counted on
+// the catering brief — see the synonym-folding step in
+// catering/page.tsx — but picking from this list at entry keeps the
+// common cases from fragmenting into "Vegetarian" / "veggie" / "V" in
+// the first place.
+const DIETARY_CANONICAL = ["Vegetarian", "Vegan", "Gluten-free", "Dairy-free", "Nut allergy"] as const;
+
+// Lower-cased synonym → canonical label, so a guest edited after being
+// imported (or typed into "Other" before this UI existed) still lands
+// on the right checkbox when the row is reopened.
+const DIETARY_SYNONYMS: Record<string, string> = {
+  vegetarian: "Vegetarian", veggie: "Vegetarian", veg: "Vegetarian", v: "Vegetarian",
+  vegan: "Vegan", vgn: "Vegan",
+  "gluten-free": "Gluten-free", "gluten free": "Gluten-free", glutenfree: "Gluten-free", gf: "Gluten-free",
+  "dairy-free": "Dairy-free", "dairy free": "Dairy-free", dairyfree: "Dairy-free", df: "Dairy-free",
+  "lactose intolerant": "Dairy-free", "lactose-free": "Dairy-free",
+  "nut allergy": "Nut allergy", "nut-allergy": "Nut allergy", nuts: "Nut allergy",
+  "no nuts": "Nut allergy", "peanut allergy": "Nut allergy", "tree nut allergy": "Nut allergy",
+};
+
+function parseDietaryInitial(raw: string | undefined): { selected: Set<string>; other: string } {
+  const selected = new Set<string>();
+  const other: string[] = [];
+  for (const token of (raw ?? "").split(",").map((s) => s.trim()).filter(Boolean)) {
+    const canonical = DIETARY_SYNONYMS[token.toLowerCase()];
+    if (canonical) selected.add(canonical);
+    else other.push(token);
+  }
+  return { selected, other: other.join(", ") };
+}
+
 export type GuestInitial = {
   firstName?: string;
   lastName?: string;
@@ -50,10 +82,23 @@ export function GuestForm({
   // pattern. Save disables when no edits pending; create path starts
   // dirty since there's no baseline to compare against.
   const [dirty, setDirty] = useState(!initial);
+  // v2.5.1 (finding #6): dietary is now canonical checkboxes + a free
+  // "Other" field instead of one unconstrained Input — composed back
+  // into a single comma string in handle() so the server action's
+  // existing string→array parsing (readDietary in ./actions) needs no
+  // changes.
+  const [dietaryInit] = useState(() => parseDietaryInitial(initial?.dietary));
+  const [dietarySelected, setDietarySelected] = useState<Set<string>>(dietaryInit.selected);
+  const [dietaryOther, setDietaryOther] = useState(dietaryInit.other);
 
   async function handle(formData: FormData) {
     setError(null);
     formData.set("householdId", householdId);
+    const composedDietary = [
+      ...dietarySelected,
+      ...dietaryOther.split(",").map((s) => s.trim()).filter(Boolean),
+    ].join(", ");
+    formData.set("dietary", composedDietary);
     startTransition(async () => {
       try {
         await onSubmit(formData);
@@ -96,7 +141,7 @@ export function GuestForm({
           <Input name="phone" defaultValue={initial?.phone ?? ""} placeholder="optional" />
         </div>
       </div>
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
         <div>
           <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">RSVP</label>
           <select name="rsvp" defaultValue={initial?.rsvp ?? "PENDING"} className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2 py-1.5 text-ink-primary outline-none">
@@ -113,10 +158,37 @@ export function GuestForm({
           <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">Role</label>
           <Input name="role" defaultValue={initial?.role ?? ""} placeholder="e.g. Best Man" />
         </div>
-        <div>
-          <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">Dietary</label>
-          <Input name="dietary" defaultValue={initial?.dietary ?? ""} placeholder="V, GF, …" />
+      </div>
+      {/* v2.5.1 (finding #6): canonical checkboxes replace the old
+          free Input — "Vegetarian" / "veggie" / "V" used to become
+          three uncombined counts on the catering brief. */}
+      <div>
+        <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">Dietary</label>
+        <div className="flex flex-wrap gap-x-3 gap-y-1.5 text-xs text-ink-secondary mb-1.5">
+          {DIETARY_CANONICAL.map((opt) => (
+            <label key={opt} className="inline-flex items-center gap-1.5">
+              <input
+                type="checkbox"
+                checked={dietarySelected.has(opt)}
+                onChange={(e) =>
+                  setDietarySelected((prev) => {
+                    const next = new Set(prev);
+                    if (e.target.checked) next.add(opt);
+                    else next.delete(opt);
+                    return next;
+                  })
+                }
+              />
+              {opt}
+            </label>
+          ))}
         </div>
+        <Input
+          label="Other dietary"
+          value={dietaryOther}
+          onChange={(e) => setDietaryOther(e.target.value)}
+          placeholder="e.g. shellfish allergy (comma-separated)"
+        />
       </div>
       <div className="flex flex-wrap gap-3 text-xs text-ink-secondary">
         <label className="inline-flex items-center gap-1.5"><input type="checkbox" name="isChild" defaultChecked={initial?.isChild} /> Child</label>

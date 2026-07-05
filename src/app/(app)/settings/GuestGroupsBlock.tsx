@@ -120,7 +120,13 @@ export function GuestGroupsBlock({
     <section className="bg-surface border border-border-soft rounded-md shadow-sm">
       <header className="px-4 py-3 border-b border-border-soft flex items-baseline justify-between gap-3">
         <div>
-          <h2 className="text-sm font-semibold text-ink-primary">Guest groups</h2>
+          {/* v2.5.0 (design pass #3): renamed from "Guest groups" —
+              sitting next to PermissionGroupsBlock's near-identical
+              chrome made the two easy to confuse (one governs app
+              access permissions, this one categorises wedding guests
+              for seating). Now lives in Customisation, not Access &
+              members. */}
+          <h2 className="text-sm font-semibold text-ink-primary">Guest seating groups</h2>
           <p className="text-xs text-ink-tertiary mt-0.5">
             Bundle <strong>wedding guests</strong> for organising the ceremony seating
             plan, RSVP follow-ups, and after-party invites. Each custom group can carry
@@ -141,11 +147,14 @@ export function GuestGroupsBlock({
         <ul className="space-y-1 text-sm">
           {builtins.map((b) => (
             <li key={b.slug} className="flex items-baseline gap-2">
-              <span className="text-ink-primary font-medium flex-1 min-w-0 truncate">
+              {/* v2.5.0 (design pass #10): the raw `builtin:<slug>`
+                  identifier had no value to a user browsing the list —
+                  moved to a title tooltip instead of a visible span. */}
+              <span
+                className="text-ink-primary font-medium flex-1 min-w-0 truncate"
+                title={`builtin:${b.slug}`}
+              >
                 {b.name}
-              </span>
-              <span className="text-[10px] uppercase tracking-wider text-ink-tertiary font-mono">
-                builtin:{b.slug}
               </span>
               <span className="text-[10px] text-ink-tertiary tabular-nums w-20 text-right">
                 {b.members.length} {b.members.length === 1 ? "guest" : "guests"}
@@ -171,6 +180,11 @@ export function GuestGroupsBlock({
                 {/* v1.48.0: reorder buttons. The first/last group can
                     only nudge inward. Order drives the seating
                     allocator's fill priority. */}
+                {/* v2.5.0 (design pass #10): min-h/min-w-[40px] mobile
+                    touch floor, reverting to the dense desktop size at
+                    640px+ — same convention as Button/Tag. These were
+                    previously just px-0.5 with no vertical padding, well
+                    under any usable tap target. */}
                 <span className="flex items-center gap-0.5 flex-shrink-0">
                   <button
                     type="button"
@@ -178,7 +192,7 @@ export function GuestGroupsBlock({
                     disabled={pending || idx === 0}
                     aria-label="Move up"
                     title="Higher priority — fills sooner"
-                    className="text-[10px] text-ink-tertiary hover:text-ink-primary disabled:opacity-30 px-0.5"
+                    className="min-h-[40px] min-w-[40px] sm:min-h-0 sm:min-w-0 flex items-center justify-center text-[10px] text-ink-tertiary hover:text-ink-primary disabled:opacity-30 px-0.5"
                   >
                     ▲
                   </button>
@@ -188,7 +202,7 @@ export function GuestGroupsBlock({
                     disabled={pending || idx === groups.length - 1}
                     aria-label="Move down"
                     title="Lower priority — fills later"
-                    className="text-[10px] text-ink-tertiary hover:text-ink-primary disabled:opacity-30 px-0.5"
+                    className="min-h-[40px] min-w-[40px] sm:min-h-0 sm:min-w-0 flex items-center justify-center text-[10px] text-ink-tertiary hover:text-ink-primary disabled:opacity-30 px-0.5"
                   >
                     ▼
                   </button>
@@ -197,7 +211,7 @@ export function GuestGroupsBlock({
                   type="button"
                   onClick={() => setOpenGroupId(openGroupId === g.id ? null : g.id)}
                   className="text-sm font-medium text-ink-primary hover:text-moss-700 flex-1 min-w-0 truncate text-left flex items-center gap-2"
-                  title="Click to expand member list"
+                  title={`Click to expand member list (group:${g.slug})`}
                 >
                   <span aria-hidden>{openGroupId === g.id ? "▾" : "▸"}</span>
                   {g.colour && (
@@ -222,9 +236,6 @@ export function GuestGroupsBlock({
                 >
                   {SIDE_LABELS[g.side]}
                 </span>
-                <span className="text-[10px] uppercase tracking-wider text-ink-tertiary font-mono">
-                  group:{g.slug}
-                </span>
                 <span className="text-[10px] text-ink-tertiary tabular-nums w-20 text-right">
                   {g.members.length} {g.members.length === 1 ? "guest" : "guests"}
                 </span>
@@ -234,6 +245,7 @@ export function GuestGroupsBlock({
                 <Button
                   variant="ghost"
                   size="sm"
+                  aria-label={`Delete ${g.name}`}
                   onClick={() => onDelete(g.id, g.name, g.members.length)}
                   disabled={pending}
                 >

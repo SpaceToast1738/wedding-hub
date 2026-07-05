@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
+import { createPortal } from "react-dom";
 import type { FundSource, PerHeadSource } from "@prisma/client";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -222,17 +223,17 @@ export function BudgetClient({
   /** v1.86.0: WeddingSettings bride/groom names → fund chip labels. */
   fundLabelSource: { brideFirst: string; groomFirst: string };
 }) {
-  // v1.86.0: fund filter. "ALL" is the default (no filter); the four
-  // enum values + UNASSIGNED narrow the view. URL ?fund= wins on
-  // first render; otherwise localStorage; otherwise "ALL".
+  // v2.6.0 (design pass): fund filter used to also fall back to
+  // localStorage, so a filter someone set weeks ago would silently
+  // rescope every total for the next visitor with no warning. Now it
+  // lives ONLY in the URL — visible in the address bar, shareable via
+  // link, and reset to "ALL" on every fresh visit that doesn't carry
+  // a `?fund=` param.
   const [fundFilter, setFundFilter] = useState<FundKey | "ALL">("ALL");
   useEffect(() => {
     try {
-      // URL param wins first.
       const url = new URLSearchParams(window.location.search);
-      const fromUrl = url.get("fund");
-      const candidate = fromUrl
-        ?? window.localStorage.getItem("wh_budget_fund_filter");
+      const candidate = url.get("fund");
       if (
         candidate === "ALL" ||
         candidate === "JOINT" ||
@@ -250,9 +251,16 @@ export function BudgetClient({
   const handleFundFilter = (next: FundKey | "ALL") => {
     setFundFilter(next);
     try {
-      window.localStorage.setItem("wh_budget_fund_filter", next);
+      // history.replaceState (not router.push) — this is a client-side-
+      // only filter over data already on the page, so there's no need
+      // to round-trip the server. Keeps the URL shareable without a
+      // full navigation.
+      const url = new URL(window.location.href);
+      if (next === "ALL") url.searchParams.delete("fund");
+      else url.searchParams.set("fund", next);
+      window.history.replaceState(null, "", url.toString());
     } catch {
-      // best-effort persistence
+      // best-effort — URL sync isn't the critical path
     }
   };
   const fundLabels = resolveFundLabels(fundLabelSource);
@@ -347,6 +355,19 @@ export function BudgetClient({
         {fundFilter === "ALL" && (
           <ByFundStrip totals={perFundTotals} labels={fundLabels} onPick={handleFundFilter} />
         )}
+        {/* v2.6.0 (design pass): plain-language legend for the Planned/
+            Actual/Paid model, always visible (was hover-tooltip only —
+            unreachable on touch, forgotten between sessions). */}
+        <p className="text-[11px] text-ink-secondary leading-relaxed">
+          <strong className="text-ink-primary">Planned</strong> is the budget
+          target, <strong className="text-ink-primary">Actual</strong> is
+          what&apos;s committed (including unpaid amounts), and{" "}
+          <strong className="text-ink-primary">Paid</strong> is money
+          already sent. A small{" "}
+          <span className="text-[9px] font-bold">Σ</span> next to a figure
+          means it&apos;s totalled live from logged payments rather than
+          typed in by hand — tap it for a reminder.
+        </p>
         {categories.length === 0 ? (
           <p className="text-sm text-ink-tertiary text-center py-12">
             No budget categories yet. Add one below to get started.
@@ -504,6 +525,52 @@ function FundChipPicker({
   const effective: FundKey = fundSource ?? "UNASSIGNED";
   const display = formatFundChip(effective, fundLabel, labels);
 
+  // v2.6.0 (design pass finding 7): the popover used to be `absolute`
+  // inside an inline-block wrapper that lives inside the table's
+  // `overflow-x-auto` scroller — near the bottom of a long category it
+  // could get clipped or force an awkward scroll. Rendering it through
+  // a portal, positioned `fixed` from the trigger's own bounding rect,
+  // means it always draws on top of everything regardless of which
+  // scrolling ancestor the trigger sits in.
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const [coords, setCoords] = useState<{ top: number; left: number } | null>(null);
+
+  function openPanel() {
+    const rect = triggerRef.current?.getBoundingClientRect();
+    const PANEL_WIDTH = 224; // w-56
+    if (rect) {
+      setCoords({
+        top: rect.bottom + 4,
+        left: Math.min(Math.max(8, rect.right - PANEL_WIDTH), window.innerWidth - PANEL_WIDTH - 8),
+      });
+    }
+    setDraftSource(fundSource);
+    setDraftLabel(fundLabel ?? "");
+    setOpen(true);
+  }
+
+  // v2.6.0: outside-click + Escape dismissal — pre-fix the popover only
+  // closed via its own Cancel/Save buttons.
+  useEffect(() => {
+    if (!open) return;
+    function onDocClick(e: MouseEvent) {
+      const target = e.target as Node;
+      if (triggerRef.current?.contains(target)) return;
+      if (panelRef.current?.contains(target)) return;
+      setOpen(false);
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("mousedown", onDocClick);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDocClick);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
   function onCommit() {
     onSave({
       fundSource: draftSource,
@@ -513,16 +580,15 @@ function FundChipPicker({
   }
 
   return (
-    <div className="relative inline-block">
+    <div className="inline-block">
       <button
+        ref={triggerRef}
         type="button"
-        onClick={() => {
-          setDraftSource(fundSource);
-          setDraftLabel(fundLabel ?? "");
-          setOpen((v) => !v);
-        }}
+        onClick={() => (open ? setOpen(false) : openPanel())}
         disabled={disabled}
-        className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-sm border text-[10px] font-medium ${
+        // v2.6.0: min-h/w-[40px] on mobile — was px-1.5 py-0.5 (well
+        // under the touch-target floor used everywhere else).
+        className={`inline-flex items-center gap-1 px-2 py-2 sm:py-0.5 min-h-[40px] sm:min-h-0 rounded-sm border text-[10px] font-medium ${
           fundSource == null
             ? "bg-canvas text-ink-tertiary border-border-soft"
             : "bg-surface text-ink-secondary border-border-soft"
@@ -533,54 +599,52 @@ function FundChipPicker({
         <span>{display}</span>
         {inherited && <span className="italic text-ink-tertiary ml-0.5">(inh.)</span>}
       </button>
-      {open && (
-        <div className="absolute z-10 mt-1 right-0 bg-surface border border-border-soft rounded-md shadow-lg p-2 w-56 text-xs">
-          <div className="font-medium text-ink-primary mb-1">Set fund</div>
-          <div className="space-y-1">
-            {([
-              { val: null, label: "Inherit / Unassigned" },
-              { val: "JOINT" as FundSource, label: labels.JOINT },
-              { val: "PERSONAL_BRIDE" as FundSource, label: labels.PERSONAL_BRIDE },
-              { val: "PERSONAL_GROOM" as FundSource, label: labels.PERSONAL_GROOM },
-              { val: "OTHER" as FundSource, label: labels.OTHER },
-            ] as const).map((o) => (
-              <label key={o.label} className="flex items-center gap-1.5 cursor-pointer">
-                <input
-                  type="radio"
-                  name="fund"
-                  checked={draftSource === o.val}
-                  onChange={() => setDraftSource(o.val)}
-                />
-                <span>{o.label}</span>
-              </label>
-            ))}
-          </div>
-          {draftSource === "OTHER" && (
-            <Input
-              value={draftLabel}
-              onChange={(e) => setDraftLabel(e.target.value)}
-              placeholder="e.g. Bryony's parents"
-              className="mt-2 text-xs"
-            />
-          )}
-          <div className="flex gap-1 justify-end mt-2">
-            <button
-              type="button"
-              onClick={() => setOpen(false)}
-              className="text-ink-tertiary hover:text-ink-secondary px-2 py-0.5"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={onCommit}
-              className="px-2 py-0.5 rounded-sm bg-moss-500 text-white hover:bg-moss-600"
-            >
-              Save
-            </button>
-          </div>
-        </div>
-      )}
+      {open && coords && typeof document !== "undefined" &&
+        createPortal(
+          <div
+            ref={panelRef}
+            style={{ position: "fixed", top: coords.top, left: coords.left }}
+            className="z-50 bg-surface border border-border-soft rounded-md shadow-lg p-2 w-56 text-xs"
+          >
+            <div className="font-medium text-ink-primary mb-1">Set fund</div>
+            <div className="space-y-1">
+              {([
+                { val: null, label: "Inherit / Unassigned" },
+                { val: "JOINT" as FundSource, label: labels.JOINT },
+                { val: "PERSONAL_BRIDE" as FundSource, label: labels.PERSONAL_BRIDE },
+                { val: "PERSONAL_GROOM" as FundSource, label: labels.PERSONAL_GROOM },
+                { val: "OTHER" as FundSource, label: labels.OTHER },
+              ] as const).map((o) => (
+                <label key={o.label} className="flex items-center gap-1.5 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="fund"
+                    checked={draftSource === o.val}
+                    onChange={() => setDraftSource(o.val)}
+                  />
+                  <span>{o.label}</span>
+                </label>
+              ))}
+            </div>
+            {draftSource === "OTHER" && (
+              <Input
+                value={draftLabel}
+                onChange={(e) => setDraftLabel(e.target.value)}
+                placeholder="e.g. Bryony's parents"
+                className="mt-2 text-xs"
+              />
+            )}
+            <div className="flex gap-1 justify-end mt-2">
+              <Button type="button" variant="ghost" size="sm" onClick={() => setOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="button" variant="primary" size="sm" onClick={onCommit}>
+                Save
+              </Button>
+            </div>
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }
@@ -617,8 +681,12 @@ function SummaryBar({
   // v1.84.0: Outstanding tile gets its own tile renderer so the two-pill
   // mode toggle sits inside the label row. Keeps the Tile API simple for
   // the other three.
+  // v2.6.0 (design pass): pill copy + tile heading rewritten in plain
+  // language ("Left to pay" / "Left in budget") — the old "Actual" /
+  // "Planned" pills only made sense with the hover tooltip, which
+  // touch users never see.
   const OutstandingTile = () => {
-    const label = outstandingMode === "planned" ? "vs Planned" : "vs Actual";
+    const label = outstandingMode === "planned" ? "Left in budget" : "Left to pay";
     const pillClass = (active: boolean) =>
       `px-1.5 py-0.5 rounded text-[10px] font-medium tracking-normal transition-colors ${
         active
@@ -629,7 +697,7 @@ function SummaryBar({
       <div className="bg-surface border border-border-soft rounded-md px-4 py-3 flex-1 min-w-[140px]">
         <div className="flex items-center justify-between gap-2">
           <div className="text-[10px] font-bold text-ink-tertiary uppercase tracking-wider">
-            Outstanding · {label}
+            {label}
           </div>
           <div className="flex items-center gap-0.5" role="group" aria-label="Outstanding computation mode">
             <button
@@ -637,18 +705,18 @@ function SummaryBar({
               onClick={() => onOutstandingModeChange("actual")}
               className={pillClass(outstandingMode === "actual")}
               aria-pressed={outstandingMode === "actual"}
-              title="Actual − Paid: what's committed but not yet settled"
+              title="Money committed to suppliers that hasn't been paid yet"
             >
-              Actual
+              To pay
             </button>
             <button
               type="button"
               onClick={() => onOutstandingModeChange("planned")}
               className={pillClass(outstandingMode === "planned")}
               aria-pressed={outstandingMode === "planned"}
-              title="Planned − Paid: how much more to find against the budget"
+              title="How much of the whole budget is still unspent"
             >
-              Planned
+              In budget
             </button>
           </div>
         </div>
@@ -670,9 +738,33 @@ function SummaryBar({
   const paidPct = denominator === 0 ? 0 : (totals.paid / denominator) * 100;
   const actualPct = denominator === 0 ? 0 : (totals.actual / denominator) * 100;
   const overBudget = totals.actual > totals.estimated && totals.estimated > 0;
+  // v2.6.0 (design pass): headline verdict so "are we over budget?" has
+  // a 2-second answer instead of requiring the user to mentally
+  // subtract two tile numbers. Planned vs Actual (not vs Paid) — this
+  // answers "is what we've committed to more than we planned to
+  // spend", which is the number that matters before money even moves.
+  const planVsActualDelta = totals.estimated - totals.actual;
+  const isOverPlan = planVsActualDelta < 0;
 
   return (
     <div className="space-y-3">
+      {/* v2.6.0: headline delta. Hidden until there's a planned total to
+          compare against (an empty budget has nothing to be "under"). */}
+      {totals.estimated > 0 && (
+        <div className="flex items-baseline gap-2 flex-wrap">
+          <span
+            className={`font-display text-2xl sm:text-3xl font-semibold ${
+              isOverPlan ? "text-danger" : "text-moss-700"
+            }`}
+          >
+            {formatMoneyDecimal(Math.abs(planVsActualDelta) as unknown as { toString(): string })}{" "}
+            {isOverPlan ? "over plan" : "under plan"}
+          </span>
+          <span className="text-xs text-ink-tertiary">
+            (Planned vs Actual — Paid isn&apos;t part of this comparison)
+          </span>
+        </div>
+      )}
       {/* v1.86.0: tiny "Filtered" banner above the tiles when a fund
           filter is active. Clear-link returns to ALL. */}
       {activeFund !== "ALL" && (
@@ -762,6 +854,12 @@ function CategoryBlock({
   // header text for an inline <input>; Enter saves, Esc cancels.
   const [renaming, setRenaming] = useState(false);
   const [draftName, setDraftName] = useState(category.name);
+  // v2.6.0 (design pass): which line is being edited, lifted up to the
+  // category so the desktop table row AND the mobile card for the same
+  // line (two separate render trees, toggled by CSS breakpoint — see
+  // below) share one source of truth instead of desyncing if the
+  // viewport is resized mid-edit.
+  const [editingLineId, setEditingLineId] = useState<string | null>(null);
 
   async function onSaveRename() {
     const next = draftName.trim();
@@ -867,7 +965,10 @@ function CategoryBlock({
           <button
             type="button"
             onClick={() => setCollapsed((v) => !v)}
-            className="flex items-baseline gap-2 flex-1 text-left hover:text-moss-700"
+            // v2.6.0: flex-wrap so the subtotals (now always visible —
+            // see below) drop to a second line on narrow phones instead
+            // of getting squeezed or clipped.
+            className="flex items-baseline gap-2 flex-1 flex-wrap text-left hover:text-moss-700"
             aria-expanded={!collapsed}
           >
             <span className="text-ink-tertiary text-xs">{collapsed ? "▸" : "▾"}</span>
@@ -884,22 +985,26 @@ function CategoryBlock({
               </span>
             )}
             <span className="flex-1" />
-            <span className="text-xs text-ink-secondary tabular-nums hidden sm:inline">
+            {/* v2.6.0: was `hidden sm:inline` — phones lost the
+                category subtotal entirely. Now visible at every width. */}
+            <span className="text-xs text-ink-secondary tabular-nums">
               Planned {formatMoneyDecimal(subtotals.estimated as unknown as { toString(): string })}
             </span>
-            <span className="text-xs text-moss-700 tabular-nums font-medium hidden sm:inline">
+            <span className="text-xs text-moss-700 tabular-nums font-medium">
               Paid {formatMoneyDecimal(subtotals.paid as unknown as { toString(): string })}
             </span>
           </button>
         )}
         {!renaming && (
           <div className="flex gap-1 flex-shrink-0 items-center">
-            {/* v1.85.0: reorder buttons. Disabled at the ends of the list. */}
+            {/* v1.85.0: reorder buttons. Disabled at the ends of the list.
+                v2.6.0: min-h/w-[40px] on mobile — these were well under
+                the touch-target floor (text-xs px-1 py-0.5 ≈ 20px). */}
             <button
               type="button"
               onClick={() => onMove?.("up")}
               disabled={isFirst || pending || !onMove}
-              className="text-ink-tertiary hover:text-ink-primary disabled:opacity-30 disabled:cursor-not-allowed text-xs px-1 py-0.5"
+              className="text-ink-tertiary hover:text-ink-primary disabled:opacity-30 disabled:cursor-not-allowed text-xs px-1.5 py-0.5 min-h-[40px] min-w-[40px] sm:min-h-0 sm:min-w-0 inline-flex items-center justify-center"
               title="Move category up"
               aria-label={`Move ${category.name} up`}
             >
@@ -909,7 +1014,7 @@ function CategoryBlock({
               type="button"
               onClick={() => onMove?.("down")}
               disabled={isLast || pending || !onMove}
-              className="text-ink-tertiary hover:text-ink-primary disabled:opacity-30 disabled:cursor-not-allowed text-xs px-1 py-0.5"
+              className="text-ink-tertiary hover:text-ink-primary disabled:opacity-30 disabled:cursor-not-allowed text-xs px-1.5 py-0.5 min-h-[40px] min-w-[40px] sm:min-h-0 sm:min-w-0 inline-flex items-center justify-center"
               title="Move category down"
               aria-label={`Move ${category.name} down`}
             >
@@ -923,7 +1028,7 @@ function CategoryBlock({
                 setRenaming(true);
               }}
               disabled={pending}
-              className="text-ink-tertiary hover:text-ink-primary text-xs px-1 py-0.5"
+              className="text-ink-tertiary hover:text-ink-primary text-xs px-1.5 py-0.5 min-h-[40px] min-w-[40px] sm:min-h-0 sm:min-w-0 inline-flex items-center justify-center"
               title="Rename category"
               aria-label={`Rename ${category.name}`}
             >
@@ -942,10 +1047,20 @@ function CategoryBlock({
         )}
       </div>
       {!collapsed && (
-      <div className="overflow-x-auto">
+      <>
+      {/* v2.6.0 (design pass): desktop/tablet table, hidden below sm.
+          Pre-fix this was the ONLY layout at every width, so phones got
+          a horizontally-scrolling table that pushed Edit/Delete and the
+          Paid column off-screen. See the sm:hidden card list below for
+          the mobile replacement. */}
+      <div className="hidden sm:block overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-border-soft text-[10px] font-bold text-ink-tertiary uppercase tracking-wider bg-canvas">
+            {/* v2.6.0: header text promoted from ink-tertiary to
+                ink-secondary — column headers are informational, not
+                decorative, and ink-tertiary was too low-contrast for
+                that job. Size stays small. */}
+            <tr className="border-b border-border-soft text-[10px] font-bold text-ink-secondary uppercase tracking-wider bg-canvas">
               <th className="px-4 py-2 text-left">Item</th>
               <th className="px-4 py-2 text-right w-28">Planned</th>
               <th className="px-4 py-2 text-right w-28">Actual</th>
@@ -956,7 +1071,19 @@ function CategoryBlock({
           </thead>
           <tbody>
             {category.lines.map((l) => (
-              <LineRow key={l.id} line={l} categoryId={category.id} suppliers={suppliers} buildCard={buildCardByLineId[l.id]} headcounts={headcounts} fundFilter={fundFilter} fundLabels={fundLabels} />
+              <LineRow
+                key={l.id}
+                layout="table"
+                line={l}
+                categoryId={category.id}
+                suppliers={suppliers}
+                buildCard={buildCardByLineId[l.id]}
+                headcounts={headcounts}
+                fundFilter={fundFilter}
+                fundLabels={fundLabels}
+                editing={editingLineId === l.id}
+                onEditToggle={(v) => setEditingLineId(v ? l.id : null)}
+              />
             ))}
             {category.lines.length === 0 && !adding && (
               <tr>
@@ -966,6 +1093,30 @@ function CategoryBlock({
           </tbody>
         </table>
       </div>
+      {/* v2.6.0: mobile stacked-card list. Each line renders as a self-
+          contained card (description/amount, actual/paid, supplier +
+          fund, full-width Edit) instead of the table's cramped cells. */}
+      <div className="sm:hidden divide-y divide-border-soft">
+        {category.lines.map((l) => (
+          <LineRow
+            key={l.id}
+            layout="card"
+            line={l}
+            categoryId={category.id}
+            suppliers={suppliers}
+            buildCard={buildCardByLineId[l.id]}
+            headcounts={headcounts}
+            fundFilter={fundFilter}
+            fundLabels={fundLabels}
+            editing={editingLineId === l.id}
+            onEditToggle={(v) => setEditingLineId(v ? l.id : null)}
+          />
+        ))}
+        {category.lines.length === 0 && !adding && (
+          <p className="px-4 py-3 text-xs text-ink-tertiary italic text-center">No lines yet.</p>
+        )}
+      </div>
+      </>
       )}
       {adding && (
         <div className="border-t border-border-soft p-3">
@@ -988,6 +1139,9 @@ function LineRow({
   headcounts,
   fundFilter,
   fundLabels,
+  layout,
+  editing,
+  onEditToggle,
 }: {
   line: Line;
   categoryId: string;
@@ -997,11 +1151,20 @@ function LineRow({
   // v1.86.0
   fundFilter: BudgetFundFilter;
   fundLabels: FundLabels;
+  // v2.6.0 (design pass): CategoryBlock mounts this component TWICE per
+  // line — once in the desktop <table> (layout="table", hidden below
+  // sm) and once in the sm:hidden mobile card list (layout="card").
+  // `editing` is lifted to the shared CategoryBlock parent so toggling
+  // Edit on one copy doesn't desync from the other if the viewport
+  // changes mid-edit.
+  layout: "table" | "card";
+  editing: boolean;
+  onEditToggle: (next: boolean) => void;
 }) {
-  const [editing, setEditing] = useState(false);
   const [pending, startTransition] = useTransition();
   const supplierName = line.supplierId ? suppliers.find((s) => s.id === line.supplierId)?.name : null;
   const confirm = useConfirm();
+  const hasComponents = line.components.length > 0;
 
   async function onDelete() {
     if (!(await confirm({ title: `Delete "${line.description}"?`, confirmLabel: "Delete", tone: "danger" }))) return;
@@ -1013,46 +1176,62 @@ function LineRow({
   }
 
   if (editing) {
+    const form = (
+      <>
+        <NewLineForm
+          categoryId={categoryId}
+          suppliers={suppliers}
+          initial={{
+            description: line.description,
+            estimated: line.estimated ? line.estimated.toString() : "",
+            actual: line.actual ? line.actual.toString() : "",
+            paid: line.paid ? line.paid.toString() : "",
+            supplierId: line.supplierId,
+            notes: line.notes ?? "",
+            perHeadPence: line.perHeadPence,
+            headcountSource: line.headcountSource,
+            manualHeadcount: line.manualHeadcount,
+          }}
+          paymentsSum={sumOfPayments(line)}
+          paymentsCount={line.payments.length}
+          onDone={() => onEditToggle(false)}
+          existingId={line.id}
+          submitLabel="Save"
+          headcounts={headcounts}
+          // v2.6.0 (design pass finding 10): composite lines ignore the
+          // flat Planned input entirely — the effective total is always
+          // the sum of components. Pre-fix, typing into Planned here
+          // saved silently and changed nothing visible. NewLineForm
+          // swaps the input for a read-only note when this is set.
+          hasComponents={hasComponents}
+          componentsTotal={hasComponents ? effectiveEstimated(line, headcounts) : undefined}
+        />
+        {/* v1.80.0: composite breakdown editor — live, separate
+            from the line form. Components can be added / deleted
+            without dirtying the line save. */}
+        <ComponentsPanel
+          lineId={line.id}
+          components={line.components}
+          headcounts={headcounts}
+        />
+      </>
+    );
+    if (layout === "card") {
+      return <div className="p-3 bg-moss-50/30">{form}</div>;
+    }
     return (
       <tr className="border-b border-border-soft last:border-b-0">
         <td colSpan={6} className="p-3 bg-moss-50/30">
-          <NewLineForm
-            categoryId={categoryId}
-            suppliers={suppliers}
-            initial={{
-              description: line.description,
-              estimated: line.estimated ? line.estimated.toString() : "",
-              actual: line.actual ? line.actual.toString() : "",
-              paid: line.paid ? line.paid.toString() : "",
-              supplierId: line.supplierId,
-              notes: line.notes ?? "",
-              perHeadPence: line.perHeadPence,
-              headcountSource: line.headcountSource,
-              manualHeadcount: line.manualHeadcount,
-            }}
-            paymentsSum={sumOfPayments(line)}
-            paymentsCount={line.payments.length}
-            onDone={() => setEditing(false)}
-            existingId={line.id}
-            submitLabel="Save"
-            headcounts={headcounts}
-          />
-          {/* v1.80.0: composite breakdown editor — live, separate
-              from the line form. Components can be added / deleted
-              without dirtying the line save. */}
-          <ComponentsPanel
-            lineId={line.id}
-            components={line.components}
-            headcounts={headcounts}
-          />
+          {form}
         </td>
       </tr>
     );
   }
 
   // B2: actual is the manual override if set, otherwise sum of payments.
-  // The "Σ" pill marks computed totals so the user can tell at a glance
-  // which lines are pinned vs. derived.
+  // The "Σ" indicator marks computed totals so the user can tell at a
+  // glance which lines are pinned vs. derived (tap it — see SigmaNote —
+  // for a plain-language reminder of what that means).
   // v1.86.0: actual/paid/estimated use the active fund filter so the
   // row's visible numbers match the filtered SummaryBar totals.
   const actualResolved = lineActual(line, fundFilter);
@@ -1068,64 +1247,227 @@ function LineRow({
   // v1.86.0: line's own paid total (re-used in the Paid cell + Σ pill).
   const linePaidResolved = linePaid(line, fundFilter);
 
+  // v2.6.0: shared between the table row and the mobile card so the two
+  // layouts don't drift apart — only the surrounding structure differs.
+  const descriptionBlock = (
+    <>
+      <div className="text-sm text-ink-primary flex items-baseline gap-2 flex-wrap">
+        <span>{line.description}</span>
+        {/* v1.57.0 (XL5): chip linking back to the source BUILD
+            card when this line was created via "Copy materials to
+            Budget" (v1.31.0). */}
+        {buildCard && (
+          <a
+            href={`/book/${buildCard.sectionSlug}#${buildCard.subsectionSlug}`}
+            className="text-[10px] text-info bg-[color:#eef4f5] dark:bg-muted border border-[color:#d0e4e8] dark:border-border-soft px-1 rounded hover:underline"
+            title={`Linked from DIY card: ${buildCard.title}`}
+          >
+            ↗ DIY · {buildCard.title}
+          </a>
+        )}
+        {overBudget && (
+          <span
+            className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded-sm border bg-danger-bg text-danger border-danger-border"
+            title={`Actual exceeds planned by £${(actualResolved - estimatedResolved).toFixed(2)}`}
+          >
+            ⚠ Over
+          </span>
+        )}
+      </div>
+      {line.notes && <div className="text-xs text-ink-tertiary line-clamp-1">{line.notes}</div>}
+      {/* v2.6.0 (design pass finding 8): per-head math is real,
+          load-bearing information (it explains where the Planned
+          total came from) — promoted from text-[11px]/ink-tertiary to
+          text-xs/ink-secondary so it's not mistaken for decoration. */}
+      {isPerHead && line.perHeadPence != null && (
+        <div className="text-xs text-ink-secondary mt-0.5">
+          £{(line.perHeadPence / 100).toFixed(2)} ×{" "}
+          <span className={minimumKickedIn ? "text-marigold-700 font-semibold" : undefined}>
+            {effectiveCount}
+          </span>{" "}
+          {minimumKickedIn ? (
+            <>(min, actual {rawCount})</>
+          ) : (
+            <>
+              {perHeadSourceNoun(line.headcountSource!, effectiveCount)}
+              {line.headcountSource !== "MANUAL" && (
+                <> ({perHeadSourceLabel(line.headcountSource!)})</>
+              )}
+            </>
+          )}
+          {" = "}
+          <span className="text-ink-secondary tabular-nums">
+            £{estimatedResolved.toFixed(2)}
+          </span>
+        </div>
+      )}
+      {/* v2.6.0 (design pass finding 10): discoverable entry point for
+          splitting a line into components. Pre-fix, the only way to
+          find the components panel was to open Edit and notice it —
+          now the row itself says so. */}
+      {hasComponents ? (
+        <div className="text-xs text-ink-tertiary mt-0.5">
+          🧩 {line.components.length} component{line.components.length === 1 ? "" : "s"}
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => onEditToggle(true)}
+          className="text-xs text-info hover:underline mt-0.5"
+        >
+          + Split into components
+        </button>
+      )}
+    </>
+  );
+
+  const fundChip = (
+    <FundChipPicker
+      fundSource={line.fundSource}
+      fundLabel={line.fundLabel}
+      labels={fundLabels}
+      inherited={false}
+      disabled={pending}
+      onSave={({ fundSource, fundLabel }) => {
+        startTransition(async () => {
+          const res = await setLineFund(line.id, { fundSource, fundLabel });
+          if (!res.ok) notify("error", res.error);
+        });
+      }}
+    />
+  );
+
+  // v1.80.0: composite breakdown, pre-computed once so both layouts can
+  // render it without duplicating the per-component math.
+  const componentRows = hasComponents
+    ? line.components.map((c) => ({
+        c,
+        compEst: componentEffectiveEstimated(c, headcounts, fundFilter, line),
+        compActual: componentActual(c, line, fundFilter),
+        compPaid: componentPaid(c, line, fundFilter),
+        ...(() => {
+          const { resolved, effective } = resolveComponentCount(c, headcounts);
+          return {
+            rawC: resolved,
+            effC: effective,
+            minKick: c.perHeadPence != null && c.headcountSource != null && effective > resolved,
+          };
+        })(),
+        compEffective: effectiveFundForComponent(c, line),
+      }))
+    : [];
+
+  if (layout === "card") {
+    // v2.6.0 (design pass finding 2): mobile stacked card. Pre-fix,
+    // phones only got the horizontally-scrolling table, which pushed
+    // Edit and the Paid column off-screen.
+    return (
+      <div className="p-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">{descriptionBlock}</div>
+          <div className="text-right shrink-0">
+            <div className="text-sm font-semibold text-ink-primary tabular-nums">
+              {hasComponents ? (
+                <>
+                  £{estimatedResolved.toFixed(2)}
+                  <SigmaNote />
+                </>
+              ) : isPerHead ? (
+                `£${estimatedResolved.toFixed(2)}`
+              ) : (
+                formatMoneyDecimal(line.estimated)
+              )}
+            </div>
+            <div className="text-[10px] text-ink-tertiary uppercase tracking-wider">Planned</div>
+          </div>
+        </div>
+        <div className="flex items-center justify-between gap-3 mt-2 text-xs">
+          <span className="text-ink-secondary tabular-nums">
+            Actual {formatMoneyDecimal(actualResolved as unknown as { toString(): string })}
+            {!isManual && line.payments.length > 0 && <SigmaNote />}
+          </span>
+          <span className="text-moss-700 font-medium tabular-nums">
+            Paid {formatMoneyDecimal(linePaidResolved as unknown as { toString(): string })}
+            {line.paid == null && linePaidResolved > 0 && <SigmaNote />}
+          </span>
+        </div>
+        {supplierName && <div className="text-xs text-ink-tertiary mt-1 truncate">{supplierName}</div>}
+        <div className="flex items-center gap-2 mt-2">
+          {fundChip}
+          <div className="flex-1" />
+          <Button variant="ghost" size="sm" onClick={onDelete} disabled={pending}>Delete</Button>
+        </div>
+        {/* v2.6.0: full-width Edit — the primary action shouldn't
+            require a precise tap on a small ghost button. */}
+        <Button variant="secondary" size="sm" className="w-full mt-2" onClick={() => onEditToggle(true)} disabled={pending}>
+          Edit
+        </Button>
+        {componentRows.length > 0 && (
+          <div className="mt-2 pl-3 border-l-2 border-border-soft space-y-2">
+            {componentRows.map(({ c, compEst, compActual, compPaid, rawC, effC, minKick, compEffective }) => (
+              <div key={c.id} className="text-xs">
+                <div className="flex items-baseline justify-between gap-2">
+                  <span className="text-ink-secondary truncate">{c.label}</span>
+                  <span className="text-ink-secondary tabular-nums shrink-0">£{compEst.toFixed(2)}</span>
+                </div>
+                {c.perHeadPence != null && c.headcountSource && (
+                  <div className="text-[11px] text-ink-tertiary">
+                    £{(c.perHeadPence / 100).toFixed(2)} ×{" "}
+                    <span className={minKick ? "text-marigold-700 font-semibold" : undefined}>{effC}</span>
+                    {minKick && <> (min, actual {rawC})</>}
+                  </div>
+                )}
+                <div className="flex items-center justify-between gap-2 mt-1">
+                  <span className="text-ink-tertiary">
+                    {compActual > 0 ? (
+                      <>
+                        Actual £{compActual.toFixed(2)}
+                        <SigmaNote />
+                      </>
+                    ) : (
+                      "—"
+                    )}
+                  </span>
+                  <span className="text-moss-700">
+                    {compPaid > 0 && (
+                      <>
+                        Paid £{compPaid.toFixed(2)}
+                        <SigmaNote />
+                      </>
+                    )}
+                  </span>
+                  <FundChipPicker
+                    fundSource={c.fundSource}
+                    fundLabel={compEffective.label}
+                    labels={fundLabels}
+                    inherited={compEffective.inherited}
+                    onSave={({ fundSource, fundLabel }) => {
+                      void setComponentFund(c.id, { fundSource, fundLabel }).then((res) => {
+                        if (!res.ok) notify("error", res.error);
+                      });
+                    }}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // layout === "table" — desktop/tablet row, hidden below sm.
   return (
     <>
     <tr className="border-b border-border-soft last:border-b-0 hover:bg-muted/30">
-      <td className="px-4 py-2">
-        <div className="text-sm text-ink-primary flex items-baseline gap-2 flex-wrap">
-          <span>{line.description}</span>
-          {/* v1.57.0 (XL5): chip linking back to the source BUILD
-              card when this line was created via "Copy materials to
-              Budget" (v1.31.0). */}
-          {buildCard && (
-            <a
-              href={`/book/${buildCard.sectionSlug}#${buildCard.subsectionSlug}`}
-              className="text-[10px] text-info bg-[color:#eef4f5] dark:bg-muted border border-[color:#d0e4e8] dark:border-border-soft px-1 rounded hover:underline"
-              title={`Linked from DIY card: ${buildCard.title}`}
-            >
-              ↗ DIY · {buildCard.title}
-            </a>
-          )}
-          {overBudget && (
-            <span
-              className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded-sm border bg-danger-bg text-danger border-danger-border"
-              title={`Actual exceeds planned by £${(actualResolved - estimatedResolved).toFixed(2)}`}
-            >
-              ⚠ Over
-            </span>
-          )}
-        </div>
-        {line.notes && <div className="text-xs text-ink-tertiary line-clamp-1">{line.notes}</div>}
-        {isPerHead && line.perHeadPence != null && (
-          <div className="text-[11px] text-ink-tertiary mt-0.5">
-            £{(line.perHeadPence / 100).toFixed(2)} ×{" "}
-            <span className={minimumKickedIn ? "text-marigold-700 font-semibold" : undefined}>
-              {effectiveCount}
-            </span>{" "}
-            {minimumKickedIn ? (
-              <>(min, actual {rawCount})</>
-            ) : (
-              <>
-                {perHeadSourceNoun(line.headcountSource!, effectiveCount)}
-                {line.headcountSource !== "MANUAL" && (
-                  <> ({perHeadSourceLabel(line.headcountSource!)})</>
-                )}
-              </>
-            )}
-            {" = "}
-            <span className="text-ink-secondary tabular-nums">
-              £{estimatedResolved.toFixed(2)}
-            </span>
-          </div>
-        )}
-      </td>
+      <td className="px-4 py-2">{descriptionBlock}</td>
       <td className="px-4 py-2 text-right text-sm text-ink-secondary tabular-nums">
         {/* v1.83.0: composite lines surface the component-sum here.
-            Σ pill marks it as a rollup (same convention as Actual). */}
+            Σ marks it as a rollup (same convention as Actual). */}
         {line.components.length > 0 ? (
           <>
             £{estimatedResolved.toFixed(2)}
-            <span className="ml-1 text-[9px] text-ink-tertiary font-bold">Σ</span>
+            <SigmaNote />
           </>
         ) : isPerHead ? (
           `£${estimatedResolved.toFixed(2)}`
@@ -1138,38 +1480,21 @@ function LineRow({
           ? `Manual override. Sum of ${line.payments.length} payment${line.payments.length === 1 ? "" : "s"}: ${formatMoneyDecimal(paymentsSum as unknown as { toString(): string })}`
           : `Computed from ${line.payments.length} payment${line.payments.length === 1 ? "" : "s"}. Edit and set "Actual" to pin a manual override.`}>
           {formatMoneyDecimal(actualResolved as unknown as { toString(): string })}
-          {!isManual && line.payments.length > 0 && (
-            <span className="ml-1 text-[9px] text-ink-tertiary font-bold">Σ</span>
-          )}
         </span>
+        {!isManual && line.payments.length > 0 && <SigmaNote />}
       </td>
       <td className="px-4 py-2 text-right text-sm text-moss-700 tabular-nums font-medium">
         {formatMoneyDecimal(linePaidResolved as unknown as { toString(): string })}
         {/* v1.82.0: when paid is computed (not a manual override) AND
-            any linked payments are PAID, show the Σ pill so the user
-            knows it's a rollup. Mirrors the Actual column treatment. */}
-        {line.paid == null && linePaidResolved > 0 && (
-          <span className="ml-1 text-[9px] text-ink-tertiary font-bold">Σ</span>
-        )}
+            any linked payments are PAID, show Σ so the user knows it's
+            a rollup. Mirrors the Actual column treatment. */}
+        {line.paid == null && linePaidResolved > 0 && <SigmaNote />}
       </td>
       <td className="px-4 py-2 text-xs text-ink-tertiary truncate">{supplierName ?? "—"}</td>
       <td className="px-4 py-2">
         <div className="flex gap-1 justify-end items-center">
-          {/* v1.86.0: per-line fund chip. */}
-          <FundChipPicker
-            fundSource={line.fundSource}
-            fundLabel={line.fundLabel}
-            labels={fundLabels}
-            inherited={false}
-            disabled={pending}
-            onSave={({ fundSource, fundLabel }) => {
-              startTransition(async () => {
-                const res = await setLineFund(line.id, { fundSource, fundLabel });
-                if (!res.ok) notify("error", res.error);
-              });
-            }}
-          />
-          <Button variant="ghost" size="sm" onClick={() => setEditing(true)} disabled={pending}>Edit</Button>
+          {fundChip}
+          <Button variant="ghost" size="sm" onClick={() => onEditToggle(true)} disabled={pending}>Edit</Button>
           <Button variant="ghost" size="sm" onClick={onDelete} disabled={pending}>×</Button>
         </div>
       </td>
@@ -1180,95 +1505,138 @@ function LineRow({
           per-head); component-level actual sums its linked
           payments. No over-budget chip at the component level — the
           line aggregates that already. */}
-      {line.components.length > 0 &&
-        line.components.map((c) => {
-          // v1.86.0: filter all per-component numbers by the active fund.
-          const compEst = componentEffectiveEstimated(c, headcounts, fundFilter, line);
-          const compActual = componentActual(c, line, fundFilter);
-          const compPaid = componentPaid(c, line, fundFilter);
-          const { resolved: rawC, effective: effC } = resolveComponentCount(c, headcounts);
-          const minKick = c.perHeadPence != null && c.headcountSource != null && effC > rawC;
-          // v1.86.0: resolve the component's effective fund chip via
-          // inheritance.
-          const compEffective = effectiveFundForComponent(c, line);
-          return (
-            <tr key={c.id} className="border-b border-border-soft/50 last:border-b-0 bg-canvas/40">
-              <td className="px-4 py-1.5 pl-10">
-                {/* v1.88.0: fund chip moved out of the label cell to
-                    the action column (last cell) so the label has
-                    room and the chip lines up with the parent line's
-                    chip column. The breakdown chip (per-head £ × N)
-                    now wraps under the label as a clean second line. */}
-                <div className="text-[12px] text-ink-secondary flex items-baseline gap-1">
-                  <span className="text-ink-tertiary">└ </span>
-                  <span>{c.label}</span>
-                </div>
-                {c.perHeadPence != null && c.headcountSource && (
-                  <div className="text-[10px] text-ink-tertiary pl-3.5">
-                    £{(c.perHeadPence / 100).toFixed(2)} ×{" "}
-                    <span className={minKick ? "text-marigold-700 font-semibold" : undefined}>
-                      {effC}
-                    </span>{" "}
-                    {minKick ? (
-                      <>(min, actual {rawC})</>
-                    ) : (
-                      <>
-                        {perHeadSourceNoun(c.headcountSource, effC)}
-                        {c.headcountSource !== "MANUAL" && (
-                          <> ({perHeadSourceLabel(c.headcountSource)})</>
-                        )}
-                      </>
+      {componentRows.map(({ c, compEst, compActual, compPaid, rawC, effC, minKick, compEffective }) => (
+        <tr key={c.id} className="border-b border-border-soft/50 last:border-b-0 bg-canvas/40">
+          <td className="px-4 py-1.5 pl-10">
+            {/* v1.88.0: fund chip moved out of the label cell to
+                the action column (last cell) so the label has
+                room and the chip lines up with the parent line's
+                chip column. The breakdown chip (per-head £ × N)
+                now wraps under the label as a clean second line. */}
+            <div className="text-sm text-ink-secondary flex items-baseline gap-1">
+              <span className="text-ink-tertiary">└ </span>
+              <span>{c.label}</span>
+            </div>
+            {/* v2.6.0 (design pass finding 8): component amounts are
+                real information (they're the breakdown of the line's
+                total), not decoration — promoted from text-[10px]/
+                text-[12px] tertiary to a readable size + ink-secondary. */}
+            {c.perHeadPence != null && c.headcountSource && (
+              <div className="text-xs text-ink-secondary pl-3.5">
+                £{(c.perHeadPence / 100).toFixed(2)} ×{" "}
+                <span className={minKick ? "text-marigold-700 font-semibold" : undefined}>
+                  {effC}
+                </span>{" "}
+                {minKick ? (
+                  <>(min, actual {rawC})</>
+                ) : (
+                  <>
+                    {perHeadSourceNoun(c.headcountSource, effC)}
+                    {c.headcountSource !== "MANUAL" && (
+                      <> ({perHeadSourceLabel(c.headcountSource)})</>
                     )}
-                  </div>
-                )}
-              </td>
-              <td className="px-4 py-1.5 text-right text-[12px] text-ink-tertiary tabular-nums">
-                £{compEst.toFixed(2)}
-              </td>
-              <td className="px-4 py-1.5 text-right text-[12px] text-ink-tertiary tabular-nums">
-                {compActual > 0 ? (
-                  <>
-                    £{compActual.toFixed(2)}
-                    <span className="ml-1 text-[9px] text-ink-tertiary font-bold">Σ</span>
                   </>
-                ) : (
-                  "—"
                 )}
-              </td>
-              <td className="px-4 py-1.5 text-right text-[12px] text-moss-700 tabular-nums font-medium">
-                {compPaid > 0 ? (
-                  <>
-                    £{compPaid.toFixed(2)}
-                    <span className="ml-1 text-[9px] text-ink-tertiary font-bold">Σ</span>
-                  </>
-                ) : (
-                  "—"
-                )}
-              </td>
-              <td className="px-4 py-1.5"></td>
-              <td className="px-4 py-1.5">
-                {/* v1.88.0: component fund chip lives here, aligned
-                    with the parent line's chip column. */}
-                <div className="flex justify-end">
-                  <FundChipPicker
-                    fundSource={c.fundSource}
-                    fundLabel={compEffective.label}
-                    labels={fundLabels}
-                    inherited={compEffective.inherited}
-                    onSave={({ fundSource, fundLabel }) => {
-                      void setComponentFund(c.id, { fundSource, fundLabel }).then(
-                        (res) => {
-                          if (!res.ok) notify("error", res.error);
-                        },
-                      );
-                    }}
-                  />
-                </div>
-              </td>
-            </tr>
-          );
-        })}
+              </div>
+            )}
+          </td>
+          <td className="px-4 py-1.5 text-right text-sm text-ink-secondary tabular-nums">
+            £{compEst.toFixed(2)}
+          </td>
+          <td className="px-4 py-1.5 text-right text-sm text-ink-secondary tabular-nums">
+            {compActual > 0 ? (
+              <>
+                £{compActual.toFixed(2)}
+                <SigmaNote />
+              </>
+            ) : (
+              "—"
+            )}
+          </td>
+          <td className="px-4 py-1.5 text-right text-sm text-moss-700 tabular-nums font-medium">
+            {compPaid > 0 ? (
+              <>
+                £{compPaid.toFixed(2)}
+                <SigmaNote />
+              </>
+            ) : (
+              "—"
+            )}
+          </td>
+          <td className="px-4 py-1.5"></td>
+          <td className="px-4 py-1.5">
+            {/* v1.88.0: component fund chip lives here, aligned
+                with the parent line's chip column. */}
+            <div className="flex justify-end">
+              <FundChipPicker
+                fundSource={c.fundSource}
+                fundLabel={compEffective.label}
+                labels={fundLabels}
+                inherited={compEffective.inherited}
+                onSave={({ fundSource, fundLabel }) => {
+                  void setComponentFund(c.id, { fundSource, fundLabel }).then(
+                    (res) => {
+                      if (!res.ok) notify("error", res.error);
+                    },
+                  );
+                }}
+              />
+            </div>
+          </td>
+        </tr>
+      ))}
     </>
+  );
+}
+
+// v2.6.0 (design pass finding 6): the Σ mark's meaning ("this figure is
+// totalled live from logged payments, not a typed-in value") used to
+// live only in a hover title — unreachable on touch and forgotten
+// between sessions. Now it's a small tappable button that reveals the
+// same explanation as the always-visible legend above the categories,
+// dismissed by outside click / Escape / tapping it again.
+function SigmaNote() {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    function onDocClick(e: MouseEvent) {
+      if (ref.current?.contains(e.target as Node)) return;
+      setOpen(false);
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("mousedown", onDocClick);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDocClick);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+  return (
+    <span ref={ref} className="relative inline-block">
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen((v) => !v);
+        }}
+        className="ml-1 text-[9px] text-ink-tertiary font-bold px-1 hover:text-ink-secondary"
+        aria-label="What does the Σ mean?"
+        aria-expanded={open}
+      >
+        Σ
+      </button>
+      {open && (
+        <span
+          role="tooltip"
+          className="absolute z-20 left-1/2 -translate-x-1/2 top-full mt-1 w-52 bg-surface border border-border-soft rounded-md shadow-lg p-2 text-[11px] text-ink-secondary normal-case font-normal tracking-normal not-italic"
+        >
+          This figure is totalled live from logged payments, not typed in by hand.
+        </span>
+      )}
+    </span>
   );
 }
 
@@ -1352,16 +1720,19 @@ function ComponentsPanel({
             const minKick =
               c.perHeadPence != null && c.headcountSource != null && effective > resolved;
             return (
-              <li key={c.id} className="flex items-center gap-2 text-[12px]">
+              // v2.6.0 (design pass finding 8): component amounts are
+              // real info, not decoration — promoted from text-[12px]/
+              // ink-tertiary to text-sm/ink-secondary.
+              <li key={c.id} className="flex items-center gap-2 text-sm">
                 <span className="flex-1 text-ink-primary">
                   {c.label}
                   {c.notes && (
-                    <span className="ml-1 text-[10px] text-ink-tertiary italic" title={c.notes}>
+                    <span className="ml-1 text-xs text-ink-tertiary italic" title={c.notes}>
                       📝
                     </span>
                   )}
                 </span>
-                <span className="text-ink-tertiary tabular-nums">
+                <span className="text-ink-secondary tabular-nums">
                   {c.perHeadPence != null && c.headcountSource ? (
                     <>
                       £{(c.perHeadPence / 100).toFixed(2)} ×{" "}
@@ -1377,24 +1748,31 @@ function ComponentsPanel({
                     <>£{est.toFixed(2)}</>
                   )}
                 </span>
-                <button
+                {/* v2.6.0 (design pass finding 7): shared Button primitive
+                    instead of a raw <button> — bakes in the 40px mobile
+                    touch floor these were well under before. */}
+                <Button
                   type="button"
+                  variant="ghost"
+                  size="sm"
                   onClick={() => setEditingId(c.id)}
                   disabled={pending}
-                  className="text-[11px] text-ink-tertiary hover:text-moss-700 px-1"
                   title="Edit component"
+                  aria-label={`Edit component ${c.label}`}
                 >
                   Edit
-                </button>
-                <button
+                </Button>
+                <Button
                   type="button"
+                  variant="ghost"
+                  size="sm"
                   onClick={() => onDelete(c)}
                   disabled={pending}
-                  className="text-ink-tertiary hover:text-danger px-1"
                   title="Delete component"
+                  aria-label={`Delete component ${c.label}`}
                 >
                   ×
-                </button>
+                </Button>
               </li>
             );
           })}
@@ -1639,6 +2017,8 @@ function NewLineForm({
   paymentsSum,
   paymentsCount,
   headcounts,
+  hasComponents,
+  componentsTotal,
 }: {
   categoryId: string;
   suppliers: Supplier[];
@@ -1668,6 +2048,14 @@ function NewLineForm({
    *  the create-form path doesn't have it yet (would need page
    *  threading); the edit-form path does. */
   headcounts?: HeadcountMap;
+  /** v2.6.0 (design pass finding 10): when the line has one or more
+   *  components, its effective Planned is always the sum of those
+   *  components — the flat/per-head fields below are dead weight that
+   *  used to render (and silently accept input) anyway. When set, the
+   *  Planned cell + the whole variable-cost toggle are replaced with a
+   *  read-only note showing `componentsTotal`. */
+  hasComponents?: boolean;
+  componentsTotal?: number;
 }) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -1744,7 +2132,20 @@ function NewLineForm({
     <form action={handle} className="space-y-2">
       <div className="grid grid-cols-1 md:grid-cols-6 gap-2">
         <Input name="description" defaultValue={initial?.description ?? ""} required placeholder="Item description" className="md:col-span-2" />
-        {variableMode ? (
+        {hasComponents ? (
+          // v2.6.0 (design pass finding 10): read-only note replaces the
+          // flat Planned input — pre-fix, typing here saved silently
+          // and the visible total never moved (components always win).
+          <div>
+            <div
+              className="text-sm text-ink-secondary italic px-2.5 py-1.5 bg-canvas border border-dashed border-border-soft rounded-sm tabular-nums truncate"
+              title="Planned is the sum of this line's components — edit them below to change it."
+            >
+              Σ £{(componentsTotal ?? 0).toFixed(2)}
+            </div>
+            <input type="hidden" name="estimated" value="" />
+          </div>
+        ) : variableMode ? (
           // v1.77.0: hide the flat estimated input but pass null
           // through so the server clears it when switching modes.
           <input type="hidden" name="estimated" value="" />
@@ -1760,18 +2161,24 @@ function NewLineForm({
           {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
         </select>
       </div>
-      {/* v1.77.0: variable / per-head pricing toggle. */}
-      <div className="flex items-center gap-2">
-        <label className="inline-flex items-center gap-1.5 text-[11px] text-ink-secondary">
-          <input
-            type="checkbox"
-            checked={variableMode}
-            onChange={(e) => setVariableMode(e.target.checked)}
-          />
-          Variable cost (£ × headcount)
-        </label>
-      </div>
-      {variableMode && (
+      {/* v1.77.0: variable / per-head pricing toggle.
+          v2.6.0 (design pass finding 10): hidden entirely when the line
+          has components — per-head config on the line itself is moot
+          once components exist (they always win), so showing the
+          toggle would just invite confusion. */}
+      {!hasComponents && (
+        <div className="flex items-center gap-2">
+          <label className="inline-flex items-center gap-1.5 text-[11px] text-ink-secondary">
+            <input
+              type="checkbox"
+              checked={variableMode}
+              onChange={(e) => setVariableMode(e.target.checked)}
+            />
+            Variable cost (£ × headcount)
+          </label>
+        </div>
+      )}
+      {!hasComponents && variableMode && (
         <div className="bg-canvas/40 border border-border-soft rounded-sm p-2.5 space-y-2">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
             <div>
@@ -1866,9 +2273,10 @@ function NewLineForm({
           )}
         </div>
       )}
-      {/* When variableMode is off, still send the per-head fields as
-          null so the server clears any previously-set values. */}
-      {!variableMode && (
+      {/* When variableMode is off (or components make it moot), still
+          send the per-head fields as null so the server clears any
+          previously-set values. */}
+      {(hasComponents || !variableMode) && (
         <>
           <input type="hidden" name="perHeadPence" value="" />
           <input type="hidden" name="headcountSource" value="" />

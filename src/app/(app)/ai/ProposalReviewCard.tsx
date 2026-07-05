@@ -8,6 +8,56 @@ import { useState, useTransition } from "react";
 import { applyProposal, dismissProposal, type PendingProposal } from "./actions";
 import { InlineMarkdown } from "@/components/ai/MarkdownMessage";
 
+// v2.5.0: fields the raw payload carries purely for wiring the update
+// to its target row — the summary/detail line above already names
+// that target in plain English (e.g. "→ Sarah · Flowers"), so
+// repeating the raw id here would just be noise.
+const PAYLOAD_ID_FIELDS = new Set([
+  "taskId", "eventId", "guestId", "householdId", "supplierId",
+  "sectionId", "cardId", "budgetLineId", "budgetCategoryId",
+  "paymentId", "playlistId", "targetId", "contactId", "shotId",
+  "batchId",
+]);
+
+function humanizeFieldKey(key: string): string {
+  const spaced = key.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/_/g, " ").toLowerCase();
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+}
+
+function humanizeFieldValue(value: unknown): string {
+  if (value === null || value === undefined || value === "") return "—";
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  if (Array.isArray(value)) {
+    return value.length === 0 ? "—" : value.map(humanizeFieldValue).join(", ");
+  }
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value);
+}
+
+/** Field-by-field readable view of a proposal payload — replaces a
+ *  raw JSON dump that was the ONLY way to see what an update would
+ *  actually change, meaningless to a non-technical reviewer. Not
+ *  schema-aware (40 proposal kinds and counting); just humanises
+ *  whatever keys are present and skips internal id fields. */
+function PayloadFields({ payload }: { payload: unknown }) {
+  const entries = Object.entries((payload ?? {}) as Record<string, unknown>).filter(
+    ([key, value]) => !PAYLOAD_ID_FIELDS.has(key) && value !== undefined,
+  );
+  if (entries.length === 0) {
+    return <div className="text-ink-tertiary">No fields to show.</div>;
+  }
+  return (
+    <dl className="space-y-1">
+      {entries.map(([key, value]) => (
+        <div key={key} className="flex gap-2">
+          <dt className="text-ink-tertiary flex-shrink-0">{humanizeFieldKey(key)}:</dt>
+          <dd className="text-ink-primary min-w-0 break-words">{humanizeFieldValue(value)}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
 export function ProposalReviewCard({ proposal }: { proposal: PendingProposal }) {
   const [pending, startTransition] = useTransition();
   const [state, setState] = useState<
@@ -18,6 +68,10 @@ export function ProposalReviewCard({ proposal }: { proposal: PendingProposal }) 
   >({ kind: "pending" });
 
   const [showDetails, setShowDetails] = useState(false);
+  // v2.5.0: field view is the default — raw JSON is one more toggle
+  // away for anyone who wants it (developers, or a reviewer double-
+  // checking an edge case).
+  const [rawView, setRawView] = useState(false);
 
   function apply() {
     startTransition(async () => {
@@ -75,20 +129,20 @@ export function ProposalReviewCard({ proposal }: { proposal: PendingProposal }) 
             </>
           )}
           {state.kind === "applied" && (
-            <span className="text-xs text-emerald-700">✓ Applied</span>
+            <span className="text-xs text-moss-700">✓ Applied</span>
           )}
           {state.kind === "dismissed" && (
             <span className="text-xs text-ink-tertiary">Dismissed</span>
           )}
           {state.kind === "error" && (
-            <span className="text-xs text-rose-700" title={state.message}>
+            <span className="text-xs text-danger" title={state.message}>
               Failed
             </span>
           )}
         </div>
       </div>
       {state.kind === "error" && (
-        <div className="mt-2 text-xs text-rose-700">{state.message}</div>
+        <div className="mt-2 text-xs text-danger">{state.message}</div>
       )}
       <div className="mt-2 text-xs">
         <button
@@ -99,9 +153,22 @@ export function ProposalReviewCard({ proposal }: { proposal: PendingProposal }) 
           {showDetails ? "Hide details" : "Show details"}
         </button>
         {showDetails && (
-          <pre className="mt-2 rounded-md bg-canvas border border-border-soft p-2 text-[11px] overflow-x-auto">
-            {JSON.stringify(proposal.payload, null, 2)}
-          </pre>
+          <div className="mt-2 rounded-md bg-canvas border border-border-soft p-2 text-[11px] space-y-2">
+            {rawView ? (
+              <pre className="overflow-x-auto whitespace-pre-wrap">
+                {JSON.stringify(proposal.payload, null, 2)}
+              </pre>
+            ) : (
+              <PayloadFields payload={proposal.payload} />
+            )}
+            <button
+              type="button"
+              onClick={() => setRawView((v) => !v)}
+              className="text-ink-tertiary underline"
+            >
+              {rawView ? "Show as fields" : "Show raw JSON"}
+            </button>
+          </div>
         )}
       </div>
     </div>

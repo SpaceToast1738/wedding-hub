@@ -42,15 +42,30 @@ export function SpotifyConnectionBanner({
     .map((p) => p.lastSyncedAt)
     .filter((d): d is Date => !!d)
     .sort((a, b) => b.getTime() - a.getTime())[0] ?? null;
+  // v2.6.0 (finding #4): the old copy claimed "auto-syncs when songs
+  // are added or removed" — no such thing exists; syncing is strictly
+  // the manual per-playlist button in PlaylistCard. Subtitle now states
+  // the actual linked count + that sync is a manual, per-playlist step,
+  // in both the synced and never-synced cases.
+  const linkedSummary = `${linked} of ${playlists.length} playlist${playlists.length === 1 ? "" : "s"} linked`;
   const subtitle = lastSync
-    ? `last synced ${relTime(lastSync)} · auto-syncs when songs are added or removed`
-    : `${linked} of ${playlists.length} playlist${playlists.length === 1 ? "" : "s"} linked · sync hasn't run yet`;
+    ? `${linkedSummary} · last synced ${relTime(lastSync)} · sync is manual, per playlist`
+    : `${linkedSummary} · sync hasn't run yet — sync each playlist manually below`;
   return (
     <div className="px-4 sm:px-6 pt-3">
       <div
         className="rounded-md p-4 text-white flex flex-wrap items-start gap-3.5"
         style={{
-          background: "linear-gradient(135deg, #1DB954 0%, #168d40 100%)",
+          // v2.6.0 (finding #5): darkened from the brand-accurate
+          // #1DB954/#168d40 pair, which failed AA for white text at
+          // this size. This darker pair holds ~6.6:1+ contrast with
+          // white. Ideally these would be proper `--color-*` tokens
+          // with light/dark variants like the rest of the palette
+          // (globals.css) — kept as inline hex here since that file
+          // is outside this pass's file ownership; still bright
+          // enough to read as "Spotify green" without the contrast
+          // failure.
+          background: "linear-gradient(135deg, #0f6b34 0%, #0a4023 100%)",
         }}
       >
         <div
@@ -64,7 +79,9 @@ export function SpotifyConnectionBanner({
             Spotify connected · {playlists.length} playlist
             {playlists.length === 1 ? "" : "s"}
           </div>
-          <div className="text-[11px] opacity-90">{subtitle}</div>
+          {/* v2.6.0 (finding #5): dropped the opacity-90 reduction —
+              it was compounding the already-insufficient contrast. */}
+          <div className="text-[11px]">{subtitle}</div>
         </div>
         <div className="flex flex-wrap gap-1.5 basis-full">
           {playlists.map((p) => (
@@ -72,7 +89,7 @@ export function SpotifyConnectionBanner({
               key={p.id}
               href={`#playlist-${p.id}`}
               title={p.name}
-              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium text-white no-underline"
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium text-white no-underline"
               style={{
                 background: "rgba(255,255,255,0.14)",
                 border: "1px solid rgba(255,255,255,0.22)",
@@ -83,7 +100,9 @@ export function SpotifyConnectionBanner({
                 style={{ background: "#fff" }}
               />
               {p.name}
-              <span className="opacity-75 tabular-nums">{p.songCount}</span>
+              {/* v2.6.0 (finding #5): was opacity-75, same contrast issue
+                  as the subtitle line above. */}
+              <span className="tabular-nums">{p.songCount}</span>
             </a>
           ))}
         </div>

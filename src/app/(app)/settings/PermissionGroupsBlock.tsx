@@ -178,11 +178,14 @@ export function PermissionGroupsBlock({
             return (
               <li key={b.slug}>
                 <div className="flex items-baseline gap-2">
-                  <span className="text-ink-primary font-medium flex-1 min-w-0 truncate">
+                  {/* v2.5.0 (design pass #10): the raw `builtin:<slug>`
+                      identifier moved to a title tooltip — it has no
+                      value to a user browsing the list. */}
+                  <span
+                    className="text-ink-primary font-medium flex-1 min-w-0 truncate"
+                    title={groupKey}
+                  >
                     {b.name}
-                  </span>
-                  <span className="text-[10px] uppercase tracking-wider text-ink-tertiary font-mono">
-                    builtin:{b.slug}
                   </span>
                   <span className="text-[10px] text-ink-tertiary tabular-nums w-20 text-right">
                     {b.members.length} {b.members.length === 1 ? "member" : "members"}
@@ -192,6 +195,7 @@ export function PermissionGroupsBlock({
                     size="sm"
                     onClick={() => setOpenGroupId(membersOpen ? null : groupKey)}
                     disabled={pending}
+                    aria-expanded={membersOpen}
                   >
                     {membersOpen ? "Hide" : "Members"}
                   </Button>
@@ -200,6 +204,7 @@ export function PermissionGroupsBlock({
                     size="sm"
                     onClick={() => setOpenPermsKey(permsOpen ? null : groupKey)}
                     disabled={pending}
+                    aria-expanded={permsOpen}
                   >
                     {permsOpen ? "Hide" : "Permissions"}
                   </Button>
@@ -280,7 +285,12 @@ export function PermissionGroupsBlock({
                 {/* v1.54.0 (C3): reorder buttons. Schema's `order`
                     column drives the displayed sequence; ▲▼ swap the
                     target's order with the adjacent row's. Disabled
-                    at edges. */}
+                    at edges.
+                    v2.5.0 (design pass #10): min-h/min-w-[40px] mobile
+                    touch floor, reverting to the dense desktop size at
+                    640px+ — matches the Button/Tag convention. These
+                    were previously just px-0.5 with no vertical
+                    padding, well under any usable tap target. */}
                 <span className="flex items-center gap-0.5 flex-shrink-0">
                   <button
                     type="button"
@@ -288,7 +298,7 @@ export function PermissionGroupsBlock({
                     disabled={pending || idx === 0}
                     aria-label="Move up"
                     title="Move up"
-                    className="text-[10px] text-ink-tertiary hover:text-ink-primary disabled:opacity-30 px-0.5"
+                    className="min-h-[40px] min-w-[40px] sm:min-h-0 sm:min-w-0 flex items-center justify-center text-[10px] text-ink-tertiary hover:text-ink-primary disabled:opacity-30 px-0.5"
                   >
                     ▲
                   </button>
@@ -298,16 +308,19 @@ export function PermissionGroupsBlock({
                     disabled={pending || idx === groups.length - 1}
                     aria-label="Move down"
                     title="Move down"
-                    className="text-[10px] text-ink-tertiary hover:text-ink-primary disabled:opacity-30 px-0.5"
+                    className="min-h-[40px] min-w-[40px] sm:min-h-0 sm:min-w-0 flex items-center justify-center text-[10px] text-ink-tertiary hover:text-ink-primary disabled:opacity-30 px-0.5"
                   >
                     ▼
                   </button>
                 </span>
-                <span className="text-sm font-medium text-ink-primary flex-1 min-w-0 truncate">
+                {/* v2.5.0 (design pass #10): the raw `group:<slug>`
+                    identifier moved to a title tooltip — it has no
+                    value to a user browsing the list. */}
+                <span
+                  className="text-sm font-medium text-ink-primary flex-1 min-w-0 truncate"
+                  title={groupKey}
+                >
                   {g.name}
-                </span>
-                <span className="text-[10px] uppercase tracking-wider text-ink-tertiary font-mono">
-                  group:{g.slug}
                 </span>
                 <span className="text-[10px] text-ink-tertiary tabular-nums w-20 text-right">
                   {g.members.length} {g.members.length === 1 ? "member" : "members"}
@@ -321,6 +334,7 @@ export function PermissionGroupsBlock({
                   size="sm"
                   onClick={() => setOpenGroupId(openGroupId === g.id ? null : g.id)}
                   disabled={pending}
+                  aria-expanded={openGroupId === g.id}
                 >
                   {openGroupId === g.id ? "Hide" : "Members"}
                 </Button>
@@ -329,6 +343,7 @@ export function PermissionGroupsBlock({
                   size="sm"
                   onClick={() => setOpenPermsKey(permsOpen ? null : groupKey)}
                   disabled={pending}
+                  aria-expanded={permsOpen}
                 >
                   {permsOpen ? "Hide" : "Permissions"}
                 </Button>
@@ -338,6 +353,7 @@ export function PermissionGroupsBlock({
                 <Button
                   variant="ghost"
                   size="sm"
+                  aria-label={`Delete ${g.name}`}
                   onClick={() => onDelete(g.id, g.name, g.members.length)}
                   disabled={pending}
                 >

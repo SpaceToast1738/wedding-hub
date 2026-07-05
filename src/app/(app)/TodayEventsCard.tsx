@@ -13,9 +13,14 @@ type EventLite = {
    *  user:<id> ref OR indirect via a builtin/group ref they belong
    *  to). Empty attendees still treated as "everyone" → isMine = true. */
   isMine: boolean;
-  /** v1.41.0: precomputed total attendee count (resolved unique
-   *  users across all refs). Used purely for the "N attending" line. */
-  attendeeCount: number;
+  /** v2.5.x: first names of resolved attendees (server-capped at 3),
+   *  replacing the old bare attendeeCount. Covers both attendeeRefs-
+   *  based (user:/group:) events and legacy attendeeIds — both are
+   *  resolved server-side via resolveAttendeeRefs before this prop is
+   *  built, so an attendeeRefs event no longer renders nothing. */
+  attendeeNames: string[];
+  /** Attendees beyond the first 3, rendered as a "+N" suffix. */
+  attendeeExtra: number;
   // v1.27.9: when true, render "All day" instead of the time.
   allDay: boolean;
 };
@@ -59,7 +64,7 @@ export function TodayEventsCard({
               className={[
                 "text-[10px] px-2.5 py-0.5 rounded-full font-semibold transition-colors",
                 persona === p
-                  ? "bg-moss-700 text-white"
+                  ? "bg-moss-700 text-on-moss"
                   : "text-ink-tertiary hover:text-ink-primary",
               ].join(" ")}
               aria-pressed={persona === p}
@@ -82,9 +87,10 @@ export function TodayEventsCard({
               </span>
               <div className="flex-1 min-w-0">
                 <div className="text-sm text-ink-primary font-medium truncate">{e.title}</div>
-                {e.attendeeCount > 0 && (
-                  <div className="text-[11px] text-ink-tertiary">
-                    {e.attendeeCount} attending
+                {e.attendeeNames.length > 0 && (
+                  <div className="text-[11px] text-ink-tertiary truncate">
+                    {e.attendeeNames.join(", ")}
+                    {e.attendeeExtra > 0 && ` +${e.attendeeExtra}`}
                   </div>
                 )}
               </div>

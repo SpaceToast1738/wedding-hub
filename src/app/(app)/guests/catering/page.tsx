@@ -76,16 +76,44 @@ function tally(values: Array<string | null | undefined>): Map<string, number> {
   return new Map([...counts.entries()].sort((a, b) => b[1] - a[1]));
 }
 
-function flattenDietary(guests: GuestRow[]): Map<string, number> {
+// v2.5.1 (finding #6): "Vegetarian", "veggie", and "V" used to become
+// three separate uncombined counts feeding real catering numbers.
+// Lower-cased synonym → canonical label, folded before tallying.
+// Mirrors the same map in GuestForm.tsx (kept duplicated rather than
+// shared — the two files have no common lib module in this area, and
+// the map is small).
+const DIETARY_SYNONYMS: Record<string, string> = {
+  vegetarian: "Vegetarian", veggie: "Vegetarian", veg: "Vegetarian", v: "Vegetarian",
+  vegan: "Vegan", vgn: "Vegan",
+  "gluten-free": "Gluten-free", "gluten free": "Gluten-free", glutenfree: "Gluten-free", gf: "Gluten-free",
+  "dairy-free": "Dairy-free", "dairy free": "Dairy-free", dairyfree: "Dairy-free", df: "Dairy-free",
+  "lactose intolerant": "Dairy-free", "lactose-free": "Dairy-free",
+  "nut allergy": "Nut allergy", "nut-allergy": "Nut allergy", nuts: "Nut allergy",
+  "no nuts": "Nut allergy", "peanut allergy": "Nut allergy", "tree nut allergy": "Nut allergy",
+};
+
+type DietaryTally = { counts: Map<string, number>; unmatchedCount: number };
+
+function flattenDietary(guests: GuestRow[]): DietaryTally {
   const counts = new Map<string, number>();
+  let unmatchedCount = 0;
   for (const g of guests) {
     for (const d of g.dietary) {
       const key = d.trim();
       if (!key) continue;
-      counts.set(key, (counts.get(key) ?? 0) + 1);
+      const canonical = DIETARY_SYNONYMS[key.toLowerCase()];
+      // Still counted either way — folding synonyms shouldn't mean
+      // silently under-reporting whatever doesn't match a known
+      // category. Unmatched entries are just also flagged below.
+      if (!canonical) unmatchedCount++;
+      const finalKey = canonical ?? key;
+      counts.set(finalKey, (counts.get(finalKey) ?? 0) + 1);
     }
   }
-  return new Map([...counts.entries()].sort((a, b) => b[1] - a[1]));
+  return {
+    counts: new Map([...counts.entries()].sort((a, b) => b[1] - a[1])),
+    unmatchedCount,
+  };
 }
 
 export default async function CateringBriefPage() {
@@ -111,7 +139,8 @@ export default async function CateringBriefPage() {
   const starterCounts = tally(attending.map((g) => g.mealStarter));
   const mainCounts = tally(attending.map((g) => g.mealMain));
   const dessertCounts = tally(attending.map((g) => g.mealDessert));
-  const dietaryCounts = flattenDietary(attending);
+  const dietaryTally = flattenDietary(attending);
+  const dietaryCounts = dietaryTally.counts;
 
   const groups = groupByTable(attending);
 
@@ -136,7 +165,9 @@ export default async function CateringBriefPage() {
         <div className="no-print flex items-center justify-between gap-2 mb-2">
           <Link
             href="/guests"
-            className="text-xs text-ink-tertiary hover:text-moss-700 hover:underline"
+            // v2.5.1 (finding #10): min-h-[40px] touch floor on
+            // mobile, dense again at sm+.
+            className="inline-flex items-center min-h-[40px] sm:min-h-0 text-xs text-ink-tertiary hover:text-moss-700 hover:underline"
           >
             ← Back to Guests
           </Link>
@@ -178,6 +209,15 @@ export default async function CateringBriefPage() {
         {/* ── Dietary requirements ─────────────────────────────────────── */}
         <section className="print-break-avoid">
           <h2 className="text-sm font-semibold text-ink-primary mb-2">Dietary requirements</h2>
+          {/* v2.5.1 (finding #6): surface still-unmatched free-text
+              entries as a small warning rather than silently folding
+              (or under-reporting) them — they're still counted below
+              under their original text. */}
+          {dietaryTally.unmatchedCount > 0 && (
+            <p className="text-[11px] text-marigold-700 mb-2 no-print">
+              ⚠ {dietaryTally.unmatchedCount} entr{dietaryTally.unmatchedCount === 1 ? "y" : "ies"} didn&apos;t match a known dietary category — shown under their original text below.
+            </p>
+          )}
           {dietaryCounts.size === 0 ? (
             <p className="text-sm text-ink-tertiary italic">None recorded.</p>
           ) : (

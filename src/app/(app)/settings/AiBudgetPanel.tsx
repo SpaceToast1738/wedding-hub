@@ -3,8 +3,14 @@
 // v2.1.0 phase 4: AI monthly cap editor.
 // Couple-only. Overrides the AI_MONTHLY_CAP_PENCE env var. Setting
 // blank clears the DB value and falls back to the env default.
+//
+// v2.5.0 (design pass #7): swapped hardcoded emerald/rose palette
+// colors for the semantic success/danger tokens, replaced the hand-
+// rolled Save button with the shared Button component, and softened
+// the copy's "env default" phrasing.
 
 import { useState, useTransition } from "react";
+import { Button } from "@/components/ui/Button";
 import { updateAiMonthlyCap } from "./wedding-settings-actions";
 
 export function AiBudgetPanel({
@@ -37,10 +43,9 @@ export function AiBudgetPanel({
   return (
     <div className="rounded-md border border-border-soft bg-surface p-4 space-y-2">
       <div className="text-sm text-ink-secondary">
-        Soft monthly cap on Anthropic API spend. AI features refuse to send
-        new requests once the pot is empty. Leave blank to fall back to the
-        env default of{" "}
-        <code>£{(fallbackPence / 100).toFixed(2)}</code>.
+        A soft monthly limit on AI spend. Once it&apos;s used up, AI features
+        pause until the next month rather than keep spending. Leave blank to
+        use the default of <code>£{(fallbackPence / 100).toFixed(2)}</code>.
       </div>
       <div className="flex items-center gap-2">
         <span className="text-sm text-ink-secondary">£</span>
@@ -52,22 +57,18 @@ export function AiBudgetPanel({
           onChange={(e) => setValue(e.target.value)}
           disabled={pending}
           placeholder="30.00"
+          aria-label="Monthly AI spend cap in pounds"
           className="w-24 rounded-md border border-border-soft bg-canvas text-sm px-2 py-1"
         />
         <span className="text-xs text-ink-tertiary">per month</span>
-        <button
-          type="button"
-          onClick={save}
-          disabled={pending}
-          className="rounded-md bg-ink-primary text-canvas px-3 py-1 text-sm disabled:opacity-60"
-        >
+        <Button type="button" variant="primary" size="sm" onClick={save} disabled={pending}>
           {pending ? "Saving…" : "Save"}
-        </button>
+        </Button>
         {status.kind === "saved" && (
-          <span className="text-xs text-emerald-700">✓ saved</span>
+          <span className="text-xs text-success">✓ saved</span>
         )}
         {status.kind === "error" && (
-          <span className="text-xs text-rose-700">{status.message}</span>
+          <span className="text-xs text-danger">{status.message}</span>
         )}
       </div>
     </div>

@@ -4,6 +4,7 @@ import { useTransition } from "react";
 import { Avatar } from "@/components/ui/Avatar";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { setTaskStatus } from "./actions";
+import { notify } from "@/lib/notify";
 import { formatRelativeDue } from "@/lib/format";
 
 type Task = {
@@ -44,18 +45,22 @@ const STATUS_LABEL: Record<string, string> = {
   ARCHIVED: "ARCHIVED",
 };
 
-const NEXT_STATUS: Record<string, string> = {
-  OPEN: "IN_PROGRESS",
-  IN_PROGRESS: "DONE",
-  WAITING: "DONE",
-  DONE: "OPEN",
-  ARCHIVED: "OPEN",
-};
+// v2.5.0 (CRITICAL #3): dropped the OPEN → IN_PROGRESS → DONE cycle —
+// the circle looks and reads (via its aria-label) like a checkbox, so
+// a tap silently landing on IN_PROGRESS instead of DONE was surprising.
+// It's now a straight DONE/OPEN toggle; the full status cycle
+// (OPEN/IN_PROGRESS/WAITING) lives exclusively in the drawer's Status
+// chip row. See TaskDrawer.tsx's STATUS_OPTIONS.
 
-// v1.27.0: row click opens the TaskDrawer for editing. v1.27.4: row
-// keeps the done-circle (per the user's "anything added can stay")
-// and the category cell on the right. The done-circle stops
-// propagation so it can cycle status without opening the drawer.
+// v2.5.0 (mod #4): the Category column/pill system was dead UI — the
+// field was dropped from the write path back in v1.96.0 (see
+// actions.ts's createTask/updateTask comments) but the read side
+// (this row's category cell, TaskList's category pills + GroupKey
+// option) was never cleaned up. Removed here to make room for the
+// mobile meta line below.
+
+// v1.27.0: row click opens the TaskDrawer for editing. The done-circle
+// stops propagation so it can toggle status without opening the drawer.
 export function TaskRow({
   task,
   canEdit,
@@ -69,14 +74,21 @@ export function TaskRow({
 }) {
   const [pending, startTransition] = useTransition();
   const isDone = task.status === "DONE";
-  const category = task.tags[0];
+  // v2.5.0 (CRITICAL #2): same overdue definition as TaskBoard's
+  // BoardCard — due in the past AND not already done.
+  const isOverdue = !!task.dueDate && !isDone && task.dueDate.getTime() < Date.now();
 
-  function toggleStatus(e: React.MouseEvent) {
+  function toggleDone(e: React.MouseEvent) {
     e.stopPropagation();
     if (!canEdit) return;
-    const next = NEXT_STATUS[task.status] ?? "DONE";
+    const next = isDone ? "OPEN" : "DONE";
     startTransition(async () => {
-      await setTaskStatus(task.id, next as Parameters<typeof setTaskStatus>[1]);
+      try {
+        await setTaskStatus(task.id, next as Parameters<typeof setTaskStatus>[1]);
+      } catch (err) {
+        // Silent failures here read as "nothing happened" — surface it.
+        notify("error", err instanceof Error ? err.message : "Couldn't update status");
+      }
     });
   }
 
@@ -87,11 +99,14 @@ export function TaskRow({
     >
       <button
         type="button"
-        onClick={toggleStatus}
+        onClick={toggleDone}
         disabled={!canEdit || pending}
-        title={canEdit ? "Cycle status" : undefined}
-        className="flex-shrink-0 cursor-pointer disabled:cursor-default"
-        aria-label={`Mark ${task.title} ${isDone ? "open" : "done"}`}
+        title={canEdit ? (isDone ? "Mark not done" : "Mark done") : undefined}
+        // v2.5.0 (CRITICAL #3): -m-3.5 p-3.5 pads the tap target out to
+        // ~44px without moving the visible 16px circle or widening the
+        // row (negative margin cancels the padding's layout footprint).
+        className="flex-shrink-0 -m-3.5 p-3.5 cursor-pointer disabled:cursor-default"
+        aria-label={`Mark ${task.title} ${isDone ? "not done" : "done"}`}
       >
         <span
           className={[
@@ -128,6 +143,30 @@ export function TaskRow({
         {task.questionAnswer && (
           <p className="text-xs text-ink-tertiary mt-1 italic">{task.questionAnswer}</p>
         )}
+        {/* v2.5.0 (CRITICAL #1): the desktop meta strip below is
+            `hidden` under sm, which used to drop due date / status /
+            assignee entirely on mobile. Compact one-line summary,
+            visible only below sm (the desktop strip covers >=sm). */}
+        <div className="flex sm:hidden items-center gap-2 flex-wrap mt-1">
+          {task.dueDate && (
+            <span
+              className={[
+                "text-[11px]",
+                isOverdue ? "text-danger font-semibold" : "text-ink-tertiary",
+              ].join(" ")}
+            >
+              {formatRelativeDue(task.dueDate)}
+            </span>
+          )}
+          <span className="text-[10px] uppercase tracking-wider text-ink-tertiary bg-canvas border border-border-soft rounded-md px-1.5 py-0.5">
+            {STATUS_LABEL[task.status] ?? task.status}
+          </span>
+          {assigneeName && (
+            <span className="text-[11px] text-ink-secondary">
+              {assigneeName.split(" ")[0]}
+            </span>
+          )}
+        </div>
       </div>
       <div className="hidden sm:flex items-center gap-5 flex-shrink-0">
         {assigneeName ? (
@@ -146,15 +185,17 @@ export function TaskRow({
         <span className="text-[10px] uppercase tracking-wider text-ink-tertiary bg-canvas border border-border-soft rounded-md px-2 py-0.5 w-24 text-center">
           {STATUS_LABEL[task.status] ?? task.status}
         </span>
-        <span className="text-xs text-ink-tertiary w-24 text-right">
+        {/* v2.5.0 (CRITICAL #2): overdue due dates were plain
+            text-ink-tertiary — the lowest-contrast token, with no
+            visual distinction from a normal due date. Danger + bold
+            now matches TaskBoard's BoardCard treatment. */}
+        <span
+          className={[
+            "text-xs w-24 text-right",
+            isOverdue ? "text-danger font-semibold" : "text-ink-tertiary",
+          ].join(" ")}
+        >
           {formatRelativeDue(task.dueDate)}
-        </span>
-        <span className="w-24 text-center">
-          {category ? (
-            <span className="text-[10px] text-ink-tertiary bg-canvas border border-border-soft px-1.5 py-px rounded-md inline-block max-w-full truncate">
-              {category}
-            </span>
-          ) : null}
         </span>
       </div>
     </li>

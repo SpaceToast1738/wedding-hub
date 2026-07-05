@@ -2,7 +2,8 @@ import { db } from "@/lib/db";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { canEdit } from "@/lib/permissions";
 import { requireUser } from "@/lib/actions";
-import { getWeddingSettings } from "@/lib/wedding-settings";
+import { formatWeddingDate, getWeddingSettings } from "@/lib/wedding-settings";
+import { isoForInput } from "@/lib/format";
 import { EmptySchedule, EmptyState } from "@/components/ui/Illustrations";
 import { ScheduleClient } from "./ScheduleClient";
 import { AddEventToggle } from "./AddEventToggle";
@@ -59,18 +60,26 @@ export default async function SchedulePage() {
     email: u.email,
   }));
 
-  const total = events.length;
-  const upcoming = events.filter((e) => e.startTime >= new Date()).length;
+  // v2.5.0 (design pass #7): nearly every schedule entry lands on the
+  // wedding day itself — prefill the new-event form's Date field
+  // rather than making the couple pick it every time.
+  const defaultStartDate = isoForInput(wedding.weddingDate);
 
   return (
     <>
+      {/* v2.5.0 (design pass #11): grounded date + venue, replacing the
+          abstract "8 events, 8 upcoming" count — matches the
+          prototype's subtitle and the convention already used on
+          /budget and /payments' print letterheads. */}
       <PageHeader
         title="Schedule"
-        subtitle={`${total} events · ${upcoming} upcoming`}
+        subtitle={`${formatWeddingDate(wedding)} · ${wedding.venue}`}
         actions={
           <>
             <PrintScheduleButton />
-            {editable && <AddEventToggle users={userOpts} groups={groupOpts} />}
+            {editable && (
+              <AddEventToggle users={userOpts} groups={groupOpts} defaultStartDate={defaultStartDate} />
+            )}
           </>
         }
       />
@@ -109,6 +118,7 @@ export default async function SchedulePage() {
               users={userOpts}
               groups={groupOpts}
               canEdit={editable}
+              currentUserId={user.id}
             />
           )}
         </div>

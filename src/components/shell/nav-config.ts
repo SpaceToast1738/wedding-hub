@@ -14,6 +14,11 @@ export type Counts = {
   guests: number;
   payments: number;
   files?: number;
+  // v2.5.0: pending AI proposal count — same count-pill convention as
+  // tasks/questions/guests. Previously the AI planner had no nav entry
+  // at all, so pending proposals were only discoverable from inside
+  // the chat panel.
+  aiProposals?: number;
 };
 
 export const NAV_GROUPS: NavGroup[] = [
@@ -31,6 +36,11 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/questions", label: "Questions & Decisions", icon: "?", countKey: "questions" },
       { href: "/schedule",  label: "Schedule",  icon: "◷" },
       { href: "/suppliers", label: "Suppliers", icon: "◈" },
+      // v2.5.0: the AI planner had no entry point outside the chat
+      // panel — pending proposals were completely undiscoverable from
+      // the shell. countKey wires it into the same badge convention
+      // as Tasks/Questions/Guests.
+      { href: "/ai",        label: "AI planner", icon: "✨", countKey: "aiProposals" },
     ],
   },
   {

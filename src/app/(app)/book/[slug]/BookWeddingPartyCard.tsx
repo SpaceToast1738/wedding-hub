@@ -28,6 +28,15 @@
 //   exits edit mode. Notes uses a draft so a half-typed edit can be
 //   cancelled. The v1.99.1 layoutEditing toggle is gone; reorder
 //   chrome rides on the new `editing` flag like every other kind.
+//
+// Design-pass fix: the v1.99.3 mixed persistence model (cells/renames
+// instant, notes draft-backed) broke the forgiveness contract — Cancel
+// only reverted notes. Notes now commits on blur like everything else
+// on the card, so the footer is a single "Edit" / "Done" toggle with
+// no Cancel/Save distinction. Also: touch-unreachable hover-only
+// rename/reorder controls fixed to always-visible while editing, the
+// person column is now sticky while the matrix scrolls horizontally,
+// and edit-mode cell selects got a real touch target.
 
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
@@ -139,12 +148,21 @@ export function BookWeddingPartyCard({
 }: Props) {
   const [pending, startTransition] = useTransition();
   const [editing, setEditing] = useState(false);
-  // v1.99.3: notes carry a draft so Cancel can revert. v1.98.1
-  // useEffect gate (if (!editing)) so router.refresh during edit
-  // mode doesn't wipe the draft.
-  const [notesDraft, setNotesDraft] = useState(card.notes ?? "");
+  // Design-pass fix: this card used to mix three persistence models —
+  // cells and member/item renames committed instantly, while notes
+  // was draft-backed and only saved on an explicit Save. That meant
+  // Cancel only reverted notes, silently keeping whatever cells/
+  // renames the user had already changed — a broken forgiveness
+  // contract. Notes now commits on blur too (same instant pattern as
+  // the CardChrome title), so the whole card is consistently
+  // instant-commit and there's nothing left for Cancel to revert.
+  // The footer button is relabelled "Done" accordingly — see `actions`
+  // below.
+  const [notesValue, setNotesValue] = useState(card.notes ?? "");
+  // Re-sync only when not editing — a mid-edit router.refresh() (e.g.
+  // from a component reorder) shouldn't clobber an in-progress edit.
   useEffect(() => {
-    if (!editing) setNotesDraft(card.notes ?? "");
+    if (!editing) setNotesValue(card.notes ?? "");
   }, [card.notes, editing]);
   const router = useRouter();
   const confirm = useConfirm();
@@ -156,31 +174,19 @@ export function BookWeddingPartyCard({
     referenceForCells.current = card.cells;
   }
 
-  function cancel() {
-    setNotesDraft(card.notes ?? "");
-    setEditing(false);
-  }
-
-  function save() {
-    // Notes is the only draft-backed field; cells save themselves on
-    // click, and member / item renames save inline. If notes haven't
-    // changed, just exit edit mode.
-    const nextNotes = notesDraft.trim() || null;
-    if (nextNotes === (card.notes ?? null)) {
-      setEditing(false);
-      return;
-    }
+  function saveNotes() {
+    const next = notesValue.trim() || null;
+    if (next === (card.notes ?? null)) return;
     startTransition(async () => {
       // groupLabel kept as-is — column still exists but the editor no
       // longer surfaces it (v1.99.3).
       const res = await saveWeddingPartyCardHeader(subsectionId, {
         groupLabel: card.groupLabel,
-        notes: nextNotes,
+        notes: next,
       });
-      if (res.ok) {
-        notify("success", "Saved");
-        setEditing(false);
-      } else {
+      if (res.ok) notify("success", "Saved");
+      else {
+        setNotesValue(card.notes ?? ""); // revert the local buffer
         notify("error", res.error);
       }
     });
@@ -194,6 +200,10 @@ export function BookWeddingPartyCard({
     });
     startTransition(async () => {
       const res = await setWeddingPartyCell(memberId, itemId, { status });
+      // No "Saved" toast here — the pill's glyph/colour change is
+      // already an immediate, visible confirmation, and this can fire
+      // many times per edit session (one per cell); a toast per click
+      // would be spam rather than useful feedback.
       if (!res.ok) notify("error", res.error);
     });
   }
@@ -269,7 +279,13 @@ export function BookWeddingPartyCard({
           <table className="text-sm min-w-full">
             <thead>
               <tr className="border-b border-border-soft bg-canvas/40">
-                <th className="px-3 py-2 text-left text-[10px] uppercase tracking-wider text-ink-tertiary font-bold w-48">
+                {/* Design-pass fix: this column used to scroll away
+                    with the rest of the table — scrolling right to
+                    see more item columns lost track of whose row was
+                    whose. Sticky + an opaque background keeps the
+                    person identity pinned while the items scroll
+                    underneath. */}
+                <th className="px-3 py-2 text-left text-[10px] uppercase tracking-wider text-ink-secondary font-bold w-48 sticky left-0 z-10 bg-canvas border-r border-border-soft">
                   Person
                 </th>
                 {card.items.map((item, idx) => (
@@ -283,7 +299,11 @@ export function BookWeddingPartyCard({
                       onRename={(label, notes) => {
                         startTransition(async () => {
                           const res = await updateWeddingPartyItem(item.id, { label, notes });
-                          if (!res.ok) notify("error", res.error);
+                          // Instant-commit rename — brief confirmation
+                          // since the inline mini-form's own "Save"
+                          // link gives no other feedback that it stuck.
+                          if (res.ok) notify("success", "Saved");
+                          else notify("error", res.error);
                         });
                       }}
                       onDelete={async () => {
@@ -313,7 +333,7 @@ export function BookWeddingPartyCard({
             <tbody>
               {card.members.map((m, idx) => (
                 <tr key={m.id} className="border-b border-border-soft last:border-b-0">
-                  <td className="px-3 py-2 align-top w-48">
+                  <td className="px-3 py-2 align-top w-48 sticky left-0 z-10 bg-surface border-r border-border-soft">
                     <MemberHeader
                       member={m}
                       canEdit={editing}
@@ -323,7 +343,10 @@ export function BookWeddingPartyCard({
                       onRename={(name, role) => {
                         startTransition(async () => {
                           const res = await updateWeddingPartyMember(m.id, { name, role });
-                          if (!res.ok) notify("error", res.error);
+                          // Instant-commit rename — same brief
+                          // confirmation as the item rename above.
+                          if (res.ok) notify("success", "Saved");
+                          else notify("error", res.error);
                         });
                       }}
                       onDelete={async () => {
@@ -352,11 +375,16 @@ export function BookWeddingPartyCard({
                     return (
                       <td key={item.id} className="px-3 py-2 align-top">
                         {editing ? (
+                          // Design-pass fix: this is the card's single
+                          // most frequent edit-mode interaction, but
+                          // was a fiddly ~20px-tall select. Bumped to
+                          // the same 40px mobile / relaxed-desktop
+                          // touch floor the Button primitive uses.
                           <select
                             value={status}
                             onChange={(e) => setCell(m.id, item.id, e.target.value as Status)}
                             disabled={pending}
-                            className={`text-[11px] rounded-full px-2 py-0.5 border tabular-nums ${STATUS_META[status].tone}`}
+                            className={`text-sm rounded-full px-3 py-1.5 min-h-[40px] sm:min-h-0 border tabular-nums ${STATUS_META[status].tone}`}
                             title={STATUS_META[status].label}
                           >
                             {STATUSES.map((s) => (
@@ -400,12 +428,13 @@ export function BookWeddingPartyCard({
 
   const notesNode = editing ? (
     <div>
-      <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">
+      <label className="block text-[10px] font-bold text-ink-secondary uppercase tracking-wider mb-1">
         Notes
       </label>
       <MentionableTextarea
-        value={notesDraft}
-        onChange={(e) => setNotesDraft(e.target.value)}
+        value={notesValue}
+        onChange={(e) => setNotesValue(e.target.value)}
+        onBlur={saveNotes}
         rows={2}
         disabled={pending}
         placeholder="Anything worth remembering about the group — colour scheme, suppliers, gift list."
@@ -414,7 +443,7 @@ export function BookWeddingPartyCard({
     </div>
   ) : card.notes ? (
     <div>
-      <strong className="block text-[10px] uppercase tracking-wider text-ink-tertiary font-bold mb-1">
+      <strong className="block text-[10px] uppercase tracking-wider text-ink-secondary font-bold mb-1">
         Notes
       </strong>
       <p className="text-sm text-ink-secondary whitespace-pre-wrap">{card.notes}</p>
@@ -457,25 +486,16 @@ export function BookWeddingPartyCard({
       linkedTasks={linkedTasks}
       users={users}
       hideHousekeeping={editing}
+      // Design-pass fix: every field on this card now commits
+      // instantly (see the notes/saveNotes comment above), so there's
+      // nothing left for a "Cancel" to discard — a single "Done"
+      // toggle replaces the old Cancel/Save changes pair.
       actions={
-        canEdit
-          ? editing
-            ? (
-              <>
-                <Button variant="ghost" size="sm" onClick={cancel} disabled={pending}>
-                  Cancel
-                </Button>
-                <Button variant="primary" size="sm" onClick={save} disabled={pending}>
-                  Save changes
-                </Button>
-              </>
-            )
-            : (
-              <Button variant="primary" size="sm" onClick={() => setEditing(true)}>
-                Edit
-              </Button>
-            )
-          : undefined
+        canEdit ? (
+          <Button variant="primary" size="sm" onClick={() => setEditing((v) => !v)} disabled={pending}>
+            {editing ? "Done" : "Edit"}
+          </Button>
+        ) : undefined
       }
     >
       <ReorderableCardBody
@@ -486,6 +506,7 @@ export function BookWeddingPartyCard({
         pending={pending}
         onReorder={reorderComponents}
         onToggleHidden={toggleComponentHidden}
+        canEdit={canEdit}
       />
     </CardChrome>
   );
@@ -498,7 +519,9 @@ export function BookWeddingPartyCard({
 function StatTile({ label, value }: { label: string; value: string }) {
   return (
     <div className="bg-canvas border border-border-soft rounded-md px-3 py-2">
-      <div className="text-[9px] uppercase tracking-wider text-ink-tertiary font-bold">
+      {/* Design-pass fix: bumped from 9px to the 10px chrome-label
+          floor, and to ink-secondary for legibility. */}
+      <div className="text-[10px] uppercase tracking-wider text-ink-secondary font-bold">
         {label}
       </div>
       <div className="text-sm font-semibold text-ink-primary tabular-nums">{value}</div>
@@ -593,13 +616,21 @@ function MemberHeader({
     );
   }
   return (
-    <div className="group flex flex-col items-start gap-0.5">
+    <div className="flex flex-col items-start gap-0.5">
       <div className="flex items-center gap-1">
         <span className="text-sm font-semibold text-ink-primary whitespace-nowrap">
           {member.name}
         </span>
         {canEdit && (
-          <span className="opacity-0 group-hover:opacity-100 transition-opacity flex gap-0.5">
+          // [CRITICAL] fix: these used to be hover-only (opacity-0
+          // group-hover:opacity-100), so on a touch device they were
+          // invisible and effectively unreachable — even though
+          // `canEdit` here is really the card's `editing` flag, a
+          // deliberate opt-in busy state the user already chose to
+          // enter. Since the row is only rendered at all while
+          // editing, there's no reason to hide it further behind
+          // hover; always-visible is the simplest correct fix.
+          <span className="flex gap-0.5">
             <button
               type="button"
               onClick={() => onMove("up")}
@@ -623,6 +654,7 @@ function MemberHeader({
               onClick={() => setEditing(true)}
               className="text-[10px] text-ink-tertiary hover:text-ink-primary px-0.5"
               title="Rename"
+              aria-label={`Rename ${member.name}`}
             >
               ✎
             </button>
@@ -631,6 +663,7 @@ function MemberHeader({
               onClick={onDelete}
               className="text-[10px] text-ink-tertiary hover:text-danger px-0.5"
               title="Remove"
+              aria-label={`Remove ${member.name}`}
             >
               ×
             </button>
@@ -638,7 +671,11 @@ function MemberHeader({
         )}
       </div>
       {member.role && (
-        <span className="text-[10px] text-ink-tertiary uppercase tracking-wider">
+        // Design-pass fix: this is real content (the person's actual
+        // role), not chrome — bumped from 10px ink-tertiary to 12px
+        // ink-secondary and dropped the label-style uppercase/tracking
+        // treatment so it doesn't read as a chrome tag.
+        <span className="text-xs text-ink-secondary">
           {member.role}
         </span>
       )}
@@ -725,15 +762,21 @@ function ItemHeader({
     );
   }
   return (
-    <div className="group flex items-baseline justify-between gap-2">
+    <div className="flex items-baseline justify-between gap-2">
       <div className="flex flex-col">
         <span className="text-sm font-medium text-ink-primary">{item.label}</span>
         {item.notes && (
-          <span className="text-[10px] text-ink-tertiary">{item.notes}</span>
+          // Design-pass fix: item notes are real content, not a label
+          // — bumped from 10px ink-tertiary to 12px ink-secondary.
+          <span className="text-xs text-ink-secondary">{item.notes}</span>
         )}
       </div>
       {canEdit && (
-        <span className="opacity-0 group-hover:opacity-100 transition-opacity flex gap-0.5 flex-shrink-0">
+        // [CRITICAL] fix: see the matching comment on MemberHeader
+        // above — hover-only controls are unreachable on touch, and
+        // `canEdit` here is the card's `editing` opt-in state, so
+        // always-visible is correct.
+        <span className="flex gap-0.5 flex-shrink-0">
           <button
             type="button"
             onClick={() => onMove("up")}
@@ -757,6 +800,7 @@ function ItemHeader({
             onClick={() => setEditing(true)}
             className="text-[10px] text-ink-tertiary hover:text-ink-primary px-0.5"
             title="Rename"
+            aria-label={`Rename ${item.label}`}
           >
             ✎
           </button>
@@ -765,6 +809,7 @@ function ItemHeader({
             onClick={onDelete}
             className="text-[10px] text-ink-tertiary hover:text-danger px-0.5"
             title="Remove"
+            aria-label={`Remove ${item.label}`}
           >
             ×
           </button>

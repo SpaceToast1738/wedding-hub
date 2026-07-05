@@ -4,51 +4,52 @@
 // diffs the couple's task list + supplier categories against a
 // curated UK-wedding checklist, emits a batch of task.create
 // proposals into the review queue on /ai.
+//
+// v2.5.0 (mod #8): dropped the undismissable, timeout-less absolute-
+// positioned result popover (hardcoded emerald/rose Tailwind classes,
+// no escape hatch) in favour of the shared toast bus — same pattern as
+// TaskDrawer's "Break down" button (see TaskDrawer.tsx's onBreakdown).
+// Now lives inside page.tsx's Tools menu rather than as a standalone
+// header button, so the default className renders it as a menu item;
+// callers embedding it elsewhere can override via `className`.
 
-import Link from "next/link";
-import { useState, useTransition } from "react";
+import { useTransition } from "react";
+import { notify } from "@/lib/notify";
 import { runGapAnalysis } from "@/app/(app)/ai/actions";
 
-export function GapAnalysisButton() {
+const DEFAULT_CLASS =
+  "block w-full text-left text-sm px-2.5 py-2 min-h-[40px] sm:min-h-0 rounded-sm text-ink-secondary hover:bg-canvas disabled:opacity-60";
+
+export function GapAnalysisButton({ className }: { className?: string }) {
   const [pending, startTransition] = useTransition();
-  const [state, setState] = useState<
-    | { kind: "idle" }
-    | { kind: "success"; count: number; categories: string[] }
-    | { kind: "error"; message: string }
-  >({ kind: "idle" });
 
   function run() {
-    setState({ kind: "idle" });
     startTransition(async () => {
-      const res = await runGapAnalysis();
-      if (res.ok) setState({ kind: "success", count: res.count, categories: res.categories });
-      else setState({ kind: "error", message: res.error });
+      try {
+        const res = await runGapAnalysis();
+        if (res.ok) {
+          notify(
+            "success",
+            `Drafted ${res.count} gap${res.count === 1 ? "" : "s"} in ${res.categories.join(", ")} — review on /ai`,
+          );
+        } else {
+          notify("error", res.error);
+        }
+      } catch (err) {
+        notify("error", err instanceof Error ? err.message : "Gap analysis failed");
+      }
     });
   }
 
   return (
-    <div className="relative inline-block">
-      <button
-        type="button"
-        onClick={run}
-        disabled={pending}
-        className="inline-flex items-center text-xs font-medium px-2.5 py-1 rounded-sm border border-border-soft bg-canvas text-ink-secondary hover:border-moss-300 hover:text-moss-700 disabled:opacity-60"
-      >
-        {pending ? "Analysing…" : "🔍 Gap analysis"}
-      </button>
-      {state.kind === "success" && (
-        <div className="absolute right-0 mt-1 z-30 w-64 rounded-md border border-emerald-300 bg-emerald-50 p-2 text-xs text-emerald-900 shadow-md">
-          ✓ Found {state.count} gap{state.count === 1 ? "" : "s"} in {state.categories.join(", ")}.{" "}
-          <Link href="/ai" className="underline font-medium">
-            Review on /ai →
-          </Link>
-        </div>
-      )}
-      {state.kind === "error" && (
-        <div className="absolute right-0 mt-1 z-30 w-64 rounded-md border border-rose-300 bg-rose-50 p-2 text-xs text-rose-900 shadow-md">
-          ✗ {state.message}
-        </div>
-      )}
-    </div>
+    <button
+      type="button"
+      onClick={run}
+      disabled={pending}
+      role="menuitem"
+      className={className ?? DEFAULT_CLASS}
+    >
+      {pending ? "Analysing…" : "🔍 Gap analysis"}
+    </button>
   );
 }

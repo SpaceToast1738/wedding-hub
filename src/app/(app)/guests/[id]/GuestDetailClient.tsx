@@ -1,12 +1,22 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { GuestForm } from "../GuestForm";
 import { deleteGuest, setGuestRsvp, updateGuest } from "../actions";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
+import { notify } from "@/lib/notify";
 import type { RsvpStatus, Side } from "@prisma/client";
+
+// v2.5.1 (finding #5): segmented pill options for the RSVP control —
+// replaces the ~22px plain <select>.
+const RSVP_OPTIONS: { value: RsvpStatus; label: string }[] = [
+  { value: "ATTENDING", label: "Attending" },
+  { value: "PENDING", label: "Pending" },
+  { value: "DECLINED", label: "Declined" },
+  { value: "MAYBE", label: "Maybe" },
+];
 
 type GuestSnapshot = {
   id: string;
@@ -37,10 +47,33 @@ export function GuestDetailClient({
   const [editing, setEditing] = useState(false);
   const [pending, startTransition] = useTransition();
   const confirm = useConfirm();
+  // v2.5.1 (finding #5): optimistic local RSVP state — the pill flips
+  // immediately instead of visibly snapping back on a slow connection
+  // until the page revalidates. Re-syncs if the server-confirmed value
+  // arrives via a fresh `guest` prop (e.g. another tab changed it).
+  const [localRsvp, setLocalRsvp] = useState<RsvpStatus>(guest.rsvp);
+  useEffect(() => {
+    setLocalRsvp(guest.rsvp);
+  }, [guest.rsvp]);
 
   function changeRsvp(next: RsvpStatus) {
+    if (next === localRsvp || pending) return;
+    const previous = localRsvp;
+    setLocalRsvp(next);
     startTransition(async () => {
-      await setGuestRsvp(guest.id, next);
+      try {
+        await setGuestRsvp(guest.id, next);
+        const label = RSVP_OPTIONS.find((o) => o.value === next)?.label ?? next;
+        notify(
+          "success",
+          guest.plusOneAllowed
+            ? `RSVP set to ${label} (their plus-one, if named, follows automatically)`
+            : `RSVP set to ${label}`,
+        );
+      } catch (err) {
+        setLocalRsvp(previous);
+        notify("error", err instanceof Error ? err.message : "Couldn't update RSVP");
+      }
     });
   }
 
@@ -113,19 +146,31 @@ export function GuestDetailClient({
   return (
     <section className="bg-surface border border-border-soft rounded-md shadow-sm">
       <header className="px-4 py-3 border-b border-border-soft flex items-center justify-between gap-2 flex-wrap">
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
           <h2 className="text-sm font-semibold text-ink-primary">RSVP</h2>
-          <select
-            value={guest.rsvp}
-            onChange={(e) => changeRsvp(e.target.value as RsvpStatus)}
-            disabled={pending}
-            className="text-xs bg-canvas border border-border-soft rounded-sm px-1.5 py-0.5 text-ink-secondary outline-none disabled:opacity-50"
-          >
-            <option value="PENDING">Pending</option>
-            <option value="ATTENDING">Attending</option>
-            <option value="DECLINED">Declined</option>
-            <option value="MAYBE">Maybe</option>
-          </select>
+          {/* v2.5.1 (finding #5): segmented pills at a proper touch
+              height, replacing the ~22px plain <select> — this is the
+              single most-used action in this area. */}
+          <div className="inline-flex flex-wrap gap-1" role="group" aria-label="RSVP status">
+            {RSVP_OPTIONS.map((opt) => (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => changeRsvp(opt.value)}
+                disabled={pending}
+                aria-pressed={localRsvp === opt.value}
+                className={[
+                  "text-xs font-medium px-3 py-1.5 min-h-[40px] sm:min-h-0 rounded-full border transition-colors disabled:cursor-not-allowed",
+                  localRsvp === opt.value
+                    ? "bg-moss-500 text-on-moss border-moss-500"
+                    : "bg-canvas text-ink-secondary border-border-soft hover:border-moss-300 hover:text-moss-700",
+                  pending ? "opacity-60" : "",
+                ].join(" ")}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
         </div>
         <div className="flex gap-1.5">
           <Button variant="secondary" size="sm" onClick={() => setEditing(true)} disabled={pending}>

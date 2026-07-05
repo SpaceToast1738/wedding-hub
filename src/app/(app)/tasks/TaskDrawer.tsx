@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useCallback, useEffect, useState, useTransition } from "react";
 import { Avatar } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
 import { MentionableTextarea } from "@/components/ui/MentionableTextarea";
 import { notify } from "@/lib/notify";
 import { isoForInput } from "@/lib/format";
-import { deleteTask, updateTask } from "./actions";
+import { answerQuestion, deleteTask, updateTask } from "./actions";
 import { suggestTaskBreakdown } from "@/app/(app)/ai/actions";
 import type { UserOpt, SupplierOpt, BookSectionOpt, NavTagOpt, GuestGroupOpt } from "./TaskForm";
 import { TopicPicker, type BookSubsectionOpt } from "./TopicPicker";
@@ -23,6 +23,9 @@ type Task = {
   dueDate: Date | null;
   tags: string[];
   notes: string | null;
+  // v2.5.0 (mod #5): backing field for the Answer textarea on
+  // QUESTION/DECISION rows.
+  questionAnswer: string | null;
   // v1.28.0: optional supplier link.
   supplierId: string | null;
   // v1.30.5: replaces v1.30.0's bookSubsectionId. Multi-select
@@ -104,6 +107,8 @@ export function TaskDrawer({
   // v1.96.0: Category field removed. The tags column stays in the DB
   // but the drawer no longer reads or writes it.
   const [notes, setNotes] = useState(task.notes ?? "");
+  // v2.5.0 (mod #5): Question/Decision Answer field.
+  const [questionAnswer, setQuestionAnswer] = useState(task.questionAnswer ?? "");
   const [supplierId, setSupplierId] = useState(task.supplierId ?? "");
   // v1.30.5: m2m selections live as ID arrays. The TopicPicker emits
   // hidden inputs but we mirror the state here for the dirty check
@@ -121,15 +126,6 @@ export function TaskDrawer({
   const [pending, startTransition] = useTransition();
   const confirm = useConfirm();
 
-  // ESC key dismisses the drawer.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
   const dirty =
     title !== task.title ||
     type !== task.type ||
@@ -138,11 +134,39 @@ export function TaskDrawer({
     assigneeIds.slice().sort().join(",") !== initialAssigneeIds.join(",") ||
     dueDate !== (isoForInput(task.dueDate) ?? "") ||
     notes !== (task.notes ?? "") ||
+    questionAnswer !== (task.questionAnswer ?? "") ||
     (supplierId || null) !== (task.supplierId ?? null) ||
     bookSectionIds.slice().sort().join(",") !== initialBookSectionIds.join(",") ||
     bookSubsectionIds.slice().sort().join(",") !== initialBookSubsectionIds.join(",") ||
     navTagIds.slice().sort().join(",") !== initialNavTagIds.join(",") ||
     guestGroupIds.slice().sort().join(",") !== initialGuestGroupIds.join(",");
+
+  // v2.5.0 (mod #6): shared guarded-close — ESC, backdrop click, and
+  // the × button all used to discard dirty edits silently. One helper,
+  // one confirm prompt, used by all three dismiss paths below. (The
+  // footer's explicit "Cancel" button is left ungated — clicking a
+  // button labelled Cancel already signals discard intent.)
+  const guardedClose = useCallback(async () => {
+    if (dirty) {
+      const ok = await confirm({
+        title: "Discard changes?",
+        body: "You have unsaved edits on this task.",
+        confirmLabel: "Discard",
+        tone: "danger",
+      });
+      if (!ok) return;
+    }
+    onClose();
+  }, [dirty, confirm, onClose]);
+
+  // ESC key dismisses the drawer (guarded when dirty).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") guardedClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [guardedClose]);
 
   function save() {
     if (!title.trim()) {
@@ -179,9 +203,25 @@ export function TaskDrawer({
     for (const id of navTagIds) fd.append("topicKeys", `navTag:${id}`);
     // v1.61.0 (XL1): + guestGroup keys.
     for (const id of guestGroupIds) fd.append("topicKeys", `guestGroup:${id}`);
+    // v2.5.0 (mod #5): whether the answer changed this save, captured
+    // before the transition so it reads the pre-await state.
+    const answerChanged =
+      (type === "QUESTION" || type === "DECISION") && questionAnswer !== (task.questionAnswer ?? "");
     startTransition(async () => {
       try {
         await updateTask(task.id, fd);
+        // updateTask's schema has no `questionAnswer` field — the
+        // Answer textarea persists through the existing answerQuestion
+        // action instead (same one the /questions page's AnswerForm
+        // uses), run right after so a fresh answer is saved with the
+        // rest of the form in one Save click. Note: answerQuestion
+        // auto-derives status from whether the answer is non-empty
+        // (DONE vs OPEN) — same semantics as /questions — so it can
+        // override a manually-picked Status chip when the answer text
+        // changed in this save.
+        if (answerChanged) {
+          await answerQuestion(task.id, questionAnswer);
+        }
         notify("success", "Saved");
         onClose();
       } catch (err) {
@@ -228,12 +268,13 @@ export function TaskDrawer({
 
   return (
     <>
-      {/* Backdrop — click to dismiss. Soft tint so the list behind
-          stays visible (matches the screenshot mockup). Escape key
-          also dismisses (see useEffect above). */}
+      {/* Backdrop — click to dismiss (guarded when dirty, see
+          guardedClose above). Soft tint so the list behind stays
+          visible (matches the screenshot mockup). Escape key also
+          dismisses (see useEffect above). */}
       <div
         className="fixed inset-0 z-[400] bg-black/10"
-        onClick={onClose}
+        onClick={guardedClose}
         aria-hidden="true"
       />
       <aside
@@ -262,7 +303,7 @@ export function TaskDrawer({
           </div>
           <button
             type="button"
-            onClick={onClose}
+            onClick={guardedClose}
             aria-label="Close"
             className="text-ink-tertiary hover:text-ink-primary text-xl leading-none px-1 flex-shrink-0"
           >
@@ -271,6 +312,31 @@ export function TaskDrawer({
         </header>
 
         <div className="flex-1 overflow-auto px-5 py-4 space-y-4">
+          {/* v2.5.0 (mod #5): Answer field for QUESTION/DECISION rows,
+              at the top of the body — this is the thing someone opens
+              the drawer to read/update. Persists via answerQuestion()
+              (see save() above) rather than updateTask's schema. */}
+          {(type === "QUESTION" || type === "DECISION") && (
+            <div>
+              <strong className="block text-[10px] uppercase tracking-wider text-ink-tertiary font-bold mb-1.5">
+                Answer
+              </strong>
+              {canEdit ? (
+                <MentionableTextarea
+                  value={questionAnswer}
+                  onChange={(e) => setQuestionAnswer(e.target.value)}
+                  placeholder="Add the answer…"
+                  rows={3}
+                  className="w-full text-sm bg-surface text-ink-primary border border-border-soft rounded-sm px-2 py-1.5 outline-none focus:border-moss-500 resize-y"
+                />
+              ) : (
+                <p className="text-sm text-ink-primary whitespace-pre-wrap">
+                  {questionAnswer || <span className="text-ink-tertiary italic">—</span>}
+                </p>
+              )}
+            </div>
+          )}
+
           {/* v1.27.8: Type changer — TASK/QUESTION/DECISION. The
               model has always been polymorphic; this just exposes
               the toggle so a row created as the wrong kind can be
@@ -289,7 +355,7 @@ export function TaskDrawer({
                     className={[
                       "text-[11px] px-2.5 py-1 rounded-md border transition-colors",
                       type === o.value
-                        ? "bg-moss-500 text-white border-moss-500"
+                        ? "bg-moss-500 text-on-moss border-moss-500"
                         : "bg-canvas text-ink-secondary border-border-soft hover:border-moss-300",
                     ].join(" ")}
                   >
@@ -318,7 +384,7 @@ export function TaskDrawer({
                     className={[
                       "text-[11px] px-2.5 py-1 rounded-md border transition-colors",
                       status === o.value
-                        ? "bg-moss-500 text-white border-moss-500"
+                        ? "bg-moss-500 text-on-moss border-moss-500"
                         : "bg-canvas text-ink-secondary border-border-soft hover:border-moss-300",
                     ].join(" ")}
                   >
@@ -347,7 +413,7 @@ export function TaskDrawer({
                     className={[
                       "text-[11px] px-2.5 py-1 rounded-md border transition-colors",
                       priority === p
-                        ? "bg-moss-500 text-white border-moss-500"
+                        ? "bg-moss-500 text-on-moss border-moss-500"
                         : "bg-canvas text-ink-secondary border-border-soft hover:border-moss-300",
                     ].join(" ")}
                   >
@@ -390,7 +456,7 @@ export function TaskDrawer({
                           className={[
                             "text-[11px] px-2.5 py-1 rounded-full border transition-colors",
                             isOn
-                              ? "bg-moss-500 text-white border-moss-500"
+                              ? "bg-moss-500 text-on-moss border-moss-500"
                               : "bg-canvas text-ink-secondary border-border-soft hover:border-moss-300",
                           ].join(" ")}
                         >
@@ -525,11 +591,17 @@ export function TaskDrawer({
         </div>
 
         {canEdit && (
+          // v2.5.0 (mod #9): Delete used to sit directly beside Break
+          // down — a destructive action one misclick away from a
+          // generative one. `justify-between` now pins Delete alone on
+          // the far left; Break down moves in with Cancel/Save on the
+          // right where the rest of the "finishing this edit" actions
+          // live.
           <footer className="px-5 py-3 border-t border-border-soft flex justify-between items-center">
+            <Button variant="ghost" size="sm" onClick={onDelete} disabled={pending}>
+              Delete
+            </Button>
             <div className="flex gap-2 items-center">
-              <Button variant="ghost" size="sm" onClick={onDelete} disabled={pending}>
-                Delete
-              </Button>
               {type === "TASK" && (
                 // v2.4.0: one-shot AI breakdown — splits this task into
                 // 3–8 subtask proposals on /ai. Server action gates on
@@ -538,8 +610,6 @@ export function TaskDrawer({
                   ✨ Break down
                 </Button>
               )}
-            </div>
-            <div className="flex gap-2">
               <Button variant="ghost" size="sm" onClick={onClose} disabled={pending}>
                 Cancel
               </Button>

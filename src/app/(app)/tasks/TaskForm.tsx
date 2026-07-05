@@ -258,7 +258,7 @@ function AssigneePicker({
                 className={[
                   "text-xs px-2.5 py-1 rounded-full border transition-colors",
                   isOn
-                    ? "bg-moss-500 text-white border-moss-500"
+                    ? "bg-moss-500 text-on-moss border-moss-500"
                     : "bg-canvas text-ink-secondary border-border-soft hover:border-moss-300",
                 ].join(" ")}
                 aria-pressed={isOn}

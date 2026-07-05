@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { EmptyTasks, EmptyState } from "@/components/ui/Illustrations";
 import { TaskRow } from "./TaskRow";
 import { TaskBoard } from "./TaskBoard";
@@ -55,11 +55,13 @@ const SORT_LABELS: Record<SortKey, string> = {
 // rows; the user-facing labels match the existing pill / column copy.
 // v1.30.5: "topic" added — buckets by the union of bookSections + navTags
 // (a task in two topics appears in both buckets).
-type GroupKey = "none" | "assignee" | "category" | "supplier" | "topic" | "priority" | "status";
+// v2.5.0 (mod #4): "category" option removed — the field was dropped
+// from the write path in v1.96.0; grouping by it always produced a
+// single "Uncategorised" bucket for every task created since.
+type GroupKey = "none" | "assignee" | "supplier" | "topic" | "priority" | "status";
 const GROUP_LABELS: Record<GroupKey, string> = {
   none: "None",
   assignee: "Assignee",
-  category: "Category",
   supplier: "Supplier",
   topic: "Topic",
   priority: "Priority",
@@ -95,7 +97,11 @@ function priorityRank(p: string): number {
 //     added can stay, I just want the same style"). They live in
 //     the existing unified bg-surface band above the FilterTabs row.
 //   - Per-row done-circle KEPT in TaskRow.
-//   - Category column KEPT in TaskRow + header.
+//
+// v2.5.0 (mod #4, #7): Category column/pills removed (dead UI — see
+// the GroupKey comment above). Group + Sort selects folded into one
+// "Display" popover trigger (DisplayControl below) that echoes both
+// current values, plus a one-tap clear affordance.
 export function TaskList({
   tasks,
   users,
@@ -198,16 +204,15 @@ export function TaskList({
     return m;
   }, [navTags]);
 
-  // v1.27.4: distinct categories from `tags[0]` (the convention the
-  // rest of the app uses for "primary category"). Sorted alphabetically
-  // so the pill order is stable across renders.
-  const categories = useMemo(() => {
-    const set = new Set<string>();
-    for (const t of tasks) {
-      const cat = t.tags[0];
-      if (cat) set.add(cat);
-    }
-    return [...set].sort((a, b) => a.localeCompare(b));
+  // v2.5.0 (CRITICAL #2): count of open (non-done/archived) tasks past
+  // their due date, for the FilterTabs "Overdue" pill's count badge.
+  // Computed from the full `tasks` set (not `filtered`) so the badge
+  // reads the same regardless of which filter is currently active.
+  const overdueCount = useMemo(() => {
+    const now = Date.now();
+    return tasks.filter(
+      (t) => t.status !== "DONE" && t.status !== "ARCHIVED" && t.dueDate && t.dueDate.getTime() < now,
+    ).length;
   }, [tasks]);
 
   const filtered = useMemo(() => {
@@ -226,10 +231,11 @@ export function TaskList({
         if (t.type !== "QUESTION" && t.type !== "DECISION") return false;
       } else if (filter === "done") {
         if (t.status !== "DONE") return false;
-      } else if (filter.startsWith("cat:")) {
-        const cat = filter.slice(4);
-        if (t.tags[0] !== cat) return false;
-        if (t.status === "ARCHIVED") return false;
+      } else if (filter === "overdue") {
+        // v2.5.0 (CRITICAL #2): mirrors TaskRow/TaskBoard's overdue
+        // definition — due in the past AND not already done.
+        if (t.status === "DONE" || t.status === "ARCHIVED") return false;
+        if (!t.dueDate || t.dueDate.getTime() >= Date.now()) return false;
       }
       if (term) {
         const hay = `${t.title} ${t.tags.join(" ")} ${t.notes ?? ""}`.toLowerCase();
@@ -317,12 +323,6 @@ export function TaskList({
               bump(`u:${a.id}`, label, t, 0);
             }
           }
-          break;
-        }
-        case "category": {
-          const cat = t.tags[0];
-          if (cat) bump(`c:${cat}`, cat, t, 0);
-          else bump("c:null", "Uncategorised", t, 1);
           break;
         }
         case "supplier": {
@@ -436,44 +436,19 @@ export function TaskList({
             </span>
           )}
           <div className="flex items-center gap-3 ml-auto">
-            {/* v1.29.0: group-by selector. Sits next to Sort because
-                the user reads them together — "show me my tasks
-                grouped by category, sorted by due date". */}
-            <div className="flex items-center gap-1">
-              <label className="text-[10px] uppercase tracking-wider text-ink-tertiary font-bold">
-                Group
-              </label>
-              <select
-                value={groupKey}
-                onChange={(e) => setGroupKey(e.target.value as GroupKey)}
-                className="text-xs bg-canvas text-ink-primary border border-border-soft rounded-sm px-2 py-1 outline-none focus:border-moss-500"
-              >
-                {(Object.keys(GROUP_LABELS) as GroupKey[]).map((k) => (
-                  <option key={k} value={k}>
-                    {GROUP_LABELS[k]}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="flex items-center gap-1">
-              <label className="text-[10px] uppercase tracking-wider text-ink-tertiary font-bold">
-                Sort
-              </label>
-              <select
-                value={sortKey}
-                onChange={(e) => setSortKey(e.target.value as SortKey)}
-                className="text-xs bg-canvas text-ink-primary border border-border-soft rounded-sm px-2 py-1 outline-none focus:border-moss-500"
-              >
-                {(Object.keys(SORT_LABELS) as SortKey[]).map((k) => (
-                  <option key={k} value={k}>
-                    {SORT_LABELS[k]}
-                  </option>
-                ))}
-              </select>
-            </div>
+            {/* v2.5.0 (mod #7): Group + Sort selects folded into one
+                popover trigger — two peer-weight selects sitting bare
+                in the header read as more chrome than the page needed,
+                and each took its own tap to open. */}
+            <DisplayControl
+              groupKey={groupKey}
+              onGroupChange={setGroupKey}
+              sortKey={sortKey}
+              onSortChange={setSortKey}
+            />
           </div>
         </div>
-        <FilterTabs value={filter} onChange={setFilter} categories={categories} />
+        <FilterTabs value={filter} onChange={setFilter} overdueCount={overdueCount} />
       </div>
 
       {view === "board" ? (
@@ -505,7 +480,6 @@ export function TaskList({
                   <span className="w-16 text-center">Priority</span>
                   <span className="w-24 text-center">Status</span>
                   <span className="w-24 text-right">Due</span>
-                  <span className="w-24 text-center">Category</span>
                 </div>
                 {/* v1.29.0: render group sections. When groupKey is
                     "none" `groups` collapses to one synthetic section
@@ -567,5 +541,119 @@ export function TaskList({
         />
       )}
     </>
+  );
+}
+
+// v2.5.0 (mod #7): single popover trigger for Group + Sort. The trigger
+// echoes both current values ("Grouped: Supplier · Sort: Smart") so the
+// header doesn't need two always-visible selects to communicate state,
+// and a small × affordance appears once either value has drifted from
+// its default — one tap resets both instead of reopening each select.
+function DisplayControl({
+  groupKey,
+  onGroupChange,
+  sortKey,
+  onSortChange,
+}: {
+  groupKey: GroupKey;
+  onGroupChange: (k: GroupKey) => void;
+  sortKey: SortKey;
+  onSortChange: (k: SortKey) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const isDefault = groupKey === "none" && sortKey === "smart";
+
+  // Click-outside + Escape dismiss — same pattern as GuestGroupsControl.
+  useEffect(() => {
+    if (!open) return;
+    function onPointerDown(e: PointerEvent) {
+      if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) setOpen(false);
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("pointerdown", onPointerDown);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  function clear() {
+    onGroupChange("none");
+    onSortChange("smart");
+  }
+
+  return (
+    <div ref={wrapperRef} className="relative inline-block">
+      {/* Two sibling <button>s rather than a button-in-button — a
+          nested interactive clear affordance inside the trigger would
+          be invalid nesting and unreliable for screen readers/focus
+          order. The shared border/background lives on this wrapper so
+          it still reads as one control. */}
+      <div className="inline-flex items-center gap-1 text-xs bg-canvas text-ink-secondary border border-border-soft rounded-sm min-h-[40px] sm:min-h-0 hover:border-moss-300">
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          aria-haspopup="true"
+          aria-expanded={open}
+          className="px-2.5 py-1.5 min-h-[40px] sm:min-h-0"
+        >
+          Grouped: {GROUP_LABELS[groupKey]} · Sort: {SORT_LABELS[sortKey]}
+        </button>
+        {!isDefault && (
+          <button
+            type="button"
+            onClick={clear}
+            aria-label="Reset display options to default"
+            title="Reset to default"
+            className="pr-2.5 pl-1 min-h-[40px] sm:min-h-0 text-ink-tertiary hover:text-ink-primary leading-none"
+          >
+            ×
+          </button>
+        )}
+      </div>
+      {open && (
+        <div
+          role="menu"
+          className="absolute right-0 mt-1 z-30 w-56 rounded-md border border-border-soft bg-surface shadow-lg p-3 space-y-3"
+        >
+          <label className="block">
+            <span className="block text-[10px] uppercase tracking-wider text-ink-tertiary font-bold mb-1">
+              Group
+            </span>
+            <select
+              value={groupKey}
+              onChange={(e) => onGroupChange(e.target.value as GroupKey)}
+              className="w-full text-xs bg-canvas text-ink-primary border border-border-soft rounded-sm px-2 py-1.5 outline-none focus:border-moss-500"
+            >
+              {(Object.keys(GROUP_LABELS) as GroupKey[]).map((k) => (
+                <option key={k} value={k}>
+                  {GROUP_LABELS[k]}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block">
+            <span className="block text-[10px] uppercase tracking-wider text-ink-tertiary font-bold mb-1">
+              Sort
+            </span>
+            <select
+              value={sortKey}
+              onChange={(e) => onSortChange(e.target.value as SortKey)}
+              className="w-full text-xs bg-canvas text-ink-primary border border-border-soft rounded-sm px-2 py-1.5 outline-none focus:border-moss-500"
+            >
+              {(Object.keys(SORT_LABELS) as SortKey[]).map((k) => (
+                <option key={k} value={k}>
+                  {SORT_LABELS[k]}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      )}
+    </div>
   );
 }

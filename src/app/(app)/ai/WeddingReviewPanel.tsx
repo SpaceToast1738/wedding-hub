@@ -11,23 +11,28 @@ import { useState, useTransition } from "react";
 import { reviewWeddingState, type WeddingReview } from "./actions";
 import { InlineMarkdown } from "@/components/ai/MarkdownMessage";
 
+// v2.5.0: raw Tailwind palette (rose/amber/slate) swapped for the
+// app's semantic tokens — same mapping Toaster.tsx uses (danger for
+// rose, marigold for amber, ink-tertiary/muted for slate). The raw
+// colors didn't remap for dark mode, so severity badges lost all
+// contrast there.
 const SEVERITY_STYLES: Record<
   "high" | "medium" | "low",
   { badge: string; row: string; label: string }
 > = {
   high: {
-    badge: "bg-rose-100 text-rose-900 border-rose-300",
-    row: "border-rose-300 bg-rose-50/60",
+    badge: "bg-danger-bg text-danger border-danger-border",
+    row: "border-danger-border bg-danger-bg/60",
     label: "High",
   },
   medium: {
-    badge: "bg-amber-100 text-amber-900 border-amber-300",
-    row: "border-amber-300 bg-amber-50/50",
+    badge: "bg-marigold-100 text-marigold-700 border-marigold-200",
+    row: "border-marigold-200 bg-marigold-100/50",
     label: "Medium",
   },
   low: {
-    badge: "bg-slate-100 text-slate-700 border-slate-300",
-    row: "border-slate-200 bg-slate-50/60",
+    badge: "bg-muted text-ink-tertiary border-border-soft",
+    row: "border-border-soft bg-muted/60",
     label: "Low",
   },
 };
@@ -75,7 +80,7 @@ export function WeddingReviewPanel() {
         </button>
       </div>
       {error && (
-        <div className="text-xs text-rose-700 rounded-md border border-rose-300 bg-rose-50 p-2">
+        <div className="text-xs text-danger rounded-md border border-danger-border bg-danger-bg p-2">
           ✗ {error}
         </div>
       )}
@@ -149,7 +154,7 @@ function ReviewBody({ review }: { review: WeddingReview }) {
           <ul className="space-y-1 text-sm text-ink-secondary">
             {review.onTrack.map((n, i) => (
               <li key={i}>
-                <span className="text-emerald-700">✓</span>{" "}
+                <span className="text-moss-700">✓</span>{" "}
                 <span className="text-ink-primary font-medium">{n.area}:</span>{" "}
                 <InlineMarkdown text={n.note} />
               </li>
@@ -159,7 +164,11 @@ function ReviewBody({ review }: { review: WeddingReview }) {
       )}
 
       <div className="text-[11px] text-ink-tertiary pt-2 border-t border-border-soft">
-        This review cost {(review.costPence / 100).toFixed(2)}p. The AI can be
+        {/* v2.5.0: was `(costPence / 100).toFixed(2)` labelled "p" —
+            that divides pence into pounds but keeps the pence label,
+            showing a number 100x too small. Matches UsageDashboard's
+            £-formatted pence(). */}
+        This review cost £{(review.costPence / 100).toFixed(2)}. The AI can be
         wrong — sanity-check anything critical before you act.
       </div>
     </div>

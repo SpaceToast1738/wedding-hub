@@ -5,6 +5,7 @@ import { StatusPill } from "@/components/ui/StatusPill";
 import { Avatar } from "@/components/ui/Avatar";
 import { requireUser } from "@/lib/actions";
 import { getWeddingSettings } from "@/lib/wedding-settings";
+import { priorityBarColour } from "../priority-colour";
 
 function daysUntil(d: Date): number {
   const ms = d.getTime() - Date.now();
@@ -338,14 +339,20 @@ export default async function AtAGlancePage() {
                       )
                         .filter(([k]) => fundPaid[k] > 0)
                         .map(([k, label]) => (
+                          // v2.5.x: was hover:underline on otherwise-plain
+                          // text — indistinguishable from a static label
+                          // until the pointer was already over it. Now a
+                          // persistent moss-700 label + trailing arrow
+                          // signal "this is a link" at rest.
                           <Link
                             key={k}
                             href={`/budget?fund=${k}`}
-                            className="hover:underline"
+                            className="inline-flex items-center gap-1 hover:underline"
                             title={`Filter /budget by ${label}`}
                           >
                             <strong className="text-ink-primary tabular-nums">{formatGBP(fundPaid[k])}</strong>
-                            <span className="text-ink-tertiary ml-1">{label}</span>
+                            <span className="text-moss-700">{label}</span>
+                            <span className="text-moss-700" aria-hidden>→</span>
                           </Link>
                         ))}
                     </div>
@@ -374,16 +381,20 @@ export default async function AtAGlancePage() {
                       <ul className="space-y-0.5">
                         {pulseTopCategories.map((c) => (
                           <li key={c.id ?? "__uncat__"} className="flex justify-between text-[11px]">
-                            <span className="text-ink-tertiary truncate">
+                            <span className="truncate">
                               {c.id ? (
+                                // v2.5.x: persistent moss-700 + trailing
+                                // arrow so the link reads as clickable
+                                // before hover, not just on it.
                                 <a
                                   href={`/payments?category=${c.id}`}
-                                  className="hover:text-moss-700 hover:underline"
+                                  className="text-moss-700 hover:underline inline-flex items-center gap-0.5"
                                 >
                                   {c.name}
+                                  <span aria-hidden>→</span>
                                 </a>
                               ) : (
-                                c.name
+                                <span className="text-ink-tertiary">{c.name}</span>
                               )}
                             </span>
                             <span className="text-ink-secondary tabular-nums">{formatGBP(c.total)}</span>
@@ -430,7 +441,10 @@ export default async function AtAGlancePage() {
                           <div className="text-xs font-medium text-ink-primary truncate">
                             {p.supplier?.name ?? p.description}
                           </div>
-                          <div className="text-[10px] text-ink-tertiary">
+                          {/* v2.5.x: load-bearing (a real due date), not
+                              section-label chrome — bumped from 10px/
+                              ink-tertiary to text-xs/ink-secondary. */}
+                          <div className="text-xs text-ink-secondary">
                             Due {formatDate(p.dueDate)}
                           </div>
                         </div>
@@ -452,19 +466,18 @@ export default async function AtAGlancePage() {
                   <ul className="divide-y divide-border-soft">
                     {myOpenTasks.map((t) => (
                       <li key={t.id} className="flex items-center gap-2 py-1.5">
+                        {/* Shared priorityBarColour helper (src/app/(app)/priority-colour.ts)
+                            — was previously its own mapping here that
+                            disagreed with TodayTaskList's. */}
                         <span
-                          className={`w-1 h-3.5 rounded ${
-                            t.priority === "HIGH" || t.priority === "URGENT"
-                              ? "bg-danger"
-                              : t.priority === "LOW"
-                                ? "bg-moss-300"
-                                : "bg-marigold-500"
-                          } flex-shrink-0`}
+                          className={`w-1 h-3.5 rounded ${priorityBarColour(t.priority)} flex-shrink-0`}
                         />
                         <span className="flex-1 text-xs text-ink-primary truncate">
                           {t.title}
                         </span>
-                        <span className="text-[10px] text-ink-tertiary">
+                        {/* v2.5.x: load-bearing due date, bumped from
+                            10px/ink-tertiary to text-xs/ink-secondary. */}
+                        <span className="text-xs text-ink-secondary">
                           {formatDate(t.dueDate)}
                         </span>
                       </li>
@@ -504,7 +517,10 @@ export default async function AtAGlancePage() {
                               {phrase}
                             </span>
                           </div>
-                          <div className="text-[10px] text-ink-tertiary">
+                          {/* v2.5.x: load-bearing timestamp, bumped
+                              from 10px/ink-tertiary to text-xs/
+                              ink-secondary. */}
+                          <div className="text-xs text-ink-secondary">
                             {formatRelativeTime(a.createdAt)}
                           </div>
                         </div>
@@ -664,12 +680,16 @@ function RsvpDonut({
           />
         )}
         {declined > 0 && (
+          // v2.5.x: a declined RSVP isn't an error state — page.tsx's
+          // Snapshot strip and the prototype both render it as neutral
+          // grey. Switched from --color-danger to --color-border-strong
+          // so this donut doesn't send a false "something's wrong" signal.
           <circle
             cx={cx}
             cy={cy}
             r={r}
             fill="none"
-            stroke="var(--color-danger)"
+            stroke="var(--color-border-strong)"
             strokeWidth={10}
             strokeDasharray={`${declinedArc} ${circ}`}
             strokeDashoffset={-(confirmedArc + pendingArc - startOffset)}
@@ -702,7 +722,9 @@ function RsvpDonut({
       <ul className="flex flex-col gap-1.5 text-xs">
         <LegendDot color="var(--color-moss-500)" label={`${attending} confirmed`} />
         <LegendDot color="var(--color-marigold-500)" label={`${pending} pending`} />
-        <LegendDot color="var(--color-danger)" label={`${declined} declined`} />
+        {/* v2.5.x: neutral grey to match the donut arc + page.tsx's
+            Snapshot strip — declined isn't an error/danger state. */}
+        <LegendDot color="var(--color-border-strong)" label={`${declined} declined`} />
       </ul>
     </div>
   );

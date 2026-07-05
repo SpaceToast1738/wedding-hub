@@ -8,7 +8,7 @@ import { formatMoneyDecimal } from "@/lib/format";
 import { formatWeddingDate, getWeddingSettings } from "@/lib/wedding-settings";
 import { EmptyPayments, EmptyState } from "@/components/ui/Illustrations";
 import { InlinePaymentGrid } from "./InlinePaymentGrid";
-import { PaymentRow } from "./PaymentRow";
+import { PaymentsList } from "./PaymentRow";
 
 // v1.57.0 (XL8): accepts `?supplier=<id>` filter — supplier-detail
 // "Manage on Payments →" deep-link now lands at the filtered list
@@ -56,7 +56,14 @@ export default async function PaymentsPage({
   const [payments, suppliers, buildCardsRaw, outfitCardsRaw, allFiles, categories] = await Promise.all([
     db.payment.findMany({
       where: Object.keys(paymentsWhere).length > 0 ? paymentsWhere : undefined,
-      orderBy: [{ status: "asc" }, { dueDate: "asc" }, { createdAt: "desc" }],
+      // v2.6.0 (design pass finding 1): the raw status enum is no
+      // longer the sort key — it buried anything actually marked
+      // OVERDUE below the entire paid pile, and a payment three weeks
+      // past due sorted identically to one due next month. PaymentsList
+      // now re-groups + re-sorts client-side (overdue/due first by due
+      // date, then scheduled, then paid, then cancelled last); this
+      // base order just needs to be a sane starting point.
+      orderBy: [{ dueDate: "asc" }, { createdAt: "desc" }],
       // v1.75.0: surface receipt count + linked book-row identity for
       // PaymentRow's chip rendering. Materials surface their parent
       // card's title via the cascading include; outfit items surface
@@ -176,9 +183,19 @@ export default async function PaymentsPage({
     }),
   ]);
 
-  const total = payments.reduce((sum, p) => sum + Number(p.amount.toString()), 0);
-  const paid = payments.filter((p) => p.status === "PAID").reduce((sum, p) => sum + Number(p.amount.toString()), 0);
+  // v2.6.0 (design pass finding 3): CANCELLED payments used to be
+  // included in `total`, permanently inflating "how much is left to
+  // pay" by money that was never going to be paid. Exclude them from
+  // the total the Outstanding stat is built from; surface their count
+  // + sum separately in the subtitle instead of silently folding them
+  // in. (They're also still visible in their own collapsed "Cancelled"
+  // section in the list below — see PaymentsList.)
+  const active = payments.filter((p) => p.status !== "CANCELLED");
+  const total = active.reduce((sum, p) => sum + Number(p.amount.toString()), 0);
+  const paid = active.filter((p) => p.status === "PAID").reduce((sum, p) => sum + Number(p.amount.toString()), 0);
   const outstanding = total - paid;
+  const cancelledPayments = payments.filter((p) => p.status === "CANCELLED");
+  const cancelledTotal = cancelledPayments.reduce((sum, p) => sum + Number(p.amount.toString()), 0);
   const filteredSupplier = supplierFilter
     ? suppliers.find((s) => s.id === supplierFilter)
     : null;
@@ -232,7 +249,12 @@ export default async function PaymentsPage({
     <>
       <PageHeader
         title="Payments"
-        subtitle={`Outstanding: ${formatMoneyDecimal(outstanding as unknown as { toString(): string })} · Paid: ${formatMoneyDecimal(paid as unknown as { toString(): string })}`}
+        subtitle={
+          `Outstanding: ${formatMoneyDecimal(outstanding as unknown as { toString(): string })} · Paid: ${formatMoneyDecimal(paid as unknown as { toString(): string })}` +
+          (cancelledPayments.length > 0
+            ? ` · ${cancelledPayments.length} cancelled (${formatMoneyDecimal(cancelledTotal as unknown as { toString(): string })}, not counted above)`
+            : "")
+        }
         actions={
           <div className="flex items-center gap-2">
             <PrintButton />
@@ -298,36 +320,20 @@ export default async function PaymentsPage({
               body="Add your first one above. Linked payments roll up into the budget actuals."
             />
           ) : (
-            <div className="bg-surface border border-border-soft rounded-md shadow-sm overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-border-soft text-[10px] font-bold text-ink-tertiary uppercase tracking-wider bg-canvas">
-                    <th className="px-4 py-2 text-left">Description</th>
-                    <th className="px-4 py-2 text-left">Supplier</th>
-                    <th className="px-4 py-2 text-right">Amount</th>
-                    <th className="px-4 py-2 text-left">Due</th>
-                    <th className="px-4 py-2 text-left">Status</th>
-                    <th className="px-4 py-2 text-left">Method</th>
-                    <th className="px-4 py-2 text-left">Linked / Receipts</th>
-                    <th className="px-4 py-2"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {payments.map((p) => (
-                    <PaymentRow
-                      key={p.id}
-                      payment={p}
-                      suppliers={suppliers}
-                      files={allFiles}
-                      budgetCategories={categories}
-                      canEdit={true}
-                      // v1.86.0: couple's first names → fund chip labels
-                      fundLabelSource={{ brideFirst: wedding.brideFirst, groomFirst: wedding.groomFirst }}
-                    />
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            // v2.6.0 (design pass): PaymentsList owns grouping (Needs
+            // attention / Coming up / Done / Cancelled), sorting, and
+            // the desktop-table-vs-mobile-card responsive split — see
+            // PaymentRow.tsx. Replaces the flat, DB-order table that
+            // used to render directly here.
+            <PaymentsList
+              payments={payments}
+              suppliers={suppliers}
+              files={allFiles}
+              budgetCategories={categories}
+              canEdit={true}
+              // v1.86.0: couple's first names → fund chip labels
+              fundLabelSource={{ brideFirst: wedding.brideFirst, groomFirst: wedding.groomFirst }}
+            />
           )}
         </div>
       </div>

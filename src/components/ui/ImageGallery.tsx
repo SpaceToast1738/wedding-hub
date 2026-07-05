@@ -417,7 +417,7 @@ function ModePicker({
             className={[
               "text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-sm border transition-colors",
               active
-                ? "bg-moss-500 text-white border-moss-500"
+                ? "bg-moss-500 text-on-moss border-moss-500"
                 : "bg-canvas text-ink-tertiary border-border-soft hover:border-moss-300 hover:text-ink-secondary",
             ].join(" ")}
           >
@@ -462,7 +462,7 @@ function SizeToggle({
             className={[
               "text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded-sm border transition-colors",
               active
-                ? "bg-moss-500 text-white border-moss-500"
+                ? "bg-moss-500 text-on-moss border-moss-500"
                 : "bg-canvas text-ink-tertiary border-border-soft hover:border-moss-300 hover:text-ink-secondary",
             ].join(" ")}
           >
@@ -498,7 +498,7 @@ function AutoplayToggle({
         className={[
           "text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded-sm border transition-colors",
           !value
-            ? "bg-moss-500 text-white border-moss-500"
+            ? "bg-moss-500 text-on-moss border-moss-500"
             : "bg-canvas text-ink-tertiary border-border-soft hover:border-moss-300",
         ].join(" ")}
       >
@@ -512,7 +512,7 @@ function AutoplayToggle({
         className={[
           "text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded-sm border transition-colors",
           value
-            ? "bg-moss-500 text-white border-moss-500"
+            ? "bg-moss-500 text-on-moss border-moss-500"
             : "bg-canvas text-ink-tertiary border-border-soft hover:border-moss-300",
         ].join(" ")}
       >
@@ -977,7 +977,7 @@ function SlideshowCarousel({
             type="button"
             onClick={prev}
             aria-label="Previous photo"
-            className="absolute left-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-black/40 hover:bg-black/60 text-white text-lg leading-none flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+            className="absolute left-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-black/40 hover:bg-black/60 text-white text-lg leading-none flex items-center justify-center opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100 transition-opacity"
           >
             ‹
           </button>
@@ -985,7 +985,7 @@ function SlideshowCarousel({
             type="button"
             onClick={next}
             aria-label="Next photo"
-            className="absolute right-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-black/40 hover:bg-black/60 text-white text-lg leading-none flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+            className="absolute right-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-black/40 hover:bg-black/60 text-white text-lg leading-none flex items-center justify-center opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100 transition-opacity"
           >
             ›
           </button>

@@ -463,6 +463,7 @@ export function BookOutfitCardEditor({
             pending={pending}
             onReorder={reorderComponents}
             onToggleHidden={toggleComponentHidden}
+            canEdit={canEdit}
           />
         );
       })()}
@@ -487,7 +488,9 @@ function StatTile({
       className="bg-canvas border border-border-soft rounded-md px-3 py-2"
       title={title}
     >
-      <div className="text-[9px] uppercase tracking-wider text-ink-tertiary font-bold">
+      {/* Design-pass fix: bumped from 9px to the 10px chrome-label
+          floor, and to ink-secondary for legibility. */}
+      <div className="text-[10px] uppercase tracking-wider text-ink-secondary font-bold">
         {label}
       </div>
       <div className="text-sm font-semibold text-ink-primary tabular-nums">
@@ -612,7 +615,7 @@ function ViewBody({ card }: { card: CardData }) {
 
       {card.notes && (
         <div>
-          <strong className="block text-[10px] uppercase tracking-wider text-ink-tertiary font-bold mb-1">
+          <strong className="block text-[10px] uppercase tracking-wider text-ink-secondary font-bold mb-1">
             Notes
           </strong>
           <p className="text-sm text-ink-secondary whitespace-pre-wrap">{card.notes}</p>

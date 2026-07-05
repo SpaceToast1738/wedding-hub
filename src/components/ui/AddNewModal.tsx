@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 
 // v1.56.0: reusable popout wrapper for "+ New X" forms. User
 // preference: every Add affordance should pop out as a centred
@@ -38,6 +38,13 @@ export function AddNewModal({
   /** Visual width preset. `sm` ≈ 480px, `md` ≈ 560px, `lg` ≈ 680px. */
   width?: "sm" | "md" | "lg";
 }) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  // v2.5.0: restore focus to the invoking element on close, and
+  // autofocus the first field on open — previously nothing moved
+  // focus into the dialog, so keyboard/screen-reader users started
+  // "behind" the backdrop.
+  const previouslyFocusedRef = useRef<HTMLElement | null>(null);
+
   // Esc to close. Listener installed only while open so we don't
   // intercept Esc when the modal is dormant.
   useEffect(() => {
@@ -49,6 +56,43 @@ export function AddNewModal({
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
+  // v2.5.0: focus trap — Tab/Shift+Tab cycles within the dialog.
+  useEffect(() => {
+    if (!open) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key !== "Tab" || !dialogRef.current) return;
+      const focusable = dialogRef.current.querySelectorAll<HTMLElement>(
+        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+      );
+      if (focusable.length === 0) return;
+      const first = focusable[0]!;
+      const last = focusable[focusable.length - 1]!;
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    previouslyFocusedRef.current = document.activeElement as HTMLElement | null;
+    // First focusable field, not the × button — the form's first
+    // input is almost always what the user opened the modal to fill in.
+    const el = dialogRef.current?.querySelector<HTMLElement>(
+      'input, select, textarea, button:not([aria-label="Close"])',
+    );
+    el?.focus();
+    return () => {
+      previouslyFocusedRef.current?.focus?.();
+    };
+  }, [open]);
+
   if (!open) return null;
 
   const widthClass =
@@ -59,12 +103,15 @@ export function AddNewModal({
         : "max-w-[680px]";
 
   return (
+    // v2.5.0: aria-hidden REMOVED — it was hiding the role="dialog"
+    // element it contains (and everything inside it) from the
+    // accessibility tree. The dim layer has no content of its own.
     <div
       className="fixed inset-0 z-[400] bg-black/30 flex items-start sm:items-center justify-center pt-6 sm:pt-0 px-4 overflow-y-auto"
       onClick={onClose}
-      aria-hidden="true"
     >
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-label={title}

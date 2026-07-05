@@ -12,6 +12,18 @@ const TYPE_META: Record<CaptureType, { label: string; placeholder: string }> = {
   event: { label: "Event", placeholder: "Event title…" },
 };
 
+// v2.5.0: window-event bus so the mobile tab bar's floating action
+// button can open the modal without lifting state through the
+// (server-component) AppShell — same convention as lib/notify.ts's
+// toast bus. The 'C' keyboard shortcut stays wired locally below;
+// this just gives touch users an equivalent entry point.
+const OPEN_EVENT = "wh:quickcapture:open";
+
+export function openQuickCapture(): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new Event(OPEN_EVENT));
+}
+
 // True when the keypress originated in something that takes text input.
 // We don't want C inside a textarea to pop the modal.
 function isTypingTarget(target: EventTarget | null): boolean {
@@ -65,6 +77,16 @@ export function QuickCapture() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [open]);
+
+  // Listen for the open request dispatched by openQuickCapture() — the
+  // mobile FAB's only way to reach this modal (see MobileTabBar.tsx).
+  useEffect(() => {
+    function onOpenRequest() {
+      setOpen(true);
+    }
+    window.addEventListener(OPEN_EVENT, onOpenRequest);
+    return () => window.removeEventListener(OPEN_EVENT, onOpenRequest);
+  }, []);
 
   // Focus the input when the modal opens.
   useEffect(() => {
@@ -140,7 +162,7 @@ export function QuickCapture() {
                     className={[
                       "text-xs px-2.5 py-1 rounded-sm border transition-colors",
                       type === t
-                        ? "bg-moss-500 text-white border-moss-500"
+                        ? "bg-moss-500 text-on-moss border-moss-500"
                         : "bg-canvas text-ink-secondary border-border-soft hover:border-moss-300",
                     ].join(" ")}
                   >
@@ -216,7 +238,7 @@ export function QuickCapture() {
         // sit behind the MobileTabBar (h-14 = 56px). Desktop stays at
         // 24px since there's no tabbar.
         <div
-          className="fixed bottom-20 sm:bottom-6 left-1/2 -translate-x-1/2 z-[700] bg-moss-700 text-white text-sm px-4 py-2 rounded-md shadow-lg"
+          className="fixed bottom-20 sm:bottom-6 left-1/2 -translate-x-1/2 z-[700] bg-moss-700 text-on-moss text-sm px-4 py-2 rounded-md shadow-lg"
           role="status"
           aria-live="polite"
         >

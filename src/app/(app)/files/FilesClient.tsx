@@ -1,12 +1,14 @@
 "use client";
 
-import { useMemo, useRef, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { FileVisibility } from "@prisma/client";
+import { Avatar } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Tag } from "@/components/ui/Tag";
-import { deleteFile, updateFile, uploadFile } from "./actions";
+import { deleteFile, listUploaderNames, updateFile, uploadFile } from "./actions";
 import { formatDate } from "@/lib/format";
+import { notify } from "@/lib/notify";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 
 type FileRow = {
@@ -18,7 +20,19 @@ type FileRow = {
   folder: string | null;
   visibility: FileVisibility;
   createdAt: Date;
+  // v2.5.0 (design pass #9): present on every row already (Prisma
+  // returns every scalar column by default) — declaring it here just
+  // lets the client resolve + display who uploaded each file.
+  uploadedById: string | null;
 };
+
+/** name/firstName keyed by user id, resolved client-side via listUploaderNames. */
+type UploaderMap = Record<string, { name: string | null; firstName: string | null }>;
+
+function uploaderLabel(u: UploaderMap[string] | undefined): string | null {
+  if (!u) return null;
+  return u.firstName ?? u.name?.split(/\s+/)[0] ?? null;
+}
 
 const NO_FOLDER_KEY = "__no_folder__";
 
@@ -71,6 +85,20 @@ function typeBucket(mime: string): TypeFilter {
   return "other";
 }
 
+// v2.5.0 (design pass #8): human-readable bucket labels for the file
+// metadata line. The raw MIME string (e.g. the ~70-char Word docx
+// type) wrapped across multiple lines on a narrow phone and buried
+// the size/date the user actually wants — reuses the same typeBucket
+// classifier the filter pills already use, instead of printing
+// file.mimeType verbatim.
+const TYPE_LABELS: Record<TypeFilter, string> = {
+  all: "File",
+  image: "Image",
+  pdf: "PDF",
+  doc: "Document",
+  other: "Other",
+};
+
 export function FilesClient({
   files,
   canEdit,
@@ -85,6 +113,26 @@ export function FilesClient({
     () => Array.from(new Set(files.map((f) => f.folder).filter((f): f is string => !!f))).sort(),
     [files],
   );
+
+  // v2.5.0 (design pass #9): resolve uploader names once, client-side.
+  // No Prisma relation exists from File → User (uploadedById is a
+  // plain scalar column), so this is a follow-up fetch rather than
+  // something the server component could have included in the initial
+  // `files` prop.
+  const [uploaders, setUploaders] = useState<UploaderMap>({});
+  useEffect(() => {
+    const ids = files.map((f) => f.uploadedById).filter((id): id is string => !!id);
+    if (ids.length === 0) return;
+    let cancelled = false;
+    listUploaderNames(ids)
+      .then((map) => {
+        if (!cancelled) setUploaders(map);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [files]);
 
   const filtered = useMemo(() => {
     if (typeFilter === "all") return files;
@@ -132,6 +180,7 @@ export function FilesClient({
               folderNames={folderNames}
               canEdit={canEdit}
               isCouple={isCouple}
+              uploaders={uploaders}
             />
           ))
         )}
@@ -146,12 +195,14 @@ function FolderGroup({
   folderNames,
   canEdit,
   isCouple,
+  uploaders,
 }: {
   label: string;
   files: FileRow[];
   folderNames: string[];
   canEdit: boolean;
   isCouple: boolean;
+  uploaders: UploaderMap;
 }) {
   return (
     <section>
@@ -171,6 +222,7 @@ function FolderGroup({
             folderNames={folderNames}
             canEdit={canEdit}
             isCouple={isCouple}
+            uploader={f.uploadedById ? uploaders[f.uploadedById] : undefined}
           />
         ))}
       </ul>
@@ -183,11 +235,13 @@ function FileItem({
   folderNames,
   canEdit,
   isCouple,
+  uploader,
 }: {
   file: FileRow;
   folderNames: string[];
   canEdit: boolean;
   isCouple: boolean;
+  uploader: UploaderMap[string] | undefined;
 }) {
   const [editing, setEditing] = useState(false);
   const [pending, startTransition] = useTransition();
@@ -235,6 +289,7 @@ function FileItem({
   }
 
   const isImage = /^image\//.test(file.mimeType);
+  const uploaderName = uploaderLabel(uploader);
 
   return (
     <li className="flex items-center gap-3 px-4 py-2.5 group hover:bg-muted/30">
@@ -268,31 +323,141 @@ function FileItem({
             </span>
           )}
         </div>
-        <div className="text-[11px] text-ink-tertiary mt-0.5">
-          {formatSize(file.sizeBytes)} · {file.mimeType} · {formatDate(file.createdAt)}
+        <div className="text-[11px] text-ink-tertiary mt-0.5 flex items-center gap-1.5 flex-wrap">
+          {/* v2.5.0 (design pass #9): who uploaded this, once resolved. */}
+          {uploaderName && (
+            <span className="inline-flex items-center gap-1 text-ink-secondary">
+              <Avatar name={uploader?.name ?? uploaderName} size={14} />
+              {uploaderName}
+            </span>
+          )}
+          <span>
+            {/* v2.5.0 (design pass #8): human bucket label instead of
+                the raw MIME string — a long docx/xlsx MIME type used
+                to wrap across lines on a narrow phone and bury the
+                size/date. */}
+            {formatSize(file.sizeBytes)} · {TYPE_LABELS[typeBucket(file.mimeType)]} · {formatDate(file.createdAt)}
+          </span>
         </div>
         {error && <div className="text-[11px] text-danger mt-0.5">{error}</div>}
       </div>
       {canEdit && (
-        <div className="flex gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity flex-shrink-0">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={toggleVisibility}
-            disabled={pending}
-            title={isCoupleOnly ? "Make visible to everyone" : "Make couple-only"}
-          >
-            {isCoupleOnly ? "🔓" : "🔒"}
-          </Button>
-          <Button variant="ghost" size="sm" onClick={() => setEditing(true)} disabled={pending}>
-            Edit
-          </Button>
-          <Button variant="ghost" size="sm" onClick={onDelete} disabled={pending}>
-            ×
-          </Button>
-        </div>
+        // v2.5.0 (design pass #1): was three hover-only ghost buttons —
+        // invisible on touch yet still tappable, so a stray tap on an
+        // invisible control could fire delete with zero visible
+        // affordance. One always-visible menu button at a proper touch
+        // size replaces all three.
+        <FileRowMenu
+          fileName={file.name}
+          isCoupleOnly={isCoupleOnly}
+          pending={pending}
+          onToggleVisibility={toggleVisibility}
+          onEdit={() => setEditing(true)}
+          onDelete={onDelete}
+        />
       )}
     </li>
+  );
+}
+
+function FileRowMenu({
+  fileName,
+  isCoupleOnly,
+  pending,
+  onToggleVisibility,
+  onEdit,
+  onDelete,
+}: {
+  fileName: string;
+  isCoupleOnly: boolean;
+  pending: boolean;
+  onToggleVisibility: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    function onClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("keydown", onKey);
+    document.addEventListener("mousedown", onClick);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("mousedown", onClick);
+    };
+  }, [open]);
+
+  return (
+    <div ref={ref} className="relative flex-shrink-0">
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        onClick={() => setOpen((v) => !v)}
+        disabled={pending}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label={`Actions for ${fileName}`}
+        className="px-2 min-w-[40px] justify-center"
+      >
+        ⋮
+      </Button>
+      {open && (
+        <div
+          role="menu"
+          aria-label={`Actions for ${fileName}`}
+          className="absolute right-0 top-full mt-1 z-20 w-52 bg-surface border border-border-soft rounded-md shadow-lg py-1"
+        >
+          <button
+            role="menuitem"
+            type="button"
+            disabled={pending}
+            onClick={() => {
+              setOpen(false);
+              onToggleVisibility();
+            }}
+            className="flex items-center gap-2.5 w-full px-3.5 py-2.5 min-h-[40px] text-sm text-ink-secondary hover:bg-muted text-left cursor-pointer disabled:opacity-50"
+          >
+            <span aria-hidden className="w-4 text-center">{isCoupleOnly ? "🔓" : "🔒"}</span>
+            {isCoupleOnly ? "Make visible to everyone" : "Make couple-only"}
+          </button>
+          <button
+            role="menuitem"
+            type="button"
+            disabled={pending}
+            onClick={() => {
+              setOpen(false);
+              onEdit();
+            }}
+            className="flex items-center gap-2.5 w-full px-3.5 py-2.5 min-h-[40px] text-sm text-ink-secondary hover:bg-muted text-left cursor-pointer disabled:opacity-50"
+          >
+            <span aria-hidden className="w-4 text-center">✏️</span>
+            Edit
+          </button>
+          <div className="border-t border-border-soft my-1" />
+          <button
+            role="menuitem"
+            type="button"
+            disabled={pending}
+            onClick={() => {
+              setOpen(false);
+              onDelete();
+            }}
+            className="flex items-center gap-2.5 w-full px-3.5 py-2.5 min-h-[40px] text-sm text-danger hover:bg-muted text-left cursor-pointer disabled:opacity-50"
+          >
+            <span aria-hidden className="w-4 text-center">🗑</span>
+            Delete
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -333,23 +498,18 @@ function EditForm({
   return (
     <div className="space-y-3">
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {/* v2.5.0: Input's `label` prop wires htmlFor/id — the sibling
+            <label> here previously had no association, so screen
+            readers announced the field as unlabeled. */}
+        <Input label="Name" value={name} onChange={(e) => setName(e.target.value)} disabled={pending} />
         <div>
-          <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">
-            Name
-          </label>
-          <Input value={name} onChange={(e) => setName(e.target.value)} disabled={pending} />
-        </div>
-        <div>
-          <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">
-            Folder
-          </label>
-          <input
+          <Input
+            label="Folder"
             value={folder}
             onChange={(e) => setFolder(e.target.value)}
             list={`folder-options-${file.id}`}
             disabled={pending}
             placeholder="(unfiled)"
-            className="w-full text-sm bg-surface text-ink-primary border border-border-soft rounded-sm px-2.5 py-1.5 outline-none focus:border-moss-500"
           />
           <datalist id={`folder-options-${file.id}`}>
             {folderNames.map((f) => (
@@ -380,7 +540,7 @@ function EditForm({
                 className={[
                   "text-xs px-2.5 py-1 rounded-sm border cursor-pointer transition-colors",
                   active
-                    ? "bg-moss-500 text-white border-moss-500"
+                    ? "bg-moss-500 text-on-moss border-moss-500"
                     : "bg-canvas text-ink-secondary border-border-soft hover:border-moss-300",
                   disabled && !active ? "opacity-50 cursor-not-allowed" : "",
                 ].join(" ")}
@@ -417,14 +577,19 @@ function UploadDropzone({
   const [error, setError] = useState<string | null>(null);
   const [folder, setFolder] = useState("");
   const [visibility, setVisibility] = useState<FileVisibility>(FileVisibility.EVERYONE);
-  const [progress, setProgress] = useState<{ count: number; total: number } | null>(null);
   const [dragOver, setDragOver] = useState(false);
 
+  // v2.5.0 (design pass #6): the old `{count, total}` progress state
+  // never actually advanced during the transfer — `count` was set once
+  // and never incremented, so it was a fake progress bar. `pending`
+  // (from useTransition, which stays true for the whole awaited async
+  // callback) already tells us exactly when an upload is in flight, so
+  // there's no separate state to keep in sync — just a plain spinner
+  // while `pending` is true.
   async function submit(files: FileList | File[]) {
     setError(null);
     const list = Array.from(files);
     if (list.length === 0) return;
-    setProgress({ count: 0, total: list.length });
     const fd = new FormData();
     for (const f of list) fd.append("files", f);
     if (folder) fd.set("folder", folder);
@@ -433,10 +598,12 @@ function UploadDropzone({
       try {
         await uploadFile(fd);
         if (inputRef.current) inputRef.current.value = "";
+        // v2.5.0 (design pass #6): the app-wide notify() convention
+        // exists for exactly this — a completed upload previously gave
+        // no confirmation at all beyond the dropzone quietly resetting.
+        notify("success", `Uploaded ${list.length} file${list.length === 1 ? "" : "s"}`);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Upload failed");
-      } finally {
-        setProgress(null);
       }
     });
   }
@@ -455,16 +622,13 @@ function UploadDropzone({
     <div className="bg-surface border border-border-soft rounded-md p-4 shadow-sm space-y-3">
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
         <div>
-          <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">
-            Folder
-          </label>
-          <input
+          <Input
+            label="Folder"
             value={folder}
             onChange={(e) => setFolder(e.target.value)}
             list="upload-folder-options"
             disabled={pending}
             placeholder="contracts, photos…"
-            className="w-full text-sm bg-surface text-ink-primary border border-border-soft rounded-sm px-2.5 py-1.5 outline-none focus:border-moss-500"
           />
           <datalist id="upload-folder-options">
             {folderNames.map((f) => (
@@ -517,9 +681,13 @@ function UploadDropzone({
           disabled={pending}
           className="sr-only"
         />
-        {progress ? (
-          <span className="text-sm text-ink-secondary">
-            Uploading {progress.total} {progress.total === 1 ? "file" : "files"}…
+        {pending ? (
+          <span className="inline-flex items-center gap-2 text-sm text-ink-secondary">
+            <span
+              aria-hidden
+              className="inline-block w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin"
+            />
+            Uploading…
           </span>
         ) : (
           <span className="text-sm text-ink-secondary">

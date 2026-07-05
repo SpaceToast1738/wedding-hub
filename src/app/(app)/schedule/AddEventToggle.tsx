@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/Button";
 import { AddNewModal } from "@/components/ui/AddNewModal";
 import { EventForm, type GroupOpt, type UserOpt } from "./EventForm";
 import { createScheduleEvent } from "./actions";
+import { notify } from "@/lib/notify";
 
 // v1.27.1 → v1.55.0 → v1.56.0: shipped originally as a modal,
 // briefly inline in v1.55.0, modal again per user preference. Now
@@ -13,9 +14,12 @@ import { createScheduleEvent } from "./actions";
 export function AddEventToggle({
   users = [],
   groups = [],
+  defaultStartDate,
 }: {
   users?: UserOpt[];
   groups?: GroupOpt[];
+  /** v2.5.0 (design pass #7): wedding-day prefill, forwarded to EventForm. */
+  defaultStartDate?: string;
 }) {
   const [open, setOpen] = useState(false);
 
@@ -28,10 +32,19 @@ export function AddEventToggle({
         <EventForm
           users={users}
           groups={groups}
+          defaultStartDate={defaultStartDate}
           submitLabel="Create"
           onSubmit={async (fd) => {
-            await createScheduleEvent(fd);
-            setOpen(false);
+            // v2.5.0 (design pass #5): app-wide notify() convention —
+            // this flow previously left success/failure silent.
+            try {
+              await createScheduleEvent(fd);
+              notify("success", "Event added");
+              setOpen(false);
+            } catch (err) {
+              notify("error", err instanceof Error ? err.message : "Failed to add event");
+              throw err;
+            }
           }}
           onCancel={() => setOpen(false)}
         />

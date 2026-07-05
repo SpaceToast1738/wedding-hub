@@ -2,8 +2,17 @@
 
 // v2.1.0 phase 6.1: Anthropic API key editor.
 // Couple-only. Never shows the raw key back — only a mask + source.
+//
+// v2.5.0 (design pass #7): swapped hardcoded emerald/rose palette
+// colors for the app's semantic success/danger tokens (the raw
+// colors had no dark-mode counterpart), replaced the hand-rolled
+// buttons with the shared Button component, and rewrote the copy to
+// drop engineering jargon (HTTP status codes, .env, DB column names)
+// that means nothing to a non-technical co-admin.
 
 import { useState, useTransition } from "react";
+import { Button } from "@/components/ui/Button";
+import { Input } from "@/components/ui/Input";
 import {
   updateAnthropicApiKey,
   type ApiKeyState,
@@ -31,7 +40,9 @@ export function AiApiKeyPanel({ initialState }: { initialState: ApiKeyState }) {
         setValue("");
         setStatus({
           kind: "saved",
-          message: clear ? "Cleared — falling back to the env var." : "Saved.",
+          message: clear
+            ? "Cleared — the AI planner will use the server's own key, if one is set up."
+            : "Saved.",
         });
       } else {
         setStatus({ kind: "error", message: res.error });
@@ -42,74 +53,73 @@ export function AiApiKeyPanel({ initialState }: { initialState: ApiKeyState }) {
   return (
     <div className="rounded-md border border-border-soft bg-surface p-4 space-y-3">
       <div className="text-sm text-ink-secondary">
-        Anthropic API key — used by the AI chat and every one-shot feature.
-        Set it here to avoid editing <code>.env</code> on the server. Falls
-        back to the <code>ANTHROPIC_API_KEY</code> env var when blank.
+        The AI planner — chat and every one-shot helper — needs an Anthropic
+        API key to run. Paste yours below; it&apos;s only ever used to talk
+        to Anthropic on the wedding&apos;s behalf.
       </div>
 
       <div className="text-sm">
         <span className="font-medium text-ink-primary">Current key:</span>{" "}
         {state.source === "settings" && (
-          <span className="text-emerald-700">
-            {state.mask} · from Settings (this panel wins over the env var)
-          </span>
+          <span className="text-success">{state.mask} · saved here in Settings</span>
         )}
         {state.source === "env" && (
-          <span className="text-ink-secondary">
-            {state.mask} · from <code>.env</code>
-          </span>
+          <span className="text-ink-secondary">{state.mask} · configured on the server</span>
         )}
         {state.source === "none" && (
-          <span className="text-rose-700">
-            none configured — AI features will return 503 until you set one
+          <span className="text-danger">
+            No key configured yet — AI features are switched off until one is added.
           </span>
         )}
       </div>
 
-      <div className="flex flex-col sm:flex-row gap-2">
-        <input
+      <div className="flex flex-col sm:flex-row gap-2 sm:items-end">
+        <Input
+          wrapperClassName="flex-1"
+          label="Anthropic API key"
           type="password"
           autoComplete="off"
           value={value}
           onChange={(e) => setValue(e.target.value)}
           disabled={pending}
           placeholder="sk-ant-…"
-          className="flex-1 rounded-md border border-border-soft bg-canvas text-sm px-2 py-1 font-mono"
+          className="font-mono"
         />
         <div className="flex gap-2">
-          <button
+          <Button
             type="button"
+            variant="primary"
+            size="sm"
             onClick={() => save(false)}
             disabled={pending || value.trim() === ""}
-            className="rounded-md bg-ink-primary text-canvas px-3 py-1 text-sm disabled:opacity-50"
           >
             {pending ? "Saving…" : "Save"}
-          </button>
+          </Button>
           {state.source === "settings" && (
-            <button
+            <Button
               type="button"
+              variant="secondary"
+              size="sm"
               onClick={() => save(true)}
               disabled={pending}
-              className="rounded-md border border-border-soft text-ink-secondary px-3 py-1 text-sm disabled:opacity-60"
             >
               Clear
-            </button>
+            </Button>
           )}
         </div>
       </div>
 
       {status.kind === "saved" && (
-        <div className="text-xs text-emerald-700">✓ {status.message}</div>
+        <div className="text-xs text-success">✓ {status.message}</div>
       )}
       {status.kind === "error" && (
-        <div className="text-xs text-rose-700">✗ {status.message}</div>
+        <div className="text-xs text-danger">✗ {status.message}</div>
       )}
 
       <div className="text-[11px] text-ink-tertiary">
-        The key is written to <code>WeddingSettings.anthropicApiKey</code> —
-        stored in your Postgres, never sent to Anthropic (except as the
-        Authorization header on the API call itself). The full value is never
-        returned from the server after save; only a masked preview.
+        Your key is stored securely in the wedding&apos;s own database. Once
+        saved, you&apos;ll only ever see a masked preview here — never the
+        full key again.
       </div>
     </div>
   );

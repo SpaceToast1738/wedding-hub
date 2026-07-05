@@ -16,7 +16,17 @@ export async function Sidebar({ user, counts, signOutAction }: Props) {
     items: g.items.filter((i) => !i.coupleOnly || user.isCouple),
   })).filter((g) => g.items.length > 0);
   const wedding = await getWeddingSettings();
-  const headline = `${wedding.brideFirst} & ${wedding.groomFirst} · ${formatWeddingDateShort(wedding)}`;
+  // v2.5.0: the subline was a static date — every page carried the
+  // same "26 Sep 2026" no matter how close the wedding got. A running
+  // countdown gives a gentle, always-current time anchor without
+  // needing its own page. Exact date still available on hover.
+  const daysLeft = Math.ceil(
+    (wedding.weddingDate.getTime() - Date.now()) / (24 * 60 * 60 * 1000),
+  );
+  const weeksLeft = Math.max(0, Math.floor(daysLeft / 7));
+  const countdown =
+    daysLeft <= 0 ? "today!" : weeksLeft > 0 ? `${weeksLeft} week${weeksLeft === 1 ? "" : "s"} to go` : `${daysLeft} day${daysLeft === 1 ? "" : "s"} to go`;
+  const headline = `${wedding.brideFirst} & ${wedding.groomFirst} · ${countdown}`;
 
   return (
     <aside
@@ -27,7 +37,10 @@ export async function Sidebar({ user, counts, signOutAction }: Props) {
         <div className="font-display text-[17px] font-semibold text-moss-700 -tracking-tight">
           Wedding Hub
         </div>
-        <div className="text-[11px] text-ink-tertiary mt-0.5">
+        <div
+          className="text-[11px] text-ink-tertiary mt-0.5"
+          title={formatWeddingDateShort(wedding)}
+        >
           {headline}
         </div>
       </div>

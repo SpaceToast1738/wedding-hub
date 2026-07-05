@@ -18,7 +18,14 @@ export default async function SuppliersPage() {
   // but not the contracted prices.
   const showMoney = await canViewMoney(user);
   const suppliers = await db.supplier.findMany({
-    orderBy: [{ status: "asc" }, { category: "asc" }, { name: "asc" }],
+    // v2.5.1 (mod #7): status used to sort first, so promoting a
+    // supplier's stage could reshuffle its whole category group (and
+    // its position within it). Category (the group key) and name are
+    // both effectively-stable fields — status is now a tie-breaker
+    // only, applied after name. SuppliersClient re-sorts/re-groups
+    // client-side too so this ordering holds even after client-side
+    // status filtering.
+    orderBy: [{ category: "asc" }, { name: "asc" }, { status: "asc" }],
     // B4 (v1.11.0): pull the most-recent communication so the card
     // can render a "Last: <summary> · <relative date>" line.
     include: {

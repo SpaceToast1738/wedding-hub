@@ -143,10 +143,11 @@ export function CountdownCard({
                 className={[
                   "text-xs px-3 py-1 sm:text-[10px] sm:px-2 sm:py-0.5 rounded-full font-semibold transition-colors uppercase",
                   unit === u
-                    ? "bg-moss-700 text-white"
+                    ? "bg-moss-700 text-on-moss"
                     : "text-ink-tertiary hover:text-ink-primary",
                 ].join(" ")}
                 aria-pressed={unit === u}
+                aria-label={`Show countdown in ${u}`}
               >
                 {u[0]}
               </button>

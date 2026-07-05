@@ -2,8 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { PageHeader } from "@/components/ui/PageHeader";
-import { SuggestDueDatesButton } from "./SuggestDueDatesButton";
-import { GapAnalysisButton } from "./GapAnalysisButton";
+import { TaskToolsMenu } from "./TaskToolsMenu";
 import { canEdit, canView } from "@/lib/permissions";
 import { requireUser } from "@/lib/actions";
 import type { CustomFieldDef } from "@/lib/custom-fields";
@@ -149,14 +148,10 @@ export default async function TasksPage({
         actions={
           editable ? (
             <>
-              {canWriteAi && <GapAnalysisButton />}
-              {canWriteAi && <SuggestDueDatesButton />}
-              <Link
-                href="/tasks/import"
-                className="inline-flex items-center text-xs font-medium px-2.5 py-1 rounded-sm border border-border-soft bg-canvas text-ink-secondary hover:border-moss-300 hover:text-moss-700"
-              >
-                Import CSV
-              </Link>
+              {/* v2.5.0 (mod #9): Gap analysis / Suggest due dates /
+                  Import CSV collapsed into one secondary "Tools" menu
+                  so New task is the sole primary-weight action. */}
+              <TaskToolsMenu canWriteAi={canWriteAi} />
               <AddTaskToggle
                 users={users.map((u) => ({ id: u.id, name: u.name, email: u.email }))}
                 suppliers={suppliers}

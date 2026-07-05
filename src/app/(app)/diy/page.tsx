@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { db } from "@/lib/db";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { EmptyState } from "@/components/ui/Illustrations";
 import { requireUser } from "@/lib/actions";
 import { buildRollups } from "@/lib/book-cards";
 import { canViewMoney } from "@/lib/permissions";
@@ -13,7 +14,11 @@ import { canViewMoney } from "@/lib/permissions";
 //
 // Sort: in-progress (status NOT "Done") first, ordered by target
 // date (sooner first; null targets last); Done at the bottom by
-// completion proxy (latest session date).
+// completion proxy (latest session date). Because dates sort
+// ascending, an overdue target (in the past) is numerically smaller
+// than a future one, so overdue projects already land at the very
+// top of the in-progress group for free — no separate overdue-first
+// pass needed (finding #8).
 
 const STATUS_TONE: Record<string, string> = {
   Designing: "bg-canvas border-border-soft text-ink-secondary",
@@ -26,6 +31,31 @@ const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 function formatGBP(pence: number): string {
   return `£${(pence / 100).toFixed(2)}`;
+}
+
+// Button.tsx doesn't support rendering as an anchor, so this header
+// action hand-rolls the equivalent of Button's secondary/md look for a
+// real <Link> — same visual weight, but it needs to navigate rather
+// than fire a click handler.
+const BOOK_LINK_CLASSES =
+  "inline-flex items-center gap-1.5 text-sm font-medium rounded-sm whitespace-nowrap transition-colors bg-muted text-ink-primary border border-border-soft hover:bg-canvas px-3.5 py-1.5 min-h-[40px] sm:min-h-0";
+
+// v2.6.0 (finding #10): DIY-themed empty-state illustration, in the
+// same 120×100 / CSS-variable-themed style as Illustrations.tsx's
+// other empty states. Kept local rather than added to that shared
+// file since it's outside this pass's file ownership.
+function IllusDiyBuild() {
+  return (
+    <svg width="120" height="100" viewBox="0 0 120 100" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden>
+      <rect x="18" y="62" width="84" height="9" rx="2" fill="var(--color-moss-100)" stroke="var(--color-moss-500)" strokeWidth="1.2" />
+      <rect x="54" y="18" width="11" height="46" rx="3" fill="var(--color-surface)" stroke="var(--color-moss-500)" strokeWidth="1.2" transform="rotate(-20 59.5 41)" />
+      <rect x="45" y="10" width="27" height="14" rx="3" fill="var(--color-moss-300)" stroke="var(--color-moss-700)" strokeWidth="1.2" transform="rotate(-20 58.5 17)" />
+      <circle cx="32" cy="70" r="3" fill="var(--color-marigold-500)" stroke="var(--color-marigold-700)" strokeWidth="0.8" />
+      <circle cx="88" cy="70" r="3" fill="var(--color-marigold-500)" stroke="var(--color-marigold-700)" strokeWidth="0.8" />
+      <path d="M28 80 L92 80" stroke="var(--color-moss-300)" strokeWidth="1" strokeDasharray="4 3" />
+      <path d="M40 50 L48 58" stroke="var(--color-moss-500)" strokeWidth="1.2" strokeLinecap="round" />
+    </svg>
+  );
 }
 
 export default async function DiyOverviewPage() {
@@ -97,14 +127,31 @@ export default async function DiyOverviewPage() {
       <PageHeader
         title="DIY"
         subtitle={`${enriched.length} project${enriched.length === 1 ? "" : "s"} across the Wedding Book`}
+        actions={
+          // v2.6.0 (finding #10): DIY has no creation path of its own —
+          // BUILD cards are added from a Wedding Book section — so this
+          // is a lightweight nudge toward that flow rather than a form.
+          // Shown regardless of whether the list is empty, since the
+          // non-empty view previously had no header action at all.
+          <Link href="/book" className={BOOK_LINK_CLASSES}>
+            Wedding Book →
+          </Link>
+        }
       />
       <div className="flex-1 overflow-auto">
         <div className="max-w-4xl mx-auto p-4 sm:p-6 space-y-4">
           {enriched.length === 0 ? (
-            <p className="text-sm text-ink-tertiary text-center py-12">
-              No DIY projects yet. Add a BUILD card on any Wedding Book section
-              and it&apos;ll appear here.
-            </p>
+            <EmptyState
+              illustration={IllusDiyBuild}
+              title="No DIY projects yet"
+              action={
+                <p className="text-xs text-ink-tertiary max-w-xs">
+                  Add a BUILD card on any{" "}
+                  <Link href="/book" className="text-info hover:underline">Wedding Book</Link>{" "}
+                  section and it&apos;ll appear here.
+                </p>
+              }
+            />
           ) : (
             <>
               {/* Top-line totals */}
@@ -155,20 +202,29 @@ export default async function DiyOverviewPage() {
                             </div>
                             <div className="text-[11px] text-ink-tertiary mt-0.5">
                               in <span className="text-ink-secondary">{card.subsection.section.title}</span>
-                              {card.targetDate && (
-                                <>
-                                  {" · "}
-                                  <span>
-                                    target {card.targetDate.toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
-                                    {(() => {
-                                      const days = Math.round(
-                                        (card.targetDate.getTime() - Date.now()) / MS_PER_DAY,
-                                      );
-                                      return ` (${days >= 0 ? `${days}d` : `${-days}d ago`})`;
-                                    })()}
-                                  </span>
-                                </>
-                              )}
+                              {card.targetDate && (() => {
+                                const days = Math.round(
+                                  (card.targetDate.getTime() - Date.now()) / MS_PER_DAY,
+                                );
+                                // v2.6.0 (finding #8): an overdue target used
+                                // to render with identical muted styling to a
+                                // comfortably-future one — no escalation at
+                                // all on a deadline-driven overview page.
+                                // "Done" projects don't count as overdue even
+                                // if the target slipped before completion.
+                                const overdue = !isDone && days < 0;
+                                const dateLabel = card.targetDate.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+                                return (
+                                  <>
+                                    {" · "}
+                                    <span className={overdue ? "text-danger font-semibold" : undefined}>
+                                      {overdue
+                                        ? `overdue by ${-days}d (target was ${dateLabel})`
+                                        : `target ${dateLabel} (${days}d)`}
+                                    </span>
+                                  </>
+                                );
+                              })()}
                             </div>
                           </div>
                           <div className="flex flex-col items-end gap-0.5 flex-shrink-0">
@@ -182,14 +238,14 @@ export default async function DiyOverviewPage() {
                                 <> · {formatGBP(rollups.materialsTotalPence)}</>
                               )}
                             </div>
-                            <div className="flex items-center gap-1 text-[10px] text-ink-tertiary">
-                              <span title={`${rollups.percentMaterialsOrdered}% of materials ordered`}>
-                                Ord {rollups.percentMaterialsOrdered}%
-                              </span>
-                              <span>·</span>
-                              <span title={`${rollups.percentMaterialsArrived}% of materials arrived`}>
-                                Arr {rollups.percentMaterialsArrived}%
-                              </span>
+                            {/* v2.6.0 (finding #9): was "Ord 40% · Arr 20%"
+                                at 10px, meaning only explained by a hover
+                                tooltip — unreachable on touch since the
+                                whole row is a Link. Spelled out in full at
+                                a slightly larger size so it's self-
+                                explanatory without hovering anything. */}
+                            <div className="text-[11px] text-ink-tertiary text-right tabular-nums max-w-[110px] sm:max-w-[220px]">
+                              materials: {rollups.percentMaterialsOrdered}% ordered, {rollups.percentMaterialsArrived}% arrived
                             </div>
                           </div>
                         </div>

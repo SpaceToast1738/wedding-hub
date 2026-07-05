@@ -13,6 +13,52 @@ import {
 } from "./actions";
 import { InlineMarkdown } from "@/components/ai/MarkdownMessage";
 
+// v2.5.0: same id-field allowlist + humanizer as ProposalReviewCard's
+// PayloadFields — duplicated rather than shared since the two review
+// components don't otherwise import from each other. Replaces a raw
+// JSON dump that was the ONLY way to see what an update would
+// actually change.
+const PAYLOAD_ID_FIELDS = new Set([
+  "taskId", "eventId", "guestId", "householdId", "supplierId",
+  "sectionId", "cardId", "budgetLineId", "budgetCategoryId",
+  "paymentId", "playlistId", "targetId", "contactId", "shotId",
+  "batchId",
+]);
+
+function humanizeFieldKey(key: string): string {
+  const spaced = key.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/_/g, " ").toLowerCase();
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+}
+
+function humanizeFieldValue(value: unknown): string {
+  if (value === null || value === undefined || value === "") return "—";
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  if (Array.isArray(value)) {
+    return value.length === 0 ? "—" : value.map(humanizeFieldValue).join(", ");
+  }
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value);
+}
+
+function PayloadFields({ payload }: { payload: unknown }) {
+  const entries = Object.entries((payload ?? {}) as Record<string, unknown>).filter(
+    ([key, value]) => !PAYLOAD_ID_FIELDS.has(key) && value !== undefined,
+  );
+  if (entries.length === 0) {
+    return <div className="text-ink-tertiary">No fields to show.</div>;
+  }
+  return (
+    <dl className="space-y-1">
+      {entries.map(([key, value]) => (
+        <div key={key} className="flex gap-2">
+          <dt className="text-ink-tertiary flex-shrink-0">{humanizeFieldKey(key)}:</dt>
+          <dd className="text-ink-primary min-w-0 break-words">{humanizeFieldValue(value)}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
 type ItemState =
   | { kind: "pending" }
   | { kind: "applied" }
@@ -24,6 +70,9 @@ export function ProposalBatchGroup({ proposals }: { proposals: PendingProposal[]
   const [deselected, setDeselected] = useState<Set<string>>(new Set());
   const [states, setStates] = useState<Map<string, ItemState>>(new Map());
   const [showDetails, setShowDetails] = useState<Set<string>>(new Set());
+  // v2.5.0: per-item raw-JSON toggle — the field view is the default;
+  // raw JSON is a secondary option behind its own toggle.
+  const [rawView, setRawView] = useState<Set<string>>(new Set());
 
   const stateOf = (id: string): ItemState => states.get(id) ?? { kind: "pending" };
   // "error" items stay actionable — a failed apply rolls the server-side
@@ -55,6 +104,15 @@ export function ProposalBatchGroup({ proposals }: { proposals: PendingProposal[]
 
   function toggleDetails(id: string) {
     setShowDetails((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleRaw(id: string) {
+    setRawView((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
@@ -177,7 +235,7 @@ export function ProposalBatchGroup({ proposals }: { proposals: PendingProposal[]
                   <span className="italic">Why:</span> <InlineMarkdown text={p.rationale} />
                 </div>
                 {st.kind === "error" && (
-                  <div className="text-xs text-rose-700 mt-0.5">{st.message}</div>
+                  <div className="text-xs text-danger mt-0.5">{st.message}</div>
                 )}
                 <button
                   type="button"
@@ -187,9 +245,22 @@ export function ProposalBatchGroup({ proposals }: { proposals: PendingProposal[]
                   {showDetails.has(p.id) ? "Hide payload" : "Show payload"}
                 </button>
                 {showDetails.has(p.id) && (
-                  <pre className="mt-1 rounded-md bg-canvas border border-border-soft p-2 text-[11px] overflow-x-auto">
-                    {JSON.stringify(p.payload, null, 2)}
-                  </pre>
+                  <div className="mt-1 rounded-md bg-canvas border border-border-soft p-2 text-[11px] space-y-2">
+                    {rawView.has(p.id) ? (
+                      <pre className="overflow-x-auto whitespace-pre-wrap">
+                        {JSON.stringify(p.payload, null, 2)}
+                      </pre>
+                    ) : (
+                      <PayloadFields payload={p.payload} />
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => toggleRaw(p.id)}
+                      className="text-ink-tertiary underline"
+                    >
+                      {rawView.has(p.id) ? "Show as fields" : "Show raw JSON"}
+                    </button>
+                  </div>
                 )}
               </div>
             </li>

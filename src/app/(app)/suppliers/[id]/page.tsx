@@ -2,21 +2,11 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
 import { PageHeader } from "@/components/ui/PageHeader";
-import { StatusPill } from "@/components/ui/StatusPill";
 import { canEdit, canView, canViewMoney } from "@/lib/permissions";
 import { requireUser } from "@/lib/actions";
 import type { CustomFieldDef } from "@/lib/custom-fields";
-import { SupplierDetailClient } from "./SupplierDetailClient";
+import { SupplierDetailClient, SupplierHeaderBar } from "./SupplierDetailClient";
 import { CustomFieldsBlock } from "./CustomFieldsBlock";
-
-const STATUS_PILL: Record<string, "LEAD" | "BOOKED" | "PAID" | "DECLINED"> = {
-  SHORTLIST: "LEAD",
-  CONTACTED: "LEAD",
-  QUOTED: "LEAD",
-  BOOKED: "BOOKED",
-  PAID: "PAID",
-  REJECTED: "DECLINED",
-};
 
 function formatGBP(amount: unknown): string {
   if (amount === null || amount === undefined) return "—";
@@ -189,24 +179,22 @@ export default async function SupplierDetailPage({
         <div className="max-w-3xl mx-auto p-4 sm:p-6 space-y-5">
           {/* Status + headline numbers */}
           <section className="bg-surface border border-border-soft rounded-md shadow-sm">
-            <div className="px-4 py-3 border-b border-border-soft flex items-baseline justify-between gap-3 flex-wrap">
-              <div className="flex items-center gap-3">
-                <StatusPill status={STATUS_PILL[supplier.status] ?? "LEAD"} />
-                <span className="text-xs text-ink-tertiary capitalize">
-                  {supplier.status.toLowerCase()}
-                </span>
-              </div>
-              {supplier.website && (
-                <a
-                  href={supplier.website}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-xs text-info hover:underline truncate max-w-[280px]"
-                >
-                  {supplier.website}
-                </a>
-              )}
-            </div>
+            {/* v2.5.1 (mod #3, #4): was a static status word + a
+                read-only website link — now a single StatusPill (no
+                more duplicate status text), an editors-only status
+                select, and an Edit button that reuses SupplierForm.
+                See SupplierHeaderBar in SupplierDetailClient.tsx. */}
+            <SupplierHeaderBar
+              supplierId={supplier.id}
+              canEdit={editable}
+              showMoney={showMoney}
+              status={supplier.status}
+              name={supplier.name}
+              category={supplier.category}
+              website={supplier.website}
+              notes={supplier.notes}
+              amountAgreed={supplier.amountAgreed == null ? null : supplier.amountAgreed.toString()}
+            />
             <dl className="divide-y divide-border-soft text-sm">
               {showMoney && (
                 <>
@@ -351,7 +339,11 @@ export default async function SupplierDetailPage({
                     {c.quantityNeeded != null && (
                       <span className="text-xs text-ink-tertiary tabular-nums">×{c.quantityNeeded}</span>
                     )}
-                    {c.budgetLine && (
+                    {/* v2.5.1 (mod #1): the estimate + the link into
+                        /budget are both gated on showMoney — a
+                        non-money user can't view /budget at all, and
+                        the estimate is a £ figure like any other. */}
+                    {showMoney && c.budgetLine && (
                       <Link
                         href="/budget"
                         className="text-[10px] text-info hover:underline whitespace-nowrap"
@@ -437,9 +429,18 @@ export default async function SupplierDetailPage({
                       {p.description ?? "Payment"}
                     </span>
                     <span className="text-xs text-ink-tertiary">{formatDate(p.dueDate)}</span>
-                    <span className="text-sm tabular-nums font-semibold text-ink-primary">
-                      {formatGBP(p.amount)}
-                    </span>
+                    {/* v2.5.1 (mod #1, CRITICAL): the amount had no
+                        showMoney gate at all — every payment leaked
+                        its £ figure to non-money users. Schedule
+                        (description/date/status) still shows; the
+                        amount becomes an em-dash. */}
+                    {showMoney ? (
+                      <span className="text-sm tabular-nums font-semibold text-ink-primary">
+                        {formatGBP(p.amount)}
+                      </span>
+                    ) : (
+                      <span className="text-sm tabular-nums text-ink-tertiary">—</span>
+                    )}
                     <span className="text-[10px] uppercase tracking-wider text-ink-tertiary">
                       {p.status.toLowerCase()}
                     </span>

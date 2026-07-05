@@ -7,8 +7,10 @@
 //
 // Lives on the Today page next to the cross-module strip; auto-hides
 // when the log is empty so a freshly-seeded prod doesn't render an
-// empty card. Limit is 10 by default — bump up via the prop if a
-// fuller surface is wanted somewhere else.
+// empty card. The row count is entirely caller-controlled (whatever
+// `rows` it's handed) — Today passes 5 (v2.5.x, trimmed from 10; the
+// footer link below covers the rest via /settings), but nothing here
+// stops a fuller surface elsewhere from passing more.
 //
 // Pure presentational from the component's POV — the page-level
 // async parent does the DB fetch and passes shaped rows here. That

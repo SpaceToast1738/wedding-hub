@@ -2,9 +2,13 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import type { SupplierStatus } from "@prisma/client";
 import { Button } from "@/components/ui/Button";
 import { MentionableTextarea } from "@/components/ui/MentionableTextarea";
 import { Input } from "@/components/ui/Input";
+import { StatusPill } from "@/components/ui/StatusPill";
+import { AddNewModal } from "@/components/ui/AddNewModal";
 import {
   createSupplierContact,
   createSupplierCommunication,
@@ -13,9 +17,13 @@ import {
   deleteSupplierCommunication,
   deleteSupplierContract,
   setSupplierContractFile,
+  setSupplierStatus,
+  updateSupplier,
 } from "../actions";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { notify } from "@/lib/notify";
+import { STATUS_TO_PILL, STATUS_OPTIONS } from "../SupplierCard";
+import { SupplierForm } from "../SupplierForm";
 
 type Contact = {
   id: string;
@@ -98,16 +106,131 @@ export function SupplierDetailClient({
   return (
     <>
       <ContactsSection supplierId={supplierId} canEdit={canEdit} contacts={contacts} />
-      {showMoney && (
-        <ContractsSection
-          supplierId={supplierId}
-          canEdit={canEdit}
-          contracts={contracts}
-          attachableFiles={attachableFiles}
-        />
-      )}
+      {/* v2.5.1 (mod #8): always render Contracts now — showMoney only
+          hides the amount, not the whole section (see ContractsSection
+          below). Non-money users could previously neither see whether
+          a contract was signed nor attach one at all. */}
+      <ContractsSection
+        supplierId={supplierId}
+        canEdit={canEdit}
+        showMoney={showMoney}
+        contracts={contracts}
+        attachableFiles={attachableFiles}
+      />
       <CommunicationsSection supplierId={supplierId} canEdit={canEdit} log={communications} />
     </>
+  );
+}
+
+// ── Header bar (status + edit) ──────────────────────────────────────────
+//
+// v2.5.1 (mod #3, #4): previously the detail page was read-only for
+// the supplier itself — the status shown twice (once as a StatusPill,
+// once as a duplicate plain-text word below it), no way to change
+// status, no way to edit name/category/website/notes/amount without
+// going back to the list and using the card's inline edit form. This
+// reuses that same SupplierForm + AddNewModal combo so there's exactly
+// one edit UI for a supplier, not two.
+//
+// Rendered by [id]/page.tsx inside the existing "Status + headline
+// numbers" section, in place of the old static status/website row.
+export function SupplierHeaderBar({
+  supplierId,
+  canEdit,
+  showMoney,
+  status,
+  name,
+  category,
+  website,
+  notes,
+  amountAgreed,
+}: {
+  supplierId: string;
+  canEdit: boolean;
+  showMoney: boolean;
+  status: SupplierStatus;
+  name: string;
+  category: string;
+  website: string | null;
+  notes: string | null;
+  /** Stringified Decimal (or null) — same shape SupplierForm expects. */
+  amountAgreed: string | null;
+}) {
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+  const [editing, setEditing] = useState(false);
+
+  function changeStatus(next: SupplierStatus) {
+    startTransition(async () => {
+      await setSupplierStatus(supplierId, next);
+      // setSupplierStatus only revalidates the /suppliers list path,
+      // not this dynamic detail route — router.refresh() forces this
+      // page's server data to refetch regardless (same pattern as
+      // BookOutfitCard / BookBuildCard's post-action refreshes).
+      router.refresh();
+      notify("success", `Status set to ${next.charAt(0) + next.slice(1).toLowerCase()}`);
+    });
+  }
+
+  return (
+    <div className="px-4 py-3 border-b border-border-soft flex items-center justify-between gap-3 flex-wrap">
+      <div className="flex items-center gap-3">
+        {/* Single pill carries the label now — no more separately-
+            rendered duplicate status word underneath it. */}
+        <StatusPill status={STATUS_TO_PILL[status] ?? "LEAD"} label={status.toLowerCase()} />
+        {canEdit && (
+          <select
+            value={status}
+            onChange={(e) => changeStatus(e.target.value as SupplierStatus)}
+            disabled={pending}
+            aria-label="Change supplier status"
+            className="text-xs bg-canvas border border-border-soft rounded-sm px-1.5 py-0.5 text-ink-secondary outline-none min-h-[40px] sm:min-h-0"
+          >
+            {STATUS_OPTIONS.map((s) => (
+              <option key={s} value={s}>{s.charAt(0) + s.slice(1).toLowerCase()}</option>
+            ))}
+          </select>
+        )}
+      </div>
+      <div className="flex items-center gap-3">
+        {website && (
+          <a
+            href={website}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs text-info hover:underline truncate max-w-[220px]"
+          >
+            {website}
+          </a>
+        )}
+        {canEdit && (
+          <Button variant="secondary" size="sm" onClick={() => setEditing(true)}>
+            Edit
+          </Button>
+        )}
+      </div>
+      <AddNewModal open={editing} onClose={() => setEditing(false)} title={`Edit ${name}`} width="md">
+        <SupplierForm
+          submitLabel="Save"
+          showMoney={showMoney}
+          initial={{
+            name,
+            category,
+            status,
+            website: website ?? "",
+            notes: notes ?? "",
+            amountAgreed: amountAgreed ?? "",
+          }}
+          onSubmit={async (fd) => {
+            await updateSupplier(supplierId, fd);
+            setEditing(false);
+            router.refresh();
+            notify("success", "Supplier updated");
+          }}
+          onCancel={() => setEditing(false)}
+        />
+      </AddNewModal>
+    </div>
   );
 }
 
@@ -185,12 +308,19 @@ function ContactsSection({
                 </div>
               </div>
               {canEdit && (
+                // v2.5.1 (mod #2): was hover-only with no touch
+                // fallback — a phone user could never reveal, let
+                // alone reach, this control. Mobile keeps it always
+                // visible; sm+ reverts to hover/focus-reveal. A real
+                // aria-label names the specific contact being deleted
+                // instead of a bare "×".
                 <button
                   type="button"
                   onClick={() => onDelete(c.id, c.name)}
                   disabled={pending}
-                  className="text-xs text-ink-tertiary hover:text-danger opacity-0 group-hover:opacity-100 transition-opacity"
+                  aria-label={`Delete contact ${c.name}`}
                   title="Delete contact"
+                  className="text-sm text-ink-tertiary hover:text-danger min-h-[40px] min-w-[40px] -my-2.5 -mr-2 flex items-center justify-center flex-shrink-0 rounded-sm opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 transition-opacity"
                 >
                   ×
                 </button>
@@ -262,11 +392,16 @@ function ContactForm({
 function ContractsSection({
   supplierId,
   canEdit,
+  showMoney,
   contracts,
   attachableFiles,
 }: {
   supplierId: string;
   canEdit: boolean;
+  /** v2.5.1 (mod #8): the section itself is always shown now — this
+   *  only gates the amount in each row and the add-contract form's
+   *  Amount field. */
+  showMoney: boolean;
   contracts: Contract[];
   attachableFiles: AttachableFile[];
 }) {
@@ -279,6 +414,18 @@ function ContractsSection({
     startTransition(async () => {
       await deleteSupplierContract(id, supplierId);
     });
+  }
+
+  // v2.5.1 (mod #2): builds the aria-label for a contract's delete
+  // button. Contracts have no name field to point at, so this
+  // describes it by amount + signed date instead — but only includes
+  // the amount when the caller can see money, so the label itself
+  // doesn't leak a figure the UI is otherwise hiding.
+  function contractDeleteLabel(c: Contract): string {
+    const parts: string[] = [];
+    if (showMoney && c.amount != null) parts.push(formatGBP(c.amount));
+    if (c.signedAt) parts.push(`signed ${formatDate(c.signedAt)}`);
+    return parts.length > 0 ? `Delete contract (${parts.join(", ")})` : "Delete this contract entry";
   }
 
   function onSetFile(contractId: string, fileId: string | null) {
@@ -312,13 +459,19 @@ function ContractsSection({
           }}
           className="px-4 py-3 bg-moss-50/40 border-b border-border-soft space-y-2.5"
         >
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-            <div>
-              <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">
-                Amount
-              </label>
-              <Input name="amount" placeholder="e.g. 2500.00" />
-            </div>
+          <div className={showMoney ? "grid grid-cols-1 sm:grid-cols-2 gap-2.5" : ""}>
+            {/* v2.5.1 (mod #8): Amount is omitted for non-money editors
+                rather than shown — the create action already treats a
+                missing amount as null, so a contract can be logged
+                (signed/date/notes/file) without disclosing the price. */}
+            {showMoney && (
+              <div>
+                <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">
+                  Amount
+                </label>
+                <Input name="amount" placeholder="e.g. 2500.00" />
+              </div>
+            )}
             <div>
               <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">
                 Signed on
@@ -388,7 +541,9 @@ function ContractsSection({
               </span>
               <div className="flex-1 min-w-0">
                 <div className="text-sm text-ink-primary tabular-nums">
-                  {formatGBP(c.amount)}
+                  {/* v2.5.1 (mod #8): amount omitted (not the whole
+                      row) for non-money users. */}
+                  {showMoney ? formatGBP(c.amount) : "Contract"}
                   {c.signedAt && (
                     <span className="text-ink-tertiary text-xs"> · signed {formatDate(c.signedAt)}</span>
                   )}
@@ -409,12 +564,15 @@ function ContractsSection({
                       📄 {c.file.name}
                     </a>
                     {canEdit && (
+                      // v2.5.1 (mod #2): mobile-safe reveal + touch
+                      // floor + a real aria-label naming the file.
                       <button
                         type="button"
                         onClick={() => onSetFile(c.id, null)}
                         disabled={pending}
-                        className="text-ink-tertiary hover:text-danger opacity-0 group-hover:opacity-100 transition-opacity"
+                        aria-label={`Detach file ${c.file.name}`}
                         title="Detach file"
+                        className="text-ink-tertiary hover:text-danger min-h-[40px] inline-flex items-center px-2 -my-2.5 rounded-sm opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 transition-opacity"
                       >
                         detach
                       </button>
@@ -443,11 +601,14 @@ function ContractsSection({
                 )}
               </div>
               {canEdit && (
+                // v2.5.1 (mod #2): mobile-safe reveal + ~40px hit area
+                // + aria-label describing which contract this deletes.
                 <button
                   type="button"
                   onClick={() => onDelete(c.id)}
                   disabled={pending}
-                  className="text-xs text-ink-tertiary hover:text-danger opacity-0 group-hover:opacity-100 transition-opacity"
+                  aria-label={contractDeleteLabel(c)}
+                  className="text-sm text-ink-tertiary hover:text-danger min-h-[40px] min-w-[40px] -my-2.5 -mr-2 flex items-center justify-center flex-shrink-0 rounded-sm opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 transition-opacity"
                 >
                   ×
                 </button>
@@ -489,8 +650,12 @@ function CommunicationsSection({
           Communications log
           <span className="ml-2 text-[11px] font-normal text-ink-tertiary">{log.length}</span>
         </h2>
+        {/* ADHD note: this is the clearest primary action on the whole
+            detail page — Contacts/Contracts stay "secondary" so Log
+            entry (the thing you do most often) doesn't compete with
+            them for attention. */}
         {canEdit && !adding && (
-          <Button variant="secondary" size="sm" onClick={() => setAdding(true)}>
+          <Button variant="primary" size="sm" onClick={() => setAdding(true)}>
             + Log entry
           </Button>
         )}
@@ -499,9 +664,20 @@ function CommunicationsSection({
         <form
           action={(fd) => {
             fd.set("supplierId", supplierId);
+            // Read before the action call so we can tailor the success
+            // toast — createSupplierCommunication saved silently
+            // before, with no confirmation the entry (or its
+            // auto-created follow-up task) actually landed.
+            const followUpAt = fd.get("followUpAt");
             startTransition(async () => {
               await createSupplierCommunication(fd);
               setAdding(false);
+              notify(
+                "success",
+                followUpAt
+                  ? `Log entry added — follow-up task created for ${formatDate(new Date(followUpAt as string))}`
+                  : "Log entry added",
+              );
             });
           }}
           className="px-4 py-3 bg-moss-50/40 border-b border-border-soft space-y-2.5"
@@ -565,14 +741,29 @@ function CommunicationsSection({
                   <span className="text-[11px] font-bold text-ink-tertiary uppercase tracking-wider">
                     {c.channel}
                   </span>
-                  <span className="text-[11px] text-ink-tertiary">
+                  {/* v2.5.1 (mod #10): bumped from text-[11px] to
+                      text-xs + ink-secondary — this is content people
+                      actually read (when the contact happened), not
+                      section-label chrome. */}
+                  <span className="text-xs text-ink-secondary">
                     {formatRelativeDate(c.createdAt)}
                   </span>
-                  {c.followUpAt && (
-                    <span className="text-[10px] text-marigold-700 bg-marigold-100 px-1 rounded">
-                      Follow-up {formatDate(c.followUpAt)}
-                    </span>
-                  )}
+                  {c.followUpAt && (() => {
+                    // v2.5.1 (mod #9): danger tint once the follow-up
+                    // date has passed — previously an overdue
+                    // follow-up looked identical to one due next week.
+                    const overdue = new Date(c.followUpAt).getTime() < Date.now();
+                    return (
+                      <span
+                        className={[
+                          "text-[10px] px-1 rounded",
+                          overdue ? "text-danger bg-danger-bg" : "text-marigold-700 bg-marigold-100",
+                        ].join(" ")}
+                      >
+                        Follow-up {formatDate(c.followUpAt)}
+                      </span>
+                    );
+                  })()}
                   {c.followUpAt && (
                     <Link
                       href={`/tasks`}
@@ -586,11 +777,14 @@ function CommunicationsSection({
                 <p className="text-sm text-ink-primary mt-1 whitespace-pre-wrap">{c.summary}</p>
               </div>
               {canEdit && (
+                // v2.5.1 (mod #2): mobile-safe reveal + ~40px hit area
+                // + aria-label naming the entry being deleted.
                 <button
                   type="button"
                   onClick={() => onDelete(c.id)}
                   disabled={pending}
-                  className="text-xs text-ink-tertiary hover:text-danger opacity-0 group-hover:opacity-100 transition-opacity"
+                  aria-label={`Delete ${c.channel} log entry from ${formatRelativeDate(c.createdAt)}`}
+                  className="text-sm text-ink-tertiary hover:text-danger min-h-[40px] min-w-[40px] -my-2.5 -mr-2 flex items-center justify-center flex-shrink-0 rounded-sm opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 transition-opacity"
                 >
                   ×
                 </button>

@@ -7,6 +7,19 @@ import { deleteScheduleEvent, updateScheduleEvent } from "./actions";
 import { splitDateTime } from "@/lib/format";
 import { EventMotifIcon, classifyEventMotif } from "@/components/ui/EventMotifIcon";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
+import { notify } from "@/lib/notify";
+
+// v2.5.0 (design pass #9): "everyone" is the only ref that represents
+// the whole audience — every other ref (a role/custom group, or a
+// named individual) is by definition a partial slice of it. Moss
+// tints the former, marigold the latter, matching the prototype's
+// `p === 'Everyone' ? moss : marigold` convention and mirroring
+// EventNode's identical helper for the timeline view.
+function attendeeChipClasses(ref: string): string {
+  return ref === "builtin:everyone"
+    ? "bg-moss-50 text-moss-700 border-moss-100"
+    : "bg-marigold-100 text-marigold-700 border-marigold-200";
+}
 
 type Event = {
   id: string;
@@ -66,7 +79,10 @@ export function ScheduleTable({
                 isn't useless without these — they reappear at md+. */}
             <th className="px-3 py-2 text-left hidden md:table-cell">Where</th>
             <th className="px-3 py-2 text-left hidden md:table-cell">Attendees</th>
-            {canEdit && <th className="px-3 py-2 w-24" aria-label="Actions" />}
+            {/* v2.5.0 (design pass #8): widened from w-24 — "Delete"
+                (spelled out, replacing the old bare "×") needs more
+                room next to "Edit" than the icon-sized glyph did. */}
+            {canEdit && <th className="px-3 py-2 w-32" aria-label="Actions" />}
           </tr>
         </thead>
         <tbody>
@@ -103,7 +119,14 @@ function Row({
   async function onDelete() {
     if (!(await confirm({ title: `Delete "${event.title}"?`, confirmLabel: "Delete", tone: "danger" }))) return;
     startTransition(async () => {
-      await deleteScheduleEvent(event.id);
+      // v2.5.0 (design pass #5): app-wide notify() convention — this
+      // flow previously left success/failure silent.
+      try {
+        await deleteScheduleEvent(event.id);
+        notify("success", "Event deleted");
+      } catch (err) {
+        notify("error", err instanceof Error ? err.message : "Failed to delete event");
+      }
     });
   }
 
@@ -133,8 +156,16 @@ function Row({
               notes: event.notes ?? "",
             }}
             onSubmit={async (fd) => {
-              await updateScheduleEvent(event.id, fd);
-              setEditing(false);
+              // v2.5.0 (design pass #5): app-wide notify() convention —
+              // this flow previously left success/failure silent.
+              try {
+                await updateScheduleEvent(event.id, fd);
+                notify("success", "Event updated");
+                setEditing(false);
+              } catch (err) {
+                notify("error", err instanceof Error ? err.message : "Failed to update event");
+                throw err;
+              }
             }}
             onCancel={() => setEditing(false)}
           />
@@ -204,7 +235,7 @@ function Row({
                   return (
                     <span
                       key={ref}
-                      className="text-[10px] px-1.5 py-px rounded-md bg-canvas text-ink-secondary border border-border-soft"
+                      className={`text-[11px] px-1.5 py-px rounded-md border ${attendeeChipClasses(ref)}`}
                     >
                       {label}
                     </span>
@@ -212,11 +243,18 @@ function Row({
                 }
                 const g = groupByRef.get(ref);
                 const label = g?.name ?? ref.split(":").pop() ?? ref;
+                // v2.5.0 (design pass #9): resolved name + member count
+                // instead of the raw ref string ("builtin:everyone")
+                // as the tooltip — that was developer-facing text
+                // leaking to users, and hover-only anyway.
+                const tooltip = g
+                  ? `${g.name} · ${g.memberCount} member${g.memberCount === 1 ? "" : "s"}`
+                  : label;
                 return (
                   <span
                     key={ref}
-                    className="text-[10px] px-1.5 py-px rounded-md bg-marigold-100 text-marigold-700 border border-marigold-700/30"
-                    title={ref}
+                    className={`text-[11px] px-1.5 py-px rounded-md border ${attendeeChipClasses(ref)}`}
+                    title={tooltip}
                   >
                     👥 {label}
                   </span>
@@ -233,8 +271,12 @@ function Row({
             <Button variant="ghost" size="sm" onClick={() => setEditing(true)} disabled={pending}>
               Edit
             </Button>
+            {/* v2.5.0 (design pass #8): was a bare "×" glyph — the
+                timeline view's equivalent button already reads
+                "Delete", so the two views disagreed on how the same
+                destructive action is labelled. */}
             <Button variant="ghost" size="sm" onClick={onDelete} disabled={pending}>
-              ×
+              Delete
             </Button>
           </div>
         </td>

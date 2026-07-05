@@ -59,11 +59,14 @@ function DecisionsWidget({ decisions }: { decisions: DecisionTask[] }) {
               {t.title}
             </Link>
             {t.dueDate ? (
-              <span className="text-[11px] text-ink-tertiary tabular-nums flex-shrink-0">
+              // v2.5.x: load-bearing metadata (an actual due date, not
+              // section-label chrome) — bumped from 11px/ink-tertiary
+              // to text-xs/ink-secondary for legibility.
+              <span className="text-xs text-ink-secondary tabular-nums flex-shrink-0">
                 {shortDate(t.dueDate)}
               </span>
             ) : (
-              <span className="text-[11px] text-ink-tertiary italic flex-shrink-0">no date</span>
+              <span className="text-xs text-ink-tertiary italic flex-shrink-0">no date</span>
             )}
           </li>
         ))}

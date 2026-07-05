@@ -56,7 +56,11 @@ export function AddSubsectionToggle({
       className="space-y-3"
     >
       <div>
-        <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1.5">
+        {/* Design-pass fix: true 10px uppercase chrome labels move to
+            ink-secondary for legibility (this one's a button-group
+            fieldset label, not a single form control, so it can't use
+            Input's built-in label prop the way "Title" below does). */}
+        <label className="block text-[10px] font-bold text-ink-secondary uppercase tracking-wider mb-1.5">
           Card type
         </label>
         <div className="flex flex-wrap gap-1.5">
@@ -68,7 +72,7 @@ export function AddSubsectionToggle({
               className={[
                 "text-xs px-2.5 py-1 rounded-full border transition-colors",
                 kind === k
-                  ? "bg-moss-500 text-white border-moss-500"
+                  ? "bg-moss-500 text-on-moss border-moss-500"
                   : "bg-canvas text-ink-secondary border-border-soft hover:border-moss-300",
               ].join(" ")}
               title={BOOK_CARD_KIND_META[k].description}
@@ -82,10 +86,13 @@ export function AddSubsectionToggle({
         </p>
       </div>
       <div>
-        <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">
-          Title
-        </label>
+        {/* Design-pass fix: swapped the unassociated manual <label>
+            for Input's built-in `label` prop — properly wires
+            htmlFor/id (screen readers previously announced this as
+            "edit text, blank") and already uses the ink-secondary
+            chrome-label colour. */}
         <Input
+          label="Title"
           name="title"
           required
           autoFocus
@@ -104,7 +111,7 @@ export function AddSubsectionToggle({
           start empty — you build them up in their dedicated UI. */}
       {kind === "TEXT" && (
         <div>
-          <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">
+          <label className="block text-[10px] font-bold text-ink-secondary uppercase tracking-wider mb-1">
             Body
           </label>
           <MentionableTextarea

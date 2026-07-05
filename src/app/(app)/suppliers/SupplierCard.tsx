@@ -38,7 +38,13 @@ type Supplier = {
   communications: { summary: string; createdAt: Date; channel: string }[];
 };
 
-const STATUS_TO_PILL: Record<string, "LEAD" | "BOOKED" | "PAID" | "DECLINED" | "PENDING"> = {
+// v2.5.1: exported so SupplierDetailClient's header bar can reuse the
+// exact same status→pill mapping and option list. Previously the
+// detail page kept its own local copy that mapped CONTACTED/QUOTED to
+// "LEAD" instead of "PENDING" — cosmetic drift meant the same status
+// looked different depending which page you were on. One source of
+// truth now.
+export const STATUS_TO_PILL: Record<string, "LEAD" | "BOOKED" | "PAID" | "DECLINED" | "PENDING"> = {
   SHORTLIST: "LEAD",
   CONTACTED: "PENDING",
   QUOTED: "PENDING",
@@ -47,7 +53,7 @@ const STATUS_TO_PILL: Record<string, "LEAD" | "BOOKED" | "PAID" | "DECLINED" | "
   REJECTED: "DECLINED",
 };
 
-const STATUS_OPTIONS: SupplierStatus[] = [
+export const STATUS_OPTIONS: SupplierStatus[] = [
   "SHORTLIST", "CONTACTED", "QUOTED", "BOOKED", "PAID", "REJECTED",
 ];
 
@@ -71,6 +77,10 @@ export function SupplierCard({
   function changeStatus(next: SupplierStatus) {
     startTransition(async () => {
       await setSupplierStatus(supplier.id, next);
+      // v2.5.1 (ADHD closing touch): the status select had no
+      // feedback at all on save — a quick-win action (bump a supplier
+      // a stage) deserves a quick acknowledgment so the loop closes.
+      notify("success", `${supplier.name} → ${next.charAt(0) + next.slice(1).toLowerCase()}`);
     });
   }
 
@@ -146,12 +156,21 @@ export function SupplierCard({
   }
 
   return (
-    <div className="bg-surface border border-border-soft rounded-md p-4 shadow-sm flex flex-col gap-2">
+    // v2.5.1: `relative` makes this the containing block for the name
+    // link's stretched-link pseudo-element below, so the whole card
+    // becomes a click target instead of just the small name text.
+    // hover:shadow-md gives a visible affordance that it's clickable.
+    <div className="relative bg-surface border border-border-soft rounded-md p-4 shadow-sm hover:shadow-md transition-shadow flex flex-col gap-2">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <Link
             href={`/suppliers/${supplier.id}`}
-            className="text-sm font-semibold text-ink-primary truncate hover:text-moss-700 hover:underline"
+            // after:absolute after:inset-0 stretches an invisible hit
+            // area over the nearest positioned ancestor (the card div
+            // above) — the classic "stretched link" trick. The anchor
+            // itself stays position:static so its pseudo-element
+            // bubbles up to cover the whole card, not just its own text.
+            className="text-sm font-semibold text-ink-primary truncate hover:text-moss-700 hover:underline after:absolute after:inset-0 after:content-['']"
             title="Open supplier details"
           >
             {supplier.name}
@@ -166,7 +185,10 @@ export function SupplierCard({
         </div>
       )}
       {supplier.website && (
-        <a href={supplier.website} target="_blank" rel="noopener noreferrer" className="text-xs text-moss-500 hover:underline truncate">
+        // relative z-10: sits above the name link's stretched overlay
+        // so it stays independently clickable (opens the website, not
+        // the detail page).
+        <a href={supplier.website} target="_blank" rel="noopener noreferrer" className="relative z-10 text-xs text-moss-500 hover:underline truncate">
           {supplier.website.replace(/^https?:\/\//, "")}
         </a>
       )}
@@ -177,19 +199,26 @@ export function SupplierCard({
           ? `${last.summary.slice(0, 80).trimEnd()}…`
           : last.summary;
         return (
-          <div className="text-[11px] text-ink-tertiary line-clamp-2" title={last.summary}>
-            <span className="text-ink-tertiary/80">Last ({last.channel}, {formatRelativeDate(last.createdAt)}):</span>{" "}
+          // v2.5.1: bumped from text-[11px] to text-xs and dropped the
+          // stacked /80 opacity on top of an already-dim ink-tertiary
+          // — this line is read content (what/when), not label chrome.
+          <div className="text-xs text-ink-tertiary line-clamp-2" title={last.summary}>
+            <span className="text-ink-tertiary">Last ({last.channel}, {formatRelativeDate(last.createdAt)}):</span>{" "}
             <span className="text-ink-secondary">{summary}</span>
           </div>
         );
       })()}
       {canEdit && (
-        <div className="flex flex-wrap items-center gap-1.5 mt-1 pt-2 border-t border-border-soft">
+        // relative z-10: keeps the status select + Edit/Delete buttons
+        // independently clickable above the name link's stretched
+        // overlay (otherwise every click here would navigate instead).
+        <div className="relative z-10 flex flex-wrap items-center gap-1.5 mt-1 pt-2 border-t border-border-soft">
           <select
             value={supplier.status}
             onChange={(e) => changeStatus(e.target.value as SupplierStatus)}
             disabled={pending}
-            className="text-xs bg-canvas border border-border-soft rounded-sm px-1.5 py-0.5 text-ink-secondary outline-none"
+            aria-label={`Change status for ${supplier.name}`}
+            className="text-xs bg-canvas border border-border-soft rounded-sm px-1.5 py-0.5 text-ink-secondary outline-none min-h-[40px] sm:min-h-0"
           >
             {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s.charAt(0) + s.slice(1).toLowerCase()}</option>)}
           </select>

@@ -316,7 +316,9 @@ export default async function GuestDetailPage({
         actions={
           <Link
             href="/guests"
-            className="inline-flex items-center text-xs font-medium px-2.5 py-1 rounded-sm border border-border-soft bg-canvas text-ink-secondary hover:border-moss-300 hover:text-moss-700"
+            // v2.5.1 (finding #10): min-h-[40px] touch floor on
+            // mobile, dense again at sm+.
+            className="inline-flex items-center min-h-[40px] sm:min-h-0 text-xs font-medium px-2.5 py-1 rounded-sm border border-border-soft bg-canvas text-ink-secondary hover:border-moss-300 hover:text-moss-700"
           >
             ← All guests
           </Link>

@@ -11,7 +11,10 @@
 
   --color-ink-primary: #2A2620;
   --color-ink-secondary: #5C544A;
-  --color-ink-tertiary: #8A8175;
+  /* v2.5.0 design pass: darkened from #8A8175 (3.6-3.8:1, failed AA at
+     the 10-12px sizes this token is almost always used at) to clear
+     4.5:1 on both surface and canvas. */
+  --color-ink-tertiary: #767061;
 
   --color-moss-50: #F2F5EE;
   --color-moss-100: #DDE6D0;
@@ -22,14 +25,39 @@
 
   --color-marigold-100: #FBE9C5;
   --color-marigold-500: #D89B3C;
-  --color-marigold-700: #A4711F;
+  /* v2.5.0: darkened from #A4711F (3.54:1 on marigold-100 — the
+     PENDING/LEAD/DOING/SCHEDULED pill text and warn-toast text) to
+     ~4.8:1. */
+  --color-marigold-700: #8A5E17;
+  /* v2.5.0: border for marigold-tinted pills, promoted from a raw hex
+     scattered across StatusPill.tsx. */
+  --color-marigold-200: #F0D9A8;
 
   --color-success: #5C7148;
   --color-warning: #C28A2F;
   --color-danger: #A8443A;
-  --color-info: #5C7C8A;
+  /* v2.5.0: darkened from #5C7C8A (4.46:1 on surface, 4.24:1 on
+     canvas — links and the PAID pill both sit under AA) to ~5.2:1. */
+  --color-info: #4E6B78;
   --color-danger-bg: #f9efee;
   --color-danger-border: #f0d5d3;
+  /* v2.5.0: PAID pill bg/border, promoted from raw hex in StatusPill.tsx. */
+  --color-info-bg: #EEF4F5;
+  --color-info-border: #D0E4E8;
+
+  /* v2.5.0: text-on-filled-accent pair. Button primary / ConfirmDialog's
+     non-danger Confirm / Tag's active state all put white text on a
+     moss fill — fine in light mode, but dark mode's moss scale flips
+     light (moss-500 -> #9DB07F) while the text stayed hardcoded
+     white, failing AA (as low as 1.65:1). Same problem for the danger
+     fill in dark mode (white/#C66B5F = 3.70:1). Use these instead of
+     text-white on any solid moss/danger fill. */
+  --color-on-moss: #FFFFFF;
+  --color-on-danger: #FFFFFF;
+
+  /* v2.5.0: Avatar's random-color palette had one raw, ungoverned hex
+     with no dark counterpart. */
+  --color-avatar-accent: #8A6A9A;
 
   --radius-sm: 6px;
   --radius-md: 10px;
@@ -52,7 +80,9 @@ html.dark {
 
   --color-ink-primary: #F0EBE0;
   --color-ink-secondary: #BDB5A6;
-  --color-ink-tertiary: #8A8175;
+  /* v2.5.0: brightened — the light-mode hex was reused verbatim here
+     and was marginal against dark surfaces (3.8-4.3:1). */
+  --color-ink-tertiary: #9C937F;
 
   --color-moss-50: #1F2A18;
   --color-moss-100: #25301B;
@@ -64,6 +94,14 @@ html.dark {
   --color-marigold-100: #4A331A;
   --color-marigold-500: #E8B05A;
   --color-marigold-700: #F5C97D;
+  /* v2.5.2 (review fix): marigold-200 (the marigold-pill border added
+     in v2.5.0) had no dark override, unlike every other marigold
+     step — every dark-mode consumer got a pale light-mode border on
+     a dark card. StatusPill worked around this per-call-site with an
+     explicit dark:border-marigold-700; fixing the token here covers
+     every other consumer (WeddingReviewPanel, BudgetClient, GuestList,
+     schedule, ChatPanel, /ai) without a 15-site sweep. */
+  --color-marigold-200: #6B4E28;
 
   --color-success: #9DB07F;
   --color-warning: #E8B05A;
@@ -71,6 +109,14 @@ html.dark {
   --color-info: #8AA8B8;
   --color-danger-bg: #2A1815;
   --color-danger-border: #4A2520;
+
+  /* v2.5.0: dark ink, not white — white-on-dark-moss/danger fills
+     fail AA (moss-500 as low as 2.35:1, moss-700 1.65:1, danger
+     3.70:1); dark canvas ink on those same fills passes (~7:1, ~4.8:1). */
+  --color-on-moss: #1A1814;
+  --color-on-danger: #1A1814;
+
+  --color-avatar-accent: #A688B5;
 
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.5);
@@ -109,13 +155,26 @@ html.dark {
   }
 }
 
-html,
+/* v2.5.0: split from a combined `html, body { font-size: 14px }`.
+   rem units always resolve against the ROOT (html) font-size, never
+   an intermediate ancestor's — so fixing this at 14px silently
+   compressed every rem-based Tailwind utility by 12.5% (text-xs
+   rendered ~10.5px, text-sm ~12.25px) AND overrode the user's browser
+   font-size preference, since 14px is an absolute unit. `html: 100%`
+   restores both: rem utilities regain their nominal Tailwind sizes,
+   and zoom/OS text-size preferences are honoured again. `body`'s own
+   0.875rem keeps the app's original visual density for any text that
+   isn't wearing an explicit Tailwind size class. */
+html {
+  height: 100%;
+  font-size: 100%;
+}
 body {
   height: 100%;
   background: var(--color-canvas);
   color: var(--color-ink-primary);
   font-family: var(--font-ui);
-  font-size: 14px;
+  font-size: 0.875rem;
   line-height: 1.55;
   -webkit-font-smoothing: antialiased;
 }

@@ -5,23 +5,36 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { audit, requireEdit } from "@/lib/actions";
 
-const eventSchema = z.object({
-  title: z.string().min(1).max(200),
-  startTime: z.string().min(1),
-  endTime: z.string().optional().nullable(),
-  location: z.string().max(200).optional().nullable(),
-  // v1.41.0 (backlog #4): polymorphic attendee references replacing
-  // the v1.27.1 attendeeIds. Each entry is one of:
-  //   "user:<id>" | "builtin:<slug>" | "group:<slug>"
-  // Legacy `attendeeIds` still accepted on input for clients that
-  // haven't been redeployed yet — we promote them to user:<id> refs
-  // here so the DB writes consistently. The legacy column itself
-  // stays one release as a recoverability buffer; this action stops
-  // writing to it from this release on.
-  attendeeRefs: z.array(z.string().min(1).max(80)).default([]),
-  allDay: z.boolean().default(false),
-  notes: z.string().max(2000).optional().nullable(),
-});
+const eventSchema = z
+  .object({
+    title: z.string().min(1).max(200),
+    startTime: z.string().min(1),
+    endTime: z.string().optional().nullable(),
+    location: z.string().max(200).optional().nullable(),
+    // v1.41.0 (backlog #4): polymorphic attendee references replacing
+    // the v1.27.1 attendeeIds. Each entry is one of:
+    //   "user:<id>" | "builtin:<slug>" | "group:<slug>"
+    // Legacy `attendeeIds` still accepted on input for clients that
+    // haven't been redeployed yet — we promote them to user:<id> refs
+    // here so the DB writes consistently. The legacy column itself
+    // stays one release as a recoverability buffer; this action stops
+    // writing to it from this release on.
+    attendeeRefs: z.array(z.string().min(1).max(80)).default([]),
+    allDay: z.boolean().default(false),
+    notes: z.string().max(2000).optional().nullable(),
+  })
+  // v2.5.0 (design pass #4): a blank start-time input used to silently
+  // combine to midnight (see combineDateTime below); EventForm now
+  // marks start time required, and this refinement closes the other
+  // half of the gap — an end time earlier than the start time used to
+  // save without complaint.
+  .refine(
+    (data) => {
+      if (!data.endTime) return true;
+      return new Date(data.endTime).getTime() >= new Date(data.startTime).getTime();
+    },
+    { message: "End time must be at or after the start time.", path: ["endTime"] },
+  );
 
 function readArray(formData: FormData, key: string): string[] {
   return formData.getAll(key).map(String).filter(Boolean);
@@ -72,6 +85,22 @@ function eventAuditSnapshot(parsed: {
   };
 }
 
+// v2.5.0 (design pass #4): thin wrapper around eventSchema.parse that
+// turns a ZodError into a plain Error carrying just the first issue's
+// message — the raw ZodError.message is a JSON blob, and EventForm's
+// catch block (`err instanceof Error ? err.message : "Failed"`)
+// renders whatever we throw here verbatim.
+function parseEvent(input: unknown): z.infer<typeof eventSchema> {
+  try {
+    return eventSchema.parse(input);
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      throw new Error(err.errors[0]?.message ?? "Invalid event data");
+    }
+    throw err;
+  }
+}
+
 function countRefKinds(refs: string[]): { user: number; builtin: number; group: number } {
   const out = { user: 0, builtin: 0, group: 0 };
   for (const r of refs) {
@@ -91,7 +120,7 @@ export async function createScheduleEvent(formData: FormData) {
   const endTime = String(formData.get("endTime") ?? "");
   const startISO = startDate ? combineDateTime(startDate, startTime, allDay) : "";
   const endISO = endDate ? combineDateTime(endDate, endTime, allDay) : "";
-  const parsed = eventSchema.parse({
+  const parsed = parseEvent({
     title: formData.get("title"),
     startTime: startISO,
     endTime: endISO || null,
@@ -136,7 +165,7 @@ export async function updateScheduleEvent(id: string, formData: FormData) {
   const endTime = String(formData.get("endTime") ?? "");
   const startISO = startDate ? combineDateTime(startDate, startTime, allDay) : "";
   const endISO = endDate ? combineDateTime(endDate, endTime, allDay) : "";
-  const parsed = eventSchema.parse({
+  const parsed = parseEvent({
     title: formData.get("title"),
     startTime: startISO,
     endTime: endISO || null,

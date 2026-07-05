@@ -42,7 +42,7 @@ export default async function SignInErrorPage({
         <p className="text-sm text-ink-secondary mb-5">{m.body}</p>
         <Link
           href="/signin"
-          className="inline-block text-sm font-medium bg-moss-500 text-white rounded-sm px-3 py-2"
+          className="inline-block text-sm font-medium bg-moss-500 text-on-moss rounded-sm px-3 py-2"
         >
           Back to sign-in
         </Link>

@@ -77,6 +77,11 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
   // render state.
   const resolverRef = useRef<Resolver | null>(null);
   const cancelButtonRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  // v2.5.0: restore focus to whatever triggered the dialog on close —
+  // otherwise a keyboard/screen-reader user is dropped at the top of
+  // the document.
+  const previouslyFocusedRef = useRef<HTMLElement | null>(null);
 
   const confirm = useCallback((options: ConfirmOptions) => {
     return new Promise<boolean>((resolve) => {
@@ -85,6 +90,7 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
       // showing the new one.
       resolverRef.current?.(false);
       resolverRef.current = resolve;
+      previouslyFocusedRef.current = document.activeElement as HTMLElement | null;
       setOpts(options);
     });
   }, []);
@@ -94,6 +100,7 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
     resolverRef.current = null;
     setOpts(null);
     resolver?.(answer);
+    previouslyFocusedRef.current?.focus?.();
   }
 
   // Esc cancels. Listener only mounted while open so we don't
@@ -108,6 +115,30 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [opts]);
 
+  // v2.5.0: focus trap — Tab/Shift+Tab cycles within the dialog's two
+  // buttons instead of escaping into the page behind the backdrop.
+  useEffect(() => {
+    if (!opts) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key !== "Tab" || !dialogRef.current) return;
+      const focusable = dialogRef.current.querySelectorAll<HTMLElement>(
+        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+      );
+      if (focusable.length === 0) return;
+      const first = focusable[0]!;
+      const last = focusable[focusable.length - 1]!;
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [opts]);
+
   // Focus the Cancel button on open. Safer default for destructive
   // actions — a stray Enter shouldn't trigger Confirm.
   useEffect(() => {
@@ -119,12 +150,18 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
     <ConfirmContext.Provider value={confirm}>
       {children}
       {opts && (
+        // v2.5.0: aria-hidden REMOVED from this wrapper — it was
+        // hiding the dialog it contains (role="alertdialog", title,
+        // body, buttons) from the accessibility tree entirely, so a
+        // screen-reader user who triggered a delete got zero
+        // announcement that a confirm dialog had opened. The dim
+        // layer has no content of its own; nothing needs hiding here.
         <div
           className="fixed inset-0 z-[500] bg-black/35 flex items-start sm:items-center justify-center pt-10 sm:pt-0 px-4 overflow-y-auto"
           onClick={() => close(false)}
-          aria-hidden="true"
         >
           <div
+            ref={dialogRef}
             role="alertdialog"
             aria-modal="true"
             aria-label={opts.title}
@@ -159,8 +196,8 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
                 autoFocus={false}
                 className={
                   opts.tone === "danger"
-                    ? "text-sm font-medium px-4 py-2.5 min-h-[40px] rounded-sm border border-danger bg-danger text-white hover:opacity-90"
-                    : "text-sm font-medium px-4 py-2.5 min-h-[40px] rounded-sm border border-moss-700 bg-moss-700 text-white hover:bg-moss-900"
+                    ? "text-sm font-medium px-4 py-2.5 min-h-[40px] rounded-sm border border-danger bg-danger text-on-danger hover:opacity-90"
+                    : "text-sm font-medium px-4 py-2.5 min-h-[40px] rounded-sm border border-moss-700 bg-moss-700 text-on-moss hover:bg-moss-900"
                 }
               >
                 {opts.confirmLabel ?? "Confirm"}

@@ -5,11 +5,12 @@ import { canEdit } from "@/lib/permissions";
 import { requireUser } from "@/lib/actions";
 import { isSpotifyConfigured } from "@/lib/spotify";
 import { PageLinkedTasksStrip } from "@/components/ui/PageLinkedTasksStrip";
-import { AddPlaylistToggle } from "./AddPlaylistToggle";
+import { AddPlaylistToggle, AddSongToggle } from "./AddPlaylistToggle";
 import { PlaylistCard } from "./PlaylistCard";
 import { GuestRequestsSection } from "./GuestRequestsSection";
 import { SongsSummaryCards } from "./SongsSummaryCards";
 import { SpotifyConnectionBanner } from "./SpotifyConnectionBanner";
+import { DISMISSED_SENTINEL_NAME } from "./constants";
 
 // v1.57.0 (XL9): accepts `?guest=<id>` filter so a deep-link from
 // `/guests/[id]` lands at the relevant requests-by-this-guest view
@@ -32,6 +33,11 @@ export default async function SongsPage({
   // request?".
   const [playlists, guestRequests, filteredGuest, navTagForPage, taskUsers] = await Promise.all([
     db.playlist.findMany({
+      // Excludes the internal sentinel playlist used to park dismissed
+      // guest requests (see actions.ts) — it's a real Playlist row so the
+      // FK on SongRequest.playlistId has something to point at, but it
+      // should never render as a real playlist card/summary/chip.
+      where: { name: { not: DISMISSED_SENTINEL_NAME } },
       orderBy: [{ order: "asc" }, { createdAt: "asc" }],
       include: { songs: { orderBy: [{ order: "asc" }, { createdAt: "asc" }] } },
     }),
@@ -134,6 +140,16 @@ export default async function SongsPage({
               <span aria-hidden>🎵</span>
               Spotify {spotifyEnabled ? "✓" : "off"}
             </Link>
+            {/* v2.6.0: "Add song" is the header's primary CTA — it's the
+                frequent action, unlike "New playlist" (rare, once-per-
+                playlist) which used to have the primary slot. Defaults
+                the picker to Must Play so the common case is one click
+                deep instead of a scroll to a specific playlist card. */}
+            {editable && (
+              <AddSongToggle
+                playlists={playlists.map((p) => ({ id: p.id, name: p.name, category: p.category }))}
+              />
+            )}
             {editable && <AddPlaylistToggle />}
           </>
         }
@@ -184,7 +200,11 @@ export default async function SongsPage({
       <div className="flex-1 overflow-auto">
         <div className="p-4 sm:p-6 space-y-4">
           {guestRequests.length > 0 && (
-            <GuestRequestsSection requests={guestRequests} />
+            <GuestRequestsSection
+              requests={guestRequests}
+              playlists={playlists.map((p) => ({ id: p.id, name: p.name, category: p.category }))}
+              canEdit={editable}
+            />
           )}
           {playlists.length === 0 ? (
             <p className="text-sm text-ink-tertiary text-center py-12">

@@ -2,9 +2,20 @@ import Link from "next/link";
 import { db } from "@/lib/db";
 import { requireUser } from "@/lib/actions";
 import { getWeddingSettings } from "@/lib/wedding-settings";
+import { resolveAttendeeRefs } from "@/lib/group-members";
 import { ScrollToCurrent } from "./ScrollToCurrent";
 
 type EventStatus = "past" | "now" | "next" | "upcoming";
+
+// v2.5.x: mirrors the Today page's firstNameOf — prefer firstName,
+// fall back to the first word of `name`, then the email local-part.
+function firstNameOf(u: { firstName?: string | null; name?: string | null; email: string }): string {
+  const fn = u.firstName?.trim();
+  if (fn) return fn;
+  const n = u.name?.trim();
+  if (n) return n.split(/\s+/)[0]!;
+  return u.email.split("@")[0]!;
+}
 
 function classifyEvents<T extends { startTime: Date; endTime: Date | null }>(
   events: T[],
@@ -53,7 +64,7 @@ export default async function DayOfPage() {
   const dayStart = new Date(wedding.getFullYear(), wedding.getMonth(), wedding.getDate(), 0, 0, 0, 0);
   const dayEnd = new Date(wedding.getFullYear(), wedding.getMonth(), wedding.getDate(), 23, 59, 59, 999);
 
-  const [eventsRaw, suppliers, dietaryRows] = await Promise.all([
+  const [eventsRaw, suppliers, dietaryRows, allUsers, customUserGroups] = await Promise.all([
     db.scheduleEvent.findMany({
       where: { startTime: { gte: dayStart, lte: dayEnd } },
       orderBy: { startTime: "asc" },
@@ -79,6 +90,25 @@ export default async function DayOfPage() {
         childrenMeal: true,
         dietary: true,
       },
+    }),
+    // v2.5.x: users + custom groups for resolving the polymorphic
+    // attendee refs (same plumbing as the main Today page) — the
+    // timeline used to only read the legacy `attendeeIds` column, so
+    // any event using the newer attendeeRefs (user:/group:) shapes
+    // rendered nothing at all.
+    db.user.findMany({
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        name: true,
+        role: true,
+        isCouple: true,
+      },
+    }),
+    db.permissionGroup.findMany({
+      include: { members: { select: { id: true } } },
     }),
   ]);
 
@@ -133,7 +163,7 @@ export default async function DayOfPage() {
             venue + date stay visible while scrolling the timeline.
             Desktop has plenty of vertical space; sticky everywhere
             would just eat real estate, so it's mobile-only. */}
-        <div className="bg-moss-700 text-white rounded-lg px-6 py-5 mb-4 flex items-center justify-between gap-3 flex-wrap sticky top-0 z-10 sm:static">
+        <div className="bg-moss-700 text-on-moss rounded-lg px-6 py-5 mb-4 flex items-center justify-between gap-3 flex-wrap sticky top-0 z-10 sm:static">
           <div>
             <div className="text-[11px] font-bold uppercase tracking-wider opacity-70">
               Day of · {weddingDateLabel}
@@ -171,7 +201,16 @@ export default async function DayOfPage() {
               </p>
             ) : (
               <ul className="space-y-1">
-                {events.map((ev) => (
+                {events.map((ev) => {
+                  // v2.5.x: resolve attendeeRefs (user:/group: refs) the
+                  // same way the main Today page does, falling back to
+                  // legacy attendeeIds — pre-fix this only ever read
+                  // attendeeIds, so attendeeRefs-based events silently
+                  // showed no attendee line at all.
+                  const resolvedAttendees = resolveAttendeeRefs(ev, allUsers, customUserGroups);
+                  const attendeeNames = resolvedAttendees.map(firstNameOf).slice(0, 3);
+                  const attendeeExtra = Math.max(0, resolvedAttendees.length - 3);
+                  return (
                   <li
                     key={ev.id}
                     // B7: scroll target. The first event with a `now` or
@@ -213,13 +252,14 @@ export default async function DayOfPage() {
                       >
                         {ev.title}
                       </div>
-                      {(ev.location || ev.attendeeIds.length > 0) && (
+                      {(ev.location || attendeeNames.length > 0) && (
                         <div className="text-[11px] text-ink-tertiary mt-0.5">
                           {ev.location && <>{ev.location}</>}
-                          {ev.location && ev.attendeeIds.length > 0 && " · "}
-                          {ev.attendeeIds.length > 0 && (
+                          {ev.location && attendeeNames.length > 0 && " · "}
+                          {attendeeNames.length > 0 && (
                             <>
-                              {ev.attendeeIds.length} attending
+                              {attendeeNames.join(", ")}
+                              {attendeeExtra > 0 && ` +${attendeeExtra}`}
                             </>
                           )}
                         </div>
@@ -236,7 +276,8 @@ export default async function DayOfPage() {
                       </span>
                     )}
                   </li>
-                ))}
+                  );
+                })}
               </ul>
             )}
             <ScrollToCurrent targetId={scrollTargetId} />
@@ -291,9 +332,11 @@ export default async function DayOfPage() {
                 <Stat key={k} label={k} value={`${v}`} />
               ))}
             </ul>
+            {/* v2.5.x: was text-info — every sibling footer link on
+                this page (and the app generally) uses moss-500/700. */}
             <Link
               href="/guests/catering"
-              className="inline-block mt-3 text-xs text-info hover:underline"
+              className="inline-block mt-3 text-xs text-moss-500 hover:text-moss-700 hover:underline"
             >
               Full catering brief →
             </Link>

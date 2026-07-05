@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { subscribeToasts, type ToastEvent } from "@/lib/notify";
 
 type Toast = ToastEvent & { id: number };
@@ -19,19 +19,59 @@ const ICON: Record<ToastEvent["level"], string> = {
   info: "i",
 };
 
+// v2.5.0: errors are the app's only failure-reporting channel for
+// 40+ server actions — a missed 6-second auto-dismiss reads as
+// silent success. Errors now persist until explicitly dismissed;
+// success/info/warn keep their short auto-dismiss. Every toast also
+// gets a click-to-dismiss × and pauses its timer while hovered/
+// focused, and body text is bumped from text-xs (10.5px effective)
+// to text-sm.
+function scheduleDismiss(
+  id: number,
+  ttl: number,
+  setToasts: Dispatch<SetStateAction<Toast[]>>,
+): ReturnType<typeof setTimeout> {
+  return setTimeout(() => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  }, ttl);
+}
+
 export function Toaster() {
   const [toasts, setToasts] = useState<Toast[]>([]);
+  // Per-toast: remaining TTL (so a paused/resumed timer doesn't
+  // restart from the full duration) and the live timeout handle.
+  const timers = useRef(new Map<number, { handle: ReturnType<typeof setTimeout>; ttl: number }>());
 
   useEffect(() => {
     return subscribeToasts((ev) => {
       const id = Date.now() + Math.random();
-      const ttl = ev.ttlMs ?? (ev.level === "error" ? 6000 : 3500);
+      const persistent = ev.level === "error";
+      const ttl = ev.ttlMs ?? (persistent ? Infinity : 3500);
       setToasts((prev) => [...prev, { ...ev, id }]);
-      window.setTimeout(() => {
-        setToasts((prev) => prev.filter((t) => t.id !== id));
-      }, ttl);
+      if (Number.isFinite(ttl)) {
+        timers.current.set(id, { handle: scheduleDismiss(id, ttl, setToasts), ttl });
+      }
     });
   }, []);
+
+  function dismiss(id: number) {
+    const t = timers.current.get(id);
+    if (t) clearTimeout(t.handle);
+    timers.current.delete(id);
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  }
+
+  function pause(id: number) {
+    const t = timers.current.get(id);
+    if (!t) return;
+    clearTimeout(t.handle);
+  }
+
+  function resume(id: number) {
+    const t = timers.current.get(id);
+    if (!t) return;
+    timers.current.set(id, { handle: scheduleDismiss(id, t.ttl, setToasts), ttl: t.ttl });
+  }
 
   if (toasts.length === 0) return null;
 
@@ -52,13 +92,25 @@ export function Toaster() {
         <div
           key={t.id}
           role={t.level === "error" ? "alert" : "status"}
+          onMouseEnter={() => pause(t.id)}
+          onMouseLeave={() => resume(t.id)}
+          onFocus={() => pause(t.id)}
+          onBlur={() => resume(t.id)}
           className={[
-            "pointer-events-auto max-w-sm w-full sm:w-auto rounded-md border shadow-md px-4 py-2.5 text-xs flex items-start gap-2",
+            "pointer-events-auto max-w-sm w-full sm:w-auto rounded-md border shadow-md px-4 py-2.5 text-sm flex items-start gap-2",
             ACCENT[t.level],
           ].join(" ")}
         >
           <span className="font-bold flex-shrink-0">{ICON[t.level]}</span>
           <span className="flex-1 whitespace-pre-wrap">{t.message}</span>
+          <button
+            type="button"
+            onClick={() => dismiss(t.id)}
+            aria-label="Dismiss"
+            className="flex-shrink-0 -m-1.5 p-1.5 leading-none opacity-70 hover:opacity-100"
+          >
+            ×
+          </button>
         </div>
       ))}
     </div>

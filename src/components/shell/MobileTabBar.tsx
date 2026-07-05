@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { MOBILE_TABS, NAV_GROUPS } from "@/components/shell/nav-config";
 import { APP_VERSION } from "@/lib/version";
+import { openQuickCapture } from "@/components/shell/QuickCapture";
 
 export function MobileTabBar({
   isCouple,
@@ -52,12 +53,16 @@ export function MobileTabBar({
                 key={tab.href}
                 onClick={() => setMoreOpen((v) => !v)}
                 className={[
-                  "flex-1 flex flex-col items-center justify-center gap-0.5 h-full cursor-pointer",
-                  active ? "text-moss-500 font-semibold" : "text-ink-tertiary",
+                  "flex-1 flex flex-col items-center justify-center gap-0.5 h-full cursor-pointer min-w-0",
+                  // v2.5.0: inactive labels were text-ink-tertiary at
+                  // 10px — low-contrast even after ink-tertiary was
+                  // darkened for AA, on the single most-used mobile
+                  // control in the app. Bumped to ink-secondary + 11px.
+                  active ? "text-moss-500 font-semibold" : "text-ink-secondary",
                 ].join(" ")}
               >
                 <span className="text-lg">{tab.icon}</span>
-                <span className="text-[10px]">{tab.label}</span>
+                <span className="text-[11px] truncate max-w-full px-1">{tab.label}</span>
               </button>
             );
           }
@@ -72,15 +77,32 @@ export function MobileTabBar({
               key={tab.href}
               href={tab.href}
               className={[
-                "flex-1 flex flex-col items-center justify-center gap-0.5 h-full",
-                active ? "text-moss-500 font-semibold" : "text-ink-tertiary",
+                "flex-1 flex flex-col items-center justify-center gap-0.5 h-full min-w-0",
+                active ? "text-moss-500 font-semibold" : "text-ink-secondary",
               ].join(" ")}
             >
               <span className="text-lg">{tab.icon}</span>
-              <span className="text-[10px]">{tab.label}</span>
+              <span className="text-[11px] truncate max-w-full px-1">{tab.label}</span>
             </Link>
           );
         })}
+
+        {/* v2.5.0: restores the prototype's centered floating quick-
+            capture button, dropped when this tab bar shipped. Before
+            this the modal only opened via the 'C' keyboard shortcut —
+            completely unreachable on touch. Absolutely positioned
+            against the nav (which establishes the containing block
+            via `fixed`), so it floats above the row without being a
+            6th flex tab. `.mobile-tabbar`'s existing display:none
+            rule at ≥640px hides it on desktop for free. */}
+        <button
+          type="button"
+          onClick={() => openQuickCapture()}
+          aria-label="Quick capture"
+          className="absolute left-1/2 -translate-x-1/2 -translate-y-5 w-12 h-12 rounded-full bg-moss-500 text-on-moss text-2xl leading-none shadow-lg flex items-center justify-center"
+        >
+          +
+        </button>
       </nav>
 
       {moreOpen && (

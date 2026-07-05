@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { setTaskStatus } from "@/app/(app)/tasks/actions";
 import { notify } from "@/lib/notify";
+import { priorityBarColour } from "./priority-colour";
 
 type Task = {
   id: string;
@@ -15,13 +16,9 @@ type Task = {
   topics?: string[];
 };
 
-// Per-priority dot colour — moss for HIGH/URGENT, marigold for MEDIUM,
-// muted for LOW. Matches the StatusPill palette without the box.
-function priorityDotColour(p: string): string {
-  if (p === "URGENT" || p === "HIGH") return "bg-marigold-700";
-  if (p === "MEDIUM") return "bg-marigold-500";
-  return "bg-border-strong";
-}
+// How long a just-completed row stays visible (struck-through, with
+// an Undo link) before it's actually removed from the list.
+const UNDO_WINDOW_MS = 5_000;
 
 function formatDue(due: Date | null): string {
   if (!due) return "no due date";
@@ -41,30 +38,54 @@ function formatDue(due: Date | null): string {
 // v1.27.2: replaces the disabled-checkbox stub on the Today page with
 // a working tick. Pre-fix the box was disabled with an aria hint
 // "open Tasks page to toggle" — a friction the user reported (29 Apr
-// 2026). Now clicking the box fires `setTaskStatus(id, "DONE")`,
-// optimistically hides the row from the list, and shows a toast on
-// success/failure.
+// 2026). Now clicking the box fires `setTaskStatus(id, "DONE")` and
+// shows a toast on success/failure.
+//
+// v2.5.x: ticking used to hide the row instantly with no way back —
+// a mis-tap meant re-finding the task on /tasks to undo it. Now the
+// row stays rendered (struck-through, dimmed) for a few seconds with
+// an inline Undo link before it's actually removed from the list.
 //
 // The Today page is a server component; this client island handles
 // the local state + action call so the rest of the dashboard stays
 // server-rendered.
 export function TodayTaskList({ tasks }: { tasks: Task[] }) {
-  // Local-state copy lets us hide a task instantly on tick without
-  // waiting for revalidation. If the action fails we revert.
-  const [hidden, setHidden] = useState<Set<string>>(new Set());
+  // `completed` drives the struck-through/Undo visual; `removed` is
+  // what actually drops a row from the list, applied after the undo
+  // window elapses (or immediately if the action fails).
+  const [completed, setCompleted] = useState<Set<string>>(new Set());
+  const [removed, setRemoved] = useState<Set<string>>(new Set());
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [, startTransition] = useTransition();
+  // Pending removal timers, keyed by task id, so Undo can cancel one
+  // before it fires.
+  const timers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
-  function toggle(id: string, title: string) {
-    setHidden((prev) => new Set(prev).add(id));
+  // Clear any outstanding removal timers on unmount (e.g. navigating
+  // away mid-undo-window) so we don't call setState on a gone component.
+  useEffect(() => {
+    const timerMap = timers.current;
+    return () => {
+      timerMap.forEach((timer) => clearTimeout(timer));
+      timerMap.clear();
+    };
+  }, []);
+
+  function complete(id: string, title: string) {
+    setCompleted((prev) => new Set(prev).add(id));
     setPendingId(id);
     startTransition(async () => {
       try {
         await setTaskStatus(id, "DONE");
         notify("success", `Marked "${title}" done`);
+        const timer = setTimeout(() => {
+          setRemoved((prev) => new Set(prev).add(id));
+          timers.current.delete(id);
+        }, UNDO_WINDOW_MS);
+        timers.current.set(id, timer);
       } catch (err) {
-        // Revert local hide on failure.
-        setHidden((prev) => {
+        // Revert the strikethrough on failure — nothing to undo.
+        setCompleted((prev) => {
           const next = new Set(prev);
           next.delete(id);
           return next;
@@ -76,7 +97,28 @@ export function TodayTaskList({ tasks }: { tasks: Task[] }) {
     });
   }
 
-  const visible = tasks.filter((t) => !hidden.has(t.id));
+  function undo(id: string, title: string) {
+    const timer = timers.current.get(id);
+    if (timer) {
+      clearTimeout(timer);
+      timers.current.delete(id);
+    }
+    setCompleted((prev) => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+    startTransition(async () => {
+      try {
+        await setTaskStatus(id, "OPEN");
+        notify("success", `Reopened "${title}"`);
+      } catch (err) {
+        notify("error", err instanceof Error ? err.message : "Couldn't undo");
+      }
+    });
+  }
+
+  const visible = tasks.filter((t) => !removed.has(t.id));
 
   if (visible.length === 0) {
     return (
@@ -91,24 +133,37 @@ export function TodayTaskList({ tasks }: { tasks: Task[] }) {
       {visible.map((t) => {
         const overdue = t.dueDate && t.dueDate < new Date();
         const isPending = pendingId === t.id;
+        const isDone = completed.has(t.id);
         return (
           <li key={t.id} className="flex items-center gap-3">
             <span
               className={[
                 "w-1 h-7 rounded flex-shrink-0",
-                priorityDotColour(t.priority),
+                priorityBarColour(t.priority),
               ].join(" ")}
               aria-hidden
             />
-            <input
-              type="checkbox"
-              checked={false}
-              onChange={() => toggle(t.id, t.title)}
-              disabled={isPending}
-              className="cursor-pointer accent-moss-500 flex-shrink-0 disabled:cursor-wait disabled:opacity-50"
-              aria-label={`Mark "${t.title}" done`}
-            />
-            <span className="text-sm text-ink-primary flex-1 min-w-0 truncate">
+            {/* v2.5.x: the bare ~16px checkbox was well under the
+                40px touch-target floor. Wrapping it in a label with
+                padding cancelled by a matching negative margin grows
+                the tappable area without shifting the visible layout
+                (mobile only — desktop pointers don't need the slack). */}
+            <label className="p-2.5 -m-2.5 sm:p-0 sm:m-0 flex-shrink-0 cursor-pointer flex items-center justify-center">
+              <input
+                type="checkbox"
+                checked={isDone}
+                onChange={() => complete(t.id, t.title)}
+                disabled={isPending || isDone}
+                className="cursor-pointer accent-moss-500 disabled:cursor-wait disabled:opacity-50"
+                aria-label={`Mark "${t.title}" done`}
+              />
+            </label>
+            <span
+              className={[
+                "text-sm flex-1 min-w-0 truncate",
+                isDone ? "text-ink-tertiary line-through opacity-60" : "text-ink-primary",
+              ].join(" ")}
+            >
               {t.title}
               {t.topics && t.topics.length > 0 && (
                 <span className="ml-2 text-[10px] text-moss-700">
@@ -117,14 +172,24 @@ export function TodayTaskList({ tasks }: { tasks: Task[] }) {
                 </span>
               )}
             </span>
-            <span
-              className={[
-                "text-xs flex-shrink-0 tabular-nums",
-                overdue ? "text-danger font-medium" : "text-ink-tertiary",
-              ].join(" ")}
-            >
-              {formatDue(t.dueDate)}
-            </span>
+            {isDone ? (
+              <button
+                type="button"
+                onClick={() => undo(t.id, t.title)}
+                className="text-xs flex-shrink-0 font-medium text-moss-700 hover:underline"
+              >
+                Undo
+              </button>
+            ) : (
+              <span
+                className={[
+                  "text-xs flex-shrink-0 tabular-nums",
+                  overdue ? "text-danger font-medium" : "text-ink-tertiary",
+                ].join(" ")}
+              >
+                {formatDue(t.dueDate)}
+              </span>
+            )}
           </li>
         );
       })}

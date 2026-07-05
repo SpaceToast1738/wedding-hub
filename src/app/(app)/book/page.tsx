@@ -145,7 +145,17 @@ export default async function BookHubPage() {
     // BookShot. Read every BookShot on every shot-list card under
     // sections (Photography in particular). The hub card uses the
     // total to show captured/total progress.
-    db.bookShot.findMany({ select: { captured: true } }),
+    //
+    // Design-pass fix: pre-fix this counted EVERY BookShot in the
+    // database with no scoping, so a SHOT_LIST card added to any
+    // other section (a couple could put one anywhere) silently
+    // inflated the Photography card's "X of Y captured" number. Scope
+    // to shots whose shot-list's subsection actually lives under the
+    // photography section.
+    db.bookShot.findMany({
+      where: { shotList: { subsection: { section: { slug: "photography" } } } },
+      select: { captured: true },
+    }),
   ]);
   // v1.38.5: hide deprecated / legacy sections from the index when
   // they have zero subsections. The split phases (P3 / P4 / P5) kept
@@ -208,13 +218,19 @@ export default async function BookHubPage() {
                     : `Shot list — ${shotsCaptured} of ${shotsTotal} captured`
                   : `${s._count.subsections} ${s._count.subsections === 1 ? "page" : "pages"}`;
                 return (
-                  // v1.87.0: wrap each section card in a `relative` div
-                  // so the reorder buttons can float over the Link.
-                  // Buttons render only when editable.
-                  <div key={s.id} className="relative">
+                  // Design-pass fix: reorder controls used to float
+                  // absolutely over the Link's top-right corner — right
+                  // where the "→" affordance invites a tap, so a
+                  // near-miss on the tiny ▲/▼ buttons landed on the
+                  // Link and navigated away instead of reordering. Now
+                  // they're a normal (non-overlapping) row stacked
+                  // above the card, so there's no shared hit-area with
+                  // the Link at all.
+                  <div key={s.id} className="flex flex-col gap-1">
                     {editable && (
                       <SectionReorderControls
                         id={s.id}
+                        title={s.title}
                         isFirst={idx === 0}
                         isLast={idx === sections.length - 1}
                       />
@@ -254,8 +270,22 @@ export default async function BookHubPage() {
                       <span className="text-sm text-ink-tertiary opacity-50">→</span>
                     </div>
                     <div className="mt-auto">
-                      <div className="font-display text-lg font-semibold text-ink-primary leading-tight mb-1">
-                        {s.title}
+                      <div className="flex items-center gap-1.5 mb-1">
+                        <div className="font-display text-lg font-semibold text-ink-primary leading-tight">
+                          {s.title}
+                        </div>
+                        {/* Design-pass fix: the hub grid previously gave
+                            no visual signal that a section is couple-only
+                            — only the section page itself carried a
+                            suffix. The couple scans this grid specifically
+                            to check what the wedding party can/can't see,
+                            so mirror the same lock-badge treatment used
+                            on individual COUPLE_ONLY cards (CardChrome). */}
+                        {s.visibility === "COUPLE_ONLY" && (
+                          <span className="text-[10px] uppercase tracking-wider text-marigold-700 bg-marigold-100 border border-marigold-700/20 rounded-full px-2 py-0.5 flex-shrink-0">
+                            🔒 Couple
+                          </span>
+                        )}
                       </div>
                       <div className="text-xs text-ink-secondary leading-snug">
                         {/* v1.94.0: DB-stored section subtitle wins;

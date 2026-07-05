@@ -125,10 +125,31 @@ export function QuestionsClient({
           </div>
         </div>
 
-        {filtered.length === 0 ? (
-          <p className="text-sm text-ink-tertiary text-center py-12">
-            No questions match these filters.
-          </p>
+        {questions.length === 0 ? (
+          // v2.5.0 (mod #10): distinct from the "no matches" case below
+          // — a genuinely empty list gets an actionable next step
+          // instead of a filter-tuning hint that doesn't apply yet.
+          <div className="text-center py-12 space-y-1">
+            <p className="text-sm font-medium text-ink-primary">No questions yet</p>
+            <p className="text-sm text-ink-tertiary">
+              Use the + New button above to add your first question or decision.
+            </p>
+          </div>
+        ) : filtered.length === 0 ? (
+          <div className="text-center py-12 space-y-2">
+            <p className="text-sm text-ink-tertiary">No matches for this filter.</p>
+            <button
+              type="button"
+              onClick={() => {
+                setTypeFilter("all");
+                setPriorityFilter("all");
+                setSearch("");
+              }}
+              className="text-sm text-moss-700 hover:underline"
+            >
+              Clear filters
+            </button>
+          </div>
         ) : (
           <>
             <Section title="Open" items={open} users={users} usersById={usersById} editable={editable} customFieldDefs={customFieldDefs} bookSections={bookSections} bookSubsections={bookSubsections} navTags={navTags} guestGroups={guestGroups} />
@@ -168,7 +189,10 @@ function Section({
   return (
     <section>
       <h2 className="text-[11px] font-bold text-ink-tertiary uppercase tracking-wider mb-2">{title}</h2>
-      <ol className="bg-surface border border-border-soft rounded-md shadow-sm divide-y divide-border-soft">
+      {/* v2.5.0 (mod #10): overflow-hidden clips each row's left-border
+          accent (added below) neatly to the container's rounded-md
+          corners. */}
+      <ol className="bg-surface border border-border-soft rounded-md shadow-sm divide-y divide-border-soft overflow-hidden">
         {items.map((q) => (
           <Row
             key={q.id}
@@ -226,6 +250,17 @@ function Row({
         ? "LOW"
         : "MED";
 
+  // v2.5.0 (mod #10): left-border accent per state — answered (moss),
+  // overdue (danger), open (marigold) — replaces uniform white rows.
+  // Same overdue definition as TaskRow/TaskBoard.
+  const isAnswered = q.status === "DONE";
+  const isOverdue = !isAnswered && !!q.dueDate && q.dueDate.getTime() < Date.now();
+  const accentClass = isAnswered
+    ? "border-l-moss-500"
+    : isOverdue
+      ? "border-l-danger"
+      : "border-l-marigold-500";
+
   async function onDelete() {
     if (!(await confirm({ title: `Delete "${q.title}"?`, confirmLabel: "Delete", tone: "danger" }))) return;
     startTransition(async () => {
@@ -279,7 +314,7 @@ function Row({
   }
 
   return (
-    <li className="px-4 py-3 group">
+    <li className={`px-4 py-3 pl-3 border-l-4 group ${accentClass}`}>
       <div className="flex items-baseline gap-2 flex-wrap">
         <span
           className={[
@@ -317,8 +352,10 @@ function Row({
         </span>
         {editable && (
           // v1.18.5: Edit/Delete actions. Visible on touch / hover-fade
-          // on desktop — same pattern as TaskRow.tsx (v1.17.0 mobile pass).
-          <div className="flex gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity flex-shrink-0">
+          // on desktop. v2.5.0: added sm:focus-within:opacity-100 — the
+          // hover-only version had no keyboard/focus fallback, so the
+          // controls were unreachable without a mouse on desktop.
+          <div className="flex gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 transition-opacity flex-shrink-0">
             <Button variant="ghost" size="sm" onClick={() => setEditing(true)} disabled={pending}>
               Edit
             </Button>

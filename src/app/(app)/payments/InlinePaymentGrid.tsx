@@ -4,6 +4,7 @@ import React, { useRef, useState, useTransition } from "react";
 import { createPayment, uploadAndAttachReceipt } from "./actions";
 import { createSupplierQuick } from "@/app/(app)/suppliers/actions";
 import { notify } from "@/lib/notify";
+import { Button } from "@/components/ui/Button";
 
 // v1.75.0 → v1.75.1: single-row inline payment entry. Earlier
 // iteration showed 5 blank rows; user feedback ("only really need
@@ -94,6 +95,13 @@ export function InlinePaymentGrid({
   // free-text label input.
   const [fundSource, setFundSource] = useState<string>("");
   const [fundLabel, setFundLabel] = useState<string>("");
+  // v2.6.0 (design pass finding 9): supplier/budget-link/fund/link/
+  // receipt all have sensible defaults (none set = inherit / no link),
+  // so they're collapsed behind this expander — description, amount,
+  // and Add stay the always-visible fast path. Auto-opens if any of
+  // those fields already carry a value so the user doesn't lose sight
+  // of an active selection.
+  const [showMore, setShowMore] = useState(false);
 
   const [pending, startTransition] = useTransition();
   const [suppliers, setSuppliers] = useState<Supplier[]>(initialSuppliers);
@@ -111,6 +119,7 @@ export function InlinePaymentGrid({
     setBudgetTarget("");
     setFundSource("");
     setFundLabel("");
+    setShowMore(false);
     setTimeout(() => descriptionRef.current?.focus(), 0);
   }
 
@@ -247,6 +256,12 @@ export function InlinePaymentGrid({
     !supplierName.trim() &&
     !link &&
     receiptCount === 0;
+  // v2.6.0 (design pass finding 9): auto-reveal the "more details" tier
+  // whenever any of its fields already carry a value, so the expander
+  // never hides an active selection from view.
+  const hasMoreDetails =
+    !!supplierName.trim() || !!budgetTarget || !!fundSource || !!link || receiptCount > 0;
+  const detailsOpen = showMore || hasMoreDetails;
 
   return (
     <div className="bg-surface border border-border-soft rounded-md shadow-sm p-3 mb-4">
@@ -274,6 +289,7 @@ export function InlinePaymentGrid({
           onKeyDown={onPaymentKey}
           disabled={pending}
           placeholder="Description (e.g. Hobbycraft — foam blocks)"
+          aria-label="Payment description"
           className="flex-1 min-w-[180px] text-sm bg-canvas text-ink-primary border border-border-soft rounded-sm px-2.5 py-1.5 outline-none focus:border-moss-500"
         />
         <input
@@ -286,8 +302,31 @@ export function InlinePaymentGrid({
           onKeyDown={onPaymentKey}
           disabled={pending}
           placeholder="£"
+          aria-label="Amount in pounds"
           className="w-24 text-sm bg-canvas text-ink-primary border border-border-soft rounded-sm px-2.5 py-1.5 outline-none focus:border-moss-500 tabular-nums text-right"
         />
+        <Button type="button" variant="primary" size="sm" onClick={commit} disabled={pending || isEmpty}>
+          {pending ? "…" : "+ Add"}
+        </Button>
+      </div>
+
+      {/* v2.6.0 (design pass finding 9): supplier/budget-link/fund/link/
+          receipt all default to "none" / "inherit", so they're
+          collapsed behind this expander — description, amount, and Add
+          above stay the always-visible fast path. Auto-opens (see
+          `detailsOpen`) whenever one of these fields already carries a
+          value so an active selection is never hidden. */}
+      <button
+        type="button"
+        onClick={() => setShowMore((v) => !v)}
+        className="text-xs text-info hover:underline mt-2"
+        aria-expanded={detailsOpen}
+      >
+        {detailsOpen ? "− Hide details" : "+ More details (supplier, budget link, fund, attachments)"}
+      </button>
+
+      {detailsOpen && (
+      <div className="flex flex-wrap items-center gap-2 mt-2 pt-2 border-t border-border-soft">
         <input
           type="text"
           list="payment-suppliers"
@@ -296,6 +335,7 @@ export function InlinePaymentGrid({
           onKeyDown={onPaymentKey}
           disabled={pending}
           placeholder="Supplier (type or pick)"
+          aria-label="Supplier name"
           className="w-44 text-sm bg-canvas text-ink-primary border border-border-soft rounded-sm px-2.5 py-1.5 outline-none focus:border-moss-500"
         />
         {/* v1.79.0: budget line picker. Lines listed under their
@@ -307,6 +347,7 @@ export function InlinePaymentGrid({
           onChange={(e) => setBudgetTarget(e.target.value)}
           onKeyDown={onPaymentKey}
           disabled={pending || budgetCategories.length === 0}
+          aria-label="Link to a budget line or component"
           className={
             "w-44 text-sm bg-canvas text-ink-primary border rounded-sm px-2 py-1.5 outline-none focus:border-moss-500 " +
             (budgetTarget ? "border-moss-300" : "border-border-soft")
@@ -350,6 +391,7 @@ export function InlinePaymentGrid({
           onChange={(e) => setFundSource(e.target.value)}
           onKeyDown={onPaymentKey}
           disabled={pending}
+          aria-label="Funding source"
           title="Funding source — leave on Inherit to follow the linked budget line's fund"
           className={
             "w-32 text-sm bg-canvas text-ink-primary border rounded-sm px-2 py-1.5 outline-none focus:border-moss-500 " +
@@ -370,6 +412,7 @@ export function InlinePaymentGrid({
             onKeyDown={onPaymentKey}
             disabled={pending}
             placeholder="e.g. Bryony's parents"
+            aria-label="Custom fund label"
             className="w-40 text-sm bg-canvas text-ink-primary border border-border-soft rounded-sm px-2.5 py-1.5 outline-none focus:border-moss-500"
           />
         )}
@@ -377,8 +420,9 @@ export function InlinePaymentGrid({
           type="button"
           onClick={() => setShowLinkPicker(!showLinkPicker)}
           disabled={pending}
+          aria-label={link ? `Linked to ${link.label}` : "Link to a BUILD material or outfit item"}
           className={
-            "text-[11px] px-2 py-1 rounded-sm border transition-colors " +
+            "text-[11px] px-2 py-2 sm:py-1 min-h-[40px] sm:min-h-0 rounded-sm border transition-colors " +
             (link
               ? "bg-moss-50 border-moss-300 text-moss-700"
               : "bg-canvas border-border-soft text-ink-tertiary hover:border-moss-300 hover:text-moss-700")
@@ -396,15 +440,8 @@ export function InlinePaymentGrid({
           onQueueLocal={queueLocalFiles}
           onClear={clearAttached}
         />
-        <button
-          type="button"
-          onClick={commit}
-          disabled={pending || isEmpty}
-          className="text-xs font-medium px-3 py-1.5 rounded-sm border bg-moss-500 text-white border-moss-500 hover:bg-moss-700 hover:border-moss-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-        >
-          {pending ? "…" : "+ Add"}
-        </button>
       </div>
+      )}
 
       {showLinkPicker && (
         <LinkPickerPanel
@@ -419,7 +456,10 @@ export function InlinePaymentGrid({
         />
       )}
 
-      <p className="text-[10px] text-ink-tertiary mt-2">
+      {/* v2.6.0 (design pass finding 8): promoted from text-[10px]/
+          ink-tertiary — this is a real functional hint (how to submit
+          the form), not decoration. */}
+      <p className="text-xs text-ink-secondary mt-2">
         Press <kbd className="px-1 border border-border-soft rounded-sm bg-canvas text-ink-secondary text-[10px] font-mono">Enter</kbd> to add. Suppliers you type that don&apos;t already exist are auto-created. Linked BUILD materials are auto-marked as ordered. Queued receipts upload + attach automatically once the payment is created.
       </p>
     </div>
@@ -583,7 +623,7 @@ function LinkPickerPanel({
           className={
             "text-[11px] px-2 py-0.5 rounded-full border " +
             (tab === "build"
-              ? "bg-moss-500 text-white border-moss-500"
+              ? "bg-moss-500 text-on-moss border-moss-500"
               : "bg-canvas border-border-soft text-ink-secondary hover:border-moss-300")
           }
         >
@@ -595,7 +635,7 @@ function LinkPickerPanel({
           className={
             "text-[11px] px-2 py-0.5 rounded-full border " +
             (tab === "outfit"
-              ? "bg-moss-500 text-white border-moss-500"
+              ? "bg-moss-500 text-on-moss border-moss-500"
               : "bg-canvas border-border-soft text-ink-secondary hover:border-moss-300")
           }
         >

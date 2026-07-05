@@ -295,6 +295,7 @@ export function MemberOverridesBlock({
                     <Button
                       variant="ghost"
                       size="sm"
+                      aria-label={`Remove ${u.name ?? u.email}`}
                       onClick={() => remove(u)}
                       disabled={pending}
                     >
@@ -422,11 +423,15 @@ export function MemberOverridesBlock({
                                   onChange={(e) => toggleGroupMembership(g.id, u.id, e.target.checked)}
                                   className="accent-moss-500"
                                 />
-                                <span className={on ? "text-ink-primary" : "text-ink-tertiary"}>
+                                {/* v2.5.0 (design pass #10): the raw
+                                    `group:<slug>` identifier moved to a
+                                    title tooltip — it has no value to
+                                    a user browsing the list. */}
+                                <span
+                                  className={on ? "text-ink-primary" : "text-ink-tertiary"}
+                                  title={`group:${g.slug}`}
+                                >
                                   {g.name}
-                                </span>
-                                <span className="text-[10px] uppercase tracking-wider text-ink-tertiary font-mono">
-                                  group:{g.slug}
                                 </span>
                               </label>
                               <div className="ml-6">

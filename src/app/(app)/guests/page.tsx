@@ -6,8 +6,15 @@ import { canEdit, canView } from "@/lib/permissions";
 import { requireUser } from "@/lib/actions";
 import { PageLinkedTasksStrip } from "@/components/ui/PageLinkedTasksStrip";
 import { AddHouseholdToggle } from "./AddHouseholdToggle";
-import { GuestList } from "./GuestList";
+import { AddGuestButton, GuestList } from "./GuestList";
 import { ArchivedGuestList } from "./ArchivedGuestList";
+
+// v2.5.1 (finding #10): shared touch-target sizing for the plain-Link
+// header actions on this page — min-h-[40px] on mobile, dense again
+// at sm+. Mirrors the Button primitive's own SIZE_CLASSES convention;
+// these aren't Button because they need to stay <Link>s.
+const HEADER_LINK_CLASS =
+  "inline-flex items-center min-h-[40px] sm:min-h-0 text-xs font-medium px-2.5 py-1 rounded-sm border border-border-soft bg-canvas text-ink-secondary hover:border-moss-300 hover:text-moss-700";
 
 // `?archived=1` switches the view from active households to a flat list of
 // archived guests with Restore + (couple-only) Delete-permanently actions.
@@ -42,10 +49,7 @@ export default async function GuestsPage({
               : `${archived.length} archived guest${archived.length === 1 ? "" : "s"}`
           }
           actions={
-            <Link
-              href="/guests"
-              className="inline-flex items-center text-xs font-medium px-2.5 py-1 rounded-sm border border-border-soft bg-canvas text-ink-secondary hover:border-moss-300 hover:text-moss-700"
-            >
+            <Link href="/guests" className={HEADER_LINK_CLASS}>
               ← Active guests
             </Link>
           }
@@ -130,18 +134,23 @@ export default async function GuestsPage({
   const totalGuests = households.reduce((n, h) => n + h.guests.length, 0);
   const attending = households.reduce((n, h) => n + h.guests.filter((g) => g.rsvp === "ATTENDING").length, 0);
   const pending = households.reduce((n, h) => n + h.guests.filter((g) => g.rsvp === "PENDING").length, 0);
+  // v2.5.1 (finding #8): header totals used to stop at confirmed/
+  // pending/total — maybe and declined were invisible anywhere on the
+  // page.
+  const maybe = households.reduce((n, h) => n + h.guests.filter((g) => g.rsvp === "MAYBE").length, 0);
+  const declined = households.reduce((n, h) => n + h.guests.filter((g) => g.rsvp === "DECLINED").length, 0);
 
   return (
     <>
       <PageHeader
         title="Guests"
-        subtitle={`${attending} confirmed · ${pending} pending · ${totalGuests} total`}
+        subtitle={`${attending} confirmed · ${pending} pending · ${maybe} maybe · ${declined} declined · ${totalGuests} total`}
         actions={
           <>
             {archivedCount > 0 && (
               <Link
                 href="/guests?archived=1"
-                className="inline-flex items-center text-xs font-medium px-2.5 py-1 rounded-sm border border-border-soft bg-canvas text-ink-tertiary hover:border-moss-300 hover:text-moss-700"
+                className={HEADER_LINK_CLASS + " text-ink-tertiary"}
                 title={`${archivedCount} archived guest${archivedCount === 1 ? "" : "s"}`}
               >
                 Archived ({archivedCount})
@@ -149,20 +158,22 @@ export default async function GuestsPage({
             )}
             <Link
               href="/guests/catering"
-              className="inline-flex items-center text-xs font-medium px-2.5 py-1 rounded-sm border border-border-soft bg-canvas text-ink-secondary hover:border-moss-300 hover:text-moss-700"
+              className={HEADER_LINK_CLASS}
               title="Printable catering brief: totals, course breakdowns, dietary, per-table seating"
             >
               Catering brief
             </Link>
             {editable && (
               <>
-                <Link
-                  href="/guests/import"
-                  className="inline-flex items-center text-xs font-medium px-2.5 py-1 rounded-sm border border-border-soft bg-canvas text-ink-secondary hover:border-moss-300 hover:text-moss-700"
-                >
+                <Link href="/guests/import" className={HEADER_LINK_CLASS}>
                   Import CSV
                 </Link>
                 <AddHouseholdToggle />
+                {/* v2.5.1 (finding #1): the only way to add a single
+                    guest used to be opening an existing row's edit
+                    form — there was no create affordance in the UI at
+                    all. */}
+                <AddGuestButton households={households.map((h) => ({ id: h.id, name: h.name }))} />
               </>
             )}
           </>
