@@ -963,6 +963,16 @@ When wrapping up a meaningful iteration:
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
 
+### 2026-07-05 · v2.4.2 — Fix chat 400s: history sanitizer orphaned tool_results at the window head
+
+User hit repeating production errors after a few chat messages: `400 … unexpected tool_use_id found in tool_result blocks … Each tool_result block must have a corresponding tool_use block in the previous message`, pointing at `messages.0`.
+
+**Root cause:** `sanitizeHistory`'s final rule ("first message must be role user") violated its own invariant. When the 40-row history window happened to START on an assistant `tool_use` message, the pairing checks correctly kept the tool_use/tool_result pair — then the head rule shifted the assistant off the front, leaving its `tool_result` as `messages[0]`: exactly the orphan the API rejects. v2.4.0's deeper tool chains (12 iterations) made the window boundary land on tool rows far more often, which is why it surfaced now rather than in v2.2.x.
+
+**Fix:** sanitizer moved to [src/lib/ai/sanitize-history.ts](src/lib/ai/sanitize-history.ts) (pure module — the old in-chat.ts copy couldn't be unit-tested without pulling Prisma). Head normalisation now re-checks after EVERY shift: a leading non-user message is dropped, then any tool_results stranded on the new head are stripped (or the whole message dropped if that empties it), repeating until the head is a legal user message. Healing stays read-time, so wedged threads recover on their next message.
+
+**Tests:** new [sanitize-chat-history.test.ts](tests/unit/sanitize-chat-history.test.ts) — 8 cases including the exact production shape (window starting on an assistant tool_use row), mixed tool_result+text heads, dangling tool_use, partial parallel results, stacked leading tool exchanges; every case asserts the two API invariants (head is user with no tool_results; every tool_result resolved by the immediately preceding message). 629 → 637 tests. Verified with a full local `next build` (exit 0) per the standing rule.
+
 ### 2026-07-05 · v2.4.1 — Balanced tier moves to Claude Sonnet 5
 
 User: "can we use sonnet 5?" — Sonnet 5 shipped 2026-06-30 (`claude-sonnet-5`): near-Opus-4.8 capability at Sonnet prices, with intro pricing ($2/$10 per MTok) until 2026-08-31, then $3/$15 (identical to Sonnet 4.6's standard rate). Strict upgrade for the chat/parse/summarize/breakdown surfaces.
