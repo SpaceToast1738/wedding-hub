@@ -109,7 +109,7 @@ export function NavTagsBlock({ tags }: { tags: NavTagRow[] }) {
                   type="button"
                   onClick={() => onReorder(t.id, "up")}
                   disabled={pending || idx === 0}
-                  aria-label="Move up"
+                  aria-label={`Move ${t.name} up`}
                   title="Move up"
                   className="text-[10px] text-ink-tertiary hover:text-ink-primary disabled:opacity-30 px-0.5"
                 >
@@ -119,7 +119,7 @@ export function NavTagsBlock({ tags }: { tags: NavTagRow[] }) {
                   type="button"
                   onClick={() => onReorder(t.id, "down")}
                   disabled={pending || idx === tags.length - 1}
-                  aria-label="Move down"
+                  aria-label={`Move ${t.name} down`}
                   title="Move down"
                   className="text-[10px] text-ink-tertiary hover:text-ink-primary disabled:opacity-30 px-0.5"
                 >

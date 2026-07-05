@@ -190,7 +190,7 @@ export function GuestGroupsBlock({
                     type="button"
                     onClick={() => onReorder(g.id, "up")}
                     disabled={pending || idx === 0}
-                    aria-label="Move up"
+                    aria-label={`Move ${g.name} up — higher priority`}
                     title="Higher priority — fills sooner"
                     className="min-h-[40px] min-w-[40px] sm:min-h-0 sm:min-w-0 flex items-center justify-center text-[10px] text-ink-tertiary hover:text-ink-primary disabled:opacity-30 px-0.5"
                   >
@@ -200,7 +200,7 @@ export function GuestGroupsBlock({
                     type="button"
                     onClick={() => onReorder(g.id, "down")}
                     disabled={pending || idx === groups.length - 1}
-                    aria-label="Move down"
+                    aria-label={`Move ${g.name} down — lower priority`}
                     title="Lower priority — fills later"
                     className="min-h-[40px] min-w-[40px] sm:min-h-0 sm:min-w-0 flex items-center justify-center text-[10px] text-ink-tertiary hover:text-ink-primary disabled:opacity-30 px-0.5"
                   >

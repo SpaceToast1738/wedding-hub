@@ -527,7 +527,7 @@ function GroupOrderPanel({
                     type="button"
                     onClick={() => onReorder(g.id, "up")}
                     disabled={pending || idx === 0}
-                    aria-label="Move up"
+                    aria-label={`Move ${g.name} up — fills sooner`}
                     title="Move up — fills sooner"
                     className="text-[10px] text-ink-tertiary hover:text-ink-primary disabled:opacity-30 px-0.5"
                   >
@@ -537,7 +537,7 @@ function GroupOrderPanel({
                     type="button"
                     onClick={() => onReorder(g.id, "down")}
                     disabled={pending || idx === groups.length - 1}
-                    aria-label="Move down"
+                    aria-label={`Move ${g.name} down — fills later`}
                     title="Move down — fills later"
                     className="text-[10px] text-ink-tertiary hover:text-ink-primary disabled:opacity-30 px-0.5"
                   >

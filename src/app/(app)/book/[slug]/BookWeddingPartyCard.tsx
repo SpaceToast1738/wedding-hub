@@ -637,6 +637,7 @@ function MemberHeader({
               disabled={isFirst}
               className="text-[10px] text-ink-tertiary hover:text-ink-primary disabled:opacity-30 px-0.5"
               title={prevTitle}
+              aria-label={`${prevTitle} ${member.name}`}
             >
               {prevGlyph}
             </button>
@@ -646,6 +647,7 @@ function MemberHeader({
               disabled={isLast}
               className="text-[10px] text-ink-tertiary hover:text-ink-primary disabled:opacity-30 px-0.5"
               title={nextTitle}
+              aria-label={`${nextTitle} ${member.name}`}
             >
               {nextGlyph}
             </button>
@@ -783,6 +785,7 @@ function ItemHeader({
             disabled={isFirst}
             className="text-[10px] text-ink-tertiary hover:text-ink-primary disabled:opacity-30 px-0.5"
             title={prevTitle}
+            aria-label={`${prevTitle} ${item.label}`}
           >
             {prevGlyph}
           </button>
@@ -792,6 +795,7 @@ function ItemHeader({
             disabled={isLast}
             className="text-[10px] text-ink-tertiary hover:text-ink-primary disabled:opacity-30 px-0.5"
             title={nextTitle}
+            aria-label={`${nextTitle} ${item.label}`}
           >
             {nextGlyph}
           </button>

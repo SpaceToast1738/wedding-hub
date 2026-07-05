@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Inter, Fraunces } from "next/font/google";
 import { DarkModeScript } from "@/components/shell/DarkModeScript";
 import { ServiceWorkerCleanup } from "@/components/shell/ServiceWorkerCleanup";
@@ -21,6 +21,15 @@ const fraunces = Fraunces({
 // React.cache()-wrapped so this won't add a round-trip when a page on
 // the same render already called it. Nice-to-have only; the page
 // content itself reads the same loader for consistency.
+// v2.5.1: brand colour for mobile browser chrome + PWA install UI.
+// Static rather than light/dark-aware — DarkModeScript toggles the
+// .dark class from a stored preference independent of OS colour
+// scheme, so a prefers-color-scheme media query here would drift
+// from what's actually on screen.
+export const viewport: Viewport = {
+  themeColor: "#3F4F30",
+};
+
 export async function generateMetadata(): Promise<Metadata> {
   try {
     const w = await getWeddingSettings();
