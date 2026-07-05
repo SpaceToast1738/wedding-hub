@@ -963,6 +963,16 @@ When wrapping up a meaningful iteration:
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
 
+### 2026-07-05 · v2.6.3 — Backdate supplier communication log entries
+
+The v2.5.1 design pass touched Suppliers, but the agent doing it only owned the client-side files, not `actions.ts` — so it left `createSupplierCommunication` always stamping `createdAt` at server "now" with no way to log a call that actually happened days ago. That skewed "last contact" on the detail page and card for anyone backfilling.
+
+- `CommunicationsSection`'s log form gained a "When" date field (`occurredAt`, defaulting to today), sitting between Channel and Follow up by in what's now a 3-column row.
+- `communicationSchema` gained an optional `occurredAt`; when present it's passed as `createdAt` on the `SupplierCommunication` create, overriding the column's `@default(now())` for that row — blank still falls through to the default exactly as before. No migration (existing column, just conditionally supplying a value).
+- Success toast now calls out a backdated entry ("logged for Jul 2") alongside the existing follow-up-task callout, so a backfilled log doesn't read identically to one just logged live.
+
+Typecheck clean, lint clean, 639 tests green, full `next build` verified.
+
 ### 2026-07-05 · v2.6.2 — AI can link tasks to a specific Wedding Book card
 
 User (with a screenshot): asked the AI planner to make the "Kids Entertainment" card taggable on a task, and it correctly refused — "card-level tagging on tasks isn't one of them [the tools I have]." That refusal was accurate but avoidable: `Task.bookSubsections`, `taskCreateSchema.bookSubsectionIds`, both apply bridges (`taskPayloadToFormData`, `taskUpdatePayloadToFormData`), and `resolveRefs`' subsection family were all already wired end-to-end since v2.4.0 — the ONE missing piece was that `propose_task` and `propose_task_update`'s AI-facing tool schemas never exposed the field. `merge-task-update.ts` even had a comment spelling this out as a known, deliberate gap ("the AI can't modify card-level links").

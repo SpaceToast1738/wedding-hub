@@ -669,20 +669,24 @@ function CommunicationsSection({
             // before, with no confirmation the entry (or its
             // auto-created follow-up task) actually landed.
             const followUpAt = fd.get("followUpAt");
+            // v2.6.3: backdated entries ("When" != today) get called
+            // out too, so a backfilled log doesn't look identical to
+            // one just logged live.
+            const occurredAt = fd.get("occurredAt");
+            const today = new Date().toISOString().slice(0, 10);
+            const backdated = occurredAt && occurredAt !== today;
             startTransition(async () => {
               await createSupplierCommunication(fd);
               setAdding(false);
-              notify(
-                "success",
-                followUpAt
-                  ? `Log entry added — follow-up task created for ${formatDate(new Date(followUpAt as string))}`
-                  : "Log entry added",
-              );
+              const notes: string[] = [];
+              if (backdated) notes.push(`logged for ${formatDate(new Date(occurredAt as string))}`);
+              if (followUpAt) notes.push(`follow-up task created for ${formatDate(new Date(followUpAt as string))}`);
+              notify("success", notes.length ? `Log entry added — ${notes.join("; ")}` : "Log entry added");
             });
           }}
           className="px-4 py-3 bg-moss-50/40 border-b border-border-soft space-y-2.5"
         >
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
             <div>
               <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">
                 Channel
@@ -697,6 +701,16 @@ function CommunicationsSection({
                 <option value="meeting">Meeting</option>
                 <option value="message">Message</option>
               </select>
+            </div>
+            <div>
+              <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">
+                When
+              </label>
+              <Input
+                name="occurredAt"
+                type="date"
+                defaultValue={new Date().toISOString().slice(0, 10)}
+              />
             </div>
             <div>
               <label className="block text-[10px] font-bold text-ink-tertiary uppercase tracking-wider mb-1">

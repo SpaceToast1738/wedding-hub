@@ -316,6 +316,10 @@ const communicationSchema = z.object({
   channel: z.enum(["email", "call", "meeting", "message"]),
   summary: z.string().min(1).max(5000),
   followUpAt: z.string().optional().nullable(),
+  // v2.6.3: when the contact actually happened, for backfilling a call
+  // logged after the fact. Optional — blank leaves createdAt on its
+  // column default (now()) same as before.
+  occurredAt: z.string().optional().nullable(),
 });
 
 export async function createSupplierCommunication(formData: FormData) {
@@ -325,8 +329,10 @@ export async function createSupplierCommunication(formData: FormData) {
     channel: formData.get("channel"),
     summary: formData.get("summary"),
     followUpAt: formData.get("followUpAt") || null,
+    occurredAt: formData.get("occurredAt") || null,
   });
   const followUpAt = parsed.followUpAt ? new Date(parsed.followUpAt) : null;
+  const occurredAt = parsed.occurredAt ? new Date(parsed.occurredAt) : null;
 
   // Need the supplier name for the auto-task title. One round-trip
   // before the transaction; cheap and avoids Prisma's interactive-tx
@@ -348,6 +354,10 @@ export async function createSupplierCommunication(formData: FormData) {
         summary: parsed.summary,
         followUpAt,
         createdById: user.id,
+        // v2.6.3: backfilled entries override the createdAt default —
+        // omitting the key entirely (rather than passing undefined)
+        // keeps the column's @default(now()) in effect when blank.
+        ...(occurredAt ? { createdAt: occurredAt } : {}),
       },
     });
     const taskData = decideFollowUpTask({
