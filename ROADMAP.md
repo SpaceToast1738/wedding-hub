@@ -1015,6 +1015,16 @@ This closes every phase with a scoped, well-understood fix. What remains — `Re
 
 Typecheck clean, 652 tests green, lint clean, full `next build` verified.
 
+### 2026-07-06 · v2.6.13 — Icon migration Phase 5: entity badge glyphs (final phase)
+
+Migrated `RecentActivityFeed.tsx`'s `ENTITY_BADGE` map (14 entity types, one badge each) from Unicode glyphs to `lucide-react` components — `ListChecks` (Task), `PoundSterling` (Payment/BudgetLine/BudgetCategory/BudgetLineComponent), `Building2` (Supplier + contact/contract), `Heart` (Guest/Household), `Table2` (Table/Seat/CeremonySeating), `Clock` (ScheduleEvent), `BookOpen` (BookSection/BookSubsection), `Music` (Playlist/Song), `Settings`, `Tag`, `Paperclip` (File), `Mail` (Invite), `User` (User/PermissionGroup), and `Circle` for the neutral fallback. Done last per the original scope — this was already the most internally consistent of the three glyph systems the audit found (one map, one render site, one size), so it carried the least urgency.
+
+**This closes all 7 phases of the icon-consistency migration** (0 pilot → 1 trivial swaps → 2 lookup maps → 4 nav-config → 3 Wedding Book fallback → 6 reorder/edit family → 5 entity badges). `lucide-react` is now the sole icon system in the app; every glyph the original audit catalogued (plus ~15 more found while executing) has been replaced with a properly themeable, dark-mode-safe component.
+
+**New, unscoped finding surfaced while doing the final sweep — not touched, flagged for a future decision:** a `✓` character is used as a generic "success/done" indicator across dozens of unrelated files app-wide (confirmation toasts, "Applied"/"Configured" status chips, RSVP seat-status glyphs in `SeatingCanvas.tsx`'s SVG rendering, and — notably — as a truthy-value token in `src/lib/csv.ts`'s CSV-import parser, which isn't a UI icon at all and must never be touched). This is a materially different, much larger body of work than anything in the 7-phase scope — not sized or approved, and mixing in a data-parsing concern makes it riskier than a pure UI swap. Left entirely alone.
+
+Typecheck clean, 652 tests green, lint clean, full `next build` verified.
+
 ### 2026-07-06 · v2.6.7 — Icon migration Phase 0: lucide-react + Toaster pilot
 
 First of several phases executing the icon-consistency scope from the v2.6.0 audit (colour emoji that can't recolour for dark mode; three uncoordinated glyph systems; no icon library installed anywhere). Full scope, phasing, and the two open style questions (nav icon sizing, Wedding Book fallback substitutes) were written up and handed to the user directly; this entry starts execution.

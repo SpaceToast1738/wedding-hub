@@ -18,6 +18,23 @@
 // it ever moves into a sidebar / dialog / dedicated page.
 
 import Link from "next/link";
+import {
+  ListChecks,
+  PoundSterling,
+  Building2,
+  Heart,
+  Table2,
+  Clock,
+  BookOpen,
+  Music,
+  Settings,
+  Tag,
+  Paperclip,
+  Mail,
+  User,
+  Circle,
+  type LucideIcon,
+} from "lucide-react";
 import { formatAuditAction } from "@/lib/audit-format";
 import { timeAgo } from "@/lib/time-ago";
 
@@ -44,33 +61,38 @@ type Props = {
 // Falls through to a neutral "·" for unknown entities so the column
 // width stays consistent. Tone names map to existing palette tokens.
 type Tone = "moss" | "marigold" | "info" | "danger" | "muted";
-const ENTITY_BADGE: Record<string, { glyph: string; tone: Tone; label: string }> = {
-  Task:                { glyph: "✓", tone: "moss",     label: "Task" },
-  Payment:             { glyph: "£", tone: "marigold", label: "Payment" },
-  BudgetLine:          { glyph: "£", tone: "marigold", label: "Budget line" },
-  BudgetCategory:      { glyph: "£", tone: "marigold", label: "Budget" },
-  BudgetLineComponent: { glyph: "£", tone: "marigold", label: "Budget component" },
-  Supplier:            { glyph: "◆", tone: "info",     label: "Supplier" },
-  SupplierContact:     { glyph: "◆", tone: "info",     label: "Supplier contact" },
-  SupplierContract:    { glyph: "◆", tone: "info",     label: "Supplier contract" },
-  Guest:               { glyph: "♥", tone: "moss",     label: "Guest" },
-  Household:           { glyph: "♥", tone: "moss",     label: "Household" },
-  Table:               { glyph: "▦", tone: "info",     label: "Table" },
-  Seat:                { glyph: "▦", tone: "info",     label: "Seat" },
-  CeremonySeating:     { glyph: "▦", tone: "info",     label: "Ceremony seating" },
-  ScheduleEvent:       { glyph: "◷", tone: "marigold", label: "Schedule" },
-  BookSection:         { glyph: "❧", tone: "moss",     label: "Book section" },
-  BookSubsection:      { glyph: "❧", tone: "moss",     label: "Book page" },
-  Playlist:            { glyph: "♪", tone: "info",     label: "Playlist" },
-  Song:                { glyph: "♪", tone: "info",     label: "Song" },
-  WeddingSettings:     { glyph: "✦", tone: "muted",    label: "Settings" },
-  NavTag:              { glyph: "#", tone: "muted",    label: "Tag" },
-  File:                { glyph: "📎", tone: "muted",   label: "File" },
-  Invite:              { glyph: "✉", tone: "info",     label: "Invite" },
-  User:                { glyph: "@", tone: "muted",    label: "User" },
-  PermissionGroup:     { glyph: "@", tone: "muted",    label: "Permission group" },
+// v2.6.13 (icon migration Phase 5): glyph (Unicode string) -> icon
+// (LucideIcon). Last of the three icon "systems" the audit flagged —
+// deliberately done last since this map was already the most
+// internally consistent of the three (one map, one render site, one
+// size) even before the migration.
+const ENTITY_BADGE: Record<string, { icon: LucideIcon; tone: Tone; label: string }> = {
+  Task:                { icon: ListChecks,     tone: "moss",     label: "Task" },
+  Payment:             { icon: PoundSterling,  tone: "marigold", label: "Payment" },
+  BudgetLine:          { icon: PoundSterling,  tone: "marigold", label: "Budget line" },
+  BudgetCategory:      { icon: PoundSterling,  tone: "marigold", label: "Budget" },
+  BudgetLineComponent: { icon: PoundSterling,  tone: "marigold", label: "Budget component" },
+  Supplier:            { icon: Building2,      tone: "info",     label: "Supplier" },
+  SupplierContact:     { icon: Building2,      tone: "info",     label: "Supplier contact" },
+  SupplierContract:    { icon: Building2,      tone: "info",     label: "Supplier contract" },
+  Guest:               { icon: Heart,          tone: "moss",     label: "Guest" },
+  Household:           { icon: Heart,          tone: "moss",     label: "Household" },
+  Table:               { icon: Table2,         tone: "info",     label: "Table" },
+  Seat:                { icon: Table2,         tone: "info",     label: "Seat" },
+  CeremonySeating:     { icon: Table2,         tone: "info",     label: "Ceremony seating" },
+  ScheduleEvent:       { icon: Clock,          tone: "marigold", label: "Schedule" },
+  BookSection:         { icon: BookOpen,       tone: "moss",     label: "Book section" },
+  BookSubsection:      { icon: BookOpen,       tone: "moss",     label: "Book page" },
+  Playlist:            { icon: Music,          tone: "info",     label: "Playlist" },
+  Song:                { icon: Music,          tone: "info",     label: "Song" },
+  WeddingSettings:     { icon: Settings,       tone: "muted",    label: "Settings" },
+  NavTag:              { icon: Tag,            tone: "muted",    label: "Tag" },
+  File:                { icon: Paperclip,      tone: "muted",    label: "File" },
+  Invite:              { icon: Mail,           tone: "info",     label: "Invite" },
+  User:                { icon: User,           tone: "muted",    label: "User" },
+  PermissionGroup:     { icon: User,           tone: "muted",    label: "Permission group" },
 };
-const FALLBACK_BADGE = { glyph: "·", tone: "muted" as Tone, label: "Activity" };
+const FALLBACK_BADGE = { icon: Circle, tone: "muted" as Tone, label: "Activity" };
 
 function badgeClasses(tone: Tone): string {
   switch (tone) {
@@ -134,12 +156,12 @@ export function RecentActivityFeed({ rows, isCouple, totalCount }: Props) {
               className="flex items-center gap-2.5 px-2 py-1.5 text-sm hover:bg-canvas/40 rounded-sm transition-colors"
               title={`${r.entity} · ${r.createdAt.toLocaleString("en-GB")}`}
             >
-              {/* Entity glyph badge — colour-coded by category. */}
+              {/* Entity icon badge — colour-coded by category. */}
               <span
-                className={`inline-flex items-center justify-center w-5 h-5 rounded-sm border text-[11px] font-bold flex-shrink-0 ${badgeClasses(badge.tone)}`}
+                className={`inline-flex items-center justify-center w-5 h-5 rounded-sm border flex-shrink-0 ${badgeClasses(badge.tone)}`}
                 aria-label={badge.label}
               >
-                {badge.glyph}
+                <badge.icon aria-hidden className="w-3 h-3" />
               </span>
               {/* Timestamp — right-justified for column alignment. */}
               <span className="text-[11px] text-ink-tertiary tabular-nums flex-shrink-0 min-w-[64px] text-right">
