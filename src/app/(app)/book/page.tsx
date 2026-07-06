@@ -1,5 +1,24 @@
 import Link from "next/link";
-import { Lock } from "lucide-react";
+import {
+  Lock,
+  Users,
+  Landmark,
+  UtensilsCrossed,
+  Camera,
+  PartyPopper,
+  BedDouble,
+  Gem,
+  Wine,
+  CalendarDays,
+  Plane,
+  Car,
+  Beer,
+  Music,
+  Shirt,
+  NotebookText,
+  BookOpen,
+  type LucideIcon,
+} from "lucide-react";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { PageHeader } from "@/components/ui/PageHeader";
@@ -19,38 +38,43 @@ import { SectionReorderControls } from "./SectionReorderControls";
 // dark-mode variants automatically because the tokens are CSS variables.
 const SECTION_META: Record<
   string,
-  { accent: string; glyph: string; description: string }
+  { accent: string; icon: LucideIcon; description: string }
 > = {
   // Prototype's 7 canonical sections — accent colours and descriptions
   // ported directly from prototype/WeddingBookPage.jsx BOOK_SECTIONS.
+  // v2.6.11 (icon migration Phase 3): glyph (emoji) -> icon (LucideIcon).
+  // A couple of these have no faithful generic-icon equivalent (bride,
+  // ring) — nearest fits used; the illustrated Scene (bookSceneFor
+  // below) takes priority over this fallback for any section that has
+  // hand-drawn art, so most of these rarely render in practice.
   "wedding-party": {
     accent: "bg-moss-100",
-    glyph: "👰",
+    icon: Users,
     description: "Outfits, roles, stag & hen, ring keepers",
   },
   venue: {
     accent: "bg-moss-50",
-    glyph: "🏛",
+    icon: Landmark,
     description: "Ceremony, reception, signage, centrepieces",
   },
   "food-drink": {
     accent: "bg-marigold-100",
-    glyph: "🍽",
+    icon: UtensilsCrossed,
     description: "Breakfast, evening food, cake, drinks",
   },
   photography: {
     accent: "bg-moss-100",
-    glyph: "📷",
+    icon: Camera,
     description: "Package, shot list, locations, day-of contact",
   },
   "guest-experience": {
     accent: "bg-marigold-100",
-    glyph: "🎉",
+    icon: PartyPopper,
     description: "Pixel Party, table games, photo booth, favours",
   },
   accommodation: {
     accent: "bg-marigold-100",
-    glyph: "🛏",
+    icon: BedDouble,
     description: "Bridal suite, bridesmaids, groomsmen",
   },
   // Legacy v1.4.0 slugs — kept so the cards still render meaningfully
@@ -58,24 +82,24 @@ const SECTION_META: Record<
   // legacy structure alongside the prototype set.
   ceremony: {
     accent: "bg-moss-50",
-    glyph: "💍",
+    icon: Gem,
     description: "Order of service, vows, readings, music",
   },
   reception: {
     accent: "bg-marigold-100",
-    glyph: "🥂",
+    icon: Wine,
     description: "Drinks, dinner, speeches, dancing",
   },
   logistics: {
     accent: "bg-moss-50",
-    glyph: "🗓",
+    icon: CalendarDays,
     description: "Setup, pack-down, supplier arrival times",
   },
 };
 
 const DEFAULT_META = {
   accent: "bg-canvas",
-  glyph: "📖",
+  icon: BookOpen,
   description: "Reference notes",
 };
 
@@ -104,28 +128,29 @@ function accentFor(idx: number): string {
   return ACCENT_ROTATION[idx % ACCENT_ROTATION.length]!;
 }
 
-// v1.94.1: keyword-inferred glyph for custom sections. Pre-fix
-// every non-canonical section landed on the generic 📖 — visually
+// v1.94.1: keyword-inferred icon for custom sections. Pre-fix every
+// non-canonical section landed on the generic book icon — visually
 // indistinguishable. Now matches against the section's slug + title
 // so "venue-spaces" / "Legal — Before the day" / "Wedding Party —
-// People" get a meaningful emoji even when bookSceneFor returns null.
-function fallbackGlyphFor(slug: string, title: string): string {
+// People" get a meaningful icon even when bookSceneFor returns null.
+// v2.6.11 (icon migration Phase 3): returns a LucideIcon, not a glyph.
+function fallbackIconFor(slug: string, title: string): LucideIcon {
   const hay = `${slug} ${title}`.toLowerCase();
   // Ordered by specificity — most distinctive wins.
-  if (hay.includes("honeymoon") || hay.includes("flight")) return "✈";
-  if (hay.includes("transport") || hay.includes("car") || hay.includes("taxi")) return "🚗";
-  if (hay.includes("stag") || hay.includes("hen")) return "🥂";
-  if (hay.includes("song") || hay.includes("music") || hay.includes("dj") || hay.includes("band")) return "🎵";
-  if (hay.includes("schedule") || hay.includes("timeline") || hay.includes("day-of") || hay.includes("day of")) return "🗓";
-  if (hay.includes("photo") || hay.includes("video")) return "📷";
-  if (hay.includes("food") || hay.includes("drink") || hay.includes("menu") || hay.includes("bar") || hay.includes("cake") || hay.includes("catering")) return "🍽";
-  if (hay.includes("clothing") || hay.includes("outfit") || hay.includes("dress") || hay.includes("attire") || hay.includes("accessor")) return "👗";
-  if (hay.includes("wedding party") || hay.includes("wedding-party") || hay.includes("bridesmaid") || hay.includes("groomsman") || hay.includes("best man") || hay.includes("maid of honour")) return "👰";
-  if (hay.includes("guest") || hay.includes("favour") || hay.includes("entertainment")) return "🎉";
-  if (hay.includes("accommodat") || hay.includes("lodging") || hay.includes("hotel") || hay.includes("suite") || hay.includes("room")) return "🛏";
-  if (hay.includes("venue") || hay.includes("ceremony") || hay.includes("reception") || hay.includes("space") || hay.includes("decor")) return "🏛";
-  if (hay.includes("post") && hay.includes("wedding")) return "📔";
-  return "📖";
+  if (hay.includes("honeymoon") || hay.includes("flight")) return Plane;
+  if (hay.includes("transport") || hay.includes("car") || hay.includes("taxi")) return Car;
+  if (hay.includes("stag") || hay.includes("hen")) return Beer;
+  if (hay.includes("song") || hay.includes("music") || hay.includes("dj") || hay.includes("band")) return Music;
+  if (hay.includes("schedule") || hay.includes("timeline") || hay.includes("day-of") || hay.includes("day of")) return CalendarDays;
+  if (hay.includes("photo") || hay.includes("video")) return Camera;
+  if (hay.includes("food") || hay.includes("drink") || hay.includes("menu") || hay.includes("bar") || hay.includes("cake") || hay.includes("catering")) return UtensilsCrossed;
+  if (hay.includes("clothing") || hay.includes("outfit") || hay.includes("dress") || hay.includes("attire") || hay.includes("accessor")) return Shirt;
+  if (hay.includes("wedding party") || hay.includes("wedding-party") || hay.includes("bridesmaid") || hay.includes("groomsman") || hay.includes("best man") || hay.includes("maid of honour")) return Users;
+  if (hay.includes("guest") || hay.includes("favour") || hay.includes("entertainment")) return PartyPopper;
+  if (hay.includes("accommodat") || hay.includes("lodging") || hay.includes("hotel") || hay.includes("suite") || hay.includes("room")) return BedDouble;
+  if (hay.includes("venue") || hay.includes("ceremony") || hay.includes("reception") || hay.includes("space") || hay.includes("decor")) return Landmark;
+  if (hay.includes("post") && hay.includes("wedding")) return NotebookText;
+  return BookOpen;
 }
 
 export default async function BookHubPage() {
@@ -200,7 +225,7 @@ export default async function BookHubPage() {
               }}
             >
               {sections.map((s, idx) => {
-                // v1.94.1 / v1.99.7: glyph + description come from
+                // v1.94.1 / v1.99.7: icon + description come from
                 // SECTION_META (canonical slugs) or the keyword-
                 // inferred fallback. Accent is ALWAYS position-driven
                 // via `accentFor(idx)` so the grid alternates cleanly
@@ -209,7 +234,7 @@ export default async function BookHubPage() {
                 const canonical = SECTION_META[s.slug];
                 const meta = {
                   accent: accentFor(idx),
-                  glyph: canonical?.glyph ?? fallbackGlyphFor(s.slug, s.title),
+                  icon: canonical?.icon ?? fallbackIconFor(s.slug, s.title),
                   description: canonical?.description ?? DEFAULT_META.description,
                 };
                 const isPhoto = s.slug === "photography";
@@ -263,9 +288,7 @@ export default async function BookHubPage() {
                         return Scene ? (
                           <Scene size={44} />
                         ) : (
-                          <span className="text-3xl leading-none" aria-hidden>
-                            {meta.glyph}
-                          </span>
+                          <meta.icon aria-hidden className="w-8 h-8 text-ink-secondary" />
                         );
                       })()}
                       <span className="text-sm text-ink-tertiary opacity-50">→</span>

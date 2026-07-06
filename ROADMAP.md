@@ -995,6 +995,14 @@ Two more sites found while in these files, not part of the original audit: a `�
 
 Typecheck clean, 652 tests green, lint clean, full `next build` verified.
 
+### 2026-07-06 · v2.6.11 — Icon migration Phase 3: Wedding Book section fallback icons
+
+Migrated `book/page.tsx`'s `SECTION_META` (9 canonical section slugs), `DEFAULT_META`, and the 14-branch keyword-inference `fallbackGlyphFor()` (renamed `fallbackIconFor()`) from emoji strings to `LucideIcon` components — the ~44px card icon shown on the Wedding Book hub grid for any section without hand-drawn illustration art (`bookSceneFor()` still takes priority when one exists, so most canonical sections rarely show this fallback at all).
+
+The one phase with genuine style substitutions rather than 1:1 mappings, since no generic icon set has a literal "bride" or "wedding ring": wedding-party → `Users`, ceremony → `Gem` (nearest to "ring"), reception → `Wine`, venue → `Landmark`, food-drink → `UtensilsCrossed`, photography → `Camera`, guest-experience → `PartyPopper`, accommodation → `BedDouble`, logistics → `CalendarDays`, default → `BookOpen`. The keyword-fallback branches got matching substitutes (honeymoon → `Plane`, transport → `Car`, stag/hen → `Beer`, etc.) — full list in the diff. Flagging here for visibility rather than treating it as settled: if any of these read wrong in practice, they're a one-line change each, not a structural one.
+
+Typecheck clean, 652 tests green, lint clean, full `next build` verified.
+
 ### 2026-07-06 · v2.6.7 — Icon migration Phase 0: lucide-react + Toaster pilot
 
 First of several phases executing the icon-consistency scope from the v2.6.0 audit (colour emoji that can't recolour for dark mode; three uncoordinated glyph systems; no icon library installed anywhere). Full scope, phasing, and the two open style questions (nav icon sizing, Wedding Book fallback substitutes) were written up and handed to the user directly; this entry starts execution.
