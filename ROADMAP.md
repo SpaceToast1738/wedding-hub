@@ -963,6 +963,15 @@ When wrapping up a meaningful iteration:
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
 
+### 2026-07-06 · v2.6.7 — Icon migration Phase 0: lucide-react + Toaster pilot
+
+First of several phases executing the icon-consistency scope from the v2.6.0 audit (colour emoji that can't recolour for dark mode; three uncoordinated glyph systems; no icon library installed anywhere). Full scope, phasing, and the two open style questions (nav icon sizing, Wedding Book fallback substitutes) were written up and handed to the user directly; this entry starts execution.
+
+- Installed `lucide-react` — tree-shakeable, SSR-safe, typed (`LucideIcon`), the de facto default for this stack.
+- Migrated `Toaster.tsx`'s `ICON` map (bare `✓⚠!i` Unicode) to real components (`CheckCircle2`/`AlertCircle`/`AlertTriangle`/`Info`) as the pilot — smallest self-contained file, proves the `currentColor` inheritance strategy end-to-end (icons pick up each toast's existing `ACCENT` tone class for free, zero new styling) before touching anything higher-traffic. Also swapped the dismiss button's bare `×` for a proper `X` icon while in the file.
+
+Typecheck clean, 652 tests green (unchanged — no logic touched), lint clean, full `next build` verified.
+
 ### 2026-07-05 · v2.6.6 — AI can write real formatting into Wedding Book cards
 
 User: screenshot showing the AI planner correctly telling the user "TEXT cards only support plain text... no markdown/rich formatting support" when asked to make a card's layout richer. That refusal was accurate for what the tool could actually produce, but not for what the app supports — confirmed `src/lib/sanitize-book-html.ts`'s allow-list (h2/h3, strong/em/u, ul/ol/li, blockquote, links) matches the Tiptap editor's toolbar exactly. The gap: every AI path that writes TEXT-card body content (`propose_book_card_replace_text`, `summarizeBookCard`, and — found while fixing this — `propose_book_dresscode_update`'s `bodyText`) funneled through a helper that HTML-escaped everything and wrapped only in `<p>`/`<br/>`, with no path to any of the allowed tags.

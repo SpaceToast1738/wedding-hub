@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
+import { AlertCircle, AlertTriangle, CheckCircle2, Info, X, type LucideIcon } from "lucide-react";
 import { subscribeToasts, type ToastEvent } from "@/lib/notify";
 
 type Toast = ToastEvent & { id: number };
@@ -12,11 +13,15 @@ const ACCENT: Record<ToastEvent["level"], string> = {
   info: "border-border-soft bg-surface text-ink-secondary",
 };
 
-const ICON: Record<ToastEvent["level"], string> = {
-  success: "✓",
-  error: "⚠",
-  warn: "!",
-  info: "i",
+// v2.6.7 (icon migration pilot): was a Record<level, string> of bare
+// Unicode glyphs (✓⚠!i). Icons inherit their tone for free from the
+// wrapping toast's ACCENT text-* class — same currentColor strategy
+// as the pre-existing ▲▼✎ controls elsewhere in the app.
+const ICON: Record<ToastEvent["level"], LucideIcon> = {
+  success: CheckCircle2,
+  error: AlertCircle,
+  warn: AlertTriangle,
+  info: Info,
 };
 
 // v2.5.0: errors are the app's only failure-reporting channel for
@@ -88,31 +93,34 @@ export function Toaster() {
       aria-live="polite"
       aria-atomic="false"
     >
-      {toasts.map((t) => (
-        <div
-          key={t.id}
-          role={t.level === "error" ? "alert" : "status"}
-          onMouseEnter={() => pause(t.id)}
-          onMouseLeave={() => resume(t.id)}
-          onFocus={() => pause(t.id)}
-          onBlur={() => resume(t.id)}
-          className={[
-            "pointer-events-auto max-w-sm w-full sm:w-auto rounded-md border shadow-md px-4 py-2.5 text-sm flex items-start gap-2",
-            ACCENT[t.level],
-          ].join(" ")}
-        >
-          <span className="font-bold flex-shrink-0">{ICON[t.level]}</span>
-          <span className="flex-1 whitespace-pre-wrap">{t.message}</span>
-          <button
-            type="button"
-            onClick={() => dismiss(t.id)}
-            aria-label="Dismiss"
-            className="flex-shrink-0 -m-1.5 p-1.5 leading-none opacity-70 hover:opacity-100"
+      {toasts.map((t) => {
+        const Icon = ICON[t.level];
+        return (
+          <div
+            key={t.id}
+            role={t.level === "error" ? "alert" : "status"}
+            onMouseEnter={() => pause(t.id)}
+            onMouseLeave={() => resume(t.id)}
+            onFocus={() => pause(t.id)}
+            onBlur={() => resume(t.id)}
+            className={[
+              "pointer-events-auto max-w-sm w-full sm:w-auto rounded-md border shadow-md px-4 py-2.5 text-sm flex items-start gap-2",
+              ACCENT[t.level],
+            ].join(" ")}
           >
-            ×
-          </button>
-        </div>
-      ))}
+            <Icon aria-hidden className="w-4 h-4 flex-shrink-0 mt-0.5" />
+            <span className="flex-1 whitespace-pre-wrap">{t.message}</span>
+            <button
+              type="button"
+              onClick={() => dismiss(t.id)}
+              aria-label="Dismiss"
+              className="flex-shrink-0 -m-1.5 p-1.5 leading-none opacity-70 hover:opacity-100"
+            >
+              <X aria-hidden className="w-4 h-4" />
+            </button>
+          </div>
+        );
+      })}
     </div>
   );
 }
