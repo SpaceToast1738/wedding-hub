@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { ChevronDown, ChevronUp } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { notify } from "@/lib/notify";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
@@ -300,7 +301,7 @@ export function PermissionGroupsBlock({
                     title="Move up"
                     className="min-h-[40px] min-w-[40px] sm:min-h-0 sm:min-w-0 flex items-center justify-center text-[10px] text-ink-tertiary hover:text-ink-primary disabled:opacity-30 px-0.5"
                   >
-                    ▲
+                    <ChevronUp aria-hidden className="w-3.5 h-3.5" />
                   </button>
                   <button
                     type="button"
@@ -310,7 +311,7 @@ export function PermissionGroupsBlock({
                     title="Move down"
                     className="min-h-[40px] min-w-[40px] sm:min-h-0 sm:min-w-0 flex items-center justify-center text-[10px] text-ink-tertiary hover:text-ink-primary disabled:opacity-30 px-0.5"
                   >
-                    ▼
+                    <ChevronDown aria-hidden className="w-3.5 h-3.5" />
                   </button>
                 </span>
                 {/* v2.5.0 (design pass #10): the raw `group:<slug>`

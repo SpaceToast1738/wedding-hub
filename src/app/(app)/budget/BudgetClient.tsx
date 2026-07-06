@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import { createPortal } from "react-dom";
-import { AlertTriangle, Puzzle, StickyNote } from "lucide-react";
+import { AlertTriangle, ChevronDown, ChevronUp, Pencil, Puzzle, StickyNote } from "lucide-react";
 import type { FundSource, PerHeadSource } from "@prisma/client";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -1011,7 +1011,7 @@ function CategoryBlock({
               title="Move category up"
               aria-label={`Move ${category.name} up`}
             >
-              ▲
+              <ChevronUp aria-hidden className="w-3.5 h-3.5" />
             </button>
             <button
               type="button"
@@ -1021,7 +1021,7 @@ function CategoryBlock({
               title="Move category down"
               aria-label={`Move ${category.name} down`}
             >
-              ▼
+              <ChevronDown aria-hidden className="w-3.5 h-3.5" />
             </button>
             {/* v1.85.0: rename pencil. Quietly themed so the row stays clean. */}
             <button
@@ -1035,7 +1035,7 @@ function CategoryBlock({
               title="Rename category"
               aria-label={`Rename ${category.name}`}
             >
-              ✎
+              <Pencil aria-hidden className="w-3.5 h-3.5" />
             </button>
             <a
               href={`/payments?category=${category.id}`}

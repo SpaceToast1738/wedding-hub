@@ -39,6 +39,7 @@
 // and edit-mode cell selects got a real touch target.
 
 import { useEffect, useState, useTransition } from "react";
+import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Pencil } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -553,8 +554,8 @@ function MemberHeader({
   onMove: (direction: "up" | "down") => void;
   orientation?: "row" | "column";
 }) {
-  const prevGlyph = orientation === "row" ? "▲" : "◀";
-  const nextGlyph = orientation === "row" ? "▼" : "▶";
+  const PrevIcon = orientation === "row" ? ChevronUp : ChevronLeft;
+  const NextIcon = orientation === "row" ? ChevronDown : ChevronRight;
   const prevTitle = orientation === "row" ? "Move up" : "Move left";
   const nextTitle = orientation === "row" ? "Move down" : "Move right";
   const [editing, setEditing] = useState(false);
@@ -636,7 +637,7 @@ function MemberHeader({
               title={prevTitle}
               aria-label={`${prevTitle} ${member.name}`}
             >
-              {prevGlyph}
+              <PrevIcon aria-hidden className="w-3 h-3" />
             </button>
             <button
               type="button"
@@ -646,7 +647,7 @@ function MemberHeader({
               title={nextTitle}
               aria-label={`${nextTitle} ${member.name}`}
             >
-              {nextGlyph}
+              <NextIcon aria-hidden className="w-3 h-3" />
             </button>
             <button
               type="button"
@@ -655,7 +656,7 @@ function MemberHeader({
               title="Rename"
               aria-label={`Rename ${member.name}`}
             >
-              ✎
+              <Pencil aria-hidden className="w-3 h-3" />
             </button>
             <button
               type="button"
@@ -701,8 +702,8 @@ function ItemHeader({
   onMove: (direction: "up" | "down") => void;
   orientation?: "row" | "column";
 }) {
-  const prevGlyph = orientation === "row" ? "▲" : "◀";
-  const nextGlyph = orientation === "row" ? "▼" : "▶";
+  const PrevIcon = orientation === "row" ? ChevronUp : ChevronLeft;
+  const NextIcon = orientation === "row" ? ChevronDown : ChevronRight;
   const prevTitle = orientation === "row" ? "Move up" : "Move left";
   const nextTitle = orientation === "row" ? "Move down" : "Move right";
   const [editing, setEditing] = useState(false);
@@ -784,7 +785,7 @@ function ItemHeader({
             title={prevTitle}
             aria-label={`${prevTitle} ${item.label}`}
           >
-            {prevGlyph}
+            <PrevIcon aria-hidden className="w-3 h-3" />
           </button>
           <button
             type="button"
@@ -794,7 +795,7 @@ function ItemHeader({
             title={nextTitle}
             aria-label={`${nextTitle} ${item.label}`}
           >
-            {nextGlyph}
+            <NextIcon aria-hidden className="w-3 h-3" />
           </button>
           <button
             type="button"
@@ -803,7 +804,7 @@ function ItemHeader({
             title="Rename"
             aria-label={`Rename ${item.label}`}
           >
-            ✎
+            <Pencil aria-hidden className="w-3 h-3" />
           </button>
           <button
             type="button"

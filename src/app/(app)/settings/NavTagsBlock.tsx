@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { ChevronDown, ChevronUp } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { notify } from "@/lib/notify";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
@@ -111,9 +112,13 @@ export function NavTagsBlock({ tags }: { tags: NavTagRow[] }) {
                   disabled={pending || idx === 0}
                   aria-label={`Move ${t.name} up`}
                   title="Move up"
-                  className="text-[10px] text-ink-tertiary hover:text-ink-primary disabled:opacity-30 px-0.5"
+                  // v2.6.12 (icon migration Phase 6): min-h/min-w-[40px]
+                  // mobile touch floor was missing here — every sibling
+                  // reorder control (Budget, Guest groups, Permission
+                  // groups) already had it; this was the one outlier.
+                  className="min-h-[40px] min-w-[40px] sm:min-h-0 sm:min-w-0 flex items-center justify-center text-[10px] text-ink-tertiary hover:text-ink-primary disabled:opacity-30 px-0.5"
                 >
-                  ▲
+                  <ChevronUp aria-hidden className="w-3.5 h-3.5" />
                 </button>
                 <button
                   type="button"
@@ -121,9 +126,9 @@ export function NavTagsBlock({ tags }: { tags: NavTagRow[] }) {
                   disabled={pending || idx === tags.length - 1}
                   aria-label={`Move ${t.name} down`}
                   title="Move down"
-                  className="text-[10px] text-ink-tertiary hover:text-ink-primary disabled:opacity-30 px-0.5"
+                  className="min-h-[40px] min-w-[40px] sm:min-h-0 sm:min-w-0 flex items-center justify-center text-[10px] text-ink-tertiary hover:text-ink-primary disabled:opacity-30 px-0.5"
                 >
-                  ▼
+                  <ChevronDown aria-hidden className="w-3.5 h-3.5" />
                 </button>
               </span>
               <span className="text-sm font-medium text-ink-primary flex-1 min-w-0 truncate">

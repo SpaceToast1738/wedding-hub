@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, ChevronDown, ChevronUp } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { MentionableTextarea } from "@/components/ui/MentionableTextarea";
 import { notify } from "@/lib/notify";
@@ -534,7 +534,7 @@ function GroupOrderPanel({
                     title="Move up — fills sooner"
                     className="text-[10px] text-ink-tertiary hover:text-ink-primary disabled:opacity-30 px-0.5"
                   >
-                    ▲
+                    <ChevronUp aria-hidden className="w-3 h-3" />
                   </button>
                   <button
                     type="button"
@@ -544,7 +544,7 @@ function GroupOrderPanel({
                     title="Move down — fills later"
                     className="text-[10px] text-ink-tertiary hover:text-ink-primary disabled:opacity-30 px-0.5"
                   >
-                    ▼
+                    <ChevronDown aria-hidden className="w-3 h-3" />
                   </button>
                 </span>
                 {g.colour && (

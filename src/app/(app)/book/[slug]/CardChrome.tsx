@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition, type ReactNode } from "react";
-import { Lock } from "lucide-react";
+import { Lock, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { notify } from "@/lib/notify";
@@ -228,8 +228,8 @@ export function CardChrome({
               disabled={pending}
               className="!text-base !font-semibold !border-transparent hover:!border-border-soft focus:!border-moss-500 !p-1 flex-1 min-w-0"
             />
-            <span aria-hidden className="text-ink-tertiary text-xs flex-shrink-0" title="Click to rename">
-              ✎
+            <span aria-hidden className="text-ink-tertiary flex-shrink-0" title="Click to rename">
+              <Pencil className="w-3 h-3" />
             </span>
           </div>
         ) : (

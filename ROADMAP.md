@@ -1003,6 +1003,18 @@ The one phase with genuine style substitutions rather than 1:1 mappings, since n
 
 Typecheck clean, 652 tests green, lint clean, full `next build` verified.
 
+### 2026-07-06 · v2.6.12 — Icon migration Phase 6: reorder/edit glyph family
+
+Migrated the last uncoordinated glyph system: bare ▲▼◀▶✎ reorder/rename buttons across `BudgetClient.tsx`, `BookWeddingPartyCard.tsx` (two near-identical blocks — orientation-aware, swapping between vertical `ChevronUp`/`ChevronDown` and horizontal `ChevronLeft`/`ChevronRight` depending on layout), `CeremonyClient.tsx`, `GuestGroupsBlock.tsx`, `PermissionGroupsBlock.tsx`, and `NavTagsBlock.tsx` — now all `lucide-react` components. Bundled the one confirmed inconsistency in this family: `NavTagsBlock.tsx`'s reorder buttons were missing the 40px mobile touch floor every sibling control already had (`BudgetClient`, `GuestGroupsBlock`, `PermissionGroupsBlock`) — added while touching those exact lines.
+
+One more site the original audit missed: `CardChrome.tsx`'s "click to rename" pencil next to every card title, now `Pencil` instead of `✎`.
+
+Excluded, matching the original scope: `SubsectionReorderControls.tsx`/`SubsectionWidthToggle.tsx` (already consolidated into a labeled dropdown menu in the v2.5.0 design pass) and `ImageGallery.tsx`'s `‹›` lightbox nav (a distinct, self-contained slideshow control, not part of this family, and already themes correctly via `currentColor`).
+
+This closes every phase with a scoped, well-understood fix. What remains — `RecentActivityFeed.tsx`'s `ENTITY_BADGE` map — was explicitly deprioritized in the original scope as already the most internally consistent piece (one map, one render site, one size); optional, do-last.
+
+Typecheck clean, 652 tests green, lint clean, full `next build` verified.
+
 ### 2026-07-06 · v2.6.7 — Icon migration Phase 0: lucide-react + Toaster pilot
 
 First of several phases executing the icon-consistency scope from the v2.6.0 audit (colour emoji that can't recolour for dark mode; three uncoordinated glyph systems; no icon library installed anywhere). Full scope, phasing, and the two open style questions (nav icon sizing, Wedding Book fallback substitutes) were written up and handed to the user directly; this entry starts execution.
