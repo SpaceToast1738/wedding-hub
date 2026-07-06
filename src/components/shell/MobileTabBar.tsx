@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
+import { LogOut } from "lucide-react";
 import { MOBILE_TABS, NAV_GROUPS } from "@/components/shell/nav-config";
 import { APP_VERSION } from "@/lib/version";
 import { openQuickCapture } from "@/components/shell/QuickCapture";
@@ -61,7 +62,7 @@ export function MobileTabBar({
                   active ? "text-moss-500 font-semibold" : "text-ink-secondary",
                 ].join(" ")}
               >
-                <span className="text-lg">{tab.icon}</span>
+                <tab.icon aria-hidden className="w-5 h-5" />
                 <span className="text-[11px] truncate max-w-full px-1">{tab.label}</span>
               </button>
             );
@@ -81,7 +82,7 @@ export function MobileTabBar({
                 active ? "text-moss-500 font-semibold" : "text-ink-secondary",
               ].join(" ")}
             >
-              <span className="text-lg">{tab.icon}</span>
+              <tab.icon aria-hidden className="w-5 h-5" />
               <span className="text-[11px] truncate max-w-full px-1">{tab.label}</span>
             </Link>
           );
@@ -123,7 +124,9 @@ export function MobileTabBar({
                 onClick={() => setMoreOpen(false)}
                 className="flex items-center gap-3.5 w-full px-5 py-3 text-[15px] text-ink-primary"
               >
-                <span className="w-5 text-center opacity-70">{item.icon}</span>
+                <span className="w-5 flex items-center justify-center opacity-70">
+                  <item.icon aria-hidden className="w-4 h-4" />
+                </span>
                 {item.label}
               </Link>
             ))}
@@ -138,7 +141,9 @@ export function MobileTabBar({
                   onClick={() => setMoreOpen(false)}
                   className="flex items-center gap-3.5 w-full px-5 py-3 text-[15px] text-ink-primary cursor-pointer"
                 >
-                  <span className="w-5 text-center opacity-70">⏻</span>
+                  <span className="w-5 flex items-center justify-center opacity-70">
+                    <LogOut aria-hidden className="w-4 h-4" />
+                  </span>
                   Sign out
                 </button>
               </form>

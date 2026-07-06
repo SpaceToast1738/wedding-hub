@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Home } from "lucide-react";
 import { auth } from "@/auth";
 import { db } from "@/lib/db";
 import { redirect } from "next/navigation";
@@ -190,10 +191,11 @@ export default async function TodayPage() {
           </div>
           <Link
             href="/today/day-of"
-            className="inline-flex items-center text-xs font-medium px-3 py-1.5 rounded-sm border border-border-soft bg-canvas text-ink-secondary hover:border-moss-300 hover:text-moss-700"
+            className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-sm border border-border-soft bg-canvas text-ink-secondary hover:border-moss-300 hover:text-moss-700"
             title="Live timeline, day-of contacts, catering, quick links"
           >
-            ◉ Day-of mode
+            <Home aria-hidden className="w-3.5 h-3.5" />
+            Day-of mode
           </Link>
         </div>
 

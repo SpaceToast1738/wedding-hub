@@ -985,6 +985,16 @@ Post-migration sweep caught 8 more sites the original audit's inventory had miss
 
 Typecheck clean, 652 tests green, lint clean, full `next build` verified.
 
+### 2026-07-06 · v2.6.10 — Icon migration Phase 4: nav-config.ts glyph set
+
+Migrated all 16 nav glyphs (`NAV_GROUPS` + `MOBILE_TABS` in `nav-config.ts`) from bare Unicode geometric characters to `lucide-react` icon components — `Home`, `LayoutDashboard`, `ListChecks`, `HelpCircle`, `Clock`, `Building2`, `Sparkles` (matching Phase 1's AI-flag icon), `Users`, `Armchair`, `Music`, `BookOpen`, `Scissors`, `Wallet`, `CreditCard`, `FolderOpen`, `MoreHorizontal`. `NavItem.icon`'s type changed from `string` to `LucideIcon`; updated the three consumers (`SidebarItem.tsx`, `MobileTabBar.tsx`'s tab row + More sheet) to render the component instead of interpolating a string. Per the earlier design review, each consumer's existing per-context sizing was preserved as-is (sidebar vs. mobile tab bar vs. quick-link reuse) rather than unified — that variance reads as intentional (a thumb-target tab bar item plausibly should render bigger than a dense sidebar row), not a bug.
+
+Two decorative reuse sites also needed real code changes, not just a string swap: `today/day-of/page.tsx`'s `QuickLink` component (5 call sites — Shot list/Seating chart/Full schedule/Guest list/Songs & playlists, previously each just prefixed with a copy of the matching nav glyph) gained an `icon` prop; `page.tsx`'s "Day-of mode" link got the same treatment.
+
+Two more sites found while in these files, not part of the original audit: a `⏻` (power symbol) "Sign out" glyph in both `AvatarMenu.tsx` (desktop) and `MobileTabBar.tsx` (mobile) — replaced with `LogOut`, a far more legible convention for the action than a generic power symbol.
+
+Typecheck clean, 652 tests green, lint clean, full `next build` verified.
+
 ### 2026-07-06 · v2.6.7 — Icon migration Phase 0: lucide-react + Toaster pilot
 
 First of several phases executing the icon-consistency scope from the v2.6.0 audit (colour emoji that can't recolour for dark mode; three uncoordinated glyph systems; no icon library installed anywhere). Full scope, phasing, and the two open style questions (nav icon sizing, Wedding Book fallback substitutes) were written up and handed to the user directly; this entry starts execution.

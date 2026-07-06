@@ -2,16 +2,17 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import type { LucideIcon } from "lucide-react";
 
 export function SidebarItem({
   href,
   label,
-  icon,
+  icon: Icon,
   count,
 }: {
   href: string;
   label: string;
-  icon: string;
+  icon: LucideIcon;
   count?: number;
 }) {
   const pathname = usePathname();
@@ -28,7 +29,9 @@ export function SidebarItem({
           : "border-transparent text-ink-secondary hover:bg-surface",
       ].join(" ")}
     >
-      <span className="w-4 text-center text-xs opacity-75">{icon}</span>
+      <span className="w-4 flex items-center justify-center opacity-75">
+        <Icon aria-hidden className="w-3.5 h-3.5" />
+      </span>
       <span className="flex-1">{label}</span>
       {count != null && count > 0 && (
         <span

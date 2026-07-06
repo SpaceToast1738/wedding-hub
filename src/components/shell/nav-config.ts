@@ -1,7 +1,27 @@
+import {
+  Home,
+  LayoutDashboard,
+  ListChecks,
+  HelpCircle,
+  Clock,
+  Building2,
+  Sparkles,
+  Users,
+  Armchair,
+  Music,
+  BookOpen,
+  Scissors,
+  Wallet,
+  CreditCard,
+  FolderOpen,
+  MoreHorizontal,
+  type LucideIcon,
+} from "lucide-react";
+
 export type NavItem = {
   href: string;
   label: string;
-  icon: string;
+  icon: LucideIcon;
   countKey?: keyof Counts;
   coupleOnly?: boolean;
 };
@@ -21,49 +41,53 @@ export type Counts = {
   aiProposals?: number;
 };
 
+// v2.6.10 (icon migration Phase 4): icons were bare Unicode geometric
+// glyphs (◉⊡✓?◷◈✨◎⊛♪◧✂◫◻◰···) — replaced with lucide-react
+// components. Consumers (SidebarItem.tsx, MobileTabBar.tsx) keep their
+// own existing per-context sizing; only the token type changed.
 export const NAV_GROUPS: NavGroup[] = [
   {
     id: "daily",
     items: [
-      { href: "/",        label: "Today",       icon: "◉" },
-      { href: "/glance",  label: "At a Glance", icon: "⊡" },
+      { href: "/",        label: "Today",       icon: Home },
+      { href: "/glance",  label: "At a Glance", icon: LayoutDashboard },
     ],
   },
   {
     id: "work",
     items: [
-      { href: "/tasks",     label: "Tasks",     icon: "✓", countKey: "tasks" },
-      { href: "/questions", label: "Questions & Decisions", icon: "?", countKey: "questions" },
-      { href: "/schedule",  label: "Schedule",  icon: "◷" },
-      { href: "/suppliers", label: "Suppliers", icon: "◈" },
+      { href: "/tasks",     label: "Tasks",     icon: ListChecks, countKey: "tasks" },
+      { href: "/questions", label: "Questions & Decisions", icon: HelpCircle, countKey: "questions" },
+      { href: "/schedule",  label: "Schedule",  icon: Clock },
+      { href: "/suppliers", label: "Suppliers", icon: Building2 },
       // v2.5.0: the AI planner had no entry point outside the chat
       // panel — pending proposals were completely undiscoverable from
       // the shell. countKey wires it into the same badge convention
       // as Tasks/Questions/Guests.
-      { href: "/ai",        label: "AI planner", icon: "✨", countKey: "aiProposals" },
+      { href: "/ai",        label: "AI planner", icon: Sparkles, countKey: "aiProposals" },
     ],
   },
   {
     id: "people",
     items: [
-      { href: "/guests",  label: "Guests",       icon: "◎", countKey: "guests" },
-      { href: "/seating", label: "Seating",      icon: "⊛" },
-      { href: "/songs",   label: "Songs",        icon: "♪" },
-      { href: "/book",    label: "Wedding Book", icon: "◧" },
-      { href: "/diy",     label: "DIY",          icon: "✂" },
+      { href: "/guests",  label: "Guests",       icon: Users, countKey: "guests" },
+      { href: "/seating", label: "Seating",      icon: Armchair },
+      { href: "/songs",   label: "Songs",        icon: Music },
+      { href: "/book",    label: "Wedding Book", icon: BookOpen },
+      { href: "/diy",     label: "DIY",          icon: Scissors },
     ],
   },
   {
     id: "money",
     items: [
-      { href: "/budget",   label: "Budget",   icon: "◫", coupleOnly: true },
-      { href: "/payments", label: "Payments", icon: "◻", coupleOnly: true, countKey: "payments" },
+      { href: "/budget",   label: "Budget",   icon: Wallet, coupleOnly: true },
+      { href: "/payments", label: "Payments", icon: CreditCard, coupleOnly: true, countKey: "payments" },
     ],
   },
   {
     id: "docs",
     items: [
-      { href: "/files", label: "Files", icon: "◰", countKey: "files" },
+      { href: "/files", label: "Files", icon: FolderOpen, countKey: "files" },
     ],
   },
 ];
@@ -71,10 +95,10 @@ export const NAV_GROUPS: NavGroup[] = [
 // v2.4.3: Suppliers promoted to a real tab — it was two taps away
 // inside the flat "More" sheet, which was the main "awkward to get
 // to" complaint. Five tabs still fit comfortably at 320px.
-export const MOBILE_TABS: { href: string; label: string; icon: string; isMore?: boolean }[] = [
-  { href: "/",          label: "Today",     icon: "◉" },
-  { href: "/tasks",     label: "Tasks",     icon: "✓" },
-  { href: "/guests",    label: "Guests",    icon: "◎" },
-  { href: "/suppliers", label: "Suppliers", icon: "◈" },
-  { href: "/menu",      label: "More",      icon: "···", isMore: true },
+export const MOBILE_TABS: { href: string; label: string; icon: LucideIcon; isMore?: boolean }[] = [
+  { href: "/",          label: "Today",     icon: Home },
+  { href: "/tasks",     label: "Tasks",     icon: ListChecks },
+  { href: "/guests",    label: "Guests",    icon: Users },
+  { href: "/suppliers", label: "Suppliers", icon: Building2 },
+  { href: "/menu",      label: "More",      icon: MoreHorizontal, isMore: true },
 ];

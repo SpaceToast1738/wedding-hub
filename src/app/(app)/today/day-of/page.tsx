@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Phone } from "lucide-react";
+import { Phone, BookOpen, Armchair, Clock, Users, Music, type LucideIcon } from "lucide-react";
 import { db } from "@/lib/db";
 import { requireUser } from "@/lib/actions";
 import { getWeddingSettings } from "@/lib/wedding-settings";
@@ -347,11 +347,11 @@ export default async function DayOfPage() {
           <section className="bg-surface border border-border-soft rounded-md p-5">
             <h2 className="text-sm font-semibold text-ink-primary mb-3">Open quickly</h2>
             <div className="flex flex-col gap-1.5">
-              <QuickLink href="/book/photography" label="◧ Shot list" />
-              <QuickLink href="/seating" label="⊛ Seating chart" />
-              <QuickLink href="/schedule" label="◷ Full schedule" />
-              <QuickLink href="/guests" label="◎ Guest list" />
-              <QuickLink href="/songs" label="♪ Songs & playlists" />
+              <QuickLink href="/book/photography" label="Shot list" icon={BookOpen} />
+              <QuickLink href="/seating" label="Seating chart" icon={Armchair} />
+              <QuickLink href="/schedule" label="Full schedule" icon={Clock} />
+              <QuickLink href="/guests" label="Guest list" icon={Users} />
+              <QuickLink href="/songs" label="Songs & playlists" icon={Music} />
             </div>
           </section>
         </div>
@@ -369,12 +369,21 @@ function Stat({ label, value }: { label: string; value: string }) {
   );
 }
 
-function QuickLink({ href, label }: { href: string; label: string }) {
+function QuickLink({
+  href,
+  label,
+  icon: Icon,
+}: {
+  href: string;
+  label: string;
+  icon: LucideIcon;
+}) {
   return (
     <Link
       href={href}
-      className="text-left px-3 py-2 border border-border-soft rounded-sm bg-surface text-ink-primary text-sm hover:border-moss-300 hover:text-moss-700"
+      className="text-left px-3 py-2 border border-border-soft rounded-sm bg-surface text-ink-primary text-sm hover:border-moss-300 hover:text-moss-700 inline-flex items-center gap-1.5"
     >
+      <Icon aria-hidden className="w-3.5 h-3.5 flex-shrink-0" />
       {label}
     </Link>
   );

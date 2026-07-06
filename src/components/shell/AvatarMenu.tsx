@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { LogOut } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
 import { setDarkModePreference } from "@/app/(app)/actions";
 
@@ -119,7 +120,9 @@ export function AvatarMenu({ user, signOutAction }: Props) {
               type="submit"
               className="flex items-center gap-2.5 w-full px-3.5 py-2 text-xs text-ink-secondary hover:bg-muted text-left cursor-pointer"
             >
-              <span className="w-4 text-center">⏻</span>
+              <span className="w-4 flex items-center justify-center">
+                <LogOut aria-hidden className="w-3.5 h-3.5" />
+              </span>
               Sign out
             </button>
           </form>
