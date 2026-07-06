@@ -9,6 +9,7 @@ import { MentionableTextarea } from "@/components/ui/MentionableTextarea";
 import { Input } from "@/components/ui/Input";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { AddNewModal } from "@/components/ui/AddNewModal";
+import { Mail, Phone, Handshake, MessageCircle, Circle, FileText, Paperclip, type LucideIcon } from "lucide-react";
 import {
   createSupplierContact,
   createSupplierCommunication,
@@ -57,11 +58,11 @@ type Communication = {
   createdAt: Date;
 };
 
-const CHANNEL_ICON: Record<string, string> = {
-  email: "✉",
-  call: "☎",
-  meeting: "🤝",
-  message: "💬",
+const CHANNEL_ICON: Record<string, LucideIcon> = {
+  email: Mail,
+  call: Phone,
+  meeting: Handshake,
+  message: MessageCircle,
 };
 
 function formatDate(d: Date | null): string {
@@ -296,13 +297,13 @@ function ContactsSection({
                 </div>
                 <div className="mt-1 flex flex-wrap gap-3 text-xs">
                   {c.email && (
-                    <a href={`mailto:${c.email}`} className="text-info hover:underline">
-                      ✉ {c.email}
+                    <a href={`mailto:${c.email}`} className="text-info hover:underline inline-flex items-center gap-1">
+                      <Mail className="w-3.5 h-3.5" aria-hidden /> {c.email}
                     </a>
                   )}
                   {c.phone && (
-                    <a href={`tel:${c.phone}`} className="text-info hover:underline tabular-nums">
-                      ☎ {c.phone}
+                    <a href={`tel:${c.phone}`} className="text-info hover:underline tabular-nums inline-flex items-center gap-1">
+                      <Phone className="w-3.5 h-3.5" aria-hidden /> {c.phone}
                     </a>
                   )}
                 </div>
@@ -559,9 +560,9 @@ function ContractsSection({
                       href={`/api/files/${c.file.id}`}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-info hover:underline truncate"
+                      className="text-info hover:underline truncate inline-flex items-center gap-1"
                     >
-                      📄 {c.file.name}
+                      <FileText className="w-3.5 h-3.5" aria-hidden /> {c.file.name}
                     </a>
                     {canEdit && (
                       // v2.5.1 (mod #2): mobile-safe reveal + touch
@@ -581,22 +582,25 @@ function ContractsSection({
                 ) : (
                   canEdit &&
                   attachableFiles.length > 0 && (
-                    <select
-                      value=""
-                      disabled={pending}
-                      onChange={(e) => {
-                        if (e.target.value) onSetFile(c.id, e.target.value);
-                      }}
-                      className="mt-1 text-xs bg-surface text-ink-tertiary border border-border-soft rounded-sm px-1.5 py-1 outline-none focus:border-moss-500 max-w-[240px]"
-                    >
-                      <option value="">📎 Attach file…</option>
-                      {attachableFiles.map((f) => (
-                        <option key={f.id} value={f.id}>
-                          {f.folder ? `${f.folder} / ` : ""}
-                          {f.name}
-                        </option>
-                      ))}
-                    </select>
+                    <span className="mt-1 relative inline-flex items-center max-w-[240px]">
+                      <Paperclip className="w-3.5 h-3.5 absolute left-1.5 pointer-events-none text-ink-tertiary" aria-hidden />
+                      <select
+                        value=""
+                        disabled={pending}
+                        onChange={(e) => {
+                          if (e.target.value) onSetFile(c.id, e.target.value);
+                        }}
+                        className="text-xs bg-surface text-ink-tertiary border border-border-soft rounded-sm pl-6 pr-1.5 py-1 outline-none focus:border-moss-500 max-w-[240px]"
+                      >
+                        <option value="">Attach file…</option>
+                        {attachableFiles.map((f) => (
+                          <option key={f.id} value={f.id}>
+                            {f.folder ? `${f.folder} / ` : ""}
+                            {f.name}
+                          </option>
+                        ))}
+                      </select>
+                    </span>
                   )
                 )}
               </div>
@@ -745,10 +749,12 @@ function CommunicationsSection({
         <p className="px-4 py-4 text-sm text-ink-tertiary italic">No log entries yet.</p>
       ) : (
         <ul className="divide-y divide-border-soft">
-          {log.map((c) => (
+          {log.map((c) => {
+            const ChannelIcon = CHANNEL_ICON[c.channel] ?? Circle;
+            return (
             <li key={c.id} className="px-4 py-3 flex items-start gap-3 group">
               <span className="w-7 h-7 rounded-full bg-moss-50 text-moss-700 flex items-center justify-center text-sm flex-shrink-0">
-                {CHANNEL_ICON[c.channel] ?? "•"}
+                <ChannelIcon className="w-3.5 h-3.5" aria-hidden />
               </span>
               <div className="flex-1 min-w-0">
                 <div className="flex items-baseline gap-2 flex-wrap">
@@ -804,7 +810,8 @@ function CommunicationsSection({
                 </button>
               )}
             </li>
-          ))}
+            );
+          })}
         </ul>
       )}
     </section>

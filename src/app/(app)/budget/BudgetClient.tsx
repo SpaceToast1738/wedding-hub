@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import { createPortal } from "react-dom";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, Puzzle, StickyNote } from "lucide-react";
 import type { FundSource, PerHeadSource } from "@prisma/client";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -1310,8 +1310,9 @@ function LineRow({
           find the components panel was to open Edit and notice it —
           now the row itself says so. */}
       {hasComponents ? (
-        <div className="text-xs text-ink-tertiary mt-0.5">
-          🧩 {line.components.length} component{line.components.length === 1 ? "" : "s"}
+        <div className="text-xs text-ink-tertiary mt-0.5 inline-flex items-center gap-1">
+          <Puzzle aria-hidden className="w-3 h-3" />
+          {line.components.length} component{line.components.length === 1 ? "" : "s"}
         </div>
       ) : (
         <button
@@ -1731,8 +1732,8 @@ function ComponentsPanel({
                 <span className="flex-1 text-ink-primary">
                   {c.label}
                   {c.notes && (
-                    <span className="ml-1 text-xs text-ink-tertiary italic" title={c.notes}>
-                      📝
+                    <span className="ml-1 inline-flex text-ink-tertiary italic" title={c.notes}>
+                      <StickyNote aria-hidden className="w-3 h-3" />
                     </span>
                   )}
                 </span>

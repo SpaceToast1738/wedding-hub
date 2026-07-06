@@ -14,6 +14,7 @@
 // callers embedding it elsewhere can override via `className`.
 
 import { useTransition } from "react";
+import { Search } from "lucide-react";
 import { notify } from "@/lib/notify";
 import { runGapAnalysis } from "@/app/(app)/ai/actions";
 
@@ -49,7 +50,14 @@ export function GapAnalysisButton({ className }: { className?: string }) {
       role="menuitem"
       className={className ?? DEFAULT_CLASS}
     >
-      {pending ? "Analysing…" : "🔍 Gap analysis"}
+      {pending ? (
+        "Analysing…"
+      ) : (
+        <span className="inline-flex items-center gap-1.5">
+          <Search aria-hidden className="w-4 h-4" />
+          Gap analysis
+        </span>
+      )}
     </button>
   );
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useRef, useState, useTransition } from "react";
+import { Hammer, Paperclip, Shirt } from "lucide-react";
 import { createPayment, uploadAndAttachReceipt } from "./actions";
 import { createSupplierQuick } from "@/app/(app)/suppliers/actions";
 import { notify } from "@/lib/notify";
@@ -358,7 +359,7 @@ export function InlinePaymentGrid({
               : "Roll this payment into a budget line or one of its components"
           }
         >
-          <option value="">📊 Budget link (none)</option>
+          <option value="">Budget link (none)</option>
           {budgetCategories.map((c) =>
             c.lines.length === 0 ? null : (
               <optgroup key={c.id} label={c.name}>
@@ -496,14 +497,15 @@ function ReceiptButton({
         onClick={() => setOpen(!open)}
         disabled={pending}
         className={
-          "text-[11px] px-2 py-1 rounded-sm border transition-colors " +
+          "text-[11px] px-2 py-1 rounded-sm border transition-colors inline-flex items-center gap-1 " +
           (count > 0
             ? "bg-moss-50 border-moss-300 text-moss-700"
             : "bg-canvas border-border-soft text-ink-tertiary hover:border-moss-300 hover:text-moss-700")
         }
         title={count > 0 ? `${count} receipt${count === 1 ? "" : "s"} attached` : "Attach receipt"}
       >
-        📎 {count > 0 ? count : "Receipt"}
+        <Paperclip aria-hidden className="w-3 h-3" />
+        {count > 0 ? count : "Receipt"}
       </button>
       {open && (
         <div className="absolute z-20 right-0 mt-1 w-64 bg-surface border border-border-soft rounded-md shadow-lg p-2.5">
@@ -621,25 +623,27 @@ function LinkPickerPanel({
           type="button"
           onClick={() => setTab("build")}
           className={
-            "text-[11px] px-2 py-0.5 rounded-full border " +
+            "text-[11px] px-2 py-0.5 rounded-full border inline-flex items-center gap-1 " +
             (tab === "build"
               ? "bg-moss-500 text-on-moss border-moss-500"
               : "bg-canvas border-border-soft text-ink-secondary hover:border-moss-300")
           }
         >
-          🔨 BUILD material
+          <Hammer aria-hidden className="w-3 h-3" />
+          BUILD material
         </button>
         <button
           type="button"
           onClick={() => setTab("outfit")}
           className={
-            "text-[11px] px-2 py-0.5 rounded-full border " +
+            "text-[11px] px-2 py-0.5 rounded-full border inline-flex items-center gap-1 " +
             (tab === "outfit"
               ? "bg-moss-500 text-on-moss border-moss-500"
               : "bg-canvas border-border-soft text-ink-secondary hover:border-moss-300")
           }
         >
-          👔 Outfit item
+          <Shirt aria-hidden className="w-3 h-3" />
+          Outfit item
         </button>
         <button
           type="button"

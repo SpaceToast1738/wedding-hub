@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Phone } from "lucide-react";
 import { db } from "@/lib/db";
 import { requireUser } from "@/lib/actions";
 import { getWeddingSettings } from "@/lib/wedding-settings";
@@ -298,8 +299,8 @@ export default async function DayOfPage() {
                       href={`tel:${row.contact!.phone}`}
                       className="flex items-center gap-2.5 py-2.5 hover:bg-canvas/50 -mx-2 px-2 rounded-sm"
                     >
-                      <span className="w-9 h-9 rounded-full bg-moss-100 text-moss-700 flex items-center justify-center text-sm flex-shrink-0">
-                        ☎
+                      <span className="w-9 h-9 rounded-full bg-moss-100 text-moss-700 flex items-center justify-center flex-shrink-0">
+                        <Phone aria-hidden className="w-4 h-4" />
                       </span>
                       <div className="flex-1 min-w-0">
                         <div className="text-sm text-ink-primary truncate">

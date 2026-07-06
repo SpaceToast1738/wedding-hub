@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { Users, MapPin } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { EventForm, type GroupOpt, type UserOpt } from "./EventForm";
 import { deleteScheduleEvent, updateScheduleEvent } from "./actions";
@@ -201,8 +202,8 @@ function Row({
         {/* v1.17.0: location echoes here on mobile only (the dedicated
             Where column hides at <md). Hidden at md+ to avoid duplication. */}
         {event.location && (
-          <div className="text-[11px] text-ink-tertiary mt-0.5 md:hidden">
-            📍 {event.location}
+          <div className="text-[11px] text-ink-tertiary mt-0.5 md:hidden flex items-center gap-1">
+            <MapPin aria-hidden className="w-3 h-3" /> {event.location}
           </div>
         )}
         {event.notes && (
@@ -256,7 +257,7 @@ function Row({
                     className={`text-[11px] px-1.5 py-px rounded-md border ${attendeeChipClasses(ref)}`}
                     title={tooltip}
                   >
-                    👥 {label}
+                    <Users aria-hidden className="w-3 h-3 inline-block align-text-bottom" /> {label}
                   </span>
                 );
               })}

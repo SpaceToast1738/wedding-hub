@@ -1,13 +1,17 @@
 "use client";
 
+import type { LucideIcon } from "lucide-react";
+
 export function Tag({
   label,
   active,
   onClick,
+  icon: Icon,
 }: {
   label: string;
   active?: boolean;
   onClick?: () => void;
+  icon?: LucideIcon;
 }) {
   return (
     <button
@@ -19,6 +23,7 @@ export function Tag({
         // interactive tags/filter chips on mobile, reverting to the
         // dense desktop size at 640px+.
         "text-xs px-2.5 py-2 sm:py-0.5 rounded-full border whitespace-nowrap transition-colors cursor-pointer",
+        Icon ? "inline-flex items-center gap-1" : "",
         active
           // text-on-moss (not hardcoded white): dark mode's moss-500
           // is a light fill, so white text there failed AA.
@@ -26,6 +31,7 @@ export function Tag({
           : "bg-muted text-ink-secondary border-border-soft hover:bg-canvas",
       ].join(" ")}
     >
+      {Icon && <Icon className="w-3 h-3 flex-shrink-0" aria-hidden />}
       {label}
     </button>
   );

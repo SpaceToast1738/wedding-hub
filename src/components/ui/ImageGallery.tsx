@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
+import { Paperclip } from "lucide-react";
 import Link from "next/link";
 
 // v1.63.0: reusable image-gallery component. Replaces the chip-only
@@ -576,7 +577,7 @@ function GalleryGrid({
                 className="block w-full aspect-square rounded-md border border-border-soft bg-canvas hover:border-moss-300 flex flex-col items-center justify-center gap-1 px-2 text-center"
                 title={f.name}
               >
-                <span className="text-2xl">📎</span>
+                <Paperclip aria-hidden className="w-6 h-6" />
                 <span className="text-[10px] text-ink-secondary truncate w-full">
                   {f.name}
                 </span>
@@ -683,7 +684,7 @@ function MosaicMasonry({
                 className="block px-3 py-4 text-center"
                 title={f.name}
               >
-                <span className="text-2xl block">📎</span>
+                <Paperclip aria-hidden className="w-6 h-6 mx-auto" />
                 <span className="text-[10px] text-ink-secondary truncate w-full block mt-1">
                   {f.name}
                 </span>

@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, useRef, useState, useTransition } from "react";
+import { BarChart3, Hammer, Paperclip, Shirt } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { PaymentForm } from "./PaymentForm";
@@ -386,14 +387,14 @@ export function PaymentRow({
   // to be set (shouldn't, but defensive).
   const linkChip = payment.bookBuildMaterial
     ? {
-        emoji: "🔨",
+        icon: Hammer,
         label: `${payment.bookBuildMaterial.name}`,
         href: `/book/${payment.bookBuildMaterial.card.subsection.slug}`,
         title: `${payment.bookBuildMaterial.card.subsection.title} — ${payment.bookBuildMaterial.name}`,
       }
     : payment.bookOutfitItem
     ? {
-        emoji: "👔",
+        icon: Shirt,
         label: [
           payment.bookOutfitItem.card.personName,
           payment.bookOutfitItem.itemLabel,
@@ -424,7 +425,7 @@ export function PaymentRow({
           title={linkChip.title}
           className="inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded-sm border bg-moss-50 border-moss-100 text-moss-700 hover:border-moss-300 truncate max-w-[180px]"
         >
-          <span aria-hidden>{linkChip.emoji}</span>
+          <linkChip.icon aria-hidden className="w-3 h-3 flex-shrink-0" />
           <span className="truncate">{linkChip.label}</span>
         </Link>
       )}
@@ -436,7 +437,7 @@ export function PaymentRow({
           title={`Budget: ${payment.budgetLineComponent.line.category.name} → ${payment.budgetLineComponent.line.description} → ${payment.budgetLineComponent.label}`}
           className="inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded-sm border bg-info/10 border-info/30 text-info hover:border-info truncate max-w-[220px]"
         >
-          <span aria-hidden>📊</span>
+          <BarChart3 aria-hidden className="w-3 h-3 flex-shrink-0" />
           <span className="truncate">
             {payment.budgetLineComponent.line.description} · {payment.budgetLineComponent.label}
           </span>
@@ -447,7 +448,7 @@ export function PaymentRow({
           title={`Budget: ${payment.budgetLine.category.name} → ${payment.budgetLine.description}`}
           className="inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded-sm border bg-info/10 border-info/30 text-info hover:border-info truncate max-w-[180px]"
         >
-          <span aria-hidden>📊</span>
+          <BarChart3 aria-hidden className="w-3 h-3 flex-shrink-0" />
           <span className="truncate">{payment.budgetLine.category.name}</span>
         </Link>
       ) : null}
@@ -456,7 +457,8 @@ export function PaymentRow({
           className="inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded-sm border bg-canvas border-border-soft text-ink-tertiary"
           title={`${payment.fileIds.length} receipt${payment.fileIds.length === 1 ? "" : "s"}`}
         >
-          📎 {payment.fileIds.length}
+          <Paperclip aria-hidden className="w-3 h-3" />
+          {payment.fileIds.length}
         </span>
       )}
       {/* v1.86.0: fund chip. Resolved via payment > component >

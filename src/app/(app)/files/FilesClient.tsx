@@ -1,7 +1,19 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { Lock, Unlock } from "lucide-react";
+import {
+  FileArchive,
+  FileSpreadsheet,
+  FileText,
+  FileType,
+  Image,
+  Lock,
+  Paperclip,
+  Presentation,
+  ScrollText,
+  Unlock,
+  type LucideIcon,
+} from "lucide-react";
 import { FileVisibility } from "@prisma/client";
 import { Avatar } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
@@ -45,19 +57,19 @@ function formatSize(bytes: number): string {
   return `${(bytes / Math.pow(k, i)).toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
 }
 
-const MIME_ICONS: Array<[RegExp, string]> = [
-  [/^application\/pdf$/, "📄"],
-  [/^image\//, "🖼"],
-  [/word|officedocument\.wordprocessing/, "📝"],
-  [/excel|officedocument\.spreadsheet/, "📊"],
-  [/presentation/, "📽"],
-  [/zip|compressed/, "🗜"],
-  [/^text\//, "📃"],
+const MIME_ICONS: Array<[RegExp, LucideIcon]> = [
+  [/^application\/pdf$/, FileText],
+  [/^image\//, Image],
+  [/word|officedocument\.wordprocessing/, FileType],
+  [/excel|officedocument\.spreadsheet/, FileSpreadsheet],
+  [/presentation/, Presentation],
+  [/zip|compressed/, FileArchive],
+  [/^text\//, ScrollText],
 ];
 
-function iconFor(mime: string): string {
+function iconFor(mime: string): LucideIcon {
   for (const [re, icon] of MIME_ICONS) if (re.test(mime)) return icon;
-  return "📎";
+  return Paperclip;
 }
 
 function groupByFolder(files: FileRow[]): Array<{ key: string; label: string; files: FileRow[] }> {
@@ -157,10 +169,10 @@ export function FilesClient({
         {files.length > 0 && (
           <div className="flex flex-wrap gap-1.5 items-center">
             <Tag label={`All (${counts.all})`} active={typeFilter === "all"} onClick={() => setTypeFilter("all")} />
-            {counts.image > 0 && <Tag label={`🖼 Images (${counts.image})`} active={typeFilter === "image"} onClick={() => setTypeFilter("image")} />}
-            {counts.pdf > 0 && <Tag label={`📄 PDFs (${counts.pdf})`} active={typeFilter === "pdf"} onClick={() => setTypeFilter("pdf")} />}
-            {counts.doc > 0 && <Tag label={`📝 Documents (${counts.doc})`} active={typeFilter === "doc"} onClick={() => setTypeFilter("doc")} />}
-            {counts.other > 0 && <Tag label={`📎 Other (${counts.other})`} active={typeFilter === "other"} onClick={() => setTypeFilter("other")} />}
+            {counts.image > 0 && <Tag icon={Image} label={`Images (${counts.image})`} active={typeFilter === "image"} onClick={() => setTypeFilter("image")} />}
+            {counts.pdf > 0 && <Tag icon={FileText} label={`PDFs (${counts.pdf})`} active={typeFilter === "pdf"} onClick={() => setTypeFilter("pdf")} />}
+            {counts.doc > 0 && <Tag icon={FileType} label={`Documents (${counts.doc})`} active={typeFilter === "doc"} onClick={() => setTypeFilter("doc")} />}
+            {counts.other > 0 && <Tag icon={FileArchive} label={`Other (${counts.other})`} active={typeFilter === "other"} onClick={() => setTypeFilter("other")} />}
           </div>
         )}
 
@@ -291,6 +303,7 @@ function FileItem({
 
   const isImage = /^image\//.test(file.mimeType);
   const uploaderName = uploaderLabel(uploader);
+  const MimeIcon = iconFor(file.mimeType);
 
   return (
     <li className="flex items-center gap-3 px-4 py-2.5 group hover:bg-muted/30">
@@ -303,7 +316,7 @@ function FileItem({
           loading="lazy"
         />
       ) : (
-        <span className="text-base flex-shrink-0">{iconFor(file.mimeType)}</span>
+        <MimeIcon className="w-4 h-4 flex-shrink-0" aria-hidden />
       )}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">

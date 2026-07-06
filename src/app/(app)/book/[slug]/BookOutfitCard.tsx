@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
+import { Paperclip } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { notify } from "@/lib/notify";
@@ -558,10 +559,10 @@ function ViewBody({ card }: { card: CardData }) {
                           received payments. */}
                       {item.paidPence != null && item.paidPence > 0 && (
                         <span
-                          className="text-[10px] text-moss-700 bg-moss-50 border border-moss-300 rounded-full px-2 py-0.5"
+                          className="text-[10px] text-moss-700 bg-moss-50 border border-moss-300 rounded-full px-2 py-0.5 inline-flex items-center gap-1"
                           title={`Paid £${(item.paidPence / 100).toFixed(2)}`}
                         >
-                          📎 £{(item.paidPence / 100).toFixed(2)}
+                          <Paperclip aria-hidden className="w-3 h-3" />£{(item.paidPence / 100).toFixed(2)}
                         </span>
                       )}
                       <span

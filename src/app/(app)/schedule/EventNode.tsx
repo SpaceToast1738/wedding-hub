@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { Users, MapPin } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { EventForm, type GroupOpt, type UserOpt } from "./EventForm";
 import { updateScheduleEvent, deleteScheduleEvent } from "./actions";
@@ -202,7 +203,9 @@ export function EventNode({
             <span>{event.title}</span>
           </div>
           {event.location && (
-            <div className="text-xs text-ink-tertiary mt-0.5">📍 {event.location}</div>
+            <div className="text-xs text-ink-tertiary mt-0.5 flex items-center gap-1">
+              <MapPin aria-hidden className="w-3.5 h-3.5" /> {event.location}
+            </div>
           )}
           {/* v1.41.0: render polymorphic attendee refs. Group refs render
               as marigold-tinted chips with the group name; user refs
@@ -249,7 +252,7 @@ export function EventNode({
                       className={`text-[11px] px-1.5 py-px rounded-md border ${attendeeChipClasses(ref)}`}
                       title={tooltip}
                     >
-                      👥 {label}
+                      <Users aria-hidden className="w-3 h-3 inline-block align-text-bottom" /> {label}
                     </span>
                   );
                 })}

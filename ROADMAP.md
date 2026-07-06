@@ -975,6 +975,16 @@ Two files' ternaries got both branches done together even though one glyph nomin
 
 Typecheck clean, 652 tests green (unchanged — no logic touched, pure glyph/sizing/color swaps), lint clean, full `next build` verified.
 
+### 2026-07-06 · v2.6.9 — Icon migration Phase 2: lookup/map structures
+
+Migrated every emoji-valued lookup table to `LucideIcon` component values: `FilesClient.tsx`'s `MIME_ICONS` (7 file-type entries + fallback) and its 4 filter-`Tag` labels (which needed `Tag.tsx` to gain an optional `icon` prop — fully backward compatible, every other caller renders unchanged), and `SupplierDetailClient.tsx`'s `CHANNEL_ICON` (email/call/meeting/message). Plus the direct-render repeats: 👥/📍 across `BookShotListCard`, `EventNode`, `ScheduleTable`; 🧩 in `BudgetClient`; 🔍 in `GapAnalysisButton`.
+
+Post-migration sweep caught 8 more sites the original audit's inventory had missed entirely (not variants of catalogued emoji — genuinely new ones): a 📝 notes-indicator and a second 🧩-adjacent site in `BudgetClient`, two 📊 budget-link chips and a `linkChip` object keyed by emoji (🔨/👔 for BUILD-material vs outfit-item payment links) in `PaymentRow.tsx`, matching tab-picker buttons in `InlinePaymentGrid.tsx`, a ☎ in `today/day-of/page.tsx`, and a 📎 in `ImageGallery.tsx`'s file-attachment placeholder (×2). All fixed with the same currentColor-inheritance, size-matched pattern as the rest of the phase.
+
+`SupplierDetailClient.tsx`'s "Attach file…" `<select>` hit the same native-`<option>` limitation as `FilesClient.tsx`'s two option sites in Phase 1 — a component can't render inside `<option>`, so that one got a positioned icon next to the select instead of inside it.
+
+Typecheck clean, 652 tests green, lint clean, full `next build` verified.
+
 ### 2026-07-06 · v2.6.7 — Icon migration Phase 0: lucide-react + Toaster pilot
 
 First of several phases executing the icon-consistency scope from the v2.6.0 audit (colour emoji that can't recolour for dark mode; three uncoordinated glyph systems; no icon library installed anywhere). Full scope, phasing, and the two open style questions (nav icon sizing, Wedding Book fallback substitutes) were written up and handed to the user directly; this entry starts execution.

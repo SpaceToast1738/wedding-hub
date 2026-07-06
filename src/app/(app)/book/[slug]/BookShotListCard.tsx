@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, useTransition } from "react";
+import { Users, MapPin } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { notify } from "@/lib/notify";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
@@ -304,7 +305,7 @@ function ShotRow({
         <div className="text-xs text-ink-secondary mt-0.5 flex flex-wrap gap-x-2">
           {linkedGuestNames.length > 0 && (
             <span title={`Linked guests: ${linkedGuestNames.join(", ")}`}>
-              👥 {linkedGuestNames.join(", ")}
+              <Users aria-hidden className="w-3.5 h-3.5 inline-block align-text-bottom" /> {linkedGuestNames.join(", ")}
             </span>
           )}
           {shot.withWhom.length > 0 && (
@@ -312,7 +313,11 @@ function ShotRow({
               + {shot.withWhom.join(", ")}
             </span>
           )}
-          {shot.location && <span>📍 {shot.location}</span>}
+          {shot.location && (
+            <span>
+              <MapPin aria-hidden className="w-3.5 h-3.5 inline-block align-text-bottom" /> {shot.location}
+            </span>
+          )}
           {shot.notes && <span className="italic">{shot.notes}</span>}
         </div>
       </div>

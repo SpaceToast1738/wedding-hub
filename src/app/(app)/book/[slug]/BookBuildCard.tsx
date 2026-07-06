@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, Paperclip } from "lucide-react";
 import { MentionableTextarea } from "@/components/ui/MentionableTextarea";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -610,7 +610,7 @@ function ViewBody({
                       {m.paidPence != null && m.paidPence > 0 && (
                         <div
                           className={
-                            "text-[10px] mt-0.5 " +
+                            "text-[10px] mt-0.5 inline-flex items-center gap-1 " +
                             (m.costPence != null && (m.paidPence ?? 0) >= m.costPence
                               ? "text-moss-700 font-semibold"
                               : "text-moss-700")
@@ -621,7 +621,7 @@ function ViewBody({
                               : `Paid ${formatGBPFromPence(m.paidPence)}`
                           }
                         >
-                          📎{" "}
+                          <Paperclip aria-hidden className="w-3 h-3 flex-shrink-0" />
                           {m.costPence != null && (m.paidPence ?? 0) >= m.costPence
                             ? `${formatGBPFromPence(m.paidPence)} ✓`
                             : `${formatGBPFromPence(m.paidPence)} paid`}
