@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import {
   TASK_FIELD_LABELS,
@@ -338,11 +339,20 @@ function PreviewPanel({
                   </td>
                   <td className="px-3 py-1.5 text-ink-secondary align-top">
                     {r.assigneeStatus === "found" && <span className="text-moss-700">{r.assigneeName}</span>}
-                    {r.assigneeStatus === "missing" && <span className="text-marigold-700">{r.assigneeEmail} ⚠</span>}
+                    {r.assigneeStatus === "missing" && (
+                      <span className="text-marigold-700 inline-flex items-center gap-1">
+                        {r.assigneeEmail} <AlertTriangle aria-hidden className="w-3 h-3" />
+                      </span>
+                    )}
                     {r.assigneeStatus === "none" && <span className="text-ink-tertiary">—</span>}
                   </td>
                   <td className="px-3 py-1.5 text-[11px] space-y-0.5 align-top">
-                    {r.errors.map((e, i) => <div key={`e${i}`} className="text-danger">⚠ {e}</div>)}
+                    {r.errors.map((e, i) => (
+                      <div key={`e${i}`} className="text-danger flex items-start gap-1">
+                        <AlertTriangle aria-hidden className="w-3 h-3 flex-shrink-0 mt-0.5" />
+                        <span>{e}</span>
+                      </div>
+                    ))}
                     {r.warnings.map((w, i) => <div key={`w${i}`} className="text-marigold-700">! {w}</div>)}
                     {r.errors.length === 0 && r.warnings.length === 0 && <span className="text-ink-tertiary">ok</span>}
                   </td>

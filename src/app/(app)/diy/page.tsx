@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { AlertTriangle } from "lucide-react";
 import { db } from "@/lib/db";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { EmptyState } from "@/components/ui/Illustrations";
@@ -190,8 +191,9 @@ export default async function DiyOverviewPage() {
                                 </span>
                               )}
                               {rollups.prototypeBlocker && (
-                                <span className="text-[10px] uppercase tracking-wider rounded-full px-2 py-0.5 bg-marigold-100 border border-marigold-700/30 text-marigold-700">
-                                  ⚠ Prototype
+                                <span className="text-[10px] uppercase tracking-wider rounded-full px-2 py-0.5 bg-marigold-100 border border-marigold-700/30 text-marigold-700 inline-flex items-center gap-1">
+                                  <AlertTriangle aria-hidden className="w-3 h-3" />
+                                  Prototype
                                 </span>
                               )}
                               {card.budgetLine && (

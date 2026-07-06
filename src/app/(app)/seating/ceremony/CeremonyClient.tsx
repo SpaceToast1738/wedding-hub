@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { MentionableTextarea } from "@/components/ui/MentionableTextarea";
 import { notify } from "@/lib/notify";
@@ -424,10 +425,12 @@ function Legend({
   return (
     <>
       {result.duplicateGuests > 0 && (
-        <p className="mt-3 text-[11px] text-marigold-700">
-          ⚠ {result.duplicateGuests} {result.duplicateGuests === 1 ? "guest" : "guests"} appear in
+        <p className="mt-3 text-[11px] text-marigold-700 flex items-start gap-1">
+          <AlertTriangle aria-hidden className="w-3 h-3 flex-shrink-0 mt-0.5" />
+          <span>{result.duplicateGuests} {result.duplicateGuests === 1 ? "guest" : "guests"} appear in
           multiple groups — they are only allocated to the first group (by order). Fix memberships in{" "}
           <a href="/settings" className="underline">Settings → Guest groups</a>.
+          </span>
         </p>
       )}
       <ul className="mt-2 space-y-1 text-[12px]">

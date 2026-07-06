@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Lock } from "lucide-react";
 import { db } from "@/lib/db";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { StatusPill } from "@/components/ui/StatusPill";
@@ -419,7 +420,7 @@ export default async function AtAGlancePage() {
                   </div>
                 </div>
                 <div className="mt-3.5 text-xs text-ink-tertiary flex items-center gap-1.5">
-                  <span className="text-ink-tertiary">🔒</span>
+                  <Lock aria-hidden className="w-3.5 h-3.5 text-ink-tertiary" />
                   Budget is restricted to Jamie &amp; Bryony
                 </div>
               </GlanceCard>

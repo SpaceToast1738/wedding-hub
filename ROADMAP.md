@@ -963,6 +963,18 @@ When wrapping up a meaningful iteration:
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
 
+### 2026-07-06 · v2.6.8 — Icon migration Phase 1: 43 trivial emoji swaps
+
+8 parallel agents across ~30 disjoint files, migrating every bare ✨/⚠/🔒/🔓 emoji to `lucide-react` components (`Sparkles`, `AlertTriangle`, `Lock`, `Unlock`). Every icon sized to match its old text-size context (e.g. `text-3xl` → `w-8 h-8`) and left to inherit color via `currentColor` from its existing wrapping tone class — the same pattern proven in the Phase 0 pilot.
+
+One thing fixed alongside the swap, not just cosmetic: ~14 of the 18 ⚠ sites had no explicit warning-tone color class — the emoji supplied its own red/amber color for free, and a plain currentColor icon would have visually vanished into body text. Added `text-marigold-700`/`text-danger` where missing.
+
+Two files' ternaries got both branches done together even though one glyph nominally belonged to a later phase: `error.tsx`'s permission-error-vs-generic-error split (`Lock` vs `AlertTriangle`) and `SectionVisibilityToggle.tsx`'s couple-only-vs-public split (`Lock` vs `Users`) — splitting a single conditional's two branches across two separate migration phases would have meant landing a half-migrated ternary.
+
+`FilesClient.tsx`'s two `<option>` elements are the one confirmed exception in the whole audit: a native `<option>` can only render text, so those keep plain labels with the glyph simply dropped rather than attempting an icon.
+
+Typecheck clean, 652 tests green (unchanged — no logic touched, pure glyph/sizing/color swaps), lint clean, full `next build` verified.
+
 ### 2026-07-06 · v2.6.7 — Icon migration Phase 0: lucide-react + Toaster pilot
 
 First of several phases executing the icon-consistency scope from the v2.6.0 audit (colour emoji that can't recolour for dark mode; three uncoordinated glyph systems; no icon library installed anywhere). Full scope, phasing, and the two open style questions (nav icon sizing, Wedding Book fallback substitutes) were written up and handed to the user directly; this entry starts execution.

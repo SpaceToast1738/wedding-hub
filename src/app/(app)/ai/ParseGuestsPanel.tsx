@@ -8,6 +8,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { Sparkles } from "lucide-react";
 import { parseGuestList } from "./actions";
 
 export function ParseGuestsPanel() {
@@ -57,7 +58,13 @@ export function ParseGuestsPanel() {
           disabled={pending || text.trim().length < 8}
           className="rounded-md bg-ink-primary text-canvas px-3 py-1.5 text-sm disabled:opacity-50"
         >
-          {pending ? "Parsing…" : "✨ Parse into proposals"}
+          {pending ? (
+            "Parsing…"
+          ) : (
+            <span className="inline-flex items-center gap-1">
+              <Sparkles aria-hidden className="w-3.5 h-3.5" /> Parse into proposals
+            </span>
+          )}
         </button>
         <span className="text-xs text-ink-tertiary">
           {text.length} character{text.length === 1 ? "" : "s"}

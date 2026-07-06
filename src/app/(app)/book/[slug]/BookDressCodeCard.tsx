@@ -11,6 +11,7 @@
 // detach / upload paths.
 
 import { useEffect, useState, useTransition } from "react";
+import { Lock } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -226,10 +227,11 @@ export function BookDressCodeCard({
         )}
         {visibility === "COUPLE_ONLY" && (
           <span
-            className="text-[10px] text-info bg-[color:#eef4f5] dark:bg-muted border border-[color:#d0e4e8] dark:border-border-soft px-1.5 py-0.5 rounded self-center whitespace-nowrap"
+            className="text-[10px] text-info bg-[color:#eef4f5] dark:bg-muted border border-[color:#d0e4e8] dark:border-border-soft px-1.5 py-0.5 rounded self-center whitespace-nowrap inline-flex items-center gap-1"
             title="Only Jamie and Bryony can see this page."
           >
-            🔒 Couple only
+            <Lock aria-hidden className="w-3 h-3" />
+            Couple only
           </span>
         )}
       </div>

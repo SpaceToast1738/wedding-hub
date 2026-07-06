@@ -8,6 +8,7 @@
 // rate limit is intentionally low.
 
 import { useState, useTransition } from "react";
+import { Sparkles } from "lucide-react";
 import { reviewWeddingState, type WeddingReview } from "./actions";
 import { InlineMarkdown } from "@/components/ai/MarkdownMessage";
 
@@ -76,7 +77,15 @@ export function WeddingReviewPanel() {
           disabled={pending}
           className="flex-shrink-0 rounded-md bg-ink-primary text-canvas px-3 py-1.5 text-sm disabled:opacity-60"
         >
-          {pending ? "Reviewing…" : review ? "Re-run review" : "✨ Review the wedding"}
+          {pending ? (
+            "Reviewing…"
+          ) : review ? (
+            "Re-run review"
+          ) : (
+            <span className="inline-flex items-center gap-1">
+              <Sparkles aria-hidden className="w-4 h-4" /> Review the wedding
+            </span>
+          )}
         </button>
       </div>
       {error && (

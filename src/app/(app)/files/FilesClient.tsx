@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { Lock, Unlock } from "lucide-react";
 import { FileVisibility } from "@prisma/client";
 import { Avatar } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
@@ -317,9 +318,10 @@ function FileItem({
           {isCoupleOnly && (
             <span
               title="Couple-only — hidden from Aimee, Josh, and the planner"
-              className="text-[10px] font-semibold uppercase tracking-wider text-marigold-700 bg-marigold-100 border border-marigold-700/30 px-1.5 py-px rounded-md flex-shrink-0"
+              className="text-[10px] font-semibold uppercase tracking-wider text-marigold-700 bg-marigold-100 border border-marigold-700/30 px-1.5 py-px rounded-md flex-shrink-0 inline-flex items-center gap-0.5"
             >
-              🔒 Couple
+              <Lock aria-hidden className="w-3 h-3" />
+              Couple
             </span>
           )}
         </div>
@@ -425,7 +427,9 @@ function FileRowMenu({
             }}
             className="flex items-center gap-2.5 w-full px-3.5 py-2.5 min-h-[40px] text-sm text-ink-secondary hover:bg-muted text-left cursor-pointer disabled:opacity-50"
           >
-            <span aria-hidden className="w-4 text-center">{isCoupleOnly ? "🔓" : "🔒"}</span>
+            <span aria-hidden className="w-4 flex justify-center">
+              {isCoupleOnly ? <Unlock className="w-4 h-4" /> : <Lock className="w-4 h-4" />}
+            </span>
             {isCoupleOnly ? "Make visible to everyone" : "Make couple-only"}
           </button>
           <button
@@ -543,9 +547,10 @@ function EditForm({
                     ? "bg-moss-500 text-on-moss border-moss-500"
                     : "bg-canvas text-ink-secondary border-border-soft hover:border-moss-300",
                   disabled && !active ? "opacity-50 cursor-not-allowed" : "",
+                  "inline-flex items-center gap-1",
                 ].join(" ")}
               >
-                {v === FileVisibility.COUPLE_ONLY ? "🔒 " : ""}
+                {v === FileVisibility.COUPLE_ONLY && <Lock aria-hidden className="w-3 h-3" />}
                 {label}
               </button>
             );
@@ -647,7 +652,7 @@ function UploadDropzone({
             className="w-full text-sm bg-surface border border-border-soft rounded-sm px-2 py-1.5 text-ink-primary outline-none disabled:opacity-50"
           >
             <option value={FileVisibility.EVERYONE}>Everyone</option>
-            {isCouple && <option value={FileVisibility.COUPLE_ONLY}>🔒 Couple only</option>}
+            {isCouple && <option value={FileVisibility.COUPLE_ONLY}>Couple only</option>}
           </select>
         </div>
         <div className="text-[11px] text-ink-tertiary leading-tight">

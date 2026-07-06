@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { AlertTriangle } from "lucide-react";
 import { getWeddingSettings } from "@/lib/wedding-settings";
 
 function buildMessages(brideFirst: string, groomFirst: string): Record<string, { title: string; body: string }> {
@@ -35,7 +36,9 @@ export default async function SignInErrorPage({
   return (
     <div className="min-h-screen flex items-center justify-center px-4 bg-canvas">
       <div className="w-full max-w-sm bg-surface border border-border-soft rounded-lg shadow-md p-7 text-center">
-        <div className="text-4xl mb-3">⚠</div>
+        <div className="flex justify-center mb-3 text-marigold-700">
+          <AlertTriangle aria-hidden className="w-10 h-10" />
+        </div>
         <h1 className="font-display text-2xl font-semibold text-danger mb-2">
           {m.title}
         </h1>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
+import { AlertTriangle } from "lucide-react";
 import { MentionableTextarea } from "@/components/ui/MentionableTextarea";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -362,7 +363,7 @@ export function BookBuildCard({
       {/* Prototype-blocker banner — shown in both view + edit modes */}
       {r.prototypeBlocker && (
         <div className="mb-4 px-3 py-2 bg-marigold-100 border border-marigold-700/30 rounded-md text-xs text-marigold-700 flex items-baseline gap-2">
-          <span aria-hidden>⚠</span>
+          <AlertTriangle aria-hidden className="w-4 h-4" />
           <span>
             Prototype not done — target&apos;s only {daysToTarget} day{daysToTarget === 1 ? "" : "s"} away.
           </span>

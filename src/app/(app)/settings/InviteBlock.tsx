@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { notify } from "@/lib/notify";
@@ -185,8 +186,9 @@ export function InviteBlock({
         {/* v2.5.0 (design pass #4): live permission consequence of the
             current role selection — updates as the select changes. */}
         {isCouple ? (
-          <p className="text-xs text-marigold-700">
-            ⚠ Couple-tier gives full edit access to every section including budget and payments.
+          <p className="text-xs text-marigold-700 flex items-start gap-1">
+            <AlertTriangle aria-hidden className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+            <span>Couple-tier gives full edit access to every section including budget and payments.</span>
           </p>
         ) : (
           <RolePermissionsSummary perms={rolePermissions[role as PreviewRole] ?? []} />

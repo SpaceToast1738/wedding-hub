@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Lock } from "lucide-react";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { PageHeader } from "@/components/ui/PageHeader";
@@ -282,8 +283,9 @@ export default async function BookHubPage() {
                             so mirror the same lock-badge treatment used
                             on individual COUPLE_ONLY cards (CardChrome). */}
                         {s.visibility === "COUPLE_ONLY" && (
-                          <span className="text-[10px] uppercase tracking-wider text-marigold-700 bg-marigold-100 border border-marigold-700/20 rounded-full px-2 py-0.5 flex-shrink-0">
-                            🔒 Couple
+                          <span className="text-[10px] uppercase tracking-wider text-marigold-700 bg-marigold-100 border border-marigold-700/20 rounded-full px-2 py-0.5 flex-shrink-0 inline-flex items-center gap-1">
+                            <Lock aria-hidden className="w-3 h-3" />
+                            Couple
                           </span>
                         )}
                       </div>

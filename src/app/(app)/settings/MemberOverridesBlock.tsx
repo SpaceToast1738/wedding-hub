@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { Lock } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
 import { notify } from "@/lib/notify";
@@ -233,7 +234,7 @@ export function MemberOverridesBlock({
 
       {canEdit && !currentUserIsCouple && (
         <div className="mx-4 mt-3 bg-canvas border border-border-soft text-ink-secondary rounded-md px-4 py-2.5 text-xs flex items-start gap-2">
-          <span className="text-marigold-700 flex-shrink-0">🔒</span>
+          <Lock aria-hidden className="w-3.5 h-3.5 text-marigold-700 flex-shrink-0" />
           <span>
             <strong>Read-only.</strong> You have edit access to Settings, but only the couple
             can change other members&apos; permissions, grant couple-tier access, or remove members.
@@ -272,7 +273,7 @@ export function MemberOverridesBlock({
                           className="ml-2 text-[10px] uppercase tracking-wider text-moss-700 font-semibold"
                           title={isLastCouple ? "Locked — only remaining couple-tier admin" : "Couple-tier admin"}
                         >
-                          Couple{isLastCouple && <span className="ml-0.5" aria-label="locked">🔒</span>}
+                          Couple{isLastCouple && <Lock aria-label="locked" className="inline-block ml-0.5 w-3 h-3" />}
                         </span>
                       )}
                     </div>
@@ -308,7 +309,7 @@ export function MemberOverridesBlock({
                       title="Can't remove the only remaining couple-tier admin. Promote another user first."
                       aria-label="Locked — only remaining couple-tier admin"
                     >
-                      🔒
+                      <Lock aria-hidden className="w-3 h-3" />
                     </span>
                   )}
                 </div>
@@ -341,8 +342,8 @@ export function MemberOverridesBlock({
                     >
                       Couple-tier access (implicit edit on every section)
                       {isLastCouple && (
-                        <span className="ml-1.5 text-[10px] uppercase tracking-wider text-marigold-700 font-semibold">
-                          🔒 locked — last admin
+                        <span className="ml-1.5 text-[10px] uppercase tracking-wider text-marigold-700 font-semibold inline-flex items-center gap-0.5">
+                          <Lock aria-hidden className="w-3 h-3" /> locked — last admin
                         </span>
                       )}
                     </label>

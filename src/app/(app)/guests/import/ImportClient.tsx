@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { GUEST_FIELD_LABELS, MULTI_VALUE_FIELDS, type GuestField, inferMapping, parseCsv } from "@/lib/csv";
 import type { MergeableField } from "@/lib/csv-merge";
@@ -586,7 +587,10 @@ function PreviewPanel({
                   </td>
                   <td className="px-3 py-1.5 text-[11px] space-y-0.5 align-top">
                     {r.errors.map((e, i) => (
-                      <div key={`e${i}`} className="text-danger">⚠ {e}</div>
+                      <div key={`e${i}`} className="text-danger flex items-start gap-1">
+                        <AlertTriangle aria-hidden className="w-3 h-3 flex-shrink-0 mt-0.5" />
+                        <span>{e}</span>
+                      </div>
                     ))}
                     {r.warnings.map((w, i) => (
                       <div key={`w${i}`} className="text-marigold-700">! {w}</div>

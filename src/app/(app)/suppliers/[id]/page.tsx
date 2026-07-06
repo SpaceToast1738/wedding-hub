@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { AlertTriangle } from "lucide-react";
 import { db } from "@/lib/db";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { canEdit, canView, canViewMoney } from "@/lib/permissions";
@@ -203,9 +204,12 @@ export default async function SupplierDetailPage({
                   <Row label="Outstanding" value={formatGBP(totalDue)} />
                   {overAgreed && agreedNumber != null && (
                     <div className="px-4 py-2.5 bg-danger-bg/50 border-t border-danger-border">
-                      <p className="text-[12px] text-danger font-medium">
-                        ⚠ Over agreed by {formatGBP(totalCommitted - agreedNumber)} ·
-                        committed {formatGBP(totalCommitted)} against {formatGBP(agreedNumber)}.
+                      <p className="text-[12px] text-danger font-medium flex items-start gap-1">
+                        <AlertTriangle aria-hidden className="w-3 h-3 flex-shrink-0 mt-0.5" />
+                        <span>
+                          Over agreed by {formatGBP(totalCommitted - agreedNumber)} ·
+                          committed {formatGBP(totalCommitted)} against {formatGBP(agreedNumber)}.
+                        </span>
                       </p>
                     </div>
                   )}

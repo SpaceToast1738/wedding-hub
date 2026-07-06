@@ -19,6 +19,7 @@ import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { Sparkles } from "lucide-react";
 import {
   applyProposal,
   applyProposals,
@@ -536,7 +537,7 @@ export function ChatPanel({ user }: { user: { id: string; firstName: string } })
           // actually takes effect.
           className="fixed bottom-20 left-4 sm:left-auto sm:bottom-6 sm:right-6 z-[400] rounded-full bg-ink-primary text-canvas w-12 h-12 shadow-lg hover:scale-105 transition-transform flex items-center justify-center"
         >
-          <span aria-hidden>✨</span>
+          <Sparkles aria-hidden className="w-5 h-5" />
         </button>
       )}
 

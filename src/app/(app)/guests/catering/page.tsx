@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { AlertTriangle } from "lucide-react";
 import { db } from "@/lib/db";
 import { requireUser } from "@/lib/actions";
 import { canView } from "@/lib/permissions";
@@ -214,8 +215,9 @@ export default async function CateringBriefPage() {
               (or under-reporting) them — they're still counted below
               under their original text. */}
           {dietaryTally.unmatchedCount > 0 && (
-            <p className="text-[11px] text-marigold-700 mb-2 no-print">
-              ⚠ {dietaryTally.unmatchedCount} entr{dietaryTally.unmatchedCount === 1 ? "y" : "ies"} didn&apos;t match a known dietary category — shown under their original text below.
+            <p className="text-[11px] text-marigold-700 mb-2 no-print flex items-start gap-1">
+              <AlertTriangle aria-hidden className="w-3 h-3 flex-shrink-0 mt-0.5" />
+              <span>{dietaryTally.unmatchedCount} entr{dietaryTally.unmatchedCount === 1 ? "y" : "ies"} didn&apos;t match a known dietary category — shown under their original text below.</span>
             </p>
           )}
           {dietaryCounts.size === 0 ? (

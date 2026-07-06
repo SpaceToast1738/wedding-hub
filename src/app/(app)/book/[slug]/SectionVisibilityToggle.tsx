@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { Lock, Users } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { notify } from "@/lib/notify";
 import { setBookSectionVisibility } from "../actions";
@@ -53,7 +54,10 @@ export function SectionVisibilityToggle({
           : "Currently visible to everyone — click to make couple-only"
       }
     >
-      {isCouple ? "🔒 Couple-only" : "👥 Public"}
+      <span className="inline-flex items-center gap-1.5">
+        {isCouple ? <Lock aria-hidden className="w-4 h-4" /> : <Users aria-hidden className="w-4 h-4" />}
+        {isCouple ? "Couple-only" : "Public"}
+      </span>
     </Button>
   );
 }

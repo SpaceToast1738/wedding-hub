@@ -1,3 +1,5 @@
+import { AlertTriangle, Lock } from "lucide-react";
+
 // Server component: reads `configured` from props (the page does the
 // `isSpotifyConfigured()` check at request time so we don't bother with
 // a client/server split here).
@@ -37,8 +39,8 @@ export function SpotifySettingsPanel({
               ✓ Configured
             </span>
           ) : (
-            <span className="text-[10px] font-bold uppercase tracking-wider text-marigold-700 bg-marigold-100 border border-marigold-700/30 px-2 py-0.5 rounded">
-              ⚠ Not configured
+            <span className="text-[10px] font-bold uppercase tracking-wider text-marigold-700 bg-marigold-100 border border-marigold-700/30 px-2 py-0.5 rounded inline-flex items-center gap-1">
+              <AlertTriangle aria-hidden className="w-3 h-3" /> Not configured
             </span>
           )}
         </div>
@@ -64,8 +66,9 @@ export function SpotifySettingsPanel({
       </div>
 
       {!isCouple ? (
-        <div className="px-4 py-3 border-t border-border-soft text-xs text-ink-tertiary italic">
-          🔒 Setup requires server-level env-var access. Ask Jamie or Bryony to flip it on.
+        <div className="px-4 py-3 border-t border-border-soft text-xs text-ink-tertiary italic flex items-start gap-1">
+          <Lock aria-hidden className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+          <span>Setup requires server-level env-var access. Ask Jamie or Bryony to flip it on.</span>
         </div>
       ) : (
         <details className="border-t border-border-soft" open={!configured}>

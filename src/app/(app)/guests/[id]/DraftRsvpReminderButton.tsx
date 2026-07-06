@@ -5,6 +5,7 @@
 // email/SMS client. The AI never sends anything.
 
 import { useState, useTransition } from "react";
+import { Sparkles } from "lucide-react";
 import { draftRsvpReminder } from "@/app/(app)/ai/actions";
 
 export function DraftRsvpReminderButton({
@@ -51,9 +52,16 @@ export function DraftRsvpReminderButton({
         type="button"
         onClick={run}
         disabled={pending}
-        className="inline-flex items-center text-xs font-medium px-2.5 py-1 rounded-sm border border-border-soft bg-canvas text-ink-secondary hover:border-moss-300 hover:text-moss-700 disabled:opacity-60"
+        className="inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-sm border border-border-soft bg-canvas text-ink-secondary hover:border-moss-300 hover:text-moss-700 disabled:opacity-60"
       >
-        {pending ? "Drafting…" : "✨ Draft RSVP reminder"}
+        {pending ? (
+          "Drafting…"
+        ) : (
+          <>
+            <Sparkles aria-hidden className="w-3.5 h-3.5" />
+            Draft RSVP reminder
+          </>
+        )}
       </button>
       {text && (
         <div className="mt-2 space-y-2 rounded-md border border-emerald-300 bg-emerald-50 p-3">

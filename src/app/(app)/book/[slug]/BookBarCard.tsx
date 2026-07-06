@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
+import { AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { MentionableTextarea } from "@/components/ui/MentionableTextarea";
 import { notify } from "@/lib/notify";
@@ -198,8 +199,9 @@ export function BookBarCard({
 
       {/* Per-head flag banner */}
       {r.perHeadFlag === "low" && (
-        <div className="mb-4 px-3 py-2 bg-marigold-100 border border-marigold-700/30 rounded-md text-xs text-marigold-700">
-          ⚠ Below 0.5 bottles per adult — typically tight for a wedding crowd.
+        <div className="mb-4 px-3 py-2 bg-marigold-100 border border-marigold-700/30 rounded-md text-xs text-marigold-700 flex items-start gap-1.5">
+          <AlertTriangle aria-hidden className="w-4 h-4 flex-shrink-0 mt-0.5" />
+          <span>Below 0.5 bottles per adult — typically tight for a wedding crowd.</span>
         </div>
       )}
       {r.perHeadFlag === "high" && (

@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import Link from "next/link";
+import { AlertTriangle, Lock } from "lucide-react";
 
 // B5 (v1.12.0): catches errors thrown by server actions or server
 // components inside the (app) tree. Without this, Next falls back to
@@ -41,7 +42,13 @@ export default function AppError({
   return (
     <div className="flex-1 flex items-center justify-center p-6">
       <div className="max-w-md w-full bg-surface border border-border-soft rounded-md shadow-sm p-6 text-center">
-        <div className="text-3xl mb-2">{isPermissionError ? "🔒" : "⚠"}</div>
+        <div className={`flex justify-center mb-2 ${isPermissionError ? "text-ink-secondary" : "text-marigold-700"}`}>
+          {isPermissionError ? (
+            <Lock aria-hidden className="w-8 h-8" />
+          ) : (
+            <AlertTriangle aria-hidden className="w-8 h-8" />
+          )}
+        </div>
         <h1 className="font-display text-xl font-semibold text-ink-primary mb-2">
           {isPermissionError ? "Permission denied" : "Something went wrong"}
         </h1>

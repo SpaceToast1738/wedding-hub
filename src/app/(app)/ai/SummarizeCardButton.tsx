@@ -7,6 +7,7 @@
 
 import Link from "next/link";
 import { useState, useTransition } from "react";
+import { Sparkles } from "lucide-react";
 import { summarizeBookCard } from "./actions";
 
 export function SummarizeCardButton({
@@ -45,7 +46,13 @@ export function SummarizeCardButton({
         disabled={pending}
         className="text-xs rounded-md border border-border-soft bg-surface text-ink-secondary px-2 py-1 hover:bg-surface-hover disabled:opacity-60"
       >
-        {pending ? "Summarizing…" : "✨ Summarize card"}
+        {pending ? (
+          "Summarizing…"
+        ) : (
+          <span className="inline-flex items-center gap-1">
+            <Sparkles aria-hidden className="w-3 h-3" /> Summarize card
+          </span>
+        )}
       </button>
       {state.kind === "success" && (
         <div className="mt-2 text-xs rounded-md border border-emerald-300 bg-emerald-50 text-emerald-900 p-2">

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import { createPortal } from "react-dom";
+import { AlertTriangle } from "lucide-react";
 import type { FundSource, PerHeadSource } from "@prisma/client";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -810,8 +811,9 @@ function SummaryBar({
               Committed {actualPct.toFixed(0)}%
             </span>
             {overBudget && (
-              <span className="text-danger font-medium">
-                ⚠ Actual exceeds planned by {formatMoneyDecimal((totals.actual - totals.estimated) as unknown as { toString(): string })}
+              <span className="text-danger font-medium inline-flex items-center gap-1">
+                <AlertTriangle aria-hidden className="w-3 h-3 flex-shrink-0" />
+                Actual exceeds planned by {formatMoneyDecimal((totals.actual - totals.estimated) as unknown as { toString(): string })}
               </span>
             )}
           </div>
@@ -978,10 +980,11 @@ function CategoryBlock({
             </span>
             {overBudgetLineCount > 0 && (
               <span
-                className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded-sm border bg-danger-bg text-danger border-danger-border"
+                className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded-sm border bg-danger-bg text-danger border-danger-border inline-flex items-center gap-1"
                 title={`${overBudgetLineCount} line${overBudgetLineCount === 1 ? "" : "s"} over budget`}
               >
-                ⚠ {overBudgetLineCount} over
+                <AlertTriangle aria-hidden className="w-3 h-3 flex-shrink-0" />
+                {overBudgetLineCount} over
               </span>
             )}
             <span className="flex-1" />
@@ -1267,10 +1270,11 @@ function LineRow({
         )}
         {overBudget && (
           <span
-            className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded-sm border bg-danger-bg text-danger border-danger-border"
+            className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded-sm border bg-danger-bg text-danger border-danger-border inline-flex items-center gap-1"
             title={`Actual exceeds planned by £${(actualResolved - estimatedResolved).toFixed(2)}`}
           >
-            ⚠ Over
+            <AlertTriangle aria-hidden className="w-3 h-3 flex-shrink-0" />
+            Over
           </span>
         )}
       </div>

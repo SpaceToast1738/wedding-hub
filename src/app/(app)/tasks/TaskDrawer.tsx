@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState, useTransition } from "react";
+import { Sparkles } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
 import { MentionableTextarea } from "@/components/ui/MentionableTextarea";
@@ -607,7 +608,9 @@ export function TaskDrawer({
                 // 3–8 subtask proposals on /ai. Server action gates on
                 // ai_write; without it the click just reports the error.
                 <Button variant="ghost" size="sm" onClick={onBreakdown} disabled={pending}>
-                  ✨ Break down
+                  <span className="inline-flex items-center gap-1">
+                    <Sparkles aria-hidden className="w-4 h-4" /> Break down
+                  </span>
                 </Button>
               )}
               <Button variant="ghost" size="sm" onClick={onClose} disabled={pending}>

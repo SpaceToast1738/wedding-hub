@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { notify } from "@/lib/notify";
@@ -224,7 +225,10 @@ export function PlaylistCard({
             </div>
           )}
           {spotifyError && (
-            <div className="mt-1.5 text-danger text-[11px]">⚠ {spotifyError}</div>
+            <div className="mt-1.5 text-danger text-[11px] flex items-start gap-1">
+              <AlertTriangle aria-hidden className="w-3 h-3 flex-shrink-0 mt-0.5" />
+              <span>{spotifyError}</span>
+            </div>
           )}
         </div>
       )}

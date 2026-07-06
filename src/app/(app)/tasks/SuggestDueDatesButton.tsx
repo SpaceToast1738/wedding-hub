@@ -1,6 +1,6 @@
 "use client";
 
-// v2.1.0 phase 5: "✨ Suggest due dates" affordance in the /tasks
+// v2.1.0 phase 5: "Suggest due dates" affordance in the /tasks
 // header. One click reads every open TASK-typed row with a null
 // dueDate, asks the deep tier for realistic dates, emits a batch of
 // task.update proposals into the review queue on /ai.
@@ -14,6 +14,7 @@
 // callers embedding it elsewhere can override via `className`.
 
 import { useTransition } from "react";
+import { Sparkles } from "lucide-react";
 import { notify } from "@/lib/notify";
 import { suggestDueDates } from "@/app/(app)/ai/actions";
 
@@ -51,7 +52,14 @@ export function SuggestDueDatesButton({ className }: { className?: string }) {
       role="menuitem"
       className={className ?? DEFAULT_CLASS}
     >
-      {pending ? "Thinking…" : "✨ Suggest due dates"}
+      {pending ? (
+        "Thinking…"
+      ) : (
+        <span className="inline-flex items-center gap-1.5">
+          <Sparkles aria-hidden className="w-4 h-4" />
+          Suggest due dates
+        </span>
+      )}
     </button>
   );
 }
