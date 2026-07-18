@@ -54,7 +54,7 @@ export async function Sidebar({ user, counts, signOutAction }: Props) {
                 key={item.href}
                 href={item.href}
                 label={item.label}
-                icon={item.icon}
+                icon={<item.icon aria-hidden className="w-3.5 h-3.5" />}
                 count={item.countKey ? counts[item.countKey] : undefined}
               />
             ))}

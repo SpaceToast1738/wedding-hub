@@ -2,17 +2,25 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import type { LucideIcon } from "lucide-react";
+import type { ReactNode } from "react";
 
 export function SidebarItem({
   href,
   label,
-  icon: Icon,
+  icon,
   count,
 }: {
   href: string;
   label: string;
-  icon: LucideIcon;
+  // v2.6.14: a rendered element, not a LucideIcon component reference.
+  // Sidebar.tsx (the caller) is a Server Component — passing the raw
+  // icon component as a prop into this Client Component crashed
+  // production with "Functions cannot be passed directly to Client
+  // Components" (icon components are forwardRef objects, not
+  // serializable data). Rendering the icon in the server parent and
+  // passing the resulting element is the standard fix: JSX elements
+  // are plain serializable objects, function references aren't.
+  icon: ReactNode;
   count?: number;
 }) {
   const pathname = usePathname();
@@ -30,7 +38,7 @@ export function SidebarItem({
       ].join(" ")}
     >
       <span className="w-4 flex items-center justify-center opacity-75">
-        <Icon aria-hidden className="w-3.5 h-3.5" />
+        {icon}
       </span>
       <span className="flex-1">{label}</span>
       {count != null && count > 0 && (

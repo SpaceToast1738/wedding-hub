@@ -1015,6 +1015,18 @@ This closes every phase with a scoped, well-understood fix. What remains — `Re
 
 Typecheck clean, 652 tests green, lint clean, full `next build` verified.
 
+### 2026-07-18 · v2.6.14 — HOTFIX: production down, "Functions cannot be passed directly to Client Components"
+
+User reported the site down with a generic Next.js server-side exception (digest 932191155) on every authenticated page. SSH'd into the Unraid host and pulled the real `docker logs wedding-hub-web-1` — this is what should have happened first, before any speculative fix.
+
+Root cause: `src/components/shell/Sidebar.tsx` is a Server Component (`async function`, does DB reads) that renders `<SidebarItem icon={item.icon} />`. `SidebarItem.tsx` is a `"use client"` component (needs `usePathname()` for active-state). Since the v2.6.10 nav-config icon migration, `item.icon` is a `LucideIcon` — a `forwardRef`-wrapped component reference, i.e. a function. Passing a live function reference as a prop across a Server→Client boundary is exactly what Next.js's RSC serialization forbids ("Functions cannot be passed directly to Client Components... {$$typeof, render, displayName}" — that shape IS a Lucide icon). This fires on literally every authenticated page load, because the sidebar is global app shell.
+
+None of the other icon-migration phases have this bug: every other place a `LucideIcon`-typed value is used renders it directly within the same file (Server Component instantiating and rendering a component is fine — only passing the *unrendered reference* as *prop data* into a separate Client Component boundary is the violation). Verified this by auditing every `LucideIcon`-typed prop in the codebase (`book/page.tsx`'s `meta.icon`, `RecentActivityFeed.tsx`'s `badge.icon`, `today/day-of/page.tsx`'s `QuickLink`, `Tag.tsx`'s `icon` prop) — all same-file renders or client-to-client prop passes, none cross the boundary. `Sidebar.tsx` → `SidebarItem.tsx` was the only offender.
+
+Fix: `SidebarItem`'s `icon` prop is now `ReactNode`, not `LucideIcon`. `Sidebar.tsx` renders the icon (`<item.icon aria-hidden className="w-3.5 h-3.5" />`) itself and passes the resulting *element* down — JSX elements are plain serializable objects; component references aren't. Standard fix for this class of RSC bug.
+
+Typecheck clean, 652 tests green, lint clean, full `next build` verified. Deployed directly via SSH (`docker compose pull && up -d`) given the site was actively down — see chat for the incident timeline.
+
 ### 2026-07-06 · v2.6.13 — Icon migration Phase 5: entity badge glyphs (final phase)
 
 Migrated `RecentActivityFeed.tsx`'s `ENTITY_BADGE` map (14 entity types, one badge each) from Unicode glyphs to `lucide-react` components — `ListChecks` (Task), `PoundSterling` (Payment/BudgetLine/BudgetCategory/BudgetLineComponent), `Building2` (Supplier + contact/contract), `Heart` (Guest/Household), `Table2` (Table/Seat/CeremonySeating), `Clock` (ScheduleEvent), `BookOpen` (BookSection/BookSubsection), `Music` (Playlist/Song), `Settings`, `Tag`, `Paperclip` (File), `Mail` (Invite), `User` (User/PermissionGroup), and `Circle` for the neutral fallback. Done last per the original scope — this was already the most internally consistent of the three glyph systems the audit found (one map, one render site, one size), so it carried the least urgency.
