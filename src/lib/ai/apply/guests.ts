@@ -1,36 +1,68 @@
 // v2.4.0: apply bridges for guest + household proposals.
 //
 // updateGuest is the most dangerous full-record action on the write
-// surface: every text field reads `formData.get(x) || null` (omission
-// WIPES — dietary to [], notes/email/phone/role to null), checkboxes
-// read `=== "on"` (omission un-flags children and highchairs), an
-// omitted rsvp resets to PENDING, an omitted side resets to BOTH —
-// and a wiped plusOneAllowed/plusOneName doesn't just lose text: the
-// syncPlusOne side effect ARCHIVES the +1 row and frees their seat.
-// So the guest.update bridge loads the live row and posts every field
-// updateGuest reads, patch-else-current.
+// surface: every text field is overwrite-or-clear (an omitted value
+// WIPES — dietary to [], notes/email/phone/role to null), the booleans
+// un-flag when omitted, an omitted rsvp resets to PENDING, an omitted
+// side resets to BOTH — and a wiped plusOneAllowed/plusOneName doesn't
+// just lose text: the syncPlusOne side effect ARCHIVES the +1 row and
+// frees their seat. So the guest.update bridge loads the live row and
+// carries every field patch-else-current.
+//
+// v2.8.0 (T1 self-apply): these bridges no longer round-trip through
+// the human "use server" actions (updateGuest / setGuestRsvp /
+// deleteGuest / updateHousehold) — those start with requireEdit(),
+// which calls auth()→redirect("/signin") and throws NEXT_REDIRECT on
+// the session-free MCP path. They now call the session-free cores in
+// src/lib/core/guests.ts directly with the already-verified user, and
+// re-assert the guests-EDIT gate HERE via requireSectionEdit (the same
+// canEdit + requireEdit error string the human actions used). The
+// merged full-record object is still re-parsed through guestInputSchema
+// / householdInputSchema — exactly what the human actions parsed
+// internally, so the .email() validation and every default stay
+// byte-identical.
 //
 // All bridges throw on failure so applyLoadedProposal's claim-rollback
-// fires. Permissions compose: caller gates ai_write, the actions gate
-// requireEdit("guests").
+// fires. Permissions compose: caller gates ai_write, the bridge gates
+// guests-EDIT.
 
 import { RsvpStatus } from "@prisma/client";
-import {
-  deleteGuest,
-  setGuestRsvp,
-  updateGuest,
-  updateHousehold,
-} from "@/app/(app)/guests/actions";
 import { db } from "@/lib/db";
+import { canEdit, type Section } from "@/lib/permissions";
+// Type-only import — erased at compile time, so this module never
+// pulls the @/auth graph into the MCP route bundle (same convention as
+// src/lib/core/*).
+import type { SessionUser } from "@/lib/actions";
 import {
   guestArchiveSchema,
   guestSetRsvpSchema,
   guestUpdateSchema,
   householdUpdateSchema,
 } from "@/lib/ai/proposals/schemas";
+import {
+  archiveGuestCore,
+  guestInputSchema,
+  householdInputSchema,
+  setGuestRsvpCore,
+  updateGuestCore,
+  updateHouseholdCore,
+} from "@/lib/core/guests";
 import { ensureOk, patchOrCurrent } from "@/lib/ai/apply/common";
 
-async function applyGuestUpdate(payload: unknown): Promise<{ id: string }> {
+/** Session-free twin of requireEdit(section) — same error text, but
+ *  the user comes from the caller instead of the session (same helper
+ *  convention as src/lib/ai/apply/deletes.ts). Replaces the gate the
+ *  human server actions used to run inside the FormData round-trip. */
+async function requireSectionEdit(user: SessionUser, section: Section): Promise<void> {
+  if (!(await canEdit(user, section))) {
+    throw new Error(`Forbidden: no edit access to ${section}`);
+  }
+}
+
+async function applyGuestUpdate(
+  user: SessionUser,
+  payload: unknown,
+): Promise<{ id: string }> {
   const parsed = guestUpdateSchema.parse(payload);
 
   const current = await db.guest.findUnique({ where: { id: parsed.guestId } });
@@ -42,9 +74,9 @@ async function applyGuestUpdate(payload: unknown): Promise<{ id: string }> {
   if (current.archived) {
     throw new Error("Guest is archived — restore them before editing.");
   }
-  // +1 rows can't own +1 fields (updateGuest force-clears them without
-  // erroring — a silent no-op the reviewer would never notice). Refuse
-  // so the proposal fails loudly instead.
+  // +1 rows can't own +1 fields (updateGuestCore force-clears them
+  // without erroring — a silent no-op the reviewer would never notice).
+  // Refuse so the proposal fails loudly instead.
   if (
     current.parentGuestId &&
     (parsed.plusOneAllowed !== undefined || parsed.plusOneName !== undefined)
@@ -54,73 +86,73 @@ async function applyGuestUpdate(payload: unknown): Promise<{ id: string }> {
     );
   }
 
-  const fd = new FormData();
-  // Parser fodder: guestSchema requires householdId but updateGuest
-  // never writes it — household moves stay human-only.
-  fd.append("householdId", current.householdId);
-  // NEVER omit rsvp: `formData.get("rsvp") || PENDING` would silently
-  // reset the RSVP. guest.set_rsvp is the only RSVP write path.
-  fd.append("rsvp", current.rsvp);
-  fd.append("side", parsed.side ?? current.side);
-  fd.append(
-    "firstName",
-    parsed.firstName !== undefined ? parsed.firstName : current.firstName,
-  );
-  fd.append(
-    "lastName",
-    parsed.lastName !== undefined ? parsed.lastName : current.lastName,
-  );
+  // Gate BEFORE the merged parse — same evaluation order as the old
+  // path (updateGuest ran requireEdit before its own guestInputSchema
+  // parse), so a permission failure beats a bad-email validation error.
+  await requireSectionEdit(user, "guests");
 
-  // Text fields: the parser treats a missing key as null, so appending
-  // only non-null merged values gives both carry and explicit-clear.
-  const email = patchOrCurrent(parsed.email, current.email);
-  if (email) fd.append("email", email);
-  const phone = patchOrCurrent(parsed.phone, current.phone);
-  if (phone) fd.append("phone", phone);
-  const role = patchOrCurrent(parsed.role, current.role);
-  if (role) fd.append("role", role);
-  // Guest.dietary is String[] in the DB but a comma-joined string on
-  // the form (readDietary splits it back). Round-trip via join.
-  const dietary = patchOrCurrent(
-    parsed.dietary,
-    current.dietary.length ? current.dietary.join(", ") : null,
-  );
-  if (dietary) fd.append("dietary", dietary);
-  const notes = patchOrCurrent(parsed.notes, current.notes);
-  if (notes) fd.append("notes", notes);
+  // Full-record merge, patch-else-current for every field. The
+  // guestInputSchema re-parse is exactly what updateGuest ran
+  // internally, so the .email() check on a patched email still applies.
+  const merged = guestInputSchema.parse({
+    // householdId never changes here — household moves stay human-only.
+    householdId: current.householdId,
+    firstName:
+      parsed.firstName !== undefined ? parsed.firstName : current.firstName,
+    lastName:
+      parsed.lastName !== undefined ? parsed.lastName : current.lastName,
+    email: patchOrCurrent(parsed.email, current.email) || null,
+    phone: patchOrCurrent(parsed.phone, current.phone) || null,
+    // NEVER change rsvp here — guest.set_rsvp is the only RSVP path.
+    rsvp: current.rsvp,
+    side: parsed.side ?? current.side,
+    isChild: parsed.isChild ?? current.isChild,
+    needsHighchair: parsed.needsHighchair ?? current.needsHighchair,
+    plusOneAllowed: parsed.plusOneAllowed ?? current.plusOneAllowed,
+    plusOneName: patchOrCurrent(parsed.plusOneName, current.plusOneName) || null,
+    role: patchOrCurrent(parsed.role, current.role) || null,
+    // Guest.dietary is String[] in the DB but a comma-joined string on
+    // the input (readDietary splits it back inside the core).
+    dietary:
+      patchOrCurrent(
+        parsed.dietary,
+        current.dietary.length ? current.dietary.join(", ") : null,
+      ) || null,
+    notes: patchOrCurrent(parsed.notes, current.notes) || null,
+  });
 
-  // Checkboxes: append "on" only when the merged value is true.
-  if (parsed.isChild ?? current.isChild) fd.append("isChild", "on");
-  if (parsed.needsHighchair ?? current.needsHighchair) {
-    fd.append("needsHighchair", "on");
-  }
-  if (parsed.plusOneAllowed ?? current.plusOneAllowed) {
-    fd.append("plusOneAllowed", "on");
-  }
-  const plusOneName = patchOrCurrent(parsed.plusOneName, current.plusOneName);
-  if (plusOneName) fd.append("plusOneName", plusOneName);
-
-  await updateGuest(parsed.guestId, fd);
+  await updateGuestCore(user, parsed.guestId, merged);
   return { id: parsed.guestId };
 }
 
-async function applyGuestSetRsvp(payload: unknown): Promise<{ id: string }> {
+async function applyGuestSetRsvp(
+  user: SessionUser,
+  payload: unknown,
+): Promise<{ id: string }> {
   const parsed = guestSetRsvpSchema.parse(payload);
+  await requireSectionEdit(user, "guests");
   // The payload enum re-declares Prisma's RsvpStatus values (drift is
-  // schema-test territory) — cast to the enum the action expects.
-  await setGuestRsvp(parsed.guestId, parsed.rsvp as RsvpStatus);
+  // schema-test territory) — cast to the enum the core expects.
+  await setGuestRsvpCore(user, parsed.guestId, parsed.rsvp as RsvpStatus);
   return { id: parsed.guestId };
 }
 
-async function applyGuestArchive(payload: unknown): Promise<{ id: string }> {
+async function applyGuestArchive(
+  user: SessionUser,
+  payload: unknown,
+): Promise<{ id: string }> {
   const parsed = guestArchiveSchema.parse(payload);
+  await requireSectionEdit(user, "guests");
   // Soft archive (DeleteResult shape, not a throw) — funnel through
   // ensureOk so a refusal rolls the claim back.
-  ensureOk(await deleteGuest(parsed.guestId));
+  ensureOk(await archiveGuestCore(user, parsed.guestId));
   return { id: parsed.guestId };
 }
 
-async function applyHouseholdUpdate(payload: unknown): Promise<{ id: string }> {
+async function applyHouseholdUpdate(
+  user: SessionUser,
+  payload: unknown,
+): Promise<{ id: string }> {
   const parsed = householdUpdateSchema.parse(payload);
 
   const current = await db.household.findUnique({
@@ -132,32 +164,33 @@ async function applyHouseholdUpdate(payload: unknown): Promise<{ id: string }> {
     );
   }
 
-  const fd = new FormData();
-  fd.append("name", parsed.name ?? current.name);
-  // ALWAYS post side — `formData.get("side") || Side.BOTH` would reset
-  // an omitted side to BOTH.
-  fd.append("side", parsed.side ?? current.side);
-  const notes = patchOrCurrent(parsed.notes, current.notes);
-  if (notes) fd.append("notes", notes);
+  await requireSectionEdit(user, "guests");
 
-  await updateHousehold(parsed.householdId, fd);
+  const merged = householdInputSchema.parse({
+    name: parsed.name ?? current.name,
+    // ALWAYS carry side — an omitted side would reset to BOTH.
+    side: parsed.side ?? current.side,
+    notes: patchOrCurrent(parsed.notes, current.notes) || null,
+  });
+
+  await updateHouseholdCore(user, parsed.householdId, merged);
   return { id: parsed.householdId };
 }
 
 export async function applyGuestProposal(
-  _user: { id: string; isCouple: boolean },
+  user: SessionUser,
   kind: string,
   payload: unknown,
 ): Promise<{ id: string }> {
   switch (kind) {
     case "guest.update":
-      return applyGuestUpdate(payload);
+      return applyGuestUpdate(user, payload);
     case "guest.set_rsvp":
-      return applyGuestSetRsvp(payload);
+      return applyGuestSetRsvp(user, payload);
     case "guest.archive":
-      return applyGuestArchive(payload);
+      return applyGuestArchive(user, payload);
     case "household.update":
-      return applyHouseholdUpdate(payload);
+      return applyHouseholdUpdate(user, payload);
     default:
       throw new Error(`Unknown guest proposal kind: ${kind}`);
   }

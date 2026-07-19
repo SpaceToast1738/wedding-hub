@@ -18,6 +18,7 @@ import { useConfirm } from "@/components/ui/ConfirmDialog";
 import {
   createMcpToken,
   revokeMcpToken,
+  setMcpTokenCanApply,
   type McpTokenRow,
   type TokenEligibleUser,
 } from "./mcp-token-actions";
@@ -68,6 +69,26 @@ export function McpTokensPanel({
       const res = await revokeMcpToken(id);
       if (res.ok) notify("success", `Token "${tokenLabel}" revoked`);
       else notify("error", res.error);
+    });
+  }
+
+  // v2.8.0: no confirm dialog on the way ON — the warning line under
+  // the checkbox is always visible, and the flip is instantly
+  // reversible (unlike revoke). The server action re-checks
+  // requireCouple and refuses revoked tokens.
+  function toggleCanApply(id: string, tokenLabel: string, canApply: boolean) {
+    startTransition(async () => {
+      const res = await setMcpTokenCanApply(id, canApply);
+      if (res.ok) {
+        notify(
+          "success",
+          canApply
+            ? `"${tokenLabel}" can now apply changes`
+            : `"${tokenLabel}" is back to propose-only`,
+        );
+      } else {
+        notify("error", res.error);
+      }
     });
   }
 
@@ -179,33 +200,70 @@ export function McpTokensPanel({
         ) : (
           <ul className="divide-y divide-border-soft">
             {tokens.map((t) => (
-              <li key={t.id} className="px-4 py-2.5 flex items-center gap-3">
-                <div className="flex-1 min-w-0">
-                  <span className="text-sm text-ink-primary flex items-center gap-2 min-w-0">
-                    <span className="truncate">{t.label}</span>
-                    {t.revokedAt && (
-                      <span className="flex-shrink-0 text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-danger-bg text-danger border border-danger-border">
-                        Revoked
-                      </span>
-                    )}
-                  </span>
-                  <span className="text-[11px] text-ink-tertiary block truncate">
-                    {t.user.email}
-                    {" · "}created {timeAgo(new Date(t.createdAt))}
-                    {" · "}last used{" "}
-                    {t.lastUsedAt ? timeAgo(new Date(t.lastUsedAt)) : "never"}
-                  </span>
+              <li key={t.id} className="px-4 py-2.5">
+                <div className="flex items-center gap-3">
+                  <div className="flex-1 min-w-0">
+                    <span className="text-sm text-ink-primary flex items-center gap-2 min-w-0">
+                      <span className="truncate">{t.label}</span>
+                      {t.revokedAt && (
+                        <span className="flex-shrink-0 text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-danger-bg text-danger border border-danger-border">
+                          Revoked
+                        </span>
+                      )}
+                    </span>
+                    <span className="text-[11px] text-ink-tertiary block truncate">
+                      {t.user.email}
+                      {" · "}created {timeAgo(new Date(t.createdAt))}
+                      {" · "}last used{" "}
+                      {t.lastUsedAt ? timeAgo(new Date(t.lastUsedAt)) : "never"}
+                    </span>
+                  </div>
+                  {!t.revokedAt && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={pending}
+                      onClick={() => revoke(t.id, t.label)}
+                      className="flex-shrink-0"
+                    >
+                      Revoke
+                    </Button>
+                  )}
                 </div>
+                {/* v2.8.0: per-token self-apply opt-in. Hidden for
+                    revoked tokens — they can't authenticate, so the
+                    flag would be dead UI. */}
                 {!t.revokedAt && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    disabled={pending}
-                    onClick={() => revoke(t.id, t.label)}
-                    className="flex-shrink-0"
-                  >
-                    Revoke
-                  </Button>
+                  <div className="mt-2 flex items-start gap-2">
+                    <input
+                      type="checkbox"
+                      id={`can-apply-${t.id}`}
+                      checked={t.canApply}
+                      disabled={pending}
+                      onChange={(e) => toggleCanApply(t.id, t.label, e.target.checked)}
+                      className="accent-moss-500 mt-0.5"
+                    />
+                    <label
+                      htmlFor={`can-apply-${t.id}`}
+                      className="cursor-pointer min-w-0"
+                    >
+                      <span className="text-xs text-ink-primary block">
+                        Can apply changes
+                      </span>
+                      <span
+                        className={`text-[11px] block ${
+                          t.canApply ? "text-marigold-700" : "text-ink-tertiary"
+                        }`}
+                      >
+                        Lets the connected agent make its own changes real —
+                        including creating, editing and permanently deleting
+                        tasks, guests, suppliers, budget and more — without
+                        human review. Deletions keep a recovery snapshot but
+                        undoing them is manual. Leave off to keep every change
+                        in the review queue.
+                      </span>
+                    </label>
+                  </div>
                 )}
               </li>
             ))}

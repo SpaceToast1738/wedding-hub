@@ -37,6 +37,8 @@ export type McpTokenRow = {
   createdAt: Date;
   lastUsedAt: Date | null;
   revokedAt: Date | null;
+  // v2.8.0: whether this token may call the apply/dismiss MCP tools.
+  canApply: boolean;
   user: { email: string; name: string | null };
 };
 
@@ -123,6 +125,52 @@ export async function revokeMcpToken(id: string): Promise<McpTokenResult> {
   return { ok: true };
 }
 
+// v2.8.0: per-token opt-in to the apply/dismiss MCP tools. Off by
+// default so a freshly minted token can only read + propose; flipping
+// it on lets the connected agent write without human review, which is
+// why the panel shows an explicit warning next to the toggle. Takes
+// effect on the token's next request (verifyMcpToken reads the row
+// fresh every call). Revoked tokens are refused — the flag would be
+// dead weight and re-enabling a dead credential is confusing.
+export async function setMcpTokenCanApply(
+  id: string,
+  canApply: boolean,
+): Promise<McpTokenResult> {
+  const actor = await requireCouple();
+  const row = await db.mcpToken.findUnique({
+    where: { id },
+    select: {
+      label: true,
+      revokedAt: true,
+      canApply: true,
+      userId: true,
+      user: { select: { email: true } },
+    },
+  });
+  if (!row) return { ok: false, error: "Token not found" };
+  if (row.revokedAt) return { ok: false, error: "Token is revoked" };
+  // Already in the requested state — idempotent no-op, nothing new to audit.
+  if (row.canApply === canApply) return { ok: true };
+
+  await db.mcpToken.update({ where: { id }, data: { canApply } });
+
+  await audit(actor, {
+    action: canApply ? "mcp_token.can_apply_enabled" : "mcp_token.can_apply_disabled",
+    entity: "McpToken",
+    entityId: id,
+    metadata: {
+      label: row.label,
+      targetUserId: row.userId,
+      summary: canApply
+        ? `MCP token "${row.label}" (${row.user.email}) may now apply changes without review`
+        : `MCP token "${row.label}" (${row.user.email}) set back to propose-only`,
+    },
+  });
+
+  revalidatePath("/settings");
+  return { ok: true };
+}
+
 export async function listMcpTokens(): Promise<McpTokenRow[]> {
   await requireCouple();
   return db.mcpToken.findMany({
@@ -133,6 +181,7 @@ export async function listMcpTokens(): Promise<McpTokenRow[]> {
       createdAt: true,
       lastUsedAt: true,
       revokedAt: true,
+      canApply: true,
       user: { select: { email: true, name: true } },
     },
   });

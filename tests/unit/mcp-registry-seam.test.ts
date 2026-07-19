@@ -48,7 +48,34 @@ describe("registry → MCP mapping seam", () => {
     for (const d of toolDefinitions({ canWrite: true })) {
       expect(hasTool(d.name), d.name).toBe(true);
     }
+    // apply_proposals is dispatchable (hasTool true) even though it is
+    // only LISTED for canApply tokens — the handler self-gates, so
+    // dispatch must reach it to return the clean refusal.
+    expect(hasTool("apply_proposals")).toBe(true);
+    expect(hasTool("dismiss_proposals")).toBe(true);
     expect(hasTool("not_a_real_tool")).toBe(false);
     expect(hasTool("")).toBe(false);
+  });
+
+  // v2.8.0: the MCP self-apply pair must never leak into a listing that
+  // isn't a canApply token — chat and propose-only MCP tokens included.
+  it("apply/dismiss tools appear ONLY in the canApply listing", () => {
+    const APPLY = ["apply_proposals", "dismiss_proposals"];
+    const names = (opts: { canWrite?: boolean; canApply?: boolean }) =>
+      new Set(toolDefinitions(opts).map((d) => d.name));
+
+    const readOnly = names({ canWrite: false });
+    const propose = names({ canWrite: true });
+    const full = names({ canWrite: true, canApply: true });
+
+    for (const n of APPLY) {
+      expect(readOnly.has(n), `${n} leaked into read-only`).toBe(false);
+      expect(propose.has(n), `${n} leaked into propose-only`).toBe(false);
+      expect(full.has(n), `${n} missing from canApply listing`).toBe(true);
+    }
+    // canApply is a strict superset (adds exactly the apply pair).
+    expect(full.size).toBe(propose.size + APPLY.length);
+    // canApply without canWrite must NOT unlock apply tools.
+    expect(names({ canWrite: false, canApply: true }).has("apply_proposals")).toBe(false);
   });
 });

@@ -5,6 +5,12 @@ import { z } from "zod";
 import { PlaylistCategory } from "@prisma/client";
 import { db } from "@/lib/db";
 import { audit, requireEdit } from "@/lib/actions";
+// v2.8.0: createSong's body + its input schema moved to a session-free
+// core so the MCP self-apply path can run identical write logic without
+// a browser session. The wrapper keeps the FormData parse + the
+// requireEdit("songs") gate; the core keeps the order computation, the
+// audit row and the revalidation.
+import { createSongCore, songInputSchema } from "@/lib/core/misc";
 import { DISMISSED_SENTINEL_NAME } from "./constants";
 import {
   SpotifyError,
@@ -21,12 +27,9 @@ const playlistSchema = z.object({
   isBlockList: z.boolean().optional(),
 });
 
-const songSchema = z.object({
-  playlistId: z.string().min(1),
-  title: z.string().min(1).max(200),
-  artist: z.string().max(200).optional().nullable(),
-  source: z.string().max(100).optional().nullable(),
-});
+// v2.8.0: the createSong input schema moved to @/lib/core/misc
+// (exported as songInputSchema) so the wrapper and the AI apply path
+// validate against the same shape.
 
 export async function createPlaylist(formData: FormData) {
   const user = await requireEdit("songs");
@@ -81,42 +84,16 @@ export async function deletePlaylist(id: string) {
 
 export async function createSong(formData: FormData): Promise<{ id: string }> {
   const user = await requireEdit("songs");
-  const parsed = songSchema.parse({
+  const parsed = songInputSchema.parse({
     playlistId: formData.get("playlistId"),
     title: formData.get("title"),
     artist: formData.get("artist") || null,
     source: formData.get("source") || null,
   });
-  const last = await db.song.findFirst({ where: { playlistId: parsed.playlistId }, orderBy: { order: "desc" } });
-  const created = await db.song.create({
-    data: {
-      playlistId: parsed.playlistId,
-      title: parsed.title,
-      artist: parsed.artist ?? null,
-      source: parsed.source ?? null,
-      order: (last?.order ?? -1) + 1,
-    },
-  });
-  // Lookup playlist name once so the audit row reads as
-  // "Added <song> to <playlist>" rather than just an id.
-  const playlist = await db.playlist.findUnique({
-    where: { id: parsed.playlistId },
-    select: { name: true },
-  });
-  await audit(user, {
-    action: "create",
-    entity: "Song",
-    entityId: created.id,
-    metadata: {
-      title: created.title,
-      artist: created.artist,
-      playlistId: created.playlistId,
-      playlistName: playlist?.name ?? null,
-    },
-  });
-  revalidatePath("/songs");
-  // v2.4.0: return the id so the AI apply-bridge can link the row.
-  return { id: created.id };
+  // v2.8.0: body lives in createSongCore — order computation, audit row,
+  // revalidation and returned id all happen there so the AI apply path
+  // shares one implementation.
+  return createSongCore(user, parsed);
 }
 
 export async function deleteSong(id: string) {

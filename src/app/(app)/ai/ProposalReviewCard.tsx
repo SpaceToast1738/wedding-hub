@@ -17,6 +17,11 @@ const PAYLOAD_ID_FIELDS = new Set([
   "sectionId", "cardId", "budgetLineId", "budgetCategoryId",
   "paymentId", "playlistId", "targetId", "contactId", "shotId",
   "batchId",
+  // v2.8.0: id spellings carried by the destructive kinds (also used
+  // by book.*/budget.line.update payloads, which showed these raw ids
+  // before) — the summary/detail line names the target, so the id is
+  // noise here too.
+  "subsectionId", "lineId", "categoryId", "songId", "tableId",
 ]);
 
 function humanizeFieldKey(key: string): string {

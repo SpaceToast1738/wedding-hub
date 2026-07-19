@@ -5,6 +5,21 @@ import { z } from "zod";
 import { FundSource, PerHeadSource } from "@prisma/client";
 import { db } from "@/lib/db";
 import { audit, requireEdit } from "@/lib/actions";
+// v2.8.0: the category/line Zod schemas and the createCategory /
+// createLine / updateLine BODIES moved to @/lib/core/money so the MCP
+// self-apply path can run the identical write logic (integer-pence
+// handling, audit rows, revalidations) without a browser session. This
+// file keeps the FormData plumbing plus the requireEdit auth gates —
+// human behaviour is unchanged. decimalToNumber is imported back for
+// deleteLine's audit metadata (still a session-bound action here).
+import {
+  categoryInputSchema,
+  createCategoryCore,
+  createLineCore,
+  decimalToNumber,
+  lineInputSchema,
+  updateLineCore,
+} from "@/lib/core/money";
 
 // v1.39.0: every audit() call here was previously bare —
 // `{ entity, entityId }` only. Per the v1.30.5 standing rule
@@ -12,74 +27,11 @@ import { audit, requireEdit } from "@/lib/actions";
 // create / delete, `changedFields` diff on update. Money-sensitive
 // surface so the audit log matters more here than most.
 
-const categorySchema = z.object({
-  name: z.string().min(1).max(100),
-});
-
-const lineSchema = z.object({
-  categoryId: z.string().min(1),
-  description: z.string().min(1).max(200),
-  estimated: z.string().optional().nullable(),
-  actual: z.string().optional().nullable(),
-  paid: z.string().optional().nullable(),
-  supplierId: z.string().optional().nullable(),
-  notes: z.string().max(2000).optional().nullable(),
-  // v1.77.0: variable / per-head pricing fields. perHeadPence is sent
-  // as pounds-with-decimal text (the £ input) and parsed to integer
-  // pence; headcountSource null means the line is flat-estimated; a
-  // non-null source with a null perHeadPence is treated as not-yet-
-  // configured and falls back to flat.
-  perHeadPence: z.string().optional().nullable(),
-  headcountSource: z.nativeEnum(PerHeadSource).optional().nullable(),
-  manualHeadcount: z.string().optional().nullable(),
-  // v1.81.0: vendor minimum-cover floor.
-  minimumHeadcount: z.string().optional().nullable(),
-  // v1.86.0: funding-source tag. Null = unassigned (default). When
-  // null, payments + components inherit silently from the line's
-  // sibling fields.
-  fundSource: z.nativeEnum(FundSource).optional().nullable(),
-  fundLabel: z.string().max(120).optional().nullable(),
-});
-
-function parsePence(s: string | null | undefined): number | null {
-  if (!s) return null;
-  const n = Number(String(s).replace(/[£,\s]/g, ""));
-  if (isNaN(n)) return null;
-  return Math.round(n * 100);
-}
-function parseInteger(s: string | null | undefined): number | null {
-  if (!s) return null;
-  const n = parseInt(String(s).trim(), 10);
-  return isNaN(n) ? null : n;
-}
-
-function parseAmount(s: string | null | undefined): number | null {
-  if (!s) return null;
-  const n = Number(String(s).replace(/[£,\s]/g, ""));
-  return isNaN(n) ? null : n;
-}
-
-function decimalToNumber(d: { toString: () => string } | null | undefined): number | null {
-  if (d == null) return null;
-  const n = Number(d.toString());
-  return isNaN(n) ? null : n;
-}
-
 export async function createCategory(formData: FormData): Promise<{ id: string }> {
   const user = await requireEdit("budget");
-  const parsed = categorySchema.parse({ name: formData.get("name") });
-  const last = await db.budgetCategory.findFirst({ orderBy: { order: "desc" } });
-  const order = (last?.order ?? -1) + 1;
-  const created = await db.budgetCategory.create({ data: { name: parsed.name, order } });
-  await audit(user, {
-    action: "create",
-    entity: "BudgetCategory",
-    entityId: created.id,
-    metadata: { name: created.name, order: created.order },
-  });
-  revalidatePath("/budget");
-  // v2.4.0: return the id so the AI apply-bridge can link the row.
-  return { id: created.id };
+  const parsed = categoryInputSchema.parse({ name: formData.get("name") });
+  // v2.8.0: body lives in createCategoryCore.
+  return createCategoryCore(user, parsed);
 }
 
 // v1.53.0 (C1): result-shape return so caller can render a real
@@ -95,7 +47,7 @@ export async function renameCategory(
 ): Promise<DeleteResult> {
   const user = await requireEdit("budget");
   try {
-    const parsed = categorySchema.parse({ name });
+    const parsed = categoryInputSchema.parse({ name });
     const before = await db.budgetCategory.findUnique({ where: { id } });
     if (!before) return { ok: false, error: "Category not found" };
     if (before.name === parsed.name) return { ok: true }; // no-op
@@ -190,7 +142,7 @@ export async function deleteCategory(id: string): Promise<DeleteResult> {
 
 export async function createLine(formData: FormData): Promise<{ id: string }> {
   const user = await requireEdit("budget");
-  const parsed = lineSchema.parse({
+  const parsed = lineInputSchema.parse({
     categoryId: formData.get("categoryId"),
     description: formData.get("description"),
     estimated: formData.get("estimated") || null,
@@ -206,50 +158,13 @@ export async function createLine(formData: FormData): Promise<{ id: string }> {
     fundSource: (formData.get("fundSource") as string) || null,
     fundLabel: formData.get("fundLabel") || null,
   });
-  const created = await db.budgetLine.create({
-    data: {
-      categoryId: parsed.categoryId,
-      description: parsed.description,
-      estimated: parseAmount(parsed.estimated ?? null),
-      actual: parseAmount(parsed.actual ?? null),
-      paid: parseAmount(parsed.paid ?? null),
-      supplierId: parsed.supplierId || null,
-      notes: parsed.notes ?? null,
-      perHeadPence: parsePence(parsed.perHeadPence ?? null),
-      headcountSource: parsed.headcountSource ?? null,
-      manualHeadcount: parseInteger(parsed.manualHeadcount ?? null),
-      minimumHeadcount: parseInteger(parsed.minimumHeadcount ?? null),
-      fundSource: parsed.fundSource ?? null,
-      fundLabel: (parsed.fundLabel?.trim() || null) ?? null,
-    },
-    include: { category: { select: { name: true } } },
-  });
-  await audit(user, {
-    action: "create",
-    entity: "BudgetLine",
-    entityId: created.id,
-    metadata: {
-      description: created.description,
-      categoryName: created.category.name,
-      estimated: decimalToNumber(created.estimated),
-      actual: decimalToNumber(created.actual),
-      paid: decimalToNumber(created.paid),
-      supplierId: created.supplierId,
-      perHeadPence: created.perHeadPence,
-      headcountSource: created.headcountSource,
-      // v1.86.0: fund snapshot for audit.
-      fundSource: created.fundSource,
-      fundLabel: created.fundLabel,
-    },
-  });
-  revalidatePath("/budget");
-  // v2.4.0: return the id so the AI apply-bridge can link the row.
-  return { id: created.id };
+  // v2.8.0: body lives in createLineCore.
+  return createLineCore(user, parsed);
 }
 
 export async function updateLine(id: string, formData: FormData) {
   const user = await requireEdit("budget");
-  const parsed = lineSchema.parse({
+  const parsed = lineInputSchema.parse({
     categoryId: formData.get("categoryId"),
     description: formData.get("description"),
     estimated: formData.get("estimated") || null,
@@ -265,56 +180,8 @@ export async function updateLine(id: string, formData: FormData) {
     fundSource: (formData.get("fundSource") as string) || null,
     fundLabel: formData.get("fundLabel") || null,
   });
-  // Read before so the audit row can diff old vs new on the fields
-  // the user actually changed.
-  const before = await db.budgetLine.findUnique({
-    where: { id },
-    include: { category: { select: { name: true } } },
-  });
-  const next = {
-    categoryId: parsed.categoryId,
-    description: parsed.description,
-    estimated: parseAmount(parsed.estimated ?? null),
-    actual: parseAmount(parsed.actual ?? null),
-    paid: parseAmount(parsed.paid ?? null),
-    supplierId: parsed.supplierId || null,
-    notes: parsed.notes ?? null,
-    perHeadPence: parsePence(parsed.perHeadPence ?? null),
-    headcountSource: parsed.headcountSource ?? null,
-    manualHeadcount: parseInteger(parsed.manualHeadcount ?? null),
-    minimumHeadcount: parseInteger(parsed.minimumHeadcount ?? null),
-    fundSource: parsed.fundSource ?? null,
-    fundLabel: (parsed.fundLabel?.trim() || null) ?? null,
-  };
-  await db.budgetLine.update({ where: { id }, data: next });
-
-  const changedFields: string[] = [];
-  if (before) {
-    if (before.categoryId !== next.categoryId) changedFields.push("categoryId");
-    if (before.description !== next.description) changedFields.push("description");
-    if (decimalToNumber(before.estimated) !== next.estimated) changedFields.push("estimated");
-    if (decimalToNumber(before.actual) !== next.actual) changedFields.push("actual");
-    if (decimalToNumber(before.paid) !== next.paid) changedFields.push("paid");
-    if (before.supplierId !== next.supplierId) changedFields.push("supplierId");
-    if (before.notes !== next.notes) changedFields.push("notes");
-    if (before.perHeadPence !== next.perHeadPence) changedFields.push("perHeadPence");
-    if (before.headcountSource !== next.headcountSource) changedFields.push("headcountSource");
-    if (before.manualHeadcount !== next.manualHeadcount) changedFields.push("manualHeadcount");
-    if (before.minimumHeadcount !== next.minimumHeadcount) changedFields.push("minimumHeadcount");
-    if (before.fundSource !== next.fundSource) changedFields.push("fundSource");
-    if (before.fundLabel !== next.fundLabel) changedFields.push("fundLabel");
-  }
-  await audit(user, {
-    action: "update",
-    entity: "BudgetLine",
-    entityId: id,
-    metadata: {
-      description: next.description,
-      categoryName: before?.category.name ?? null,
-      changedFields,
-    },
-  });
-  revalidatePath("/budget");
+  // v2.8.0: body lives in updateLineCore.
+  await updateLineCore(user, id, parsed);
 }
 
 export async function deleteLine(id: string): Promise<DeleteResult> {

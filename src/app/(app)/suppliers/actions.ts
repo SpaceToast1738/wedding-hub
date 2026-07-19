@@ -2,36 +2,36 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { SupplierStatus, Priority, TaskStatus, TaskType } from "@prisma/client";
+import { SupplierStatus } from "@prisma/client";
 import { db } from "@/lib/db";
 import { audit, requireEdit } from "@/lib/actions";
-import { decideFollowUpTask } from "@/lib/supplier-follow-up";
+// v2.8.0: the create/update cores + shared pieces (schemas,
+// parseAmount, the follow-up auto-task cascade) moved to
+// src/lib/core/suppliers.ts so the MCP self-apply path can run them
+// session-free with an explicit user. The wrappers below stay the
+// ONLY exports here — "use server" exports are client-invokable, so
+// the auth-free cores must never appear in this file's export list.
 import {
-  parseCustomFieldValue,
-  mergeCustomFieldValue,
-  type CustomFieldDef,
-  type CustomFieldType,
-  type CustomFieldValues,
-} from "@/lib/custom-fields";
+  createSupplierCommunicationCore,
+  createSupplierContactCore,
+  createSupplierCore,
+  parseAmount,
+  supplierCommunicationInputSchema,
+  supplierContactInputSchema,
+  supplierInputSchema,
+  updateSupplierCore,
+} from "@/lib/core/suppliers";
+// v2.8.0: setSupplierCustomField's body extracted to a session-free
+// core so the MCP self-apply path runs identical write logic without a
+// browser session. The wrapper keeps the requireEdit("suppliers") gate.
+import { setSupplierCustomFieldCore } from "@/lib/core/misc";
 
-const supplierSchema = z.object({
-  name: z.string().min(1).max(200),
-  category: z.string().min(1).max(100),
-  status: z.nativeEnum(SupplierStatus).default(SupplierStatus.SHORTLIST),
-  website: z.string().max(500).optional().nullable(),
-  notes: z.string().max(5000).optional().nullable(),
-  amountAgreed: z.string().optional().nullable(),
-});
-
-function parseAmount(s: string | null | undefined): number | null {
-  if (!s) return null;
-  const n = Number(String(s).replace(/[£,\s]/g, ""));
-  return isNaN(n) ? null : n;
-}
-
+// v2.8.0: parse + auth + delegate. Everything after the Zod parse
+// (db write, audit, revalidate, return shape) lives in
+// createSupplierCore so the AI apply path shares one implementation.
 export async function createSupplier(formData: FormData): Promise<{ id: string }> {
   const user = await requireEdit("suppliers");
-  const parsed = supplierSchema.parse({
+  const parsed = supplierInputSchema.parse({
     name: formData.get("name"),
     category: formData.get("category"),
     status: formData.get("status") || SupplierStatus.SHORTLIST,
@@ -39,32 +39,7 @@ export async function createSupplier(formData: FormData): Promise<{ id: string }
     notes: formData.get("notes") || null,
     amountAgreed: formData.get("amountAgreed") || null,
   });
-  const created = await db.supplier.create({
-    data: {
-      name: parsed.name,
-      category: parsed.category,
-      status: parsed.status,
-      website: parsed.website ?? null,
-      notes: parsed.notes ?? null,
-      amountAgreed: parseAmount(parsed.amountAgreed ?? null),
-    },
-  });
-  await audit(user, {
-    action: "create",
-    entity: "Supplier",
-    entityId: created.id,
-    metadata: {
-      name: created.name,
-      category: created.category,
-      status: created.status,
-    },
-  });
-  revalidatePath("/suppliers");
-  // v2.3.0: return the id so the AI proposal apply-bridge can link the
-  // AiProposal to the row it just produced. Only call site
-  // (AddSupplierToggle.tsx) discards the return value today — same
-  // non-breaking precedent as createTask / createHousehold / createGuest.
-  return { id: created.id };
+  return createSupplierCore(user, parsed);
 }
 
 // v1.74.0: minimal supplier create that returns the new id, used by
@@ -81,7 +56,7 @@ export async function createSupplierQuick({
   category: string;
 }): Promise<{ id: string; name: string }> {
   const user = await requireEdit("suppliers");
-  const parsed = supplierSchema.parse({
+  const parsed = supplierInputSchema.parse({
     name,
     category,
     status: SupplierStatus.SHORTLIST,
@@ -115,9 +90,11 @@ export async function createSupplierQuick({
   return { id: created.id, name: created.name };
 }
 
+// v2.8.0: parse + auth + delegate — the changedFields diff + write
+// live in updateSupplierCore.
 export async function updateSupplier(id: string, formData: FormData) {
   const user = await requireEdit("suppliers");
-  const parsed = supplierSchema.parse({
+  const parsed = supplierInputSchema.parse({
     name: formData.get("name"),
     category: formData.get("category"),
     status: formData.get("status") || SupplierStatus.SHORTLIST,
@@ -125,37 +102,7 @@ export async function updateSupplier(id: string, formData: FormData) {
     notes: formData.get("notes") || null,
     amountAgreed: formData.get("amountAgreed") || null,
   });
-  // Read before for changedFields diff.
-  const before = await db.supplier.findUnique({ where: { id } });
-  const next = {
-    name: parsed.name,
-    category: parsed.category,
-    status: parsed.status,
-    website: parsed.website ?? null,
-    notes: parsed.notes ?? null,
-    amountAgreed: parseAmount(parsed.amountAgreed ?? null),
-  };
-  await db.supplier.update({ where: { id }, data: next });
-  const changedFields: string[] = [];
-  if (before) {
-    if (before.name !== next.name) changedFields.push("name");
-    if (before.category !== next.category) changedFields.push("category");
-    if (before.status !== next.status) changedFields.push("status");
-    if (before.website !== next.website) changedFields.push("website");
-    if (before.notes !== next.notes) changedFields.push("notes");
-    const beforeAmount = before.amountAgreed == null ? null : Number(before.amountAgreed.toString());
-    if (beforeAmount !== next.amountAgreed) changedFields.push("amountAgreed");
-  }
-  await audit(user, {
-    action: "update",
-    entity: "Supplier",
-    entityId: id,
-    metadata: {
-      name: next.name,
-      changedFields,
-    },
-  });
-  revalidatePath("/suppliers");
+  await updateSupplierCore(user, id, parsed);
 }
 
 export async function setSupplierStatus(id: string, status: SupplierStatus) {
@@ -229,18 +176,11 @@ export async function deleteSupplier(id: string): Promise<DeleteResult> {
 
 // ── Supplier sub-resources ────────────────────────────────────────────────
 
-const contactSchema = z.object({
-  supplierId: z.string().min(1),
-  name: z.string().min(1).max(200),
-  role: z.string().max(100).optional().nullable(),
-  email: z.string().max(200).optional().nullable(),
-  phone: z.string().max(50).optional().nullable(),
-  primary: z.boolean().optional(),
-});
-
+// v2.8.0: parse + auth + delegate — the primary-swap transaction +
+// audit live in createSupplierContactCore.
 export async function createSupplierContact(formData: FormData) {
   const user = await requireEdit("suppliers");
-  const parsed = contactSchema.parse({
+  const parsed = supplierContactInputSchema.parse({
     supplierId: formData.get("supplierId"),
     name: formData.get("name"),
     role: formData.get("role") || null,
@@ -248,44 +188,7 @@ export async function createSupplierContact(formData: FormData) {
     phone: formData.get("phone") || null,
     primary: formData.get("primary") === "on",
   });
-
-  // If marking primary, unmark any other contact on this supplier first.
-  await db.$transaction([
-    ...(parsed.primary
-      ? [db.supplierContact.updateMany({
-          where: { supplierId: parsed.supplierId, primary: true },
-          data: { primary: false },
-        })]
-      : []),
-    db.supplierContact.create({
-      data: {
-        supplierId: parsed.supplierId,
-        name: parsed.name,
-        role: parsed.role ?? null,
-        email: parsed.email ?? null,
-        phone: parsed.phone ?? null,
-        primary: !!parsed.primary,
-      },
-    }),
-  ]);
-  // Lookup supplier name for the audit row. Cheap — single field.
-  const supplier = await db.supplier.findUnique({
-    where: { id: parsed.supplierId },
-    select: { name: true },
-  });
-  await audit(user, {
-    action: "create",
-    entity: "SupplierContact",
-    metadata: {
-      supplierId: parsed.supplierId,
-      supplierName: supplier?.name ?? null,
-      contactName: parsed.name,
-      role: parsed.role ?? null,
-      primary: !!parsed.primary,
-    },
-  });
-  revalidatePath(`/suppliers/${parsed.supplierId}`);
-  revalidatePath("/today/day-of");
+  await createSupplierContactCore(user, parsed);
 }
 
 export async function deleteSupplierContact(id: string, supplierId: string) {
@@ -311,108 +214,18 @@ export async function deleteSupplierContact(id: string, supplierId: string) {
   revalidatePath("/today/day-of");
 }
 
-const communicationSchema = z.object({
-  supplierId: z.string().min(1),
-  channel: z.enum(["email", "call", "meeting", "message"]),
-  summary: z.string().min(1).max(5000),
-  followUpAt: z.string().optional().nullable(),
-  // v2.6.3: when the contact actually happened, for backfilling a call
-  // logged after the fact. Optional — blank leaves createdAt on its
-  // column default (now()) same as before.
-  occurredAt: z.string().optional().nullable(),
-});
-
+// v2.8.0: parse + auth + delegate — the comm + auto-task transaction
+// (decideFollowUpTask cascade) lives in createSupplierCommunicationCore.
 export async function createSupplierCommunication(formData: FormData) {
   const user = await requireEdit("suppliers");
-  const parsed = communicationSchema.parse({
+  const parsed = supplierCommunicationInputSchema.parse({
     supplierId: formData.get("supplierId"),
     channel: formData.get("channel"),
     summary: formData.get("summary"),
     followUpAt: formData.get("followUpAt") || null,
     occurredAt: formData.get("occurredAt") || null,
   });
-  const followUpAt = parsed.followUpAt ? new Date(parsed.followUpAt) : null;
-  const occurredAt = parsed.occurredAt ? new Date(parsed.occurredAt) : null;
-
-  // Need the supplier name for the auto-task title. One round-trip
-  // before the transaction; cheap and avoids Prisma's interactive-tx
-  // cost when there's no follow-up.
-  const supplier = await db.supplier.findUnique({
-    where: { id: parsed.supplierId },
-    select: { name: true },
-  });
-  if (!supplier) throw new Error("Supplier not found");
-
-  // B3 (v1.11.0): if a follow-up date is set, the comm + auto-task
-  // must land atomically. If task creation fails for any reason, the
-  // comm rolls back too — better than a silent ghost-task in /tasks.
-  const result = await db.$transaction(async (tx) => {
-    const comm = await tx.supplierCommunication.create({
-      data: {
-        supplierId: parsed.supplierId,
-        channel: parsed.channel,
-        summary: parsed.summary,
-        followUpAt,
-        createdById: user.id,
-        // v2.6.3: backfilled entries override the createdAt default —
-        // omitting the key entirely (rather than passing undefined)
-        // keeps the column's @default(now()) in effect when blank.
-        ...(occurredAt ? { createdAt: occurredAt } : {}),
-      },
-    });
-    const taskData = decideFollowUpTask({
-      supplierId: parsed.supplierId,
-      supplierName: supplier.name,
-      commId: comm.id,
-      followUpAt,
-      createdById: user.id,
-    });
-    let taskId: string | null = null;
-    if (taskData) {
-      const task = await tx.task.create({
-        data: {
-          title: taskData.title,
-          type: TaskType[taskData.type],
-          status: TaskStatus[taskData.status],
-          priority: Priority[taskData.priority],
-          dueDate: taskData.dueDate,
-          // v1.96.0: assignees m2m. Supplier follow-up tasks
-          // historically had a single owner; preserve that intent
-          // by connecting one user when the caller supplies one.
-          assignees: taskData.assigneeId
-            ? { connect: [{ id: taskData.assigneeId }] }
-            : undefined,
-          tags: taskData.tags,
-        },
-      });
-      taskId = task.id;
-    }
-    return { comm, taskId };
-  });
-
-  await audit(user, {
-    action: "create",
-    entity: "SupplierCommunication",
-    entityId: result.comm.id,
-    metadata: {
-      supplierId: parsed.supplierId,
-      channel: parsed.channel,
-      autoTaskId: result.taskId,
-    },
-  });
-  if (result.taskId) {
-    await audit(user, {
-      action: "create",
-      entity: "Task",
-      entityId: result.taskId,
-      metadata: {
-        autoFromCommId: result.comm.id,
-        supplierId: parsed.supplierId,
-      },
-    });
-  }
-  revalidatePath(`/suppliers/${parsed.supplierId}`);
-  if (result.taskId) revalidatePath("/tasks");
+  await createSupplierCommunicationCore(user, parsed);
 }
 
 export async function deleteSupplierCommunication(id: string, supplierId: string) {
@@ -578,39 +391,8 @@ export async function setSupplierCustomField(
   rawValue: string | null,
 ) {
   const user = await requireEdit("suppliers");
-  const def = await db.customField.findUnique({ where: { id: fieldId } });
-  if (!def || def.entity !== "supplier") {
-    throw new Error("Custom field not found for this entity");
-  }
-  const supplier = await db.supplier.findUnique({
-    where: { id: supplierId },
-    select: { customFieldValues: true },
-  });
-  if (!supplier) throw new Error("Supplier not found");
-
-  const typedDef: CustomFieldDef = {
-    id: def.id,
-    entity: def.entity,
-    name: def.name,
-    type: def.type as CustomFieldType,
-    options: def.options,
-    order: def.order,
-  };
-  const value = parseCustomFieldValue(typedDef, rawValue);
-  const next = mergeCustomFieldValue(
-    (supplier.customFieldValues as CustomFieldValues | null) ?? null,
-    fieldId,
-    value,
-  );
-  await db.supplier.update({
-    where: { id: supplierId },
-    data: { customFieldValues: next },
-  });
-  await audit(user, {
-    action: "update",
-    entity: "Supplier",
-    entityId: supplierId,
-    metadata: { customField: def.name, fieldId },
-  });
-  revalidatePath(`/suppliers/${supplierId}`);
+  // v2.8.0: body lives in setSupplierCustomFieldCore — def validation,
+  // typed merge, audit row and revalidation all happen there so the AI
+  // apply path shares one implementation.
+  await setSupplierCustomFieldCore(user, supplierId, fieldId, rawValue);
 }

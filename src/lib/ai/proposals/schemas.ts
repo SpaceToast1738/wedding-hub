@@ -56,6 +56,20 @@ export const PROPOSAL_KINDS = [
   "song.add",
   "custom_field.set",
   "seat.assign",
+  // v2.8.0: destructive kinds — see the "destructive kinds" section
+  // below for the shared payload conventions.
+  "task.delete",
+  "event.delete",
+  "guest.hard_delete",
+  "supplier.delete",
+  "supplier.contact_remove",
+  "payment.delete",
+  "budget.line.delete",
+  "budget.category.delete",
+  "book.card.delete",
+  "book.section.delete",
+  "song.remove",
+  "seating.table.delete",
 ] as const;
 export type ProposalKind = (typeof PROPOSAL_KINDS)[number];
 
@@ -863,6 +877,93 @@ export const seatAssignSchema = z.object({
 });
 export type SeatAssignPayload = z.infer<typeof seatAssignSchema>;
 
+// ─── v2.8.0: destructive kinds ──────────────────────────────────────
+//
+// Deletes flow through the same propose→apply machinery as every
+// other kind (Jamie's policy call, 2026-07-19) — no direct-delete
+// tool exists. The apply handler snapshots the full entity JSON (and
+// a cascade summary) into proposal.metadata.deletedSnapshot BEFORE
+// deleting, so a bad delete is manually restorable. Conventions
+// shared by all 12 payloads:
+// - `targetLabel` is display-only: the entity's human name,
+//   denormalised at propose time (same convention as book.field.set's
+//   fieldName — verified against the real row when proposing) so the
+//   review card and summary say WHAT gets deleted without a live
+//   lookup. The apply handler never trusts it; it deletes by id only.
+// - `reason` is display-only free text surfaced in the review UI
+//   summary so the agent says WHY it wants the row gone.
+// - Summaries (see summariseProposal) always say "permanent" and
+//   "snapshot kept" — a queued delete must never read as routine.
+
+const destructiveFields = {
+  /** Display-only: the target's human name at propose time. */
+  targetLabel: z.string().max(200).optional(),
+  /** Display-only: why the agent wants this deleted. */
+  reason: z.string().max(300).optional(),
+};
+
+export const taskDeleteSchema = z.object({ taskId: cid, ...destructiveFields });
+export type TaskDeletePayload = z.infer<typeof taskDeleteSchema>;
+
+export const eventDeleteSchema = z.object({ eventId: cid, ...destructiveFields });
+export type EventDeletePayload = z.infer<typeof eventDeleteSchema>;
+
+/** Hard delete — distinct from guest.archive (the reversible soft
+ *  archive, which stays the default the propose tools should reach
+ *  for). Cascade covers the guest's seat, RSVP and +1 linkage. */
+export const guestHardDeleteSchema = z.object({ guestId: cid, ...destructiveFields });
+export type GuestHardDeletePayload = z.infer<typeof guestHardDeleteSchema>;
+
+export const supplierDeleteSchema = z.object({ supplierId: cid, ...destructiveFields });
+export type SupplierDeletePayload = z.infer<typeof supplierDeleteSchema>;
+
+export const supplierContactRemoveSchema = z.object({
+  contactId: cid,
+  ...destructiveFields,
+});
+export type SupplierContactRemovePayload = z.infer<typeof supplierContactRemoveSchema>;
+
+export const paymentDeleteSchema = z.object({ paymentId: cid, ...destructiveFields });
+export type PaymentDeletePayload = z.infer<typeof paymentDeleteSchema>;
+
+export const budgetLineDeleteSchema = z.object({ lineId: cid, ...destructiveFields });
+export type BudgetLineDeletePayload = z.infer<typeof budgetLineDeleteSchema>;
+
+/** The apply handler refuses while the category still has lines —
+ *  emptying it is a separate, visible set of budget.line.delete
+ *  proposals, never an implicit cascade. */
+export const budgetCategoryDeleteSchema = z.object({
+  categoryId: cid,
+  ...destructiveFields,
+});
+export type BudgetCategoryDeletePayload = z.infer<typeof budgetCategoryDeleteSchema>;
+
+export const bookCardDeleteSchema = z.object({
+  subsectionId: cid,
+  ...destructiveFields,
+});
+export type BookCardDeletePayload = z.infer<typeof bookCardDeleteSchema>;
+
+/** The apply handler refuses while the section still has cards —
+ *  same no-implicit-cascade rule as budget.category.delete. */
+export const bookSectionDeleteSchema = z.object({
+  sectionId: cid,
+  ...destructiveFields,
+});
+export type BookSectionDeletePayload = z.infer<typeof bookSectionDeleteSchema>;
+
+export const songRemoveSchema = z.object({ songId: cid, ...destructiveFields });
+export type SongRemovePayload = z.infer<typeof songRemoveSchema>;
+
+/** Deleting a table never deletes guests — the apply handler unseats
+ *  any occupants into "unseated" first, and the snapshot records who
+ *  sat where so the arrangement is restorable. */
+export const seatingTableDeleteSchema = z.object({
+  tableId: cid,
+  ...destructiveFields,
+});
+export type SeatingTableDeletePayload = z.infer<typeof seatingTableDeleteSchema>;
+
 export function schemaForKind(kind: string): z.ZodTypeAny | null {
   switch (kind) {
     case "task.create":
@@ -953,6 +1054,30 @@ export function schemaForKind(kind: string): z.ZodTypeAny | null {
       return customFieldSetSchema;
     case "seat.assign":
       return seatAssignSchema;
+    case "task.delete":
+      return taskDeleteSchema;
+    case "event.delete":
+      return eventDeleteSchema;
+    case "guest.hard_delete":
+      return guestHardDeleteSchema;
+    case "supplier.delete":
+      return supplierDeleteSchema;
+    case "supplier.contact_remove":
+      return supplierContactRemoveSchema;
+    case "payment.delete":
+      return paymentDeleteSchema;
+    case "budget.line.delete":
+      return budgetLineDeleteSchema;
+    case "budget.category.delete":
+      return budgetCategoryDeleteSchema;
+    case "book.card.delete":
+      return bookCardDeleteSchema;
+    case "book.section.delete":
+      return bookSectionDeleteSchema;
+    case "song.remove":
+      return songRemoveSchema;
+    case "seating.table.delete":
+      return seatingTableDeleteSchema;
     default:
       return null;
   }
@@ -1048,6 +1173,32 @@ export function humanLabel(kind: ProposalKind): string {
       return "Set custom field";
     case "seat.assign":
       return "Seat a guest";
+    // v2.8.0: destructive kinds — every label leads with the
+    // destructive verb so the kind badge alone flags the risk.
+    case "task.delete":
+      return "Delete task";
+    case "event.delete":
+      return "Delete schedule event";
+    case "guest.hard_delete":
+      return "Hard-delete guest";
+    case "supplier.delete":
+      return "Delete supplier";
+    case "supplier.contact_remove":
+      return "Remove supplier contact";
+    case "payment.delete":
+      return "Delete payment";
+    case "budget.line.delete":
+      return "Delete budget line";
+    case "budget.category.delete":
+      return "Delete budget category";
+    case "book.card.delete":
+      return "Delete book card";
+    case "book.section.delete":
+      return "Delete book section";
+    case "song.remove":
+      return "Remove song";
+    case "seating.table.delete":
+      return "Delete seating table";
   }
 }
 
@@ -1392,5 +1543,36 @@ export function summariseProposal(kind: string, payload: unknown): string {
     return `${field} → ${clip(p.value, 60)}`;
   }
   if (kind === "seat.assign") return "Seat a guest at a specific seat";
+
+  // v2.8.0: destructive kinds. One shared shape so no delete can ever
+  // read as routine in the review list: names the target (from the
+  // display-only targetLabel), says "permanent", notes the recovery
+  // snapshot, and surfaces the agent's reason when given.
+  const destructiveSummary = (verb: string, noun: string, extra?: string): string => {
+    const label = str(p.targetLabel);
+    const target = label ? `${noun} "${clip(label, 60)}"` : `this ${noun}`;
+    const reason = str(p.reason) ? ` · reason: ${clip(p.reason, 80)}` : "";
+    return `${verb} ${target} — permanent${extra ? `, ${extra}` : ""}, snapshot kept${reason}`;
+  };
+  if (kind === "task.delete") return destructiveSummary("Delete", "task");
+  if (kind === "event.delete") return destructiveSummary("Delete", "schedule event");
+  if (kind === "guest.hard_delete") {
+    return destructiveSummary("Hard-delete", "guest", "NOT the reversible archive");
+  }
+  if (kind === "supplier.delete") return destructiveSummary("Delete", "supplier");
+  if (kind === "supplier.contact_remove") return destructiveSummary("Remove", "contact");
+  if (kind === "payment.delete") return destructiveSummary("Delete", "payment");
+  if (kind === "budget.line.delete") return destructiveSummary("Delete", "budget line");
+  if (kind === "budget.category.delete") {
+    return destructiveSummary("Delete", "budget category", "refused while it still has lines");
+  }
+  if (kind === "book.card.delete") return destructiveSummary("Delete", "book card");
+  if (kind === "book.section.delete") {
+    return destructiveSummary("Delete", "book section", "refused while it still has cards");
+  }
+  if (kind === "song.remove") return destructiveSummary("Remove", "song");
+  if (kind === "seating.table.delete") {
+    return destructiveSummary("Delete", "seating table", "occupants become unseated");
+  }
   return "";
 }

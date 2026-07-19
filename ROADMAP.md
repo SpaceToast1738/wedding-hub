@@ -963,6 +963,24 @@ When wrapping up a meaningful iteration:
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
 
+### 2026-07-19 · v2.8.0 — MCP planner build-out (Tier 1): self-apply, destructive kinds, file content, agent feedback
+
+The MCP agent goes from "reads + proposes" to a fully-fledged planner. Jamie's explicit policy calls (2026-07-19): full self-apply, deletes allowed via proposals, file-content read, and an agent-driven product-feedback channel. This is Tier 1 of the [v2.8.x epic](../.claude/plans) — Tiers 2 (coverage completion) and 3 (MCP prompts + proactive cadence) follow.
+
+**Self-apply.** Two MCP-only tools — `apply_proposals` / `dismiss_proposals` — let the agent make its own proposals real without waiting for a human sweep on `/ai`. Gated on a new per-token flag `McpToken.canApply` (**defaults false** — dormant on every token, including Jamie's, until enabled in Settings) AND `ai_write` EDIT; hidden from the in-app chat entirely and from propose-only tokens (a seam test locks that isolation). Every write still mints an `AiProposal` row first, so the full audit/history surface on `/ai` keeps working — self-applied rows simply arrive already-APPLIED.
+
+The mechanism required extracting the apply/dismiss engine into a **session-free** layer: `src/lib/ai/apply/execute.ts` + `src/lib/core/{tasks,schedule,guests,book,suppliers,money,misc}.ts`. Every human `"use server"` action's body moved into a core taking an explicit `user`; the action became parse + `requireEdit(section)` + call-core; and the AI apply modules were rewired to call the cores directly (they previously called the human actions, whose `requireEdit → auth() → redirect` fails under a bearer-token MCP request with no session). The self-apply path re-asserts each section's permission gate — `requireSectionEdit(user, section)` / `canEdit` — so a token can never self-apply into a section it lacks EDIT on. Human `/ai` and form flows are byte-identical (same audit rows, revalidatePaths, cascades).
+
+**Destructive kinds.** 12 new snapshot-backed delete kinds (`task.delete`, `event.delete`, `guest.hard_delete`, `supplier.delete`, `supplier.contact_remove`, `payment.delete`, `budget.line.delete`, `budget.category.delete`, `book.card.delete`, `book.section.delete`, `song.remove`, `seating.table.delete`) with `propose_*` tools + apply handlers in `src/lib/ai/apply/deletes.ts`. Each writes the full entity JSON to `AiProposal.metadata.deletedSnapshot` BEFORE deleting (manual recovery), replicates the human cascade exactly (table delete unseats occupants; category/section delete refuse while non-empty; guest hard-delete requires prior archive), and gates its section (couple-only for money/guests). `rollbackClaim` clears metadata so a failed delete can't strand a stale snapshot.
+
+**File content.** `read_file_content` streams an uploaded file's text (text/CSV/JSON + PDF via `pdf-parse`), `canView("files")`-gated with the download route's probe defence, 10 MB read cap, output capped at 16k chars (headroom under the registry's 24k serialization ceiling). File text is verbatim — no money redaction — the agreed file-access trade-off; the tool warns the model.
+
+**Agent feedback (Jamie's add).** New `EnhancementSuggestion` table + `suggest_enhancement` / `read_enhancements` tools (direct insert, not proposals — dev-backlog bridge, capped 10 open per area) + a couple-facing triage panel on `/ai`. The agent files friction it hits instead of silently working around it; `PLANNER.md` (docs/planner/) tells it to.
+
+Built via staged workflows: research → adversarial design review → parallel implementation → adversarial code review (found the session-bound-apply blocker) → parallel per-domain security-gate audit (found a missing book-EDIT gate, now fixed). Two additive migrations (`McpToken.canApply` + `AiProposal.metadata`; `EnhancementSuggestion`). Standing safety model preserved: propose-only is still the default, self-apply is opt-in per token and off by default.
+
+Typecheck clean, 726 tests green (49 files), lint clean, `next build` verified. `canApply` defaults off, so shipping this changes nothing about live behaviour until Jamie enables a token.
+
 ### 2026-07-19 · v2.7.1 — MCP remote access over Tailscale
 
 Jamie wants the MCP server reachable away from home. Tower already runs Tailscale (`100.79.99.19`), which keeps the original LAN/VPN-only decision intact — no internet exposure, and the tailnet hop is WireGuard-encrypted so plain HTTP is fine there.

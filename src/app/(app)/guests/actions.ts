@@ -5,15 +5,27 @@ import { z } from "zod";
 import { RsvpStatus, Side } from "@prisma/client";
 import { db } from "@/lib/db";
 import { audit, requireEdit } from "@/lib/actions";
-import { decidePlusOneAction } from "@/lib/plus-one";
-import { diffEditedFields, mergeEditedFields, type EditedFieldsMap } from "@/lib/last-edited-fields";
+// v2.8.0: the guest/household write cores (create + update + set_rsvp
+// + archive + household update) plus shared helpers (schemas,
+// syncPlusOne, readDietary) moved to src/lib/core/guests.ts so the MCP
+// self-apply path can run them session-free with an explicit user. The
+// wrappers below stay the ONLY exports here — "use server" exports are
+// client-invokable, so the auth-free cores must never appear in this
+// file's export list.
 import {
-  parseCustomFieldValue,
-  mergeCustomFieldValue,
-  type CustomFieldDef,
-  type CustomFieldType,
-  type CustomFieldValues,
-} from "@/lib/custom-fields";
+  archiveGuestCore,
+  createGuestCore,
+  createHouseholdCore,
+  guestInputSchema,
+  householdInputSchema,
+  setGuestRsvpCore,
+  updateGuestCore,
+  updateHouseholdCore,
+} from "@/lib/core/guests";
+// v2.8.0: setGuestCustomField's body extracted to a session-free core
+// so the MCP self-apply path runs identical write logic without a
+// browser session. The wrapper keeps the requireEdit("guests") gate.
+import { setGuestCustomFieldCore } from "@/lib/core/misc";
 import { unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { FileVisibility } from "@prisma/client";
@@ -24,144 +36,29 @@ import {
   validateUpload,
 } from "@/lib/uploads";
 
-const householdSchema = z.object({
-  name: z.string().min(1).max(200),
-  side: z.nativeEnum(Side).default(Side.BOTH),
-  notes: z.string().max(2000).optional().nullable(),
-});
-
-const guestSchema = z.object({
-  householdId: z.string().min(1),
-  firstName: z.string().min(1).max(100),
-  lastName: z.string().min(1).max(100),
-  email: z.string().email().optional().or(z.literal("")).optional().nullable(),
-  phone: z.string().max(50).optional().nullable(),
-  rsvp: z.nativeEnum(RsvpStatus).default(RsvpStatus.PENDING),
-  side: z.nativeEnum(Side).default(Side.BOTH),
-  isChild: z.boolean().optional(),
-  needsHighchair: z.boolean().optional(),
-  plusOneAllowed: z.boolean().optional(),
-  plusOneName: z.string().max(200).optional().nullable(),
-  role: z.string().max(100).optional().nullable(),
-  dietary: z.string().optional().nullable(),
-  notes: z.string().max(2000).optional().nullable(),
-});
-
-function readDietary(s: string | null | undefined): string[] {
-  if (!s) return [];
-  return s.split(",").map((x) => x.trim()).filter(Boolean);
-}
-
-// ── +1 materialisation ────────────────────────────────────────────────────
-//
-// When a host has plusOneAllowed=true AND plusOneName is non-empty, we
-// materialise a child Guest row linked via parentGuestId. The +1 row:
-//   - is a real Guest, so it shows up in totals (Today, Glance, catering
-//     brief, etc.) without any special-casing
-//   - inherits householdId, side, rsvp, archived from the host (synced on
-//     every host update via this helper)
-//   - has its first/last name derived from the host's plusOneName field
-//     — the host is the source of truth for the name; the +1 row's name
-//     fields are display-only
-//   - keeps independent dietary, meal, song-request, table-seat data
-//
-// Edge cases:
-//   - plusOneAllowed flips to false OR plusOneName cleared → archive the
-//     existing +1 row (don't hard-delete; preserves dietary/meal data
-//     in case it comes back)
-//   - host archived → +1 archived (cascaded from caller)
-//   - host hard-deleted → +1 cascade-deleted by the FK
-//   - +1 itself can't have a +1 (we don't recurse)
-//
-// Pure decision logic lives at @/lib/plus-one (testable without
-// pulling in next-auth/Prisma). This wrapper does the DB I/O around it.
-
-async function syncPlusOne(hostId: string): Promise<void> {
-  const host = await db.guest.findUnique({
-    where: { id: hostId },
-    select: {
-      id: true,
-      householdId: true,
-      side: true,
-      rsvp: true,
-      plusOneAllowed: true,
-      plusOneName: true,
-      parentGuestId: true,
-    },
-  });
-  if (!host) return;
-
-  const childRow = await db.guest.findFirst({
-    where: { parentGuestId: host.id },
-    orderBy: { createdAt: "asc" },
-    select: { id: true, archived: true },
-  });
-
-  const action = decidePlusOneAction(host, childRow);
-  switch (action.kind) {
-    case "noop":
-      return;
-    case "create":
-      await db.guest.create({ data: action.data });
-      return;
-    case "update":
-      await db.guest.update({ where: { id: action.childId }, data: action.data });
-      return;
-    case "archive":
-      await db.guest.update({
-        where: { id: action.childId },
-        data: { archived: true, tableSeatId: null },
-      });
-      return;
-  }
-}
-
+// v2.8.0: parse + auth + delegate. Everything after the Zod parse
+// (db write, audit, revalidate, return shape) lives in
+// createHouseholdCore so the AI apply path shares one implementation.
 export async function createHousehold(formData: FormData) {
   const user = await requireEdit("guests");
-  const parsed = householdSchema.parse({
+  const parsed = householdInputSchema.parse({
     name: formData.get("name"),
     side: formData.get("side") || Side.BOTH,
     notes: formData.get("notes") || null,
   });
-  const created = await db.household.create({
-    data: { name: parsed.name, side: parsed.side, notes: parsed.notes ?? null },
-  });
-  await audit(user, {
-    action: "create",
-    entity: "Household",
-    entityId: created.id,
-    metadata: { name: created.name, side: created.side },
-  });
-  revalidatePath("/guests");
-  // v2.1.0 phase 3: return id so applyProposal can chain a
-  // createGuest into the same household.
-  return { id: created.id };
+  return createHouseholdCore(user, parsed);
 }
 
+// v2.8.0: parse + auth + delegate — the update (before-diff, audit,
+// revalidate) lives in updateHouseholdCore.
 export async function updateHousehold(id: string, formData: FormData) {
   const user = await requireEdit("guests");
-  const parsed = householdSchema.parse({
+  const parsed = householdInputSchema.parse({
     name: formData.get("name"),
     side: formData.get("side") || Side.BOTH,
     notes: formData.get("notes") || null,
   });
-  // Read before for the changedFields diff.
-  const before = await db.household.findUnique({ where: { id } });
-  const next = { name: parsed.name, side: parsed.side, notes: parsed.notes ?? null };
-  await db.household.update({ where: { id }, data: next });
-  const changedFields: string[] = [];
-  if (before) {
-    if (before.name !== next.name) changedFields.push("name");
-    if (before.side !== next.side) changedFields.push("side");
-    if (before.notes !== next.notes) changedFields.push("notes");
-  }
-  await audit(user, {
-    action: "update",
-    entity: "Household",
-    entityId: id,
-    metadata: { name: next.name, changedFields },
-  });
-  revalidatePath("/guests");
+  return updateHouseholdCore(user, id, parsed);
 }
 
 // v1.53.0 (C1): result-shape return so caller can render a real
@@ -198,9 +95,11 @@ export async function deleteHousehold(id: string): Promise<DeleteResult> {
   }
 }
 
+// v2.8.0: parse + auth + delegate — the create (including the
+// syncPlusOne materialisation cascade) lives in createGuestCore.
 export async function createGuest(formData: FormData) {
   const user = await requireEdit("guests");
-  const parsed = guestSchema.parse({
+  const parsed = guestInputSchema.parse({
     householdId: formData.get("householdId"),
     firstName: formData.get("firstName"),
     lastName: formData.get("lastName"),
@@ -216,47 +115,15 @@ export async function createGuest(formData: FormData) {
     dietary: formData.get("dietary") || null,
     notes: formData.get("notes") || null,
   });
-  const created = await db.guest.create({
-    data: {
-      householdId: parsed.householdId,
-      firstName: parsed.firstName,
-      lastName: parsed.lastName,
-      email: parsed.email || null,
-      phone: parsed.phone ?? null,
-      rsvp: parsed.rsvp,
-      side: parsed.side,
-      isChild: !!parsed.isChild,
-      needsHighchair: !!parsed.needsHighchair,
-      plusOneAllowed: !!parsed.plusOneAllowed,
-      plusOneName: parsed.plusOneName ?? null,
-      role: parsed.role ?? null,
-      dietary: readDietary(parsed.dietary ?? null),
-      notes: parsed.notes ?? null,
-    },
-  });
-  await syncPlusOne(created.id);
-  await audit(user, {
-    action: "create",
-    entity: "Guest",
-    entityId: created.id,
-    metadata: {
-      firstName: created.firstName,
-      lastName: created.lastName,
-      side: created.side,
-      rsvp: created.rsvp,
-      isChild: created.isChild,
-      plusOneAllowed: created.plusOneAllowed,
-    },
-  });
-  revalidatePath("/guests");
-  revalidatePath("/");
-  // v2.1.0 phase 3: return id so applyProposal can link the row.
-  return { id: created.id };
+  return createGuestCore(user, parsed);
 }
 
+// v2.8.0: parse + auth + delegate — the +1-force-off guard,
+// last-edited-fields stamp, syncPlusOne cascade, audit and
+// revalidations all live in updateGuestCore.
 export async function updateGuest(id: string, formData: FormData) {
   const user = await requireEdit("guests");
-  const parsed = guestSchema.parse({
+  const parsed = guestInputSchema.parse({
     householdId: formData.get("householdId"),
     firstName: formData.get("firstName"),
     lastName: formData.get("lastName"),
@@ -272,129 +139,14 @@ export async function updateGuest(id: string, formData: FormData) {
     dietary: formData.get("dietary") || null,
     notes: formData.get("notes") || null,
   });
-
-  // If this guest is itself a +1 (parentGuestId set), force the +1
-  // fields off — a +1 can't have a +1 of its own. The host is the only
-  // place plusOneAllowed / plusOneName can be set.
-  const existing = await db.guest.findUnique({
-    where: { id },
-    // C4: also pull the fields we're about to overwrite + the existing
-    // edit-tracking map so we can stamp only fields that actually
-    // changed.
-    select: {
-      parentGuestId: true,
-      firstName: true,
-      lastName: true,
-      email: true,
-      phone: true,
-      rsvp: true,
-      side: true,
-      isChild: true,
-      needsHighchair: true,
-      plusOneAllowed: true,
-      plusOneName: true,
-      role: true,
-      dietary: true,
-      notes: true,
-      lastEditedFields: true,
-    },
-  });
-  const isPlusOne = !!existing?.parentGuestId;
-  const plusOneAllowed = isPlusOne ? false : !!parsed.plusOneAllowed;
-  const plusOneName = isPlusOne ? null : (parsed.plusOneName ?? null);
-
-  const nextValues = {
-    firstName: parsed.firstName,
-    lastName: parsed.lastName,
-    email: parsed.email || null,
-    phone: parsed.phone ?? null,
-    rsvp: parsed.rsvp,
-    side: parsed.side,
-    isChild: !!parsed.isChild,
-    needsHighchair: !!parsed.needsHighchair,
-    plusOneAllowed,
-    plusOneName,
-    role: parsed.role ?? null,
-    dietary: readDietary(parsed.dietary ?? null),
-    notes: parsed.notes ?? null,
-  };
-  // C4 (v1.14.0): record per-field manual-edit timestamps so the CSV
-  // import preview can warn before overwriting a recent edit.
-  const changed = existing
-    ? diffEditedFields(
-        existing as Record<string, unknown>,
-        nextValues as Record<string, unknown>,
-      )
-    : Object.keys(nextValues);
-  const lastEditedFields =
-    changed.length > 0
-      ? mergeEditedFields(
-          (existing?.lastEditedFields as EditedFieldsMap | null) ?? null,
-          changed,
-        )
-      : undefined;
-
-  await db.guest.update({
-    where: { id },
-    data: {
-      ...nextValues,
-      ...(lastEditedFields !== undefined && { lastEditedFields }),
-    },
-  });
-
-  // Cascade to the +1 if this is a host. syncPlusOne short-circuits if
-  // the row is itself a +1 (parentGuestId set), so it's safe to call
-  // unconditionally.
-  await syncPlusOne(id);
-  // v1.39.0: enrich with name + the actual changed field names. The
-  // diffEditedFields call above already computed `changed` for the
-  // last-edited-fields stamp; reuse that list here so the audit row
-  // and the lastEditedFields map agree.
-  await audit(user, {
-    action: "update",
-    entity: "Guest",
-    entityId: id,
-    metadata: {
-      firstName: nextValues.firstName,
-      lastName: nextValues.lastName,
-      changedFields: changed,
-    },
-  });
-  revalidatePath("/guests");
-  revalidatePath("/");
+  return updateGuestCore(user, id, parsed);
 }
 
+// v2.8.0: gate + delegate — the attending-sync, +1 cascade, named
+// audit and revalidations live in setGuestRsvpCore.
 export async function setGuestRsvp(id: string, rsvp: RsvpStatus) {
   const user = await requireEdit("guests");
-  await db.guest.update({
-    where: { id },
-    data: {
-      rsvp,
-      attending: rsvp === RsvpStatus.ATTENDING ? true : rsvp === RsvpStatus.DECLINED ? false : null,
-    },
-  });
-  // Cascade to any +1 — host RSVP is the source of truth for the +1's
-  // RSVP. (A +1's own RSVP can be set independently via this same
-  // action, but the next host RSVP change will overwrite it.)
-  await syncPlusOne(id);
-  // Add name to the RSVP audit so the log reads as "Set RSVP for
-  // <name> to attending" rather than just an id.
-  const guest = await db.guest.findUnique({
-    where: { id },
-    select: { firstName: true, lastName: true },
-  });
-  await audit(user, {
-    action: "rsvp",
-    entity: "Guest",
-    entityId: id,
-    metadata: {
-      rsvp,
-      firstName: guest?.firstName ?? null,
-      lastName: guest?.lastName ?? null,
-    },
-  });
-  revalidatePath("/guests");
-  revalidatePath("/");
+  return setGuestRsvpCore(user, id, rsvp);
 }
 
 // Soft-archive — was previously a hard delete, but the audit (R1)
@@ -402,47 +154,11 @@ export async function setGuestRsvp(id: string, rsvp: RsvpStatus) {
 // flow now sets `archived = true`; the row is hidden from default
 // views but can be restored. Their tableSeat is freed at the same
 // time so the seat goes back into the pool.
+// v2.8.0: gate + delegate — the atomic host+ +1 archive, seat-freeing,
+// audit and revalidations live in archiveGuestCore.
 export async function deleteGuest(id: string): Promise<DeleteResult> {
   const user = await requireEdit("guests");
-  try {
-    const guest = await db.guest.findUnique({
-      where: { id },
-      select: { firstName: true, lastName: true, tableSeatId: true },
-    });
-    if (!guest) return { ok: true }; // already gone — idempotent
-    // Archive the host AND any of its +1 rows in a single transaction so
-    // the totals never see a half-archived household. Free both seats.
-    await db.$transaction([
-      db.guest.update({
-        where: { id },
-        data: { archived: true, tableSeatId: null },
-      }),
-      db.guest.updateMany({
-        where: { parentGuestId: id },
-        data: { archived: true, tableSeatId: null },
-      }),
-    ]);
-    await audit(user, {
-      action: "archive",
-      entity: "Guest",
-      entityId: id,
-      metadata: {
-        firstName: guest.firstName,
-        lastName: guest.lastName,
-        hadSeat: guest.tableSeatId !== null,
-      },
-    });
-    revalidatePath("/guests");
-    revalidatePath("/seating");
-    revalidatePath("/");
-    return { ok: true };
-  } catch (err) {
-    console.error("deleteGuest failed", err);
-    return {
-      ok: false,
-      error: err instanceof Error ? err.message : "Couldn't archive guest",
-    };
-  }
+  return archiveGuestCore(user, id);
 }
 
 // Bring an archived guest back. Their seat does NOT auto-reassign —
@@ -572,42 +288,10 @@ export async function setGuestCustomField(
   rawValue: string | null,
 ) {
   const user = await requireEdit("guests");
-  const def = await db.customField.findUnique({ where: { id: fieldId } });
-  if (!def || def.entity !== "guest") {
-    throw new Error("Custom field not found for this entity");
-  }
-  const guest = await db.guest.findUnique({
-    where: { id: guestId },
-    select: { customFieldValues: true, archived: true },
-  });
-  if (!guest) throw new Error("Guest not found");
-  if (guest.archived) throw new Error("Guest is archived");
-
-  const typedDef: CustomFieldDef = {
-    id: def.id,
-    entity: def.entity,
-    name: def.name,
-    type: def.type as CustomFieldType,
-    options: def.options,
-    order: def.order,
-  };
-  const value = parseCustomFieldValue(typedDef, rawValue);
-  const next = mergeCustomFieldValue(
-    (guest.customFieldValues as CustomFieldValues | null) ?? null,
-    fieldId,
-    value,
-  );
-  await db.guest.update({
-    where: { id: guestId },
-    data: { customFieldValues: next },
-  });
-  await audit(user, {
-    action: "update",
-    entity: "Guest",
-    entityId: guestId,
-    metadata: { customField: def.name, fieldId },
-  });
-  revalidatePath(`/guests/${guestId}`);
+  // v2.8.0: body lives in setGuestCustomFieldCore — def validation,
+  // archived refusal, typed merge, audit row and revalidation all
+  // happen there so the AI apply path shares one implementation.
+  await setGuestCustomFieldCore(user, guestId, fieldId, rawValue);
 }
 
 // ─── v1.67.0: guest profile picture ─────────────────────────────────

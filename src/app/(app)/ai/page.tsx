@@ -25,6 +25,8 @@ import { ProposalBatchGroup } from "./ProposalBatchGroup";
 import { ParseGuestsPanel } from "./ParseGuestsPanel";
 import { UsageDashboard } from "./UsageDashboard";
 import { WeddingReviewPanel } from "./WeddingReviewPanel";
+import { listEnhancementSuggestions } from "./enhancement-actions";
+import { EnhancementsPanel } from "./EnhancementsPanel";
 
 export const dynamic = "force-dynamic";
 
@@ -47,10 +49,11 @@ export default async function AiPage() {
     );
   }
 
-  const [cap, pending, canApply] = await Promise.all([
+  const [cap, pending, canApply, enhancements] = await Promise.all([
     readCapState(),
     listPendingProposals(),
     canEdit(user, "ai_write"),
+    listEnhancementSuggestions(),
   ]);
   const pctSpent = cap.capPence === 0 ? 0 : Math.round((cap.spentPence / cap.capPence) * 100);
 
@@ -107,6 +110,21 @@ export default async function AiPage() {
           </h2>
           <WeddingReviewPanel />
         </section>
+
+        {/* v2.8.0 (§C2): agent-filed product feedback (dev backlog for
+            the website / MCP / AI surface). Hidden entirely while empty
+            — most visitors will never have seen the agent file one. */}
+        {enhancements.length > 0 && (
+          <section>
+            <h2 className="text-xs font-bold uppercase tracking-wider text-ink-tertiary mb-2">
+              Enhancement suggestions ({enhancements.length})
+            </h2>
+            <EnhancementsPanel
+              suggestions={enhancements}
+              isCouple={user.isCouple}
+            />
+          </section>
+        )}
 
         {user.isCouple && (
           <section>

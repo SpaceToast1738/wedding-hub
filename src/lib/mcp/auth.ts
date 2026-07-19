@@ -30,11 +30,18 @@ export function generateMcpToken(): { token: string; tokenHash: string } {
   return { token, tokenHash: hashMcpToken(token) };
 }
 
-/** Resolve a presented bearer token to the user it belongs to.
- *  Returns null for unknown, revoked, or malformed tokens. The user
- *  row is fetched fresh on every call, so permission or role changes
- *  (and user deletion, via the FK cascade) apply immediately. */
-export async function verifyMcpToken(token: string): Promise<SessionUser | null> {
+/** Resolve a presented bearer token to the user it belongs to, plus
+ *  the token's own capability flags. Returns null for unknown,
+ *  revoked, or malformed tokens. The user row is fetched fresh on
+ *  every call, so permission or role changes (and user deletion, via
+ *  the FK cascade) apply immediately — and so does flipping canApply
+ *  in Settings, since it rides the same lookup (v2.8.0: canApply
+ *  gates the apply/dismiss MCP tools; it is per-token, not per-user,
+ *  so the same member can hold one self-applying token and one
+ *  propose-only token). */
+export async function verifyMcpToken(
+  token: string,
+): Promise<{ user: SessionUser; canApply: boolean } | null> {
   if (!token.startsWith(MCP_TOKEN_PREFIX)) return null;
   const row = await db.mcpToken.findUnique({
     where: { tokenHash: hashMcpToken(token) },
@@ -53,10 +60,13 @@ export async function verifyMcpToken(token: string): Promise<SessionUser | null>
   }
 
   return {
-    id: row.user.id,
-    email: row.user.email,
-    name: row.user.name,
-    isCouple: row.user.isCouple,
-    role: row.user.role,
+    user: {
+      id: row.user.id,
+      email: row.user.email,
+      name: row.user.name,
+      isCouple: row.user.isCouple,
+      role: row.user.role,
+    },
+    canApply: row.canApply,
   };
 }

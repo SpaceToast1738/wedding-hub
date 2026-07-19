@@ -5,13 +5,26 @@ import { z } from "zod";
 import { Priority, TaskStatus, TaskType } from "@prisma/client";
 import { db } from "@/lib/db";
 import { audit, requireEdit } from "@/lib/actions";
+// v2.8.0: createTask/updateTask bodies extracted to session-free cores
+// so the MCP self-apply path can run the identical write logic without
+// a browser session. These wrappers keep the FormData parsing + the
+// requireEdit auth gate; the cores keep the db writes, audit rows and
+// revalidations — human behaviour is unchanged.
 import {
-  parseCustomFieldValue,
-  mergeCustomFieldValue,
-  type CustomFieldDef,
-  type CustomFieldType,
-  type CustomFieldValues,
-} from "@/lib/custom-fields";
+  createTaskCore,
+  updateTaskCore,
+  type TaskUpdateInput,
+} from "@/lib/core/tasks";
+// v2.8.0: answerQuestion + setTaskCustomField bodies also extracted to
+// session-free cores so the MCP self-apply path runs identical write
+// logic without a browser session. These wrappers keep the auth gate
+// (setTaskCustomField's is polymorphic — derived from the task's type
+// exactly as before); the cores keep the db writes, audit rows and
+// revalidations.
+import {
+  answerQuestionCore,
+  setTaskCustomFieldCore,
+} from "@/lib/core/misc";
 import { parseTopicKeys } from "@/lib/task-topics";
 
 const baseSchema = z.object({
@@ -117,13 +130,9 @@ function parseAssigneeIds(formData: FormData): string[] {
   return [...seen];
 }
 
-function parseDue(v: FormDataEntryValue | null): Date | null {
-  if (!v) return null;
-  const s = String(v).trim();
-  if (!s) return null;
-  const d = new Date(s);
-  return isNaN(d.getTime()) ? null : d;
-}
+// v2.8.0: parseDue moved to @/lib/core/tasks with the write bodies —
+// the string → Date coercion is write behaviour both the human and
+// MCP self-apply paths must share.
 
 // v1.30.5 + v1.51.0 + v1.61.0: parses the Topics multi-select payload
 // into four relation arrays (bookSection / bookSubsection / navTag /
@@ -146,65 +155,22 @@ export async function createTask(formData: FormData) {
   // persisted as the single-element `tags` array. The `tags` column
   // stays in the schema for now but no UI writes to it on create.
   const assigneeIds = parseAssigneeIds(formData);
-  const created = await db.task.create({
-    data: {
-      title: parsed.title,
-      type: parsed.type,
-      priority: parsed.priority,
-      status: parsed.status,
-      dueDate: parseDue(parsed.dueDate ?? null),
-      notes: parsed.notes ?? null,
-      supplierId: parsed.supplierId || null,
-      // v1.96.0: multi-assignee connect.
-      assignees: assigneeIds.length
-        ? { connect: assigneeIds.map((id) => ({ id })) }
-        : undefined,
-      // v1.30.5: m2m connect for the two topic relations.
-      bookSections: bookSectionIds.length
-        ? { connect: bookSectionIds.map((id) => ({ id })) }
-        : undefined,
-      // v1.51.0: parallel m2m at the card level. Independent of
-      // bookSections — a task can link to a section, a card, both,
-      // or neither.
-      bookSubsections: bookSubsectionIds.length
-        ? { connect: bookSubsectionIds.map((id) => ({ id })) }
-        : undefined,
-      navTags: navTagIds.length
-        ? { connect: navTagIds.map((id) => ({ id })) }
-        : undefined,
-      // v1.61.0 (XL1): m2m to GuestGroup so tagged tasks surface on
-      // every member's /guests/[id] page.
-      guestGroups: guestGroupIds.length
-        ? { connect: guestGroupIds.map((id) => ({ id })) }
-        : undefined,
-    },
+  // v2.8.0: body lives in createTaskCore — db write, enriched audit
+  // row, revalidations, returned id all happen there.
+  return createTaskCore(user, {
+    title: parsed.title,
+    type: parsed.type,
+    priority: parsed.priority,
+    status: parsed.status,
+    dueDate: parsed.dueDate,
+    notes: parsed.notes,
+    supplierId: parsed.supplierId,
+    assigneeIds,
+    bookSectionIds,
+    bookSubsectionIds,
+    navTagIds,
+    guestGroupIds,
   });
-  // v1.30.5: enriched audit metadata per the audit-aware-feature-design
-  // standing rule. Captures title, type, and the relational keys so the
-  // log row reads usefully without rejoining.
-  await audit(user, {
-    action: "create",
-    entity: "Task",
-    entityId: created.id,
-    metadata: {
-      title: parsed.title,
-      type: parsed.type,
-      supplierId: parsed.supplierId || null,
-      assigneeIds,
-      bookSectionIds,
-      bookSubsectionIds,
-      navTagIds,
-      guestGroupIds,
-    },
-  });
-  revalidatePath("/tasks");
-  revalidatePath("/questions");
-  revalidatePath("/");
-  revalidatePath("/book");
-  // v2.1.0 phase 2: return the id so applyProposal can link the
-  // AiProposal to the row it just produced. Existing FormData
-  // callers ignore return values, so this is non-breaking.
-  return { id: created.id };
 }
 
 export async function updateTask(id: string, formData: FormData) {
@@ -224,104 +190,25 @@ export async function updateTask(id: string, formData: FormData) {
   // explicitly emits the field — `null`-check protects partial updates
   // from blanking the assignee list.
   const hasAssigneeKeys = formData.has("assigneeIds");
-  const assigneeIds = hasAssigneeKeys ? parseAssigneeIds(formData) : [];
 
-  const data: Record<string, unknown> = {};
-  if (parsed.title !== undefined) data.title = parsed.title;
-  if (parsed.type !== undefined) data.type = parsed.type;
-  if (parsed.priority !== undefined) data.priority = parsed.priority;
-  if (parsed.status !== undefined) data.status = parsed.status;
-  if (parsed.dueDate !== undefined) data.dueDate = parseDue(parsed.dueDate ?? null);
-  if (parsed.notes !== undefined) data.notes = parsed.notes ?? null;
-  if (parsed.supplierId !== undefined) data.supplierId = parsed.supplierId || null;
-  if (hasAssigneeKeys) {
-    data.assignees = { set: assigneeIds.map((aid) => ({ id: aid })) };
-  }
-  // v1.30.5: m2m `set:` replaces the relation entirely so the picker
-  // can both add and remove links. Only run when the form posted any
-  // topicKeys at all (`hasTopicKeys`); otherwise this is a partial
-  // update that didn't touch topics.
-  // v1.51.0: bookSubsections joins the same single `topicKeys` payload.
-  // v1.61.0 (XL1): + guestGroups.
+  // v2.8.0: body lives in updateTaskCore. The two "was this field
+  // posted at all?" FormData signals map onto the input's optionality:
+  // assigneeIds/topics stay undefined (= untouched) unless the form
+  // actually posted them — same partial-update semantics as before.
+  const input: TaskUpdateInput = {
+    title: parsed.title,
+    type: parsed.type,
+    priority: parsed.priority,
+    status: parsed.status,
+    dueDate: parsed.dueDate,
+    notes: parsed.notes,
+    supplierId: parsed.supplierId,
+  };
+  if (hasAssigneeKeys) input.assigneeIds = parseAssigneeIds(formData);
   if (hasTopicKeys) {
-    data.bookSections = { set: bookSectionIds.map((id) => ({ id })) };
-    data.bookSubsections = { set: bookSubsectionIds.map((id) => ({ id })) };
-    data.navTags = { set: navTagIds.map((id) => ({ id })) };
-    data.guestGroups = { set: guestGroupIds.map((id) => ({ id })) };
+    input.topics = { bookSectionIds, bookSubsectionIds, navTagIds, guestGroupIds };
   }
-
-  // v1.30.5: read pre-update for the changedFields diff in the audit.
-  const before = await db.task.findUnique({
-    where: { id },
-    select: {
-      title: true,
-      type: true,
-      status: true,
-      priority: true,
-      assignees: { select: { id: true } },
-      dueDate: true,
-      notes: true,
-      supplierId: true,
-      bookSections: { select: { id: true } },
-      bookSubsections: { select: { id: true } },
-      navTags: { select: { id: true } },
-      guestGroups: { select: { id: true } },
-    },
-  });
-
-  await db.task.update({ where: { id }, data });
-
-  const changedFields: string[] = [];
-  if (before) {
-    if (parsed.title !== undefined && parsed.title !== before.title) changedFields.push("title");
-    if (parsed.type !== undefined && parsed.type !== before.type) changedFields.push("type");
-    if (parsed.status !== undefined && parsed.status !== before.status) changedFields.push("status");
-    if (parsed.priority !== undefined && parsed.priority !== before.priority) changedFields.push("priority");
-    if (hasAssigneeKeys) {
-      const oldAids = before.assignees.map((a) => a.id).sort().join(",");
-      const newAids = assigneeIds.slice().sort().join(",");
-      if (oldAids !== newAids) changedFields.push("assignees");
-    }
-    if (parsed.dueDate !== undefined) {
-      const newDue = parseDue(parsed.dueDate ?? null)?.getTime() ?? null;
-      const oldDue = before.dueDate?.getTime() ?? null;
-      if (newDue !== oldDue) changedFields.push("dueDate");
-    }
-    if (parsed.notes !== undefined && (parsed.notes ?? null) !== before.notes) changedFields.push("notes");
-    if (parsed.supplierId !== undefined && (parsed.supplierId || null) !== before.supplierId) changedFields.push("supplierId");
-    if (hasTopicKeys) {
-      const oldBs = before.bookSections.map((s) => s.id).sort().join(",");
-      const newBs = bookSectionIds.slice().sort().join(",");
-      if (oldBs !== newBs) changedFields.push("bookSections");
-      const oldBSs = before.bookSubsections.map((s) => s.id).sort().join(",");
-      const newBSs = bookSubsectionIds.slice().sort().join(",");
-      if (oldBSs !== newBSs) changedFields.push("bookSubsections");
-      const oldNt = before.navTags.map((t) => t.id).sort().join(",");
-      const newNt = navTagIds.slice().sort().join(",");
-      if (oldNt !== newNt) changedFields.push("navTags");
-      // v1.61.0 (XL1): + guestGroups.
-      const oldGg = before.guestGroups.map((g) => g.id).sort().join(",");
-      const newGg = guestGroupIds.slice().sort().join(",");
-      if (oldGg !== newGg) changedFields.push("guestGroups");
-    }
-  }
-
-  await audit(user, {
-    action: "update",
-    entity: "Task",
-    entityId: id,
-    metadata: {
-      title: parsed.title ?? before?.title,
-      type: parsed.type ?? before?.type,
-      changedFields,
-    },
-  });
-  revalidatePath("/tasks");
-  revalidatePath("/questions");
-  revalidatePath("/");
-  // v1.51.0: book pages render the inline tasks panel, so any
-  // task edit invalidates them too.
-  revalidatePath("/book");
+  await updateTaskCore(user, id, input);
 }
 
 export async function setTaskStatus(id: string, status: TaskStatus) {
@@ -346,34 +233,10 @@ export async function setTaskStatus(id: string, status: TaskStatus) {
 
 export async function answerQuestion(id: string, answer: string) {
   const user = await requireEdit("questions");
-  // Read before so the audit row captures the question title + whether
-  // an answer was added or cleared.
-  const before = await db.task.findUnique({
-    where: { id },
-    select: { title: true, type: true, questionAnswer: true },
-  });
-  await db.task.update({
-    where: { id },
-    data: {
-      questionAnswer: answer,
-      status: answer.trim() ? TaskStatus.DONE : TaskStatus.OPEN,
-    },
-  });
-  await audit(user, {
-    action: "answer",
-    entity: "Task",
-    entityId: id,
-    metadata: {
-      title: before?.title ?? null,
-      type: before?.type ?? null,
-      hadPreviousAnswer: !!before?.questionAnswer?.trim(),
-      cleared: !answer.trim(),
-      answerLength: answer.length,
-    },
-  });
-  revalidatePath("/questions");
-  revalidatePath("/tasks");
-  revalidatePath("/");
+  // v2.8.0: body lives in answerQuestionCore — read-before, the
+  // answer-empty status flip, enriched audit row and revalidations all
+  // happen there.
+  await answerQuestionCore(user, id, answer);
 }
 
 export async function deleteTask(id: string) {
@@ -410,42 +273,16 @@ export async function setTaskCustomField(
   fieldId: string,
   rawValue: string | null,
 ) {
+  // Polymorphic gate: read the row's type to pick tasks vs questions,
+  // throwing "Task not found" before the gate exactly as before. Body
+  // (def validation, typed merge, write, audit, revalidate) lives in
+  // setTaskCustomFieldCore.
   const task = await db.task.findUnique({
     where: { id: taskId },
-    select: { type: true, customFieldValues: true },
+    select: { type: true },
   });
   if (!task) throw new Error("Task not found");
   const section = task.type === "TASK" ? "tasks" : "questions";
   const user = await requireEdit(section);
-
-  const def = await db.customField.findUnique({ where: { id: fieldId } });
-  if (!def || def.entity !== "task") {
-    throw new Error("Custom field not found for this entity");
-  }
-  const typedDef: CustomFieldDef = {
-    id: def.id,
-    entity: def.entity,
-    name: def.name,
-    type: def.type as CustomFieldType,
-    options: def.options,
-    order: def.order,
-  };
-  const value = parseCustomFieldValue(typedDef, rawValue);
-  const next = mergeCustomFieldValue(
-    (task.customFieldValues as CustomFieldValues | null) ?? null,
-    fieldId,
-    value,
-  );
-  await db.task.update({
-    where: { id: taskId },
-    data: { customFieldValues: next },
-  });
-  await audit(user, {
-    action: "update",
-    entity: "Task",
-    entityId: taskId,
-    metadata: { customField: def.name, fieldId, type: task.type },
-  });
-  revalidatePath("/tasks");
-  revalidatePath("/questions");
+  await setTaskCustomFieldCore(user, taskId, fieldId, rawValue);
 }

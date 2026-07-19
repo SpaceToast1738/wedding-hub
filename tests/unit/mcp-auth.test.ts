@@ -17,6 +17,8 @@ type McpTokenRow = {
   createdAt: Date;
   lastUsedAt: Date | null;
   revokedAt: Date | null;
+  // v2.8.0: per-token apply rights, passed through to the caller.
+  canApply: boolean;
   user: {
     id: string;
     email: string;
@@ -64,6 +66,7 @@ function baseRow(overrides: Partial<McpTokenRow> = {}): McpTokenRow {
     createdAt: new Date("2026-07-01T00:00:00.000Z"),
     lastUsedAt: null,
     revokedAt: null,
+    canApply: false,
     user: {
       id: "u_jamie",
       email: "jamie@example.com",
@@ -137,16 +140,30 @@ describe("verifyMcpToken", () => {
     expect(updateCalls).toHaveLength(0);
   });
 
+  // v2.8.0: the return shape is { user, canApply } — canApply is a
+  // property of the presented TOKEN, so the route can gate the
+  // apply/dismiss tools per-token, not per-user.
   it("maps a valid token to the SessionUser fields of its owner", async () => {
     const { token, tokenHash } = generateMcpToken();
     tokenRows = [baseRow({ tokenHash })];
     expect(await verifyMcpToken(token)).toEqual({
-      id: "u_jamie",
-      email: "jamie@example.com",
-      name: "Jamie",
-      isCouple: true,
-      role: "COUPLE",
+      user: {
+        id: "u_jamie",
+        email: "jamie@example.com",
+        name: "Jamie",
+        isCouple: true,
+        role: "COUPLE",
+      },
+      canApply: false,
     });
+  });
+
+  it("passes the row's canApply flag through when set", async () => {
+    const { token, tokenHash } = generateMcpToken();
+    tokenRows = [baseRow({ tokenHash, canApply: true })];
+    const verified = await verifyMcpToken(token);
+    expect(verified?.canApply).toBe(true);
+    expect(verified?.user.id).toBe("u_jamie");
   });
 });
 
@@ -178,8 +195,8 @@ describe("verifyMcpToken — lastUsedAt touch (stateless row-compare)", () => {
     tokenRows = [
       baseRow({ tokenHash, lastUsedAt: new Date(NOW.getTime() - 5 * 60 * 1000) }),
     ];
-    const user = await verifyMcpToken(token);
-    expect(user).not.toBeNull(); // auth still succeeds, just no write
+    const verified = await verifyMcpToken(token);
+    expect(verified).not.toBeNull(); // auth still succeeds, just no write
     expect(updateCalls).toHaveLength(0);
   });
 

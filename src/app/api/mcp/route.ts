@@ -158,8 +158,8 @@ export async function POST(req: Request): Promise<Response> {
     );
   }
 
-  const user = await verifyMcpToken(authz.slice("Bearer ".length).trim());
-  if (!user) {
+  const verified = await verifyMcpToken(authz.slice("Bearer ".length).trim());
+  if (!verified) {
     // The failure row goes in FIRST, then the audit write is skipped
     // once the post-write count is over budget — so a parallel burst
     // from one IP can overshoot the attempt rows (they self-prune in
@@ -176,6 +176,10 @@ export async function POST(req: Request): Promise<Response> {
     }
     return unauthorized();
   }
+  // v2.8.0: canApply is a property of the presented TOKEN, not the
+  // user — verifyMcpToken returns both so the same member can hold a
+  // self-applying token and a propose-only one.
+  const { user, canApply } = verified;
 
   // Byte-capped incremental read, only after auth: the cap exists for
   // callers that bypass Caddy's 2MB request_body limit by reaching
@@ -233,12 +237,15 @@ export async function POST(req: Request): Promise<Response> {
     canWrite,
     batchId: randomUUID(),
     proposalsCreated: { count: 0 },
+    // v2.8.0: token-level apply rights — the apply/dismiss tools check
+    // this on top of canWrite. Chat contexts never set it.
+    canApply,
   };
 
   const deps: ProtocolDeps = {
     serverVersion: APP_VERSION,
     listTools: () =>
-      toolDefinitions({ canWrite }).map((d) => ({
+      toolDefinitions({ canWrite, canApply }).map((d) => ({
         name: d.name,
         description: d.description ?? "",
         inputSchema: d.input_schema as Record<string, unknown>,

@@ -63,6 +63,24 @@ import { proposeQuestionAnswer } from "./propose-question-answer";
 import { proposeSongAdd } from "./propose-song-add";
 import { proposeCustomFieldSet } from "./propose-custom-field-set";
 import { proposeSeatAssign } from "./propose-seat-assign";
+// v2.8.0: planner build-out — file content read, agent product feedback,
+// destructive kinds (snapshot-backed), and the MCP-only self-apply pair.
+import { readFileContent } from "./read-file-content";
+import { readEnhancements } from "./read-enhancements";
+import { suggestEnhancement } from "./suggest-enhancement";
+import { proposeTaskDelete } from "./propose-task-delete";
+import { proposeEventDelete } from "./propose-event-delete";
+import { proposeGuestHardDelete } from "./propose-guest-hard-delete";
+import { proposeSupplierDelete } from "./propose-supplier-delete";
+import { proposeSupplierContactRemove } from "./propose-supplier-contact-remove";
+import { proposePaymentDelete } from "./propose-payment-delete";
+import { proposeBudgetLineDelete } from "./propose-budget-line-delete";
+import { proposeBudgetCategoryDelete } from "./propose-budget-category-delete";
+import { proposeBookCardDelete } from "./propose-book-card-delete";
+import { proposeBookSectionDelete } from "./propose-book-section-delete";
+import { proposeSongRemove } from "./propose-song-remove";
+import { proposeSeatingTableDelete } from "./propose-seating-table-delete";
+import { applyProposals as applyProposalsTool, dismissProposals as dismissProposalsTool } from "./apply-proposals";
 
 // AiTool<TSchema> is invariant in TSchema, so a heterogeneous list of
 // tools with different Zod object shapes can't share a single default
@@ -87,6 +105,14 @@ const READ_TOOLS: AiTool<any>[] = [
   readSeating,
   readSongs,
   readFiles,
+  // v2.8.0: planner build-out. read_enhancements is a read of the
+  // agent's own feedback channel; suggest_enhancement WRITES (a direct
+  // insert, not a proposal) but lives in the read list on purpose —
+  // it touches no wedding data, needs no ai_write, and every caller
+  // past the ai_chat gate may file product feedback.
+  readFileContent,
+  readEnhancements,
+  suggestEnhancement,
 ];
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -134,19 +160,48 @@ const WRITE_TOOLS: AiTool<any>[] = [
   proposeSongAdd,
   proposeCustomFieldSet,
   proposeSeatAssign,
+  // v2.8.0: destructive kinds — permanent deletes with a recovery
+  // snapshot written to AiProposal.metadata at apply time. Ordering
+  // stays append-only (prompt-cache rule above).
+  proposeTaskDelete,
+  proposeEventDelete,
+  proposeGuestHardDelete,
+  proposeSupplierDelete,
+  proposeSupplierContactRemove,
+  proposePaymentDelete,
+  proposeBudgetLineDelete,
+  proposeBudgetCategoryDelete,
+  proposeBookCardDelete,
+  proposeBookSectionDelete,
+  proposeSongRemove,
+  proposeSeatingTableDelete,
 ];
 
+// v2.8.0: MCP-only self-apply pair. NOT in WRITE_TOOLS — the in-app
+// chat must never list them (chat contexts have no ctx.canApply), and
+// they are not propose tools (no proposal_created SSE semantics).
+// They ARE in BY_NAME below so dispatch reaches them; their handlers
+// hard-refuse without ctx.canApply as the second line of defence.
+const APPLY_TOOLS: AiTool<any>[] = [applyProposalsTool, dismissProposalsTool]; // eslint-disable-line @typescript-eslint/no-explicit-any
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const ALL_TOOLS: AiTool<any>[] = [...READ_TOOLS, ...WRITE_TOOLS];
+const ALL_TOOLS: AiTool<any>[] = [...READ_TOOLS, ...WRITE_TOOLS, ...APPLY_TOOLS];
 
 const BY_NAME = new Map(ALL_TOOLS.map((t) => [t.name, t] as const));
 
 /** Return tool definitions to expose to the model.
  *  When `canWrite` is false, propose_* tools are hidden entirely —
  *  the model can't call them, so it won't try. Handlers still gate
- *  again as belt-and-braces. */
-export function toolDefinitions(opts?: { canWrite?: boolean }): Anthropic.Tool[] {
-  const tools = opts?.canWrite ? ALL_TOOLS : READ_TOOLS;
+ *  again as belt-and-braces.
+ *  v2.8.0: `canApply` additionally lists the MCP self-apply pair —
+ *  only the MCP route ever passes it (per-token flag), so the in-app
+ *  chat's tool list is unchanged. */
+export function toolDefinitions(opts?: { canWrite?: boolean; canApply?: boolean }): Anthropic.Tool[] {
+  const tools = opts?.canWrite
+    ? opts?.canApply
+      ? [...READ_TOOLS, ...WRITE_TOOLS, ...APPLY_TOOLS]
+      : [...READ_TOOLS, ...WRITE_TOOLS]
+    : READ_TOOLS;
   return tools.map((t) => t.definition);
 }
 

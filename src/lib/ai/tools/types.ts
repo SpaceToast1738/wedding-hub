@@ -26,6 +26,10 @@ export type ToolContext = {
    *  runaway turn can't flood the review queue. Absent → uncapped
    *  (one-shots manage their own caps). */
   proposalsCreated?: { count: number };
+  /** v2.8.0: token-level apply rights for the MCP self-apply tools
+   *  (McpToken.canApply). Absent for chat — the in-app loop never
+   *  self-applies, every proposal goes through the human review UI. */
+  canApply?: boolean;
 };
 
 export type ToolResult = { ok: true; data: unknown } | { ok: false; error: string };

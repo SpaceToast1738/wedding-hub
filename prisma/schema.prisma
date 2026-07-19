@@ -52,6 +52,8 @@ model User {
   // v2.7.0: LAN-only MCP server. Tokens are per-user so the existing
   // permission system and proposal attribution apply unchanged.
   mcpTokens        McpToken[]
+  // v2.8.0 (§C2): agent-filed product feedback — see EnhancementSuggestion.
+  enhancementSuggestions EnhancementSuggestion[]
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
 
@@ -1701,6 +1703,11 @@ model McpToken {
   // write on every call.
   lastUsedAt DateTime?
   revokedAt  DateTime?
+  // v2.8.0: the apply/dismiss MCP tools are refused without this flag.
+  // Per-token (not per-user) so future planner/wedding-party tokens
+  // default to read+propose-only — self-apply is an explicit opt-in
+  // from Settings, one token at a time.
+  canApply   Boolean   @default(false)
 
   @@index([userId])
 }
@@ -1895,6 +1902,10 @@ model AiProposal {
   // one parseGuestList run, one suggestDueDates run) so the review
   // UIs can offer a single approve-all. Null = singleton.
   batchId         String?
+  // v2.8.0: delete-kind apply handlers snapshot the deleted entity's
+  // full JSON (metadata.deletedSnapshot) here before deleting, so a
+  // destructive apply stays manually recoverable from the proposal row.
+  metadata        Json?
   createdAt       DateTime         @default(now())
   reviewedAt      DateTime?
 
@@ -1927,4 +1938,35 @@ model AiUsage {
 
   @@index([userId, createdAt])
   @@index([createdAt])
+}
+
+// v2.8.0 (§C2): agent-filed product feedback — a dev-backlog bridge
+// between the planner agent and future Claude Code sessions. The agent
+// files improvement ideas for the website / MCP surface / AI features
+// when it hits a capability wall; the couple triages them from a small
+// /ai panel; dev sessions read the PLANNED list as an input backlog.
+//
+// Deliberately NOT wedding data and NOT the proposal machinery — there
+// is nothing to "apply" (these are meta-content about the product
+// itself), so the suggest_enhancement tool inserts rows directly
+// (audited) instead of queueing an AiProposal.
+//
+// `area` ("WEBSITE" | "MCP" | "AI") and `status` ("NEW" | "PLANNED" |
+// "DONE" | "DECLINED") are strings validated in zod, not DB enums —
+// the repo's habit for small unions that may grow without a migration
+// (BookWeddingPartyCell.status, BookSubsection.photoDisplay).
+model EnhancementSuggestion {
+  id          String    @id @default(cuid())
+  createdById String
+  createdBy   User      @relation(fields: [createdById], references: [id], onDelete: Cascade)
+  area        String
+  title       String
+  detail      String    @db.Text
+  status      String    @default("NEW")
+  createdAt   DateTime  @default(now())
+  // Stamped when the couple moves the row out of NEW (nulled if it
+  // ever goes back).
+  reviewedAt  DateTime?
+
+  @@index([status, createdAt])
 }

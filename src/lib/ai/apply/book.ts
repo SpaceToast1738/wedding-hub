@@ -24,27 +24,35 @@
 
 import { createHash } from "node:crypto";
 import { db } from "@/lib/db";
+// v2.8.0: call the session-free cores directly (not the "use server"
+// wrappers in book/actions.ts). Those wrappers run requireEdit → auth()
+// → redirect, which throws under a bearer-token MCP request that has no
+// Auth.js session; the cores take an explicit `user` instead. The
+// COUPLE_ONLY wall is re-asserted here via assertBookCardWritable.
+// Type-only SessionUser import — erased at compile time, so this module
+// stays off the @/auth graph (same convention as src/lib/core/*).
+import type { SessionUser } from "@/lib/actions";
 import {
-  createBookSection,
-  createBookSubsection,
-  updateBookSubsection,
-  setBookFieldValue,
-  saveRecipeCard,
-  addBookShot,
-  updateBookShot,
-  toggleBookShotCaptured,
-  saveOutfitCard,
-  saveBuildCard,
-  saveMenuCard,
-  saveBarCard,
-  saveSetupCard,
-  saveStayCard,
-  saveLodgingCard,
-  saveDressCodeCard,
-  saveWeddingPartyCardHeader,
-  createWeddingPartyMember,
-  createWeddingPartyItem,
-  setWeddingPartyCell,
+  createBookSectionCore,
+  createBookSubsectionCore,
+  updateBookSubsectionCore,
+  setBookFieldValueCore,
+  saveRecipeCardCore,
+  addBookShotCore,
+  updateBookShotCore,
+  toggleBookShotCapturedCore,
+  saveOutfitCardCore,
+  saveBuildCardCore,
+  saveMenuCardCore,
+  saveBarCardCore,
+  saveSetupCardCore,
+  saveStayCardCore,
+  saveLodgingCardCore,
+  saveDressCodeCardCore,
+  saveWeddingPartyCardHeaderCore,
+  createWeddingPartyMemberCore,
+  createWeddingPartyItemCore,
+  setWeddingPartyCellCore,
   type RecipeSavePayload,
   type OutfitSavePayload,
   type BuildSavePayload,
@@ -54,7 +62,7 @@ import {
   type StaySavePayload,
   type LodgingSavePayload,
   type DressCodeSavePayload,
-} from "@/app/(app)/book/actions";
+} from "@/lib/core/book";
 import {
   bookSectionCreateSchema,
   bookCardCreateSchema,
@@ -85,8 +93,6 @@ import {
 import { mergeChildren } from "@/lib/ai/proposals/merge-book-children";
 import { markdownToBookHtml } from "@/lib/ai/apply/markdown-to-book-html";
 
-type ApplyUser = { id: string; isCouple: boolean };
-
 const STALE_CARD =
   "The card changed since this was proposed — re-read and re-propose.";
 
@@ -112,7 +118,7 @@ async function assertCardKind(subsectionId: string, expected: string): Promise<v
 }
 
 export async function applyBookProposal(
-  user: ApplyUser,
+  user: SessionUser,
   kind: string,
   payload: unknown,
 ): Promise<{ id: string }> {
@@ -124,7 +130,7 @@ export async function applyBookProposal(
       const fd = new FormData();
       fd.append("title", p.title);
       if (p.subtitle != null) fd.append("subtitle", p.subtitle);
-      const created = await createBookSection(fd);
+      const created = await createBookSectionCore(user, fd);
       return { id: created.id };
     }
 
@@ -153,19 +159,17 @@ export async function applyBookProposal(
       // body is TEXT-only. The propose tool rejects body on other
       // kinds; if one slips through anyway we just never post it.
       if (p.kind === "TEXT" && p.body) fd.append("body", p.body);
-      const created = await createBookSubsection(fd);
+      const created = await createBookSubsectionCore(user, fd);
       return { id: created.id };
     }
 
     case "book.card.rename": {
       const p = bookCardRenameSchema.parse(payload);
       await assertBookCardWritable(user, p.subsectionId);
-      // Post ONLY title — updateBookSubsection leaves body/bodyHtml
-      // untouched when neither body field is present, so a rename is
-      // safe on all 13 kinds.
-      const fd = new FormData();
-      fd.append("title", p.title);
-      await updateBookSubsection(p.subsectionId, fd);
+      // Pass ONLY title — updateBookSubsectionCore leaves body/bodyHtml
+      // untouched when neither body field is present (they stay
+      // `undefined` in the input), so a rename is safe on all 13 kinds.
+      await updateBookSubsectionCore(user, p.subsectionId, { title: p.title });
       return { id: p.subsectionId };
     }
 
@@ -186,10 +190,10 @@ export async function applyBookProposal(
         .update(current.bodyHtml ?? "", "utf8")
         .digest("hex");
       if (liveHash !== p.baseBodyHash) throw new Error(STALE_CARD);
-      const fd = new FormData();
-      fd.append("title", current.title);
-      fd.append("bodyHtml", markdownToBookHtml(p.text));
-      await updateBookSubsection(p.subsectionId, fd);
+      await updateBookSubsectionCore(user, p.subsectionId, {
+        title: current.title,
+        bodyHtml: markdownToBookHtml(p.text),
+      });
       return { id: p.subsectionId };
     }
 
@@ -200,7 +204,7 @@ export async function applyBookProposal(
       // Single-key write into the Json bag — inherently merge-safe.
       // setBookFieldValue validates def ownership + type/required/
       // range server-side and returns a human message on refusal.
-      ensureOk(await setBookFieldValue(p.subsectionId, p.defId, p.value));
+      ensureOk(await setBookFieldValueCore(user, p.subsectionId, p.defId, p.value));
       return { id: p.subsectionId };
     }
 
@@ -247,7 +251,7 @@ export async function applyBookProposal(
         servingsBase: patchOrCurrent(p.servingsBase, recipe.servingsBase),
         steps,
       };
-      ensureOk(await saveRecipeCard(p.subsectionId, full));
+      ensureOk(await saveRecipeCardCore(user, p.subsectionId, full));
       return { id: p.subsectionId };
     }
 
@@ -270,7 +274,7 @@ export async function applyBookProposal(
       if (p.withWhom.length) fd.append("withWhom", p.withWhom.join(", "));
       if (p.location != null) fd.append("location", p.location);
       if (p.notes != null) fd.append("notes", p.notes);
-      ensureOk(await addBookShot(list.id, fd));
+      ensureOk(await addBookShotCore(user, list.id, fd));
       return { id: p.subsectionId };
     }
 
@@ -318,13 +322,13 @@ export async function applyBookProposal(
         if (location != null) fd.append("location", location);
         const notes = patchOrCurrent(p.notes, shot.notes);
         if (notes != null) fd.append("notes", notes);
-        ensureOk(await updateBookShot(p.shotId, fd));
+        ensureOk(await updateBookShotCore(user, p.shotId, fd));
       }
       // captured lives on its own action (it stamps capturedAt); only
       // call it when the value actually changes so an already-captured
       // shot doesn't get its timestamp rewritten.
       if (p.captured !== undefined && p.captured !== shot.captured) {
-        ensureOk(await toggleBookShotCaptured(p.shotId, p.captured));
+        ensureOk(await toggleBookShotCapturedCore(user, p.shotId, p.captured));
       }
       return { id: subsectionId };
     }
@@ -386,7 +390,7 @@ export async function applyBookProposal(
         notes: patchOrCurrent(p.notes, card.notes),
         items,
       };
-      ensureOk(await saveOutfitCard(p.subsectionId, full));
+      ensureOk(await saveOutfitCardCore(user, p.subsectionId, full));
       return { id: p.subsectionId };
     }
 
@@ -461,7 +465,7 @@ export async function applyBookProposal(
         notes: patchOrCurrent(p.notes, card.notes),
         materials,
       };
-      ensureOk(await saveBuildCard(p.subsectionId, full));
+      ensureOk(await saveBuildCardCore(user, p.subsectionId, full));
       return { id: p.subsectionId };
     }
 
@@ -580,7 +584,7 @@ export async function applyBookProposal(
         notes: patchOrCurrent(p.notes, card.notes),
         courses,
       };
-      ensureOk(await saveMenuCard(p.subsectionId, full));
+      ensureOk(await saveMenuCardCore(user, p.subsectionId, full));
       return { id: p.subsectionId };
     }
 
@@ -649,7 +653,7 @@ export async function applyBookProposal(
         notes: patchOrCurrent(p.notes, card.notes),
         items,
       };
-      ensureOk(await saveBarCard(p.subsectionId, full));
+      ensureOk(await saveBarCardCore(user, p.subsectionId, full));
       return { id: p.subsectionId };
     }
 
@@ -712,7 +716,7 @@ export async function applyBookProposal(
         notes: patchOrCurrent(p.notes, card.notes),
         items,
       };
-      ensureOk(await saveSetupCard(p.subsectionId, full));
+      ensureOk(await saveSetupCardCore(user, p.subsectionId, full));
       return { id: p.subsectionId };
     }
 
@@ -757,7 +761,7 @@ export async function applyBookProposal(
         guestIds: card.guestIds,
         notes: patchOrCurrent(p.notes, card.notes),
       };
-      ensureOk(await saveStayCard(p.subsectionId, full));
+      ensureOk(await saveStayCardCore(user, p.subsectionId, full));
       return { id: p.subsectionId };
     }
 
@@ -811,7 +815,7 @@ export async function applyBookProposal(
         notes: patchOrCurrent(p.notes, card.notes),
         items,
       };
-      ensureOk(await saveLodgingCard(p.subsectionId, full));
+      ensureOk(await saveLodgingCardCore(user, p.subsectionId, full));
       return { id: p.subsectionId };
     }
 
@@ -845,7 +849,7 @@ export async function applyBookProposal(
         weather: patchOrCurrent(p.weather, card.weather),
         accessories: patchOrCurrent(p.accessories, card.accessories),
       };
-      ensureOk(await saveDressCodeCard(p.subsectionId, full));
+      ensureOk(await saveDressCodeCardCore(user, p.subsectionId, full));
       return { id: p.subsectionId };
     }
 
@@ -882,7 +886,7 @@ export async function applyBookProposal(
       // NEED + empty notes deletes the sparse cell row inside the
       // action — that's its idempotent default state, not a failure.
       ensureOk(
-        await setWeddingPartyCell(p.memberId, p.itemId, {
+        await setWeddingPartyCellCore(user, p.memberId, p.itemId, {
           status: p.status,
           notes: p.notes ?? null,
         }),
@@ -902,7 +906,7 @@ export async function applyBookProposal(
           "This card has no wedding-party data — is it a WEDDING_PARTY card?",
         );
       }
-      const result = await createWeddingPartyMember(card.id, {
+      const result = await createWeddingPartyMemberCore(user, card.id, {
         name: p.name,
         role: p.role ?? null,
       });
@@ -922,7 +926,7 @@ export async function applyBookProposal(
           "This card has no wedding-party data — is it a WEDDING_PARTY card?",
         );
       }
-      const result = await createWeddingPartyItem(card.id, {
+      const result = await createWeddingPartyItemCore(user, card.id, {
         label: p.label,
         notes: p.notes ?? null,
       });
@@ -944,7 +948,7 @@ export async function applyBookProposal(
       }
       // Full-replace of both fields — carry whichever the patch omits.
       ensureOk(
-        await saveWeddingPartyCardHeader(p.subsectionId, {
+        await saveWeddingPartyCardHeaderCore(user, p.subsectionId, {
           groupLabel: patchOrCurrent(p.groupLabel, card.groupLabel),
           notes: patchOrCurrent(p.notes, card.notes),
         }),

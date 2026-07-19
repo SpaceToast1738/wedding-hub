@@ -5,6 +5,12 @@ import { z } from "zod";
 import { TableShape, Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { audit, requireEdit } from "@/lib/actions";
+// v2.8.0: assignGuestToSeat's body extracted to a session-free core so
+// the MCP self-apply path runs identical write logic without a browser
+// session. The wrapper keeps the requireEdit("seating") gate; the AI
+// apply path (src/lib/ai/apply/misc.ts) owns the occupancy/attending
+// refusals then gates canEdit(user, "seating") before calling the core.
+import { assignGuestToSeatCore } from "@/lib/core/misc";
 
 const tableSchema = z.object({
   name: z.string().min(1).max(100),
@@ -225,55 +231,11 @@ export async function updateTableCapacity(
 
 export async function assignGuestToSeat(seatId: string, guestId: string | null) {
   const user = await requireEdit("seating");
-  // B12 (v1.12.0): wrap clear-and-assign in a single transaction so two
-  // simultaneous drags can't both think they own the seat for a moment.
-  // The `Guest.tableSeatId` column has a unique constraint, so the
-  // *second* offender will fail noisily inside the transaction rather
-  // than producing a half-applied state. Either both updates land or
-  // neither.
-  if (guestId) {
-    await db.$transaction([
-      db.guest.updateMany({
-        where: { tableSeatId: seatId, NOT: { id: guestId } },
-        data: { tableSeatId: null },
-      }),
-      db.guest.update({ where: { id: guestId }, data: { tableSeatId: seatId } }),
-    ]);
-  } else {
-    await db.guest.updateMany({ where: { tableSeatId: seatId }, data: { tableSeatId: null } });
-  }
-  // v1.39.0: enrich the audit with guest + seat snapshot fields so
-  // the log reads as "Seated <Guest> at <Table> seat 3" rather than
-  // bare ids. We look up the guest's name + table info post-write
-  // because the relevant join wasn't loaded above.
-  let guestName: string | null = null;
-  let tableName: string | null = null;
-  let seatIndex: number | null = null;
-  const seat = await db.seat.findUnique({
-    where: { id: seatId },
-    include: { table: { select: { name: true } } },
-  });
-  tableName = seat?.table.name ?? null;
-  seatIndex = seat?.index ?? null;
-  if (guestId) {
-    const g = await db.guest.findUnique({
-      where: { id: guestId },
-      select: { firstName: true, lastName: true },
-    });
-    guestName = g ? [g.firstName, g.lastName].filter(Boolean).join(" ") : null;
-  }
-  await audit(user, {
-    action: guestId ? "assign" : "unassign",
-    entity: "Seat",
-    entityId: seatId,
-    metadata: {
-      guestId,
-      guestName,
-      tableName,
-      seatIndex,
-    },
-  });
-  revalidatePath("/seating");
+  // v2.8.0: body lives in assignGuestToSeatCore — the unique-constraint-
+  // safe clear-and-assign transaction, the post-write name/table
+  // snapshot for the audit row and the revalidation all happen there so
+  // the AI apply path shares one implementation.
+  await assignGuestToSeatCore(user, seatId, guestId);
 }
 
 // v1.23.0: per-table notes — free-form text. Empty string clears.

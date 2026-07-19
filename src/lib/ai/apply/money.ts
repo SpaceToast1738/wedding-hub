@@ -1,31 +1,39 @@
 // v2.4.0: apply bridges for budget + payment proposals — the ONLY
-// path through which AI proposals can touch money. Couple-only in
-// practice: the underlying actions gate requireEdit("budget") /
-// requireEdit("payments") on the session user.
+// path through which AI proposals can touch money. Couple-only: the
+// budget/payments sections are COUPLE_ONLY_SECTIONS, so the canEdit
+// gate below hard-denies every non-couple user — exactly what the
+// underlying actions' requireEdit("budget"/"payments") did.
 //
-// Unit discipline: payloads carry INTEGER PENCE; the budget/payment
-// actions parse POUND-STRINGS (parseAmount keeps pounds; parsePence
-// multiplies by 100). Every payload amount is formatted here as
-// (pence / 100).toFixed(2) so the silent NaN→null parser path and the
-// 100x-unit mistake are both unreachable. Values carried from the
-// live row are re-posted in the same format today's forms produce:
-// Decimal pound columns via .toString(), pence-int columns via the
-// same toFixed(2) division.
+// Unit discipline: payloads carry INTEGER PENCE; the money cores parse
+// POUND-STRINGS (parseAmount keeps pounds; parsePence multiplies by
+// 100). Every payload amount is formatted here as (pence / 100).toFixed(2)
+// so the silent NaN→null parser path and the 100x-unit mistake are both
+// unreachable. Values carried from the live row are re-formatted in the
+// same shape today's forms produce: Decimal pound columns via
+// .toString(), pence-int columns via the same toFixed(2) division.
 //
-// updateLine and updatePayment are full-record actions (omission
-// wipes) — their bridges post every field the parser reads,
-// patch-else-current. Fields the AI can never set (a line's actual +
-// paid, a payment's paidDate / fileIds / book links) always carry the
-// current values byte-identical.
+// updateLine and updatePayment are full-record cores (omission wipes) —
+// their bridges assemble every field the core writes, patch-else-current.
+// Fields the AI can never set (a line's actual + paid, a payment's
+// paidDate / fileIds / book links) always carry the current values
+// byte-identical.
+//
+// v2.8.0: was a FormData round-trip through the human server actions;
+// now assembles the core-input shape (the same Zod parse output those
+// actions produced from FormData) and calls the session-free cores in
+// @/lib/core/money directly, dropping the browser session the MCP
+// self-apply path doesn't have. The requireEdit gate each action ran is
+// re-asserted here via requireSectionEdit (canEdit + the same error
+// string). Throws on any failure so applyLoadedProposal's claim-rollback
+// fires.
 
 import { PaymentStatus } from "@prisma/client";
-import { createCategory, createLine, updateLine } from "@/app/(app)/budget/actions";
-import {
-  createPayment,
-  setPaymentStatus,
-  updatePayment,
-} from "@/app/(app)/payments/actions";
 import { db } from "@/lib/db";
+import { canEdit, type Section } from "@/lib/permissions";
+// Type-only import — erased at compile time, so this module never pulls
+// the @/auth graph into the MCP route bundle (same convention as
+// src/lib/core/*).
+import type { SessionUser } from "@/lib/actions";
 import {
   budgetCategoryCreateSchema,
   budgetLineCreateSchema,
@@ -35,53 +43,84 @@ import {
   paymentUpdateSchema,
 } from "@/lib/ai/proposals/schemas";
 import { patchOrCurrent } from "@/lib/ai/apply/common";
+import {
+  categoryInputSchema,
+  createCategoryCore,
+  createLineCore,
+  createPaymentCore,
+  lineInputSchema,
+  paymentInputSchema,
+  setPaymentStatusCore,
+  updateLineCore,
+  updatePaymentCore,
+} from "@/lib/core/money";
 
-/** Integer pence → the pound-string the actions' £ inputs post. */
+/** Session-free twin of requireEdit(section) — same error text, but
+ *  the user comes from the caller instead of the session (same helper
+ *  convention as src/lib/ai/apply/deletes.ts). budget/payments are
+ *  COUPLE_ONLY_SECTIONS, so canEdit denies every non-couple caller. */
+async function requireSectionEdit(user: SessionUser, section: Section): Promise<void> {
+  if (!(await canEdit(user, section))) {
+    throw new Error(`Forbidden: no edit access to ${section}`);
+  }
+}
+
+/** Integer pence → the pound-string the cores' £ parsers expect. */
 function penceToPounds(pence: number): string {
   return (pence / 100).toFixed(2);
 }
 
-async function applyBudgetCategoryCreate(payload: unknown): Promise<{ id: string }> {
+async function applyBudgetCategoryCreate(
+  user: SessionUser,
+  payload: unknown,
+): Promise<{ id: string }> {
   const parsed = budgetCategoryCreateSchema.parse(payload);
-  const fd = new FormData();
-  fd.append("name", parsed.name);
-  const result = await createCategory(fd);
+  await requireSectionEdit(user, "budget");
+  const result = await createCategoryCore(
+    user,
+    categoryInputSchema.parse({ name: parsed.name }),
+  );
   if (!result?.id) throw new Error("createCategory did not return an id.");
   return { id: result.id };
 }
 
-async function applyBudgetLineCreate(payload: unknown): Promise<{ id: string }> {
+async function applyBudgetLineCreate(
+  user: SessionUser,
+  payload: unknown,
+): Promise<{ id: string }> {
   const parsed = budgetLineCreateSchema.parse(payload);
-  const fd = new FormData();
-  fd.append("categoryId", parsed.categoryId);
-  fd.append("description", parsed.description);
-  // estimated goes through parseAmount (pounds); perHeadPence through
-  // parsePence (pounds → ×100) — both want pound-strings.
-  if (parsed.estimatedPence != null) {
-    fd.append("estimated", penceToPounds(parsed.estimatedPence));
-  }
-  if (parsed.supplierId) fd.append("supplierId", parsed.supplierId);
-  if (parsed.notes) fd.append("notes", parsed.notes);
-  if (parsed.perHeadPence != null) {
-    fd.append("perHeadPence", penceToPounds(parsed.perHeadPence));
-  }
-  if (parsed.headcountSource) fd.append("headcountSource", parsed.headcountSource);
-  if (parsed.manualHeadcount != null) {
-    fd.append("manualHeadcount", String(parsed.manualHeadcount));
-  }
-  if (parsed.minimumHeadcount != null) {
-    fd.append("minimumHeadcount", String(parsed.minimumHeadcount));
-  }
-  if (parsed.fundSource) fd.append("fundSource", parsed.fundSource);
-  if (parsed.fundLabel) fd.append("fundLabel", parsed.fundLabel);
-  // actual + paid deliberately never posted on create — a brand-new
-  // line has no spend recorded.
-  const result = await createLine(fd);
+  await requireSectionEdit(user, "budget");
+  // Assemble the same string shape lineSchema produced from FormData
+  // (`formData.get(x) || null`). estimated/perHeadPence go through
+  // parseAmount/parsePence in the core (pounds); manual/minimum
+  // headcount through parseInteger. actual + paid deliberately absent —
+  // a brand-new line has no spend recorded.
+  const result = await createLineCore(
+    user,
+    lineInputSchema.parse({
+      categoryId: parsed.categoryId,
+      description: parsed.description,
+      estimated: parsed.estimatedPence != null ? penceToPounds(parsed.estimatedPence) : null,
+      actual: null,
+      paid: null,
+      supplierId: parsed.supplierId || null,
+      notes: parsed.notes || null,
+      perHeadPence: parsed.perHeadPence != null ? penceToPounds(parsed.perHeadPence) : null,
+      headcountSource: parsed.headcountSource || null,
+      manualHeadcount: parsed.manualHeadcount != null ? String(parsed.manualHeadcount) : null,
+      minimumHeadcount: parsed.minimumHeadcount != null ? String(parsed.minimumHeadcount) : null,
+      fundSource: parsed.fundSource || null,
+      fundLabel: parsed.fundLabel || null,
+    }),
+  );
   if (!result?.id) throw new Error("createLine did not return an id.");
   return { id: result.id };
 }
 
-async function applyBudgetLineUpdate(payload: unknown): Promise<{ id: string }> {
+async function applyBudgetLineUpdate(
+  user: SessionUser,
+  payload: unknown,
+): Promise<{ id: string }> {
   const parsed = budgetLineUpdateSchema.parse(payload);
 
   const current = await db.budgetLine.findUnique({ where: { id: parsed.lineId } });
@@ -91,79 +130,89 @@ async function applyBudgetLineUpdate(payload: unknown): Promise<{ id: string }> 
     );
   }
 
-  const fd = new FormData();
   // categoryId is ALWAYS the current one — the payload has no such
   // field because a wrong category silently relocates the line.
-  fd.append("categoryId", current.categoryId);
-  fd.append(
-    "description",
-    parsed.description !== undefined ? parsed.description : current.description,
-  );
-
   const estimated =
     parsed.estimatedPence !== undefined
       ? parsed.estimatedPence === null
         ? null
         : penceToPounds(parsed.estimatedPence)
       : current.estimated?.toString() ?? null;
-  if (estimated) fd.append("estimated", estimated);
-
-  // actual + paid are NEVER AI-writable: always the current Decimal
-  // values as pound-strings, so a proposal can't pin or unpin the
-  // actual-override or fake recorded spend.
-  if (current.actual != null) fd.append("actual", current.actual.toString());
-  if (current.paid != null) fd.append("paid", current.paid.toString());
-
   const supplierId = patchOrCurrent(parsed.supplierId, current.supplierId);
-  if (supplierId) fd.append("supplierId", supplierId);
   const notes = patchOrCurrent(parsed.notes, current.notes);
-  if (notes) fd.append("notes", notes);
-
   const perHead =
     parsed.perHeadPence !== undefined ? parsed.perHeadPence : current.perHeadPence;
-  if (perHead != null) fd.append("perHeadPence", penceToPounds(perHead));
-
   const headcountSource = patchOrCurrent(parsed.headcountSource, current.headcountSource);
-  if (headcountSource) fd.append("headcountSource", headcountSource);
   const manualHeadcount = patchOrCurrent(parsed.manualHeadcount, current.manualHeadcount);
-  if (manualHeadcount != null) fd.append("manualHeadcount", String(manualHeadcount));
   const minimumHeadcount = patchOrCurrent(parsed.minimumHeadcount, current.minimumHeadcount);
-  if (minimumHeadcount != null) fd.append("minimumHeadcount", String(minimumHeadcount));
-
   const fundSource = patchOrCurrent(parsed.fundSource, current.fundSource);
-  if (fundSource) fd.append("fundSource", fundSource);
   const fundLabel = patchOrCurrent(parsed.fundLabel, current.fundLabel);
-  if (fundLabel) fd.append("fundLabel", fundLabel);
 
-  await updateLine(parsed.lineId, fd);
+  // Merge before the gate — same evaluation order as the old FormData
+  // bridge (which built the request before updateLine's requireEdit).
+  await requireSectionEdit(user, "budget");
+  await updateLineCore(
+    user,
+    parsed.lineId,
+    lineInputSchema.parse({
+      categoryId: current.categoryId,
+      description: parsed.description !== undefined ? parsed.description : current.description,
+      estimated: estimated || null,
+      // actual + paid are NEVER AI-writable: always the current Decimal
+      // values as pound-strings, so a proposal can't pin or unpin the
+      // actual-override or fake recorded spend.
+      actual: current.actual != null ? current.actual.toString() : null,
+      paid: current.paid != null ? current.paid.toString() : null,
+      supplierId: supplierId || null,
+      notes: notes || null,
+      perHeadPence: perHead != null ? penceToPounds(perHead) : null,
+      headcountSource: headcountSource || null,
+      manualHeadcount: manualHeadcount != null ? String(manualHeadcount) : null,
+      minimumHeadcount: minimumHeadcount != null ? String(minimumHeadcount) : null,
+      fundSource: fundSource || null,
+      fundLabel: fundLabel || null,
+    }),
+  );
   return { id: parsed.lineId };
 }
 
-async function applyPaymentCreate(payload: unknown): Promise<{ id: string }> {
+async function applyPaymentCreate(
+  user: SessionUser,
+  payload: unknown,
+): Promise<{ id: string }> {
   const parsed = paymentCreateSchema.parse(payload);
-  const fd = new FormData();
-  fd.append("description", parsed.description);
-  fd.append("amount", penceToPounds(parsed.amountPence));
-  fd.append("status", parsed.status);
-  if (parsed.dueDate) fd.append("dueDate", parsed.dueDate);
-  if (parsed.method) fd.append("method", parsed.method);
-  if (parsed.supplierId) fd.append("supplierId", parsed.supplierId);
-  if (parsed.budgetLineId) fd.append("budgetLineId", parsed.budgetLineId);
-  if (parsed.budgetLineComponentId) {
-    fd.append("budgetLineComponentId", parsed.budgetLineComponentId);
-  }
-  if (parsed.fundSource) fd.append("fundSource", parsed.fundSource);
-  if (parsed.fundLabel) fd.append("fundLabel", parsed.fundLabel);
-  if (parsed.notes) fd.append("notes", parsed.notes);
-  // Never posted: paidDate (payment.set_status stamps it), fileIds,
+  await requireSectionEdit(user, "payments");
+  // Never set: paidDate (payment.set_status stamps it), fileIds,
   // bookBuildMaterialId, bookOutfitId (receipts + book links are
   // human-only).
-  const result = await createPayment(fd);
+  const result = await createPaymentCore(
+    user,
+    paymentInputSchema.parse({
+      description: parsed.description,
+      amount: penceToPounds(parsed.amountPence),
+      status: parsed.status,
+      dueDate: parsed.dueDate || null,
+      paidDate: null,
+      method: parsed.method || null,
+      supplierId: parsed.supplierId || null,
+      notes: parsed.notes || null,
+      fileIds: [],
+      bookBuildMaterialId: null,
+      bookOutfitId: null,
+      budgetLineId: parsed.budgetLineId || null,
+      budgetLineComponentId: parsed.budgetLineComponentId || null,
+      fundSource: parsed.fundSource || null,
+      fundLabel: parsed.fundLabel || null,
+    }),
+  );
   if (!result?.id) throw new Error("createPayment did not return an id.");
   return { id: result.id };
 }
 
-async function applyPaymentUpdate(payload: unknown): Promise<{ id: string }> {
+async function applyPaymentUpdate(
+  user: SessionUser,
+  payload: unknown,
+): Promise<{ id: string }> {
   const parsed = paymentUpdateSchema.parse(payload);
 
   const current = await db.payment.findUnique({ where: { id: parsed.paymentId } });
@@ -173,56 +222,29 @@ async function applyPaymentUpdate(payload: unknown): Promise<{ id: string }> {
     );
   }
 
-  const fd = new FormData();
-  fd.append(
-    "description",
-    parsed.description !== undefined ? parsed.description : current.description,
-  );
-  // current.amount is a pound-Decimal — .toString() round-trips
-  // byte-identical through parseAmount.
-  fd.append(
-    "amount",
-    parsed.amountPence !== undefined
-      ? penceToPounds(parsed.amountPence)
-      : current.amount.toString(),
-  );
   const nextStatus = parsed.status ?? current.status;
-  fd.append("status", nextStatus);
 
   const dueDate =
     parsed.dueDate !== undefined
       ? parsed.dueDate
       : current.dueDate?.toISOString() ?? null;
-  if (dueDate) fd.append("dueDate", dueDate);
 
-  // paidDate is never in the payload but `formData.get("paidDate") ||
-  // null` wipes it on omission. Mirror setPaymentStatus's semantics
-  // when the STATUS is changing (PAID stamps today, off-PAID clears);
-  // otherwise carry the current stamp verbatim — a status-neutral edit
-  // must never touch the recorded paid date.
+  // paidDate is never in the payload. Mirror setPaymentStatus's
+  // semantics when the STATUS is changing (PAID stamps today, off-PAID
+  // clears); otherwise carry the current stamp verbatim — a
+  // status-neutral edit must never touch the recorded paid date.
+  let paidDate: string | null = null;
   if (nextStatus !== current.status) {
-    if (nextStatus === "PAID") fd.append("paidDate", new Date().toISOString());
-    // moving off PAID: omit → updatePayment nulls it, matching the
+    if (nextStatus === "PAID") paidDate = new Date().toISOString();
+    // moving off PAID: leave null → the core nulls it, matching the
     // canonical status-flip path.
   } else if (current.paidDate) {
-    fd.append("paidDate", current.paidDate.toISOString());
+    paidDate = current.paidDate.toISOString();
   }
 
   const method = patchOrCurrent(parsed.method, current.method);
-  if (method) fd.append("method", method);
   const supplierId = patchOrCurrent(parsed.supplierId, current.supplierId);
-  if (supplierId) fd.append("supplierId", supplierId);
   const notes = patchOrCurrent(parsed.notes, current.notes);
-  if (notes) fd.append("notes", notes);
-
-  // Receipts: readFileIds treats omission as [] and REPLACES the
-  // array — re-append every current entry, byte-identical, in order.
-  for (const fileId of current.fileIds) fd.append("fileIds", fileId);
-  // Book links are human-only; omission would null them.
-  if (current.bookBuildMaterialId) {
-    fd.append("bookBuildMaterialId", current.bookBuildMaterialId);
-  }
-  if (current.bookOutfitId) fd.append("bookOutfitId", current.bookOutfitId);
 
   let budgetLineId = patchOrCurrent(parsed.budgetLineId, current.budgetLineId);
   let budgetLineComponentId = patchOrCurrent(
@@ -230,9 +252,9 @@ async function applyPaymentUpdate(payload: unknown): Promise<{ id: string }> {
     current.budgetLineComponentId,
   );
   // Keep the pair CONSISTENT after the independent per-field merge —
-  // updatePayment's parent-line resolver only fires when the posted
-  // lineId is empty, so it would happily persist a component that
-  // belongs to a different line than the posted one.
+  // the core's parent-line resolver only fires when the posted lineId
+  // is empty, so it would happily persist a component that belongs to a
+  // different line than the posted one.
   if (parsed.budgetLineId === null && parsed.budgetLineComponentId === undefined) {
     // "null detaches from the budget" — dropping only the line while a
     // component link survives would make the resolver silently re-fill
@@ -254,46 +276,75 @@ async function applyPaymentUpdate(payload: unknown): Promise<{ id: string }> {
     }
     budgetLineId = component.lineId;
   }
-  if (budgetLineId) fd.append("budgetLineId", budgetLineId);
-  if (budgetLineComponentId) {
-    fd.append("budgetLineComponentId", budgetLineComponentId);
-  }
 
   const fundSource = patchOrCurrent(parsed.fundSource, current.fundSource);
-  if (fundSource) fd.append("fundSource", fundSource);
   const fundLabel = patchOrCurrent(parsed.fundLabel, current.fundLabel);
-  if (fundLabel) fd.append("fundLabel", fundLabel);
 
-  await updatePayment(parsed.paymentId, fd);
+  // Merge before the gate — same evaluation order as the old FormData
+  // bridge (which built the request before updatePayment's requireEdit).
+  await requireSectionEdit(user, "payments");
+  await updatePaymentCore(
+    user,
+    parsed.paymentId,
+    paymentInputSchema.parse({
+      description: parsed.description !== undefined ? parsed.description : current.description,
+      // current.amount is a pound-Decimal — .toString() round-trips
+      // byte-identical through parseAmount.
+      amount:
+        parsed.amountPence !== undefined
+          ? penceToPounds(parsed.amountPence)
+          : current.amount.toString(),
+      status: nextStatus,
+      dueDate: dueDate || null,
+      paidDate,
+      method: method || null,
+      supplierId: supplierId || null,
+      notes: notes || null,
+      // Receipts: the core treats the array as a full replace — re-post
+      // every current entry, byte-identical, in order.
+      fileIds: current.fileIds,
+      // Book links are human-only; omission would null them.
+      bookBuildMaterialId: current.bookBuildMaterialId || null,
+      bookOutfitId: current.bookOutfitId || null,
+      budgetLineId: budgetLineId || null,
+      budgetLineComponentId: budgetLineComponentId || null,
+      fundSource: fundSource || null,
+      fundLabel: fundLabel || null,
+    }),
+  );
   return { id: parsed.paymentId };
 }
 
-async function applyPaymentSetStatus(payload: unknown): Promise<{ id: string }> {
+async function applyPaymentSetStatus(
+  user: SessionUser,
+  payload: unknown,
+): Promise<{ id: string }> {
   const parsed = paymentSetStatusSchema.parse(payload);
-  // The action itself stamps paidDate = today on PAID and clears it
-  // when moving off PAID — the review card says so.
-  await setPaymentStatus(parsed.paymentId, parsed.status as PaymentStatus);
+  await requireSectionEdit(user, "payments");
+  // The core stamps paidDate = today on PAID and clears it when moving
+  // off PAID — the review card says so.
+  await setPaymentStatusCore(user, parsed.paymentId, parsed.status as PaymentStatus);
   return { id: parsed.paymentId };
 }
 
 export async function applyMoneyProposal(
-  _user: { id: string; isCouple: boolean },
+  user: SessionUser,
   kind: string,
   payload: unknown,
 ): Promise<{ id: string }> {
   switch (kind) {
     case "budget.category.create":
-      return applyBudgetCategoryCreate(payload);
+      return applyBudgetCategoryCreate(user, payload);
     case "budget.line.create":
-      return applyBudgetLineCreate(payload);
+      return applyBudgetLineCreate(user, payload);
     case "budget.line.update":
-      return applyBudgetLineUpdate(payload);
+      return applyBudgetLineUpdate(user, payload);
     case "payment.create":
-      return applyPaymentCreate(payload);
+      return applyPaymentCreate(user, payload);
     case "payment.update":
-      return applyPaymentUpdate(payload);
+      return applyPaymentUpdate(user, payload);
     case "payment.set_status":
-      return applyPaymentSetStatus(payload);
+      return applyPaymentSetStatus(user, payload);
     default:
       throw new Error(`Unknown money proposal kind: ${kind}`);
   }

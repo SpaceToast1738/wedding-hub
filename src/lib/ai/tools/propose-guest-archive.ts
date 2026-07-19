@@ -5,8 +5,9 @@ import { takeProposalSlots } from "./propose-common";
 import type { AiTool } from "./types";
 
 // Bridges to deleteGuest — a SOFT archive, reversible from the guest
-// list. Hard deletion (hardDeleteGuest) is couple-only and never
-// exposed to the AI.
+// list. Hard deletion exists as propose_guest_hard_delete since
+// v2.8.0 (couple-only, snapshot-backed) — but THIS tool stays the
+// right default; the hard-delete description says so too.
 const inputSchema = z.object({
   guestId: z
     .string()
