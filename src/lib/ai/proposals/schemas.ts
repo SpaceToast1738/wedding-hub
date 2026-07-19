@@ -70,6 +70,18 @@ export const PROPOSAL_KINDS = [
   "book.section.delete",
   "song.remove",
   "seating.table.delete",
+  // v2.8.1 (Tier 2): additive write kinds. guest.move_household, the
+  // seat/table editors, song-request assignment, supplier contract
+  // records, and budget-line components. No migrations, no deletes.
+  "guest.move_household",
+  "seat.unassign",
+  "seat.swap",
+  "seating.table.create",
+  "seating.table.update",
+  "song_request.assign",
+  "supplier.contract_update",
+  "budget.component_create",
+  "budget.component_update",
 ] as const;
 export type ProposalKind = (typeof PROPOSAL_KINDS)[number];
 
@@ -716,6 +728,15 @@ export const guestUpdateSchema = z.object({
   plusOneName: nullable(z.string().max(200)),
   role: nullable(z.string().max(80)),
   dietary: nullable(z.string().max(500)),
+  // v2.8.1: per-course meal choices. Nullable so the AI can clear one.
+  // CRITICAL wipe hazard: the human createGuest/updateGuest FormData
+  // path never posts these keys — updateGuestCore must write them ONLY
+  // when defined, or a plain form save would blank an AI-set meal.
+  // (Enforced in core/guests.ts — the AI apply path always defines
+  // them via patch-or-current, the form path leaves them untouched.)
+  mealStarter: nullable(z.string().max(200)),
+  mealMain: nullable(z.string().max(200)),
+  mealDessert: nullable(z.string().max(200)),
   notes: nullable(z.string().max(2000)),
 });
 export type GuestUpdatePayload = z.infer<typeof guestUpdateSchema>;
@@ -825,15 +846,24 @@ export const paymentUpdateSchema = z.object({
   description: z.string().min(1).max(200).optional(),
   amountPence: z.number().int().min(1).max(100_000_000).optional(),
   status: z.enum(PAYMENT_STATUSES).optional(),
+  // v2.8.1: explicit paid-date override. A YYYY-MM-DD string sets it,
+  // null clears it, undefined defers to the status-transition default
+  // in the apply bridge (explicit date wins over the status default).
+  // Deliberately NOT in the shared paymentFields (so paymentCreate
+  // doesn't inherit it) — only update + set_status carry paidDate.
+  paidDate: nullable(z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD")),
   ...paymentFields,
 });
 export type PaymentUpdatePayload = z.infer<typeof paymentUpdateSchema>;
 
-/** Marking PAID stamps today's date; moving off PAID clears the
- *  recorded paid date — the review card says so. */
+/** Marking PAID stamps a paid date; moving off PAID clears it. The
+ *  review card says so. v2.8.1: an optional explicit `paidDate` is
+ *  recorded instead of today when marking PAID (null clears, undefined
+ *  = default: today on PAID, cleared off PAID). */
 export const paymentSetStatusSchema = z.object({
   paymentId: cid,
   status: z.enum(PAYMENT_STATUSES),
+  paidDate: nullable(z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD")),
 });
 export type PaymentSetStatusPayload = z.infer<typeof paymentSetStatusSchema>;
 
@@ -964,6 +994,140 @@ export const seatingTableDeleteSchema = z.object({
 });
 export type SeatingTableDeletePayload = z.infer<typeof seatingTableDeleteSchema>;
 
+// ─── v2.8.1 (Tier 2): additive write kinds ──────────────────────────
+//
+// New, non-destructive write surfaces. All follow the same apply-time
+// conventions as the v2.4.0 kinds above: `undefined` keeps the current
+// value, `null` clears a nullable column, and no money field is
+// AI-writable outside the budget.*/payment.* couple-only path. Pence
+// values are written directly (no £-string round-trip).
+
+/** Move a guest into a different household. Genuinely new — the guest
+ *  form has no household picker, so no human mutator moves households.
+ *  The apply path re-syncs the guest's +1 into the destination.
+ *  `targetLabel` is display-only (the destination household's name at
+ *  propose time) so the review card can name where the guest lands;
+ *  apply moves by id only. */
+export const guestMoveHouseholdSchema = z.object({
+  guestId: cid,
+  householdId: cid,
+  targetLabel: z.string().max(200).optional(),
+});
+export type GuestMoveHouseholdPayload = z.infer<typeof guestMoveHouseholdSchema>;
+
+/** Clear a seat — unseat whoever is sitting there. The propose tool
+ *  refuses an already-empty seat; apply calls the core with a null
+ *  guest. No third guest is ever displaced. */
+export const seatUnassignSchema = z.object({
+  seatId: cid,
+});
+export type SeatUnassignPayload = z.infer<typeof seatUnassignSchema>;
+
+/** Swap the occupants of two seats at the SAME table. Both guests
+ *  exchange places in one transaction — never evicts a bystander. The
+ *  propose tool refuses cross-table, identical or both-empty pairs. */
+export const seatSwapSchema = z.object({
+  seatId1: cid,
+  seatId2: cid,
+});
+export type SeatSwapPayload = z.infer<typeof seatSwapSchema>;
+
+/** TableShape enum values re-declared as strings (this module keeps a
+ *  zero-Prisma dependency; a drift test catches an upstream rename). */
+export const TABLE_SHAPES = ["ROUND", "RECTANGLE", "HEAD"] as const;
+
+/** Create a seating table with `capacity` empty seats. The grid
+ *  position is auto-computed at apply time (nextGridPosition), so the
+ *  payload never carries coordinates. Unlike seating.table.update,
+ *  name + shape ARE here — you can't create a table without them. */
+export const seatingTableCreateSchema = z.object({
+  name: z.string().min(1).max(100),
+  shape: z.enum(TABLE_SHAPES).default("ROUND"),
+  capacity: z.number().int().min(1).max(40),
+});
+export type SeatingTableCreatePayload = z.infer<typeof seatingTableCreateSchema>;
+
+/** Update a table's capacity, grid position or notes. Name and shape
+ *  are intentionally absent — no clean human mutator exists for them
+ *  yet (deferred). Shrinking capacity below the seated count is
+ *  refused at apply (no silent eviction). posX/posY must be supplied
+ *  together — a lone coordinate can't describe a move; rotation is an
+ *  optional companion to a position change. */
+export const seatingTableUpdateSchema = z
+  .object({
+    tableId: cid,
+    capacity: z.number().int().min(1).max(40).optional(),
+    posX: z.number().min(0).max(5000).optional(),
+    posY: z.number().min(0).max(5000).optional(),
+    rotation: z.number().min(-360).max(720).optional(),
+    notes: nullable(z.string().max(2000)),
+  })
+  .refine((v) => (v.posX === undefined) === (v.posY === undefined), {
+    message: "posX and posY must be provided together.",
+    path: ["posX"],
+  });
+export type SeatingTableUpdatePayload = z.infer<typeof seatingTableUpdateSchema>;
+
+/** Assign a pending guest song request to a playlist — claims the
+ *  request and creates the corresponding song in one atomic
+ *  transaction. The propose tool verifies the request is still
+ *  unassigned and the target playlist isn't a block-list. */
+export const songRequestAssignSchema = z.object({
+  requestId: cid,
+  playlistId: cid,
+});
+export type SongRequestAssignPayload = z.infer<typeof songRequestAssignSchema>;
+
+/** Record a supplier contract. Deliberately carries NO amount — money
+ *  stays off the AI write surface (read_suppliers only exposes a
+ *  hasAmount flag), so the apply path always writes amount:null.
+ *  `signedAt` defaults to now when `signed` is true and no date is
+ *  given; an unknown `fileId` is dropped at apply (FK-safe). */
+export const supplierContractUpdateSchema = z.object({
+  supplierId: cid,
+  signed: z.boolean().default(false),
+  signedAt: nullable(z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD")),
+  notes: nullable(z.string().max(2000)),
+  fileId: nullable(cid),
+});
+export type SupplierContractUpdatePayload = z.infer<typeof supplierContractUpdateSchema>;
+
+// Shared component fields — caps mirror budgetLineFields so an AI
+// payload that validates here always survives the human componentSchema
+// at apply (which is looser: min(0) with no upper bound). A component
+// is flat OR per-head; the editor enforces exclusivity in the UI but
+// the server keeps both nullable, so this schema does too.
+const budgetComponentFields = {
+  flatPence: nullable(z.number().int().min(0).max(100_000_000)),
+  perHeadPence: nullable(z.number().int().min(0).max(100_000_000)),
+  headcountSource: nullable(z.enum(PER_HEAD_SOURCES)),
+  manualHeadcount: nullable(z.number().int().min(0).max(10_000)),
+  minimumHeadcount: nullable(z.number().int().min(0).max(10_000)),
+  notes: nullable(z.string().max(2000)),
+  fundSource: nullable(z.enum(FUND_SOURCES)),
+  fundLabel: nullable(z.string().max(120)),
+};
+
+/** Create a sub-cost component on a budget line. Pence values written
+ *  directly. Couple-only at apply via requireSectionEdit("budget"). */
+export const budgetComponentCreateSchema = z.object({
+  lineId: cid,
+  label: z.string().min(1).max(200),
+  ...budgetComponentFields,
+});
+export type BudgetComponentCreatePayload = z.infer<typeof budgetComponentCreateSchema>;
+
+/** Full-record update of a component. No `lineId` — a wrong line would
+ *  silently relocate the component (same guard as budget.line.update's
+ *  missing categoryId). The apply bridge loads the current row and
+ *  carries every field the payload omits. */
+export const budgetComponentUpdateSchema = z.object({
+  componentId: cid,
+  label: z.string().min(1).max(200).optional(),
+  ...budgetComponentFields,
+});
+export type BudgetComponentUpdatePayload = z.infer<typeof budgetComponentUpdateSchema>;
+
 export function schemaForKind(kind: string): z.ZodTypeAny | null {
   switch (kind) {
     case "task.create":
@@ -1078,6 +1242,25 @@ export function schemaForKind(kind: string): z.ZodTypeAny | null {
       return songRemoveSchema;
     case "seating.table.delete":
       return seatingTableDeleteSchema;
+    // v2.8.1
+    case "guest.move_household":
+      return guestMoveHouseholdSchema;
+    case "seat.unassign":
+      return seatUnassignSchema;
+    case "seat.swap":
+      return seatSwapSchema;
+    case "seating.table.create":
+      return seatingTableCreateSchema;
+    case "seating.table.update":
+      return seatingTableUpdateSchema;
+    case "song_request.assign":
+      return songRequestAssignSchema;
+    case "supplier.contract_update":
+      return supplierContractUpdateSchema;
+    case "budget.component_create":
+      return budgetComponentCreateSchema;
+    case "budget.component_update":
+      return budgetComponentUpdateSchema;
     default:
       return null;
   }
@@ -1199,6 +1382,25 @@ export function humanLabel(kind: ProposalKind): string {
       return "Remove song";
     case "seating.table.delete":
       return "Delete seating table";
+    // v2.8.1
+    case "guest.move_household":
+      return "Move guest to household";
+    case "seat.unassign":
+      return "Unseat a guest";
+    case "seat.swap":
+      return "Swap two seats";
+    case "seating.table.create":
+      return "New seating table";
+    case "seating.table.update":
+      return "Update seating table";
+    case "song_request.assign":
+      return "Assign song request";
+    case "supplier.contract_update":
+      return "Record supplier contract";
+    case "budget.component_create":
+      return "New budget component";
+    case "budget.component_update":
+      return "Update budget component";
   }
 }
 
@@ -1327,6 +1529,9 @@ export function summariseProposal(kind: string, payload: unknown): string {
         "plusOneName",
         "role",
         "dietary",
+        "mealStarter",
+        "mealMain",
+        "mealDessert",
         "notes",
       ]),
     );
@@ -1511,6 +1716,8 @@ export function summariseProposal(kind: string, payload: unknown): string {
     if (typeof p.amountPence === "number")
       bits.push(`amount → £${(p.amountPence / 100).toFixed(2)}`);
     if (p.status !== undefined) bits.push(`status → ${str(p.status)}`);
+    if (str(p.paidDate)) bits.push(`paid date → ${p.paidDate}`);
+    else if (p.paidDate === null) bits.push("clears paid date");
     for (const k of [
       "dueDate",
       "method",
@@ -1527,9 +1734,11 @@ export function summariseProposal(kind: string, payload: unknown): string {
   }
   if (kind === "payment.set_status") {
     const s = str(p.status) ?? "?";
-    return s === "PAID"
-      ? "Status → PAID (stamps today as the paid date)"
-      : `Status → ${s}`;
+    if (s !== "PAID") return `Status → ${s}`;
+    const paid = str(p.paidDate);
+    return paid
+      ? `Status → PAID (paid ${paid})`
+      : "Status → PAID (stamps today as the paid date)";
   }
   if (kind === "question.answer") {
     return `${clip(p.answer, 100)} (marks the question Done)`;
@@ -1543,6 +1752,69 @@ export function summariseProposal(kind: string, payload: unknown): string {
     return `${field} → ${clip(p.value, 60)}`;
   }
   if (kind === "seat.assign") return "Seat a guest at a specific seat";
+
+  // v2.8.1: additive write kinds.
+  if (kind === "guest.move_household") {
+    const label = str(p.targetLabel);
+    return label ? `Move to household "${clip(label, 60)}"` : "Move to another household";
+  }
+  if (kind === "seat.unassign") return "Unseat the guest at this seat";
+  if (kind === "seat.swap") return "Swap the occupants of two seats (same table)";
+  if (kind === "seating.table.create") {
+    const name = clip(p.name, 60) || "(unnamed)";
+    const cap = typeof p.capacity === "number" ? ` · ${p.capacity} seats` : "";
+    const shape = str(p.shape) ? ` · ${p.shape}` : "";
+    return `${name}${cap}${shape}`;
+  }
+  if (kind === "seating.table.update") {
+    const bits: string[] = [];
+    if (typeof p.capacity === "number") bits.push(`capacity → ${p.capacity}`);
+    if (typeof p.posX === "number" && typeof p.posY === "number") bits.push("moves the table");
+    if (typeof p.rotation === "number") bits.push(`rotation → ${p.rotation}°`);
+    if (p.notes !== undefined) bits.push(p.notes === null ? "clears notes" : "sets notes");
+    return bits.join(", ") || "small tweak";
+  }
+  if (kind === "song_request.assign") {
+    return "Assign a guest song request to a playlist";
+  }
+  if (kind === "supplier.contract_update") {
+    const bits: string[] = [];
+    bits.push(p.signed ? "marks the contract signed" : "records a contract (unsigned)");
+    if (str(p.signedAt)) bits.push(`signed ${p.signedAt}`);
+    if (p.fileId !== undefined && p.fileId !== null) bits.push("attaches a file");
+    if (str(p.notes)) bits.push("with notes");
+    return bits.join(" · ");
+  }
+  if (kind === "budget.component_create") {
+    const label = clip(p.label, 60) || "(unlabelled)";
+    const flat =
+      typeof p.flatPence === "number" ? ` · £${(p.flatPence / 100).toFixed(2)}` : "";
+    const perHead =
+      typeof p.perHeadPence === "number"
+        ? ` · £${(p.perHeadPence / 100).toFixed(2)}/head`
+        : "";
+    return `${label}${flat}${perHead}`;
+  }
+  if (kind === "budget.component_update") {
+    const bits: string[] = [];
+    if (p.label !== undefined) bits.push(`label → "${clip(p.label, 40)}"`);
+    if (typeof p.flatPence === "number") bits.push(`flat → £${(p.flatPence / 100).toFixed(2)}`);
+    if (p.flatPence === null) bits.push("clears flat");
+    if (typeof p.perHeadPence === "number")
+      bits.push(`per-head → £${(p.perHeadPence / 100).toFixed(2)}`);
+    if (p.perHeadPence === null) bits.push("clears per-head");
+    for (const k of [
+      "headcountSource",
+      "manualHeadcount",
+      "minimumHeadcount",
+      "notes",
+      "fundSource",
+      "fundLabel",
+    ]) {
+      if (p[k] !== undefined) bits.push(`sets ${k}`);
+    }
+    return bits.join(", ") || "small tweak";
+  }
 
   // v2.8.0: destructive kinds. One shared shape so no delete can ever
   // read as routine in the review list: names the target (from the

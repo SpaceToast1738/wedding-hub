@@ -67,6 +67,15 @@ export const guestInputSchema = z.object({
   plusOneName: z.string().max(200).optional().nullable(),
   role: z.string().max(100).optional().nullable(),
   dietary: z.string().optional().nullable(),
+  // v2.8.1: per-course meal choices. OPTIONAL (not just nullable) is
+  // load-bearing: the human createGuest/updateGuest FormData path never
+  // posts these keys, so they parse as `undefined` and updateGuestCore
+  // leaves the CSV-imported meal choices untouched (see the wipe-hazard
+  // note there). The AI apply path always defines all three via
+  // patch-or-current, so an AI guest.update writes them.
+  mealStarter: z.string().max(200).optional().nullable(),
+  mealMain: z.string().max(200).optional().nullable(),
+  mealDessert: z.string().max(200).optional().nullable(),
   notes: z.string().max(2000).optional().nullable(),
 });
 export type GuestInput = z.infer<typeof guestInputSchema>;
@@ -241,6 +250,12 @@ export async function updateGuestCore(
       plusOneName: true,
       role: true,
       dietary: true,
+      // v2.8.1: pull the current meal choices so diffEditedFields can
+      // compare an AI-supplied meal patch against them (otherwise an
+      // unchanged AI meal value would read as a fresh edit).
+      mealStarter: true,
+      mealMain: true,
+      mealDessert: true,
       notes: true,
       lastEditedFields: true,
     },
@@ -264,14 +279,34 @@ export async function updateGuestCore(
     dietary: readDietary(parsed.dietary ?? null),
     notes: parsed.notes ?? null,
   };
+  // v2.8.1 (CRITICAL wipe hazard): meal fields are written ONLY when
+  // the parse defined them. The human createGuest/updateGuest FormData
+  // path omits the meal keys entirely, so they parse as `undefined` and
+  // never appear in this patch — a plain guest save leaves the
+  // CSV-imported meal choices intact. The AI apply path (applyGuestUpdate)
+  // always defines all three via patch-or-current, so an AI edit writes
+  // them. Writing them unconditionally in nextValues would blank a meal
+  // on every form save.
+  const mealPatch: {
+    mealStarter?: string | null;
+    mealMain?: string | null;
+    mealDessert?: string | null;
+  } = {};
+  if (parsed.mealStarter !== undefined) mealPatch.mealStarter = parsed.mealStarter;
+  if (parsed.mealMain !== undefined) mealPatch.mealMain = parsed.mealMain;
+  if (parsed.mealDessert !== undefined) mealPatch.mealDessert = parsed.mealDessert;
+
   // C4 (v1.14.0): record per-field manual-edit timestamps so the CSV
-  // import preview can warn before overwriting a recent edit.
+  // import preview can warn before overwriting a recent edit. Diff the
+  // meal patch too (only the fields actually being written) so an AI
+  // meal change is stamped like any other edit.
+  const diffTarget = { ...nextValues, ...mealPatch };
   const changed = existing
     ? diffEditedFields(
         existing as Record<string, unknown>,
-        nextValues as Record<string, unknown>,
+        diffTarget as Record<string, unknown>,
       )
-    : Object.keys(nextValues);
+    : Object.keys(diffTarget);
   const lastEditedFields =
     changed.length > 0
       ? mergeEditedFields(
@@ -284,6 +319,7 @@ export async function updateGuestCore(
     where: { id },
     data: {
       ...nextValues,
+      ...mealPatch,
       ...(lastEditedFields !== undefined && { lastEditedFields }),
     },
   });
@@ -428,4 +464,48 @@ export async function updateHouseholdCore(
     metadata: { name: next.name, changedFields },
   });
   revalidatePath("/guests");
+}
+
+// v2.8.1: move a guest into a different household. Genuinely new —
+// the guest form has no household picker, so no human mutator moves
+// households; this core exists purely for the AI apply path (its
+// caller, applyGuestMoveHousehold, owns the guests-EDIT gate + the
+// archived / +1 / already-in-target refusals). Writing householdId
+// then re-running syncPlusOne carries the guest's materialised +1 into
+// the same household (decidePlusOneAction's update branch copies the
+// host's householdId onto the child), so the household never ends up
+// with a split couple.
+export async function moveGuestHouseholdCore(
+  user: SessionUser,
+  guestId: string,
+  householdId: string,
+): Promise<void> {
+  // Snapshot name + origin for the audit before the write.
+  const [guest, household] = await Promise.all([
+    db.guest.findUnique({
+      where: { id: guestId },
+      select: { firstName: true, lastName: true, householdId: true },
+    }),
+    db.household.findUnique({
+      where: { id: householdId },
+      select: { name: true },
+    }),
+  ]);
+  await db.guest.update({ where: { id: guestId }, data: { householdId } });
+  await syncPlusOne(guestId);
+  await logAudit({
+    userId: user.id,
+    action: "move_household",
+    entity: "Guest",
+    entityId: guestId,
+    metadata: {
+      firstName: guest?.firstName ?? null,
+      lastName: guest?.lastName ?? null,
+      fromHouseholdId: guest?.householdId ?? null,
+      toHouseholdId: householdId,
+      toHouseholdName: household?.name ?? null,
+    },
+  });
+  revalidatePath("/guests");
+  revalidatePath("/");
 }

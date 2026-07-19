@@ -10,6 +10,7 @@ import {
   type RsvpRow,
   type TaskRow,
 } from "@/lib/nudge-digest";
+import { getDigestPreviewCore } from "@/lib/core/nudge";
 import { formatWeddingDate, getWeddingSettings } from "@/lib/wedding-settings";
 
 // v1.25.0: nudge digest emails. Sent to the couple + planners (admin-
@@ -28,69 +29,20 @@ export type SendResult =
   | { ok: true; sentTo: string[]; included: number }
   | { ok: false; error: string };
 
-export type DigestPreview = {
-  rsvp: { count: number; firstFew: { id: string; name: string }[] };
-  tasks: {
-    count: number;
-    firstFew: { id: string; title: string; dueDate: Date | null }[];
-  };
-};
+// v2.8.1: the preview shape + read logic moved to src/lib/core/nudge.ts
+// (session-free) so the couple-only read_nudge_preview AI tool can reuse
+// it without pulling next-auth into the tool-registry graph. Re-exported
+// here so existing importers (NudgesPanel) keep their import path.
+export type { DigestPreview } from "@/lib/core/nudge";
 
 // Fetches the current digest preview — used by the Settings panel to
 // show how many items would be included before the user clicks send.
-// Pure read, couple-only.
-export async function getDigestPreview(): Promise<DigestPreview> {
+// Pure read, couple-only. Thin wrapper: gate here, delegate the read to
+// the extracted core.
+export async function getDigestPreview() {
   const user = await requireUser();
   if (!user.isCouple) throw new Error("Forbidden: couple-only");
-  const now = new Date();
-
-  const [guestsRaw, tasksRaw] = await Promise.all([
-    db.guest.findMany({
-      select: {
-        id: true,
-        firstName: true,
-        lastName: true,
-        rsvp: true,
-        archived: true,
-        lastNudgedAt: true,
-        parentGuestId: true,
-      },
-    }),
-    db.task.findMany({
-      select: {
-        id: true,
-        title: true,
-        status: true,
-        priority: true,
-        assignees: { select: { id: true } },
-        dueDate: true,
-        type: true,
-        lastNudgedAt: true,
-      },
-    }),
-  ]);
-
-  const rsvpEligible = decideUnconfirmedRsvpDigest(guestsRaw as RsvpRow[], now);
-  const taskEligible = sortOverdueTasksForEmail(
-    decideOverdueTaskDigest(tasksRaw as TaskRow[], now),
-  );
-  return {
-    rsvp: {
-      count: rsvpEligible.length,
-      firstFew: rsvpEligible.slice(0, 5).map((g) => ({
-        id: g.id,
-        name: `${g.firstName} ${g.lastName}`,
-      })),
-    },
-    tasks: {
-      count: taskEligible.length,
-      firstFew: taskEligible.slice(0, 5).map((t) => ({
-        id: t.id,
-        title: t.title,
-        dueDate: t.dueDate,
-      })),
-    },
-  };
+  return getDigestPreviewCore();
 }
 
 // HTML body for the RSVP-nudge email.

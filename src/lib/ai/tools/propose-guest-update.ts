@@ -32,6 +32,24 @@ const inputSchema = z.object({
     .optional()
     .nullable()
     .describe("Comma-separated dietary requirements, e.g. 'vegetarian, nut allergy'."),
+  mealStarter: z
+    .string()
+    .max(200)
+    .optional()
+    .nullable()
+    .describe("Chosen starter course (free text). Pass null to clear."),
+  mealMain: z
+    .string()
+    .max(200)
+    .optional()
+    .nullable()
+    .describe("Chosen main course (free text). Pass null to clear."),
+  mealDessert: z
+    .string()
+    .max(200)
+    .optional()
+    .nullable()
+    .describe("Chosen dessert course (free text). Pass null to clear."),
   notes: z.string().max(2000).optional().nullable(),
   rationale: z
     .string()
@@ -43,7 +61,7 @@ const inputSchema = z.object({
 export const proposeGuestUpdate: AiTool<typeof inputSchema> = {
   name: "propose_guest_update",
   description:
-    "Propose an update to an existing guest — name, contact details, side, child/highchair flags, +1 settings, role, dietary, or notes. Only include what you want changed; null clears a nullable field. RSVP changes go through propose_guest_set_rsvp, never here; household moves are human-only. Turning off plusOneAllowed (or clearing plusOneName) archives their materialised +1 and frees that seat. You MUST call read_guests first so you have a valid guestId.",
+    "Propose an update to an existing guest — name, contact details, side, child/highchair flags, +1 settings, role, dietary, per-course meal choices, or notes. Only include what you want changed; null clears a nullable field. RSVP changes go through propose_guest_set_rsvp, never here; household moves go through propose_guest_move_household. Turning off plusOneAllowed (or clearing plusOneName) archives their materialised +1 and frees that seat. You MUST call read_guests first so you have a valid guestId.",
   inputSchema,
   progressLabel: "Proposing guest update…",
   definition: {
@@ -77,6 +95,18 @@ export const proposeGuestUpdate: AiTool<typeof inputSchema> = {
         dietary: {
           type: ["string", "null"],
           description: "Comma-separated requirements. Pass null to clear all of them.",
+        },
+        mealStarter: {
+          type: ["string", "null"],
+          description: "Chosen starter course (free text). Pass null to clear.",
+        },
+        mealMain: {
+          type: ["string", "null"],
+          description: "Chosen main course (free text). Pass null to clear.",
+        },
+        mealDessert: {
+          type: ["string", "null"],
+          description: "Chosen dessert course (free text). Pass null to clear.",
         },
         notes: { type: ["string", "null"], description: "Pass null to clear." },
         rationale: {
@@ -152,13 +182,16 @@ export const proposeGuestUpdate: AiTool<typeof inputSchema> = {
     if (input.plusOneName !== undefined) patch.plusOneName = input.plusOneName;
     if (input.role !== undefined) patch.role = input.role;
     if (input.dietary !== undefined) patch.dietary = input.dietary;
+    if (input.mealStarter !== undefined) patch.mealStarter = input.mealStarter;
+    if (input.mealMain !== undefined) patch.mealMain = input.mealMain;
+    if (input.mealDessert !== undefined) patch.mealDessert = input.mealDessert;
     if (input.notes !== undefined) patch.notes = input.notes;
 
     if (Object.keys(patch).length === 1) {
       return {
         ok: false,
         error:
-          "The update contains no changes. Include at least one field to change (name, contact, side, flags, +1 settings, role, dietary, or notes).",
+          "The update contains no changes. Include at least one field to change (name, contact, side, flags, +1 settings, role, dietary, meal choices, or notes).",
       };
     }
 

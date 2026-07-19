@@ -80,6 +80,16 @@ COPY --from=builder --chown=node:node /app/node_modules/prisma ./node_modules/pr
 COPY --from=builder --chown=node:node /app/node_modules/@prisma ./node_modules/@prisma
 COPY --from=builder --chown=node:node /app/node_modules/.prisma ./node_modules/.prisma
 
+# v2.8.1: pdf-parse for read_file_content's PDF text extraction. It stays
+# out of the webpack bundle via next.config.ts serverExternalPackages, but
+# Next's file tracer (nft) can't follow pdf-parse's dynamic worker/pdfjs
+# requires, so the package tree never lands in .next/standalone and the
+# runtime `import("pdf-parse")` rejects (surfacing as "extraction not
+# supported"). Copy the self-contained dir explicitly. Text extraction
+# never rasterizes, so the optional @napi-rs/canvas native dep is NOT
+# needed — a text PDF resolves, a scanned one reports "no extractable text".
+COPY --from=builder --chown=node:node /app/node_modules/pdf-parse ./node_modules/pdf-parse
+
 # Transpiled seed script (plain JS, no tsx required at runtime)
 COPY --from=builder --chown=node:node /app/prisma-build/seed.js ./prisma/seed.js
 

@@ -97,6 +97,11 @@ export async function deleteHousehold(id: string): Promise<DeleteResult> {
 
 // v2.8.0: parse + auth + delegate — the create (including the
 // syncPlusOne materialisation cascade) lives in createGuestCore.
+// v2.8.1: meal keys (mealStarter/mealMain/mealDessert) are deliberately
+// NOT read from FormData here — the guest form has no meal inputs, and
+// leaving the keys off makes guestInputSchema parse them as `undefined`
+// so createGuestCore never touches them (new guests default to no meal;
+// meals are populated by CSV import and edited via the AI apply path).
 export async function createGuest(formData: FormData) {
   const user = await requireEdit("guests");
   const parsed = guestInputSchema.parse({
@@ -121,6 +126,11 @@ export async function createGuest(formData: FormData) {
 // v2.8.0: parse + auth + delegate — the +1-force-off guard,
 // last-edited-fields stamp, syncPlusOne cascade, audit and
 // revalidations all live in updateGuestCore.
+// v2.8.1 (wipe hazard): meal keys are deliberately omitted from this
+// parse object — they'd otherwise arrive as `null` from a missing
+// FormData field and blank the guest's CSV-imported meal on every save.
+// Leaving them off means guestInputSchema parses them as `undefined`
+// and updateGuestCore's meal patch skips them entirely.
 export async function updateGuest(id: string, formData: FormData) {
   const user = await requireEdit("guests");
   const parsed = guestInputSchema.parse({

@@ -39,13 +39,13 @@ function resolveCustomFields(
 export const readGuests: AiTool<typeof inputSchema> = {
   name: "read_guests",
   description:
-    "Read guests matching the given filters. Also returns aggregate counts so you can answer 'how many are attending?' without listing everyone. Excludes archived guests. Each guest includes household (with id), contact details, group memberships, and resolved custom fields — use `nameContains` to find one guest, or `householdId` to list a whole household.",
+    "Read guests matching the given filters. Also returns aggregate counts so you can answer 'how many are attending?' without listing everyone. Excludes archived guests. Each guest includes household (with id), contact details, group memberships, resolved custom fields, and — when populated — their meal choices (starter/main/dessert), reception seat (table + index), song requests, and lastNudgedAt. Use `nameContains` to find one guest, or `householdId` to list a whole household.",
   inputSchema,
   progressLabel: "Reading guests…",
   definition: {
     name: "read_guests",
     description:
-      "Read guests matching the given filters. Also returns aggregate counts so you can answer 'how many are attending?' without listing everyone. Excludes archived guests. Each guest includes household (with id), contact details, group memberships, and resolved custom fields.",
+      "Read guests matching the given filters, with aggregate RSVP counts. Excludes archived guests. Each guest includes household (with id), contact details, groups, custom fields, and — when set — meal choices, reception seat, song requests, and lastNudgedAt.",
     input_schema: {
       type: "object",
       properties: {
@@ -103,6 +103,15 @@ export const readGuests: AiTool<typeof inputSchema> = {
           phone: true,
           notes: true,
           customFieldValues: true,
+          // v2.8.1: parity with the /guests detail page.
+          mealStarter: true,
+          mealMain: true,
+          mealDessert: true,
+          lastNudgedAt: true,
+          tableSeat: {
+            select: { index: true, table: { select: { id: true, name: true } } },
+          },
+          songRequests: { select: { title: true, artist: true } },
           household: { select: { id: true, name: true, side: true } },
           groups: { orderBy: { name: "asc" }, select: { id: true, name: true } },
         },
@@ -159,6 +168,21 @@ export const readGuests: AiTool<typeof inputSchema> = {
           email: g.email,
           phone: g.phone,
           notes: trimNotes(g.notes),
+          // v2.8.1: parity fields — emit only when populated so the
+          // 24k tool-result cap isn't burned on nulls across a full page.
+          meal:
+            g.mealStarter || g.mealMain || g.mealDessert
+              ? { starter: g.mealStarter, main: g.mealMain, dessert: g.mealDessert }
+              : undefined,
+          seat: g.tableSeat
+            ? {
+                index: g.tableSeat.index,
+                tableId: g.tableSeat.table.id,
+                tableName: g.tableSeat.table.name,
+              }
+            : undefined,
+          lastNudgedAt: g.lastNudgedAt ? g.lastNudgedAt.toISOString() : undefined,
+          songRequests: g.songRequests.length ? g.songRequests : undefined,
           groups: g.groups.length ? g.groups : undefined,
           customFields: resolveCustomFields(fieldDefs, g.customFieldValues),
         })),

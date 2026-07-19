@@ -10,65 +10,35 @@ import { audit, requireEdit } from "@/lib/actions";
 // session. The wrapper keeps the requireEdit("seating") gate; the AI
 // apply path (src/lib/ai/apply/misc.ts) owns the occupancy/attending
 // refusals then gates canEdit(user, "seating") before calling the core.
-import { assignGuestToSeatCore } from "@/lib/core/misc";
+// v2.8.1: the table create/capacity/position/notes bodies and the swap
+// transaction moved to cores too (Tier 2, Slice 3) so the AI apply path
+// for seating.table.create / seating.table.update / seat.swap /
+// seat.unassign runs byte-identical write logic. The wrappers below keep
+// their FormData/param parse + the requireEdit("seating") gate and
+// delegate. CapacityResult/SwapResult now originate in the core; re-
+// exported here so existing importers keep resolving them.
+import {
+  assignGuestToSeatCore,
+  createTableCore,
+  swapSeatsCore,
+  tableCreateInputSchema,
+  updateTableCapacityCore,
+  updateTableNotesCore,
+  updateTablePositionCore,
+  type CapacityResult,
+  type SwapResult,
+} from "@/lib/core/misc";
 
-const tableSchema = z.object({
-  name: z.string().min(1).max(100),
-  shape: z.nativeEnum(TableShape).default(TableShape.ROUND),
-  capacity: z.coerce.number().int().min(1).max(40),
-});
-
-// New tables drop into the canvas in a 3-column grid based on how many
-// already exist. Keeps them from stacking at (0,0) which is the schema
-// default.
-function nextGridPosition(existingCount: number): { posX: number; posY: number } {
-  const cols = 3;
-  const colWidth = 280;
-  const rowHeight = 240;
-  const startX = 180;
-  const startY = 160;
-  const col = existingCount % cols;
-  const row = Math.floor(existingCount / cols);
-  return { posX: startX + col * colWidth, posY: startY + row * rowHeight };
-}
+export type { CapacityResult, SwapResult };
 
 export async function createTable(formData: FormData) {
   const user = await requireEdit("seating");
-  const parsed = tableSchema.parse({
+  const parsed = tableCreateInputSchema.parse({
     name: formData.get("name"),
     shape: formData.get("shape") || TableShape.ROUND,
     capacity: formData.get("capacity") || 8,
   });
-
-  const existing = await db.table.count();
-  const { posX, posY } = nextGridPosition(existing);
-
-  const table = await db.table.create({
-    data: {
-      name: parsed.name,
-      shape: parsed.shape,
-      capacity: parsed.capacity,
-      posX,
-      posY,
-    },
-  });
-  await db.seat.createMany({
-    data: Array.from({ length: parsed.capacity }, (_, i) => ({
-      tableId: table.id,
-      index: i,
-    })),
-  });
-  await audit(user, {
-    action: "create",
-    entity: "Table",
-    entityId: table.id,
-    metadata: {
-      name: table.name,
-      shape: table.shape,
-      capacity: table.capacity,
-    },
-  });
-  revalidatePath("/seating");
+  await createTableCore(user, parsed);
 }
 
 export async function deleteTable(id: string) {
@@ -97,12 +67,6 @@ export async function deleteTable(id: string) {
   revalidatePath("/seating");
 }
 
-const positionSchema = z.object({
-  posX: z.number().min(0).max(5000),
-  posY: z.number().min(0).max(5000),
-  rotation: z.number().min(-360).max(720).optional(),
-});
-
 export async function updateTablePosition(
   id: string,
   posX: number,
@@ -110,123 +74,20 @@ export async function updateTablePosition(
   rotation?: number,
 ) {
   const user = await requireEdit("seating");
-  const parsed = positionSchema.parse({ posX, posY, rotation });
-  await db.table.update({
-    where: { id },
-    data: {
-      posX: parsed.posX,
-      posY: parsed.posY,
-      ...(parsed.rotation !== undefined && { rotation: parsed.rotation }),
-    },
-  });
-  await audit(user, {
-    action: "position",
-    entity: "Table",
-    entityId: id,
-    metadata: { posX: parsed.posX, posY: parsed.posY, rotation: parsed.rotation },
-  });
-  // Revalidate so positions survive view-switches and navigation. The
-  // canvas component preserves its local position over a refreshed prop
-  // (see the useEffect in SeatingCanvas), so this does NOT cause a
-  // mid-drag snap-back; only the server snapshot gets refreshed.
-  revalidatePath("/seating");
+  // v2.8.1: body lives in updateTablePositionCore.
+  await updateTablePositionCore(user, id, posX, posY, rotation);
 }
 
-// v1.22.6: modify capacity of an existing table.
-// - Grow: append new Seat rows for the missing indices. The round-table
-//   layout in SeatingCanvas spreads seats by `i/capacity * 2π`, so all
-//   existing seats reposition visually — that's expected, every seat
-//   shifts a bit when you add one.
-// - Shrink: only allowed if the trailing seats (index >= newCapacity)
-//   are all empty. If any trailing seat has a guest, throw — the
-//   planner needs to unseat them first. Avoids silent re-shuffles.
-const capacitySchema = z.object({
-  newCapacity: z.coerce.number().int().min(1).max(40),
-});
-
-// v1.22.9: returns a result object instead of throwing. Pre-fix the
-// "Can't shrink to N: M seats still assigned" Error was being thrown,
-// which Next.js production mode redacts and surfaces as the scary
-// "An error occurred in the Server Components render" overlay rather
-// than the intended notify-error toast. Returning a typed result gives
-// the client a clean error path that survives the redaction layer.
-export type CapacityResult = { ok: true } | { ok: false; error: string };
-
+// v1.22.6: modify capacity of an existing table (grow appends seats;
+// shrink repacks then drops trailing seats, refusing over-occupancy).
+// v2.8.1: body lives in updateTableCapacityCore; CapacityResult is
+// re-exported at the top of this file.
 export async function updateTableCapacity(
   id: string,
   newCapacity: number,
 ): Promise<CapacityResult> {
   const user = await requireEdit("seating");
-  const parsed = capacitySchema.parse({ newCapacity });
-  const table = await db.table.findUnique({
-    where: { id },
-    include: { seats: { include: { guest: { select: { id: true } } } } },
-  });
-  if (!table) return { ok: false, error: "Table not found" };
-  const current = table.capacity;
-  const target = parsed.newCapacity;
-  if (target === current) return { ok: true };
-
-  if (target > current) {
-    // Append seats with indices [current..target-1].
-    await db.seat.createMany({
-      data: Array.from({ length: target - current }, (_, i) => ({
-        tableId: id,
-        index: current + i,
-      })),
-    });
-    await db.table.update({ where: { id }, data: { capacity: target } });
-  } else {
-    // v1.22.10 shrink — REPACK behavior.
-    // Pre-fix the action complained "seats above #N are still assigned"
-    // when the trailing indices happened to be occupied. The user's
-    // mental model is total occupancy: "I have 4 guests, I want a
-    // 4-seat table — fine, regardless of which slots they currently
-    // sit in." So before deleting trailing seats, move any guests
-    // sitting there into leading empty slots. Only error when the
-    // TOTAL guest count exceeds the new capacity.
-    const occupiedCount = table.seats.filter((s) => s.guest).length;
-    if (occupiedCount > target) {
-      return {
-        ok: false,
-        error: `Can't shrink to ${target}: ${occupiedCount} guests assigned to this table. Unseat ${occupiedCount - target} first.`,
-      };
-    }
-    const trailingOccupied = table.seats
-      .filter((s) => s.index >= target && s.guest)
-      .sort((a, b) => a.index - b.index);
-    const leadingEmpty = table.seats
-      .filter((s) => s.index < target && !s.guest)
-      .sort((a, b) => a.index - b.index);
-    // Pair each trailing-occupied seat with a leading empty slot.
-    // Length invariant: leadingEmpty.length >= trailingOccupied.length
-    // because total occupied <= target < seats-below-target + seats-
-    // above-target, and we've already counted enough empties.
-    const moves = trailingOccupied.map((src, i) => ({
-      guestId: src.guest!.id,
-      toSeatId: leadingEmpty[i]!.id,
-    }));
-    // Atomic: move guests, drop trailing seats, set capacity. If any
-    // step fails the whole shrink rolls back.
-    await db.$transaction([
-      ...moves.map((m) =>
-        db.guest.update({
-          where: { id: m.guestId },
-          data: { tableSeatId: m.toSeatId },
-        }),
-      ),
-      db.seat.deleteMany({ where: { tableId: id, index: { gte: target } } }),
-      db.table.update({ where: { id }, data: { capacity: target } }),
-    ]);
-  }
-  await audit(user, {
-    action: "capacity",
-    entity: "Table",
-    entityId: id,
-    metadata: { from: current, to: target },
-  });
-  revalidatePath("/seating");
-  return { ok: true };
+  return updateTableCapacityCore(user, id, newCapacity);
 }
 
 export async function assignGuestToSeat(seatId: string, guestId: string | null) {
@@ -239,25 +100,10 @@ export async function assignGuestToSeat(seatId: string, guestId: string | null) 
 }
 
 // v1.23.0: per-table notes — free-form text. Empty string clears.
-const notesSchema = z.string().max(2000);
+// v2.8.1: body lives in updateTableNotesCore.
 export async function updateTableNotes(id: string, notes: string) {
   const user = await requireEdit("seating");
-  const parsed = notesSchema.parse(notes);
-  const updated = await db.table.update({
-    where: { id },
-    data: { notes: parsed === "" ? null : parsed },
-  });
-  await audit(user, {
-    action: "notes",
-    entity: "Table",
-    entityId: id,
-    metadata: {
-      tableName: updated.name,
-      notesLength: parsed.length,
-      cleared: parsed === "",
-    },
-  });
-  revalidatePath("/seating");
+  await updateTableNotesCore(user, id, notes);
 }
 
 // v1.23.0: per-table day-of checklist. Stored as Json array of items.
@@ -476,65 +322,12 @@ export async function updateCeremonySeating(formData: FormData): Promise<SaveRes
 // confidence in the auto-fill model is high.
 
 // v1.70.0: swap the guest assignments of two seats in the same table.
-// Used by the TableCard drag-to-reorder UI. Sequential ops in a single
-// $transaction (null-out both, then re-assign) avoid tripping the
-// Guest.tableSeatId unique constraint.
-export type SwapResult = { ok: true } | { ok: false; error: string };
-
+// Used by the TableCard drag-to-reorder UI. v2.8.1: the transaction body
+// moved to swapSeatsCore; the wrapper keeps the identical-seat short
+// circuit BEFORE the gate (byte-identical) then delegates. SwapResult is
+// re-exported at the top of this file.
 export async function swapSeats(seatId1: string, seatId2: string): Promise<SwapResult> {
   if (seatId1 === seatId2) return { ok: true };
   const user = await requireEdit("seating");
-
-  const [seat1, seat2] = await Promise.all([
-    db.seat.findUnique({
-      where: { id: seatId1 },
-      select: {
-        index: true,
-        tableId: true,
-        table: { select: { name: true } },
-        guest: { select: { id: true } },
-      },
-    }),
-    db.seat.findUnique({
-      where: { id: seatId2 },
-      select: {
-        index: true,
-        tableId: true,
-        guest: { select: { id: true } },
-      },
-    }),
-  ]);
-
-  if (!seat1 || !seat2) return { ok: false, error: "Seat not found" };
-  if (seat1.tableId !== seat2.tableId) return { ok: false, error: "Seats must be on the same table" };
-
-  const guest1 = seat1.guest;
-  const guest2 = seat2.guest;
-  if (!guest1 && !guest2) return { ok: true };
-
-  // Null out both occupants first, then assign to swapped seats.
-  // Sequential within one $transaction satisfies the unique constraint
-  // at each step without needing deferred constraints.
-  const ops: Prisma.PrismaPromise<unknown>[] = [];
-  if (guest1) ops.push(db.guest.update({ where: { id: guest1.id }, data: { tableSeatId: null } }));
-  if (guest2) ops.push(db.guest.update({ where: { id: guest2.id }, data: { tableSeatId: null } }));
-  if (guest1) ops.push(db.guest.update({ where: { id: guest1.id }, data: { tableSeatId: seatId2 } }));
-  if (guest2) ops.push(db.guest.update({ where: { id: guest2.id }, data: { tableSeatId: seatId1 } }));
-  await db.$transaction(ops);
-
-  await audit(user, {
-    action: "swap",
-    entity: "Seat",
-    entityId: seatId1,
-    metadata: {
-      tableName: seat1.table.name,
-      seatIndex1: seat1.index,
-      seatIndex2: seat2.index,
-      guest1Id: guest1?.id ?? null,
-      guest2Id: guest2?.id ?? null,
-    },
-  });
-
-  revalidatePath("/seating");
-  return { ok: true };
+  return swapSeatsCore(user, seatId1, seatId2);
 }

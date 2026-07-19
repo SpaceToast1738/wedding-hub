@@ -36,6 +36,8 @@ import { canEdit, type Section } from "@/lib/permissions";
 import type { SessionUser } from "@/lib/actions";
 import {
   budgetCategoryCreateSchema,
+  budgetComponentCreateSchema,
+  budgetComponentUpdateSchema,
   budgetLineCreateSchema,
   budgetLineUpdateSchema,
   paymentCreateSchema,
@@ -45,12 +47,16 @@ import {
 import { patchOrCurrent } from "@/lib/ai/apply/common";
 import {
   categoryInputSchema,
+  componentInputSchema,
+  componentUpdateInputSchema,
   createCategoryCore,
+  createComponentCore,
   createLineCore,
   createPaymentCore,
   lineInputSchema,
   paymentInputSchema,
   setPaymentStatusCore,
+  updateComponentCore,
   updateLineCore,
   updatePaymentCore,
 } from "@/lib/core/money";
@@ -68,6 +74,14 @@ async function requireSectionEdit(user: SessionUser, section: Section): Promise<
 /** Integer pence → the pound-string the cores' £ parsers expect. */
 function penceToPounds(pence: number): string {
   return (pence / 100).toFixed(2);
+}
+
+/** v2.8.1: payload paid-date ("YYYY-MM-DD" | null | undefined) → the
+ *  Date | null setPaymentStatusCore's optional param expects. A string
+ *  parses to a Date; null/undefined both become null (the core's
+ *  `null ?? new Date()` then stamps today on PAID). */
+function parsePayloadDate(s: string | null | undefined): Date | null {
+  return s ? new Date(s) : null;
 }
 
 async function applyBudgetCategoryCreate(
@@ -176,6 +190,74 @@ async function applyBudgetLineUpdate(
   return { id: parsed.lineId };
 }
 
+/** v2.8.1: create a sub-cost component on a budget line. Pence values
+ *  are written directly (no £-string round-trip) — the payload already
+ *  carries integer pence and componentInputSchema takes number pence. */
+async function applyBudgetComponentCreate(
+  user: SessionUser,
+  payload: unknown,
+): Promise<{ id: string }> {
+  const parsed = budgetComponentCreateSchema.parse(payload);
+  await requireSectionEdit(user, "budget");
+  const result = await createComponentCore(
+    user,
+    componentInputSchema.parse({
+      lineId: parsed.lineId,
+      label: parsed.label,
+      flatPence: parsed.flatPence ?? null,
+      perHeadPence: parsed.perHeadPence ?? null,
+      headcountSource: parsed.headcountSource ?? null,
+      manualHeadcount: parsed.manualHeadcount ?? null,
+      minimumHeadcount: parsed.minimumHeadcount ?? null,
+      notes: parsed.notes ?? null,
+      fundSource: parsed.fundSource ?? null,
+      fundLabel: parsed.fundLabel ?? null,
+    }),
+  );
+  if (!result?.id) throw new Error("createComponent did not return an id.");
+  return { id: result.id };
+}
+
+/** v2.8.1: full-record update of a component. No lineId in the payload
+ *  (a wrong line would silently relocate the component), so the bridge
+ *  loads the current row and carries every field the payload omits —
+ *  same patch-else-current shape as applyBudgetLineUpdate. */
+async function applyBudgetComponentUpdate(
+  user: SessionUser,
+  payload: unknown,
+): Promise<{ id: string }> {
+  const parsed = budgetComponentUpdateSchema.parse(payload);
+
+  const current = await db.budgetLineComponent.findUnique({
+    where: { id: parsed.componentId },
+  });
+  if (!current) {
+    throw new Error(
+      "Budget component not found — it may have been deleted since the proposal was made.",
+    );
+  }
+
+  // label is non-nullable; the rest are patch-else-current. Pence stay
+  // integers throughout. The parse coerces the AI's string enums to the
+  // Prisma enum types the core writes.
+  const merged = componentUpdateInputSchema.parse({
+    label: parsed.label !== undefined ? parsed.label : current.label,
+    flatPence: parsed.flatPence !== undefined ? parsed.flatPence : current.flatPence,
+    perHeadPence: parsed.perHeadPence !== undefined ? parsed.perHeadPence : current.perHeadPence,
+    headcountSource: patchOrCurrent(parsed.headcountSource, current.headcountSource),
+    manualHeadcount: patchOrCurrent(parsed.manualHeadcount, current.manualHeadcount),
+    minimumHeadcount: patchOrCurrent(parsed.minimumHeadcount, current.minimumHeadcount),
+    notes: patchOrCurrent(parsed.notes, current.notes),
+    fundSource: patchOrCurrent(parsed.fundSource, current.fundSource),
+    fundLabel: patchOrCurrent(parsed.fundLabel, current.fundLabel),
+  });
+
+  // Merge before the gate — same evaluation order as the other bridges.
+  await requireSectionEdit(user, "budget");
+  await updateComponentCore(user, parsed.componentId, merged);
+  return { id: parsed.componentId };
+}
+
 async function applyPaymentCreate(
   user: SessionUser,
   payload: unknown,
@@ -229,17 +311,19 @@ async function applyPaymentUpdate(
       ? parsed.dueDate
       : current.dueDate?.toISOString() ?? null;
 
-  // paidDate is never in the payload. Mirror setPaymentStatus's
-  // semantics when the STATUS is changing (PAID stamps today, off-PAID
-  // clears); otherwise carry the current stamp verbatim — a
-  // status-neutral edit must never touch the recorded paid date.
-  let paidDate: string | null = null;
-  if (nextStatus !== current.status) {
-    if (nextStatus === "PAID") paidDate = new Date().toISOString();
-    // moving off PAID: leave null → the core nulls it, matching the
-    // canonical status-flip path.
-  } else if (current.paidDate) {
-    paidDate = current.paidDate.toISOString();
+  // v2.8.1: an explicit payload paidDate wins over the status default —
+  // a "YYYY-MM-DD" string sets it, null clears it. When paidDate is
+  // OMITTED (undefined) we keep the pre-v2.8.1 behaviour: mirror
+  // setPaymentStatus's semantics on a status change (PAID stamps today,
+  // off-PAID clears), otherwise carry the current stamp verbatim so a
+  // status-neutral edit never touches the recorded paid date.
+  let paidDate: string | null;
+  if (parsed.paidDate !== undefined) {
+    paidDate = parsed.paidDate === null ? null : new Date(parsed.paidDate).toISOString();
+  } else if (nextStatus !== current.status) {
+    paidDate = nextStatus === "PAID" ? new Date().toISOString() : null;
+  } else {
+    paidDate = current.paidDate ? current.paidDate.toISOString() : null;
   }
 
   const method = patchOrCurrent(parsed.method, current.method);
@@ -321,9 +405,16 @@ async function applyPaymentSetStatus(
 ): Promise<{ id: string }> {
   const parsed = paymentSetStatusSchema.parse(payload);
   await requireSectionEdit(user, "payments");
-  // The core stamps paidDate = today on PAID and clears it when moving
-  // off PAID — the review card says so.
-  await setPaymentStatusCore(user, parsed.paymentId, parsed.status as PaymentStatus);
+  // The core stamps paidDate on PAID and clears it when moving off PAID —
+  // the review card says so. v2.8.1: an explicit payload paidDate is
+  // stamped instead of today; omitted/null defers to today (the core's
+  // `parsePayloadDate(...) ?? new Date()`).
+  await setPaymentStatusCore(
+    user,
+    parsed.paymentId,
+    parsed.status as PaymentStatus,
+    parsePayloadDate(parsed.paidDate),
+  );
   return { id: parsed.paymentId };
 }
 
@@ -339,6 +430,13 @@ export async function applyMoneyProposal(
       return applyBudgetLineCreate(user, payload);
     case "budget.line.update":
       return applyBudgetLineUpdate(user, payload);
+    // v2.8.1: budget-line components. execute.ts routes every budget.*
+    // kind to applyMoneyProposal by prefix, so these two cases fully wire
+    // the apply path — no execute.ts dispatch edit is needed.
+    case "budget.component_create":
+      return applyBudgetComponentCreate(user, payload);
+    case "budget.component_update":
+      return applyBudgetComponentUpdate(user, payload);
     case "payment.create":
       return applyPaymentCreate(user, payload);
     case "payment.update":

@@ -21,20 +21,41 @@ import { canEdit, type Section } from "@/lib/permissions";
 // src/lib/core/* and src/lib/ai/apply/deletes.ts).
 import type { SessionUser } from "@/lib/actions";
 import {
+  addGuestRequestToPlaylistCore,
   answerQuestionCore,
   assignGuestToSeatCore,
   createSongCore,
+  createTableCore,
   setGuestCustomFieldCore,
   setSupplierCustomFieldCore,
   setTaskCustomFieldCore,
   songInputSchema,
+  swapSeatsCore,
+  tableCreateInputSchema,
+  unassignSeatCore,
+  updateTableCapacityCore,
+  updateTableNotesCore,
+  updateTablePositionCore,
 } from "@/lib/core/misc";
 import {
   customFieldSetSchema,
   questionAnswerSchema,
   seatAssignSchema,
+  seatSwapSchema,
+  seatUnassignSchema,
+  seatingTableCreateSchema,
+  seatingTableUpdateSchema,
   songAddSchema,
+  songRequestAssignSchema,
 } from "@/lib/ai/proposals/schemas";
+
+/** Throw on a {ok:false} result so applyLoadedProposal's claim-rollback
+ *  fires — the seating cores (capacity/swap) return typed results rather
+ *  than throwing (Next production redacts thrown errors on the human
+ *  path; the AI apply path wants the throw). */
+function ensureOk(result: { ok: true } | { ok: false; error: string }): void {
+  if (!result.ok) throw new Error(result.error);
+}
 
 /** Session-free twin of requireEdit(section) — same error text, but the
  *  user comes from the caller instead of the session (same helper
@@ -172,6 +193,124 @@ async function applySeatAssign(
   return { id: parsed.guestId };
 }
 
+// ── v2.8.1 (Tier 2, Slice 3): seating table edits + seat swap/unseat + ──
+// ── guest song-request assignment. Each gates its own section (seating /
+// songs) via requireSectionEdit — same section the human wrappers gated —
+// and throws on any refusal so applyLoadedProposal's claim rolls back.
+
+async function applySeatUnassign(
+  user: SessionUser,
+  payload: unknown,
+): Promise<{ id: string }> {
+  const parsed = seatUnassignSchema.parse(payload);
+  // Load the seat for a clean "not found" (the core would otherwise
+  // no-op silently on a missing seat). No occupancy re-check needed —
+  // unseating never displaces a THIRD guest.
+  const seat = await db.seat.findUnique({
+    where: { id: parsed.seatId },
+    select: { id: true },
+  });
+  if (!seat) {
+    throw new Error(
+      "Seat not found — the table may have been changed since the proposal was made.",
+    );
+  }
+  await requireSectionEdit(user, "seating");
+  await unassignSeatCore(user, parsed.seatId);
+  return { id: parsed.seatId };
+}
+
+async function applySeatSwap(
+  user: SessionUser,
+  payload: unknown,
+): Promise<{ id: string }> {
+  const parsed = seatSwapSchema.parse(payload);
+  await requireSectionEdit(user, "seating");
+  // swapSeatsCore mirrors the human swap: same-table only, never evicts a
+  // bystander. A non-ok result (missing seat, cross-table) throws so the
+  // claim rolls back.
+  ensureOk(await swapSeatsCore(user, parsed.seatId1, parsed.seatId2));
+  return { id: parsed.seatId1 };
+}
+
+async function applySeatingTableCreate(
+  user: SessionUser,
+  payload: unknown,
+): Promise<{ id: string }> {
+  const parsed = seatingTableCreateSchema.parse(payload);
+  await requireSectionEdit(user, "seating");
+  // The grid position is auto-computed inside the core (nextGridPosition),
+  // same as the human createTable — the payload never carries coordinates.
+  const result = await createTableCore(
+    user,
+    tableCreateInputSchema.parse({
+      name: parsed.name,
+      shape: parsed.shape,
+      capacity: parsed.capacity,
+    }),
+  );
+  if (!result?.id) throw new Error("createTable did not return an id.");
+  return { id: result.id };
+}
+
+async function applySeatingTableUpdate(
+  user: SessionUser,
+  payload: unknown,
+): Promise<{ id: string }> {
+  const parsed = seatingTableUpdateSchema.parse(payload);
+
+  const table = await db.table.findUnique({
+    where: { id: parsed.tableId },
+    select: { id: true },
+  });
+  if (!table) {
+    throw new Error(
+      "Table not found — it may have been deleted since the proposal was made.",
+    );
+  }
+  await requireSectionEdit(user, "seating");
+  // Dispatch only the fields the payload carries. capacity goes through
+  // the shrink-repack core (refuses over-occupancy → throw, so no silent
+  // eviction); position + notes are independent void cores. rotation only
+  // takes effect as a companion to a posX/posY move (the schema pairs
+  // them and the propose tool guides the model to that shape).
+  if (parsed.capacity !== undefined) {
+    ensureOk(await updateTableCapacityCore(user, parsed.tableId, parsed.capacity));
+  }
+  if (parsed.posX !== undefined && parsed.posY !== undefined) {
+    await updateTablePositionCore(
+      user,
+      parsed.tableId,
+      parsed.posX,
+      parsed.posY,
+      parsed.rotation,
+    );
+  }
+  if (parsed.notes !== undefined) {
+    // updateTableNotesCore treats "" as clear; null clears too.
+    await updateTableNotesCore(user, parsed.tableId, parsed.notes ?? "");
+  }
+  return { id: parsed.tableId };
+}
+
+async function applySongRequestAssign(
+  user: SessionUser,
+  payload: unknown,
+): Promise<{ id: string }> {
+  const parsed = songRequestAssignSchema.parse(payload);
+  await requireSectionEdit(user, "songs");
+  // The core re-checks the request is still unassigned + the playlist
+  // exists inside its atomic claim-then-create transaction. A non-ok
+  // result (already handled, missing request/playlist) throws so the
+  // claim rolls back and the proposal stays PENDING.
+  const result = await addGuestRequestToPlaylistCore(user, {
+    requestId: parsed.requestId,
+    playlistId: parsed.playlistId,
+  });
+  if (!result.ok) throw new Error(result.error);
+  return { id: result.songId };
+}
+
 export async function applyMiscProposal(
   user: SessionUser,
   kind: string,
@@ -186,6 +325,17 @@ export async function applyMiscProposal(
       return applyCustomFieldSet(user, payload);
     case "seat.assign":
       return applySeatAssign(user, payload);
+    // v2.8.1 (Tier 2, Slice 3)
+    case "seat.unassign":
+      return applySeatUnassign(user, payload);
+    case "seat.swap":
+      return applySeatSwap(user, payload);
+    case "seating.table.create":
+      return applySeatingTableCreate(user, payload);
+    case "seating.table.update":
+      return applySeatingTableUpdate(user, payload);
+    case "song_request.assign":
+      return applySongRequestAssign(user, payload);
     default:
       throw new Error(`Unknown misc proposal kind: ${kind}`);
   }

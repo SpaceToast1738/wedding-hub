@@ -12,12 +12,18 @@ import { audit, requireEdit } from "@/lib/actions";
 // file keeps the FormData plumbing plus the requireEdit auth gates —
 // human behaviour is unchanged. decimalToNumber is imported back for
 // deleteLine's audit metadata (still a session-bound action here).
+// v2.8.1: the component schema + createComponent / updateComponent
+// bodies likewise moved to @/lib/core/money (budget.component_create /
+// budget.component_update self-apply).
 import {
   categoryInputSchema,
+  componentInputSchema,
   createCategoryCore,
+  createComponentCore,
   createLineCore,
   decimalToNumber,
   lineInputSchema,
+  updateComponentCore,
   updateLineCore,
 } from "@/lib/core/money";
 
@@ -222,25 +228,13 @@ export async function deleteLine(id: string): Promise<DeleteResult> {
 // = sum of components when components exist; line-level flat/perHead
 // fields are preserved but hidden by the UI while components exist.
 
-const componentSchema = z.object({
-  lineId: z.string().min(1),
-  label: z.string().min(1).max(200),
-  // Flat OR per-head — caller sends pence values. Sender enforces
-  // mutual exclusion in the UI; server keeps both as nullable so a
-  // dirty payload can still save without rejection.
-  flatPence: z.number().int().min(0).optional().nullable(),
-  perHeadPence: z.number().int().min(0).optional().nullable(),
-  headcountSource: z.nativeEnum(PerHeadSource).optional().nullable(),
-  manualHeadcount: z.number().int().min(0).optional().nullable(),
-  // v1.81.0: vendor minimum-cover floor.
-  minimumHeadcount: z.number().int().min(0).optional().nullable(),
-  notes: z.string().max(2000).optional().nullable(),
-  // v1.86.0: per-component fund override. Null inherits the parent
-  // BudgetLine's fund silently.
-  fundSource: z.nativeEnum(FundSource).optional().nullable(),
-  fundLabel: z.string().max(120).optional().nullable(),
-});
-
+// v2.8.1: parse + auth + delegate. The componentSchema and the
+// create/update bodies moved to @/lib/core/money (componentInputSchema /
+// createComponentCore / updateComponentCore) so the AI apply path shares
+// one implementation. Behaviour is byte-identical: the cores throw on a
+// missing line/component, and this wrapper's catch maps that to the same
+// { ok:false, error } shape ("Budget line not found" / "Component not
+// found") the inline version returned.
 export async function createComponent(payload: {
   lineId: string;
   label: string;
@@ -256,41 +250,8 @@ export async function createComponent(payload: {
 }): Promise<DeleteResult & { componentId?: string }> {
   const user = await requireEdit("budget");
   try {
-    const parsed = componentSchema.parse(payload);
-    const line = await db.budgetLine.findUnique({
-      where: { id: parsed.lineId },
-      include: { _count: { select: { components: true } } },
-    });
-    if (!line) return { ok: false, error: "Budget line not found" };
-    const created = await db.budgetLineComponent.create({
-      data: {
-        lineId: parsed.lineId,
-        label: parsed.label,
-        flatPence: parsed.flatPence ?? null,
-        perHeadPence: parsed.perHeadPence ?? null,
-        headcountSource: parsed.headcountSource ?? null,
-        manualHeadcount: parsed.manualHeadcount ?? null,
-        minimumHeadcount: parsed.minimumHeadcount ?? null,
-        notes: parsed.notes ?? null,
-        fundSource: parsed.fundSource ?? null,
-        fundLabel: (parsed.fundLabel?.trim() || null) ?? null,
-        order: line._count.components,
-      },
-    });
-    await audit(user, {
-      action: "budget-component-create",
-      entity: "BudgetLineComponent",
-      entityId: created.id,
-      metadata: {
-        lineId: parsed.lineId,
-        lineDescription: line.description,
-        label: parsed.label,
-        flatPence: parsed.flatPence ?? null,
-        perHeadPence: parsed.perHeadPence ?? null,
-        headcountSource: parsed.headcountSource ?? null,
-      },
-    });
-    revalidatePath("/budget");
+    const parsed = componentInputSchema.parse(payload);
+    const created = await createComponentCore(user, parsed);
     return { ok: true, componentId: created.id };
   } catch (err) {
     console.error("createComponent failed", err);
@@ -315,47 +276,10 @@ export async function updateComponent(
 ): Promise<DeleteResult> {
   const user = await requireEdit("budget");
   try {
-    const before = await db.budgetLineComponent.findUnique({
-      where: { id },
-      include: { line: { select: { description: true } } },
-    });
-    if (!before) return { ok: false, error: "Component not found" };
-    const nextFundLabel = (payload.fundLabel?.trim() || null) ?? null;
-    await db.budgetLineComponent.update({
-      where: { id },
-      data: {
-        label: payload.label,
-        flatPence: payload.flatPence ?? null,
-        perHeadPence: payload.perHeadPence ?? null,
-        headcountSource: payload.headcountSource ?? null,
-        manualHeadcount: payload.manualHeadcount ?? null,
-        minimumHeadcount: payload.minimumHeadcount ?? null,
-        notes: payload.notes ?? null,
-        fundSource: payload.fundSource ?? null,
-        fundLabel: nextFundLabel,
-      },
-    });
-    const changedFields: string[] = [];
-    if (before.label !== payload.label) changedFields.push("label");
-    if (before.flatPence !== (payload.flatPence ?? null)) changedFields.push("flatPence");
-    if (before.perHeadPence !== (payload.perHeadPence ?? null)) changedFields.push("perHeadPence");
-    if (before.headcountSource !== (payload.headcountSource ?? null)) changedFields.push("headcountSource");
-    if (before.manualHeadcount !== (payload.manualHeadcount ?? null)) changedFields.push("manualHeadcount");
-    if (before.minimumHeadcount !== (payload.minimumHeadcount ?? null)) changedFields.push("minimumHeadcount");
-    if (before.notes !== (payload.notes ?? null)) changedFields.push("notes");
-    if (before.fundSource !== (payload.fundSource ?? null)) changedFields.push("fundSource");
-    if (before.fundLabel !== nextFundLabel) changedFields.push("fundLabel");
-    await audit(user, {
-      action: "budget-component-update",
-      entity: "BudgetLineComponent",
-      entityId: id,
-      metadata: {
-        lineDescription: before.line.description,
-        label: payload.label,
-        changedFields,
-      },
-    });
-    revalidatePath("/budget");
+    // The human path never validated this payload (it wrote fields
+    // directly), so keep passing it straight through — updateComponentCore
+    // takes exactly this shape minus lineId.
+    await updateComponentCore(user, id, payload);
     return { ok: true };
   } catch (err) {
     console.error("updateComponent failed", err);

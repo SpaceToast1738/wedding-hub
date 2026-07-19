@@ -35,6 +35,7 @@ import { canEdit, type Section } from "@/lib/permissions";
 import type { SessionUser } from "@/lib/actions";
 import {
   guestArchiveSchema,
+  guestMoveHouseholdSchema,
   guestSetRsvpSchema,
   guestUpdateSchema,
   householdUpdateSchema,
@@ -43,6 +44,7 @@ import {
   archiveGuestCore,
   guestInputSchema,
   householdInputSchema,
+  moveGuestHouseholdCore,
   setGuestRsvpCore,
   updateGuestCore,
   updateHouseholdCore,
@@ -118,6 +120,13 @@ async function applyGuestUpdate(
         parsed.dietary,
         current.dietary.length ? current.dietary.join(", ") : null,
       ) || null,
+    // v2.8.1: per-course meals. patch-or-current ALWAYS defines these
+    // (either the patched value or the live one), so updateGuestCore's
+    // meal patch always writes them on the AI path — the form path,
+    // which leaves them undefined, is the only one that skips them.
+    mealStarter: patchOrCurrent(parsed.mealStarter, current.mealStarter),
+    mealMain: patchOrCurrent(parsed.mealMain, current.mealMain),
+    mealDessert: patchOrCurrent(parsed.mealDessert, current.mealDessert),
     notes: patchOrCurrent(parsed.notes, current.notes) || null,
   });
 
@@ -146,6 +155,56 @@ async function applyGuestArchive(
   // Soft archive (DeleteResult shape, not a throw) — funnel through
   // ensureOk so a refusal rolls the claim back.
   ensureOk(await archiveGuestCore(user, parsed.guestId));
+  return { id: parsed.guestId };
+}
+
+/** v2.8.1: move a guest into a different household. EXPORTED so the
+ *  execute.ts dispatch can route guest.move_household here (it also
+ *  runs through applyGuestProposal's switch). Loads the live row, runs
+ *  the same refusals the propose tool checked (archived / +1 /
+ *  already-in-target), verifies the destination exists, gates
+ *  guests-EDIT, then delegates to the core (which re-syncs the +1). */
+export async function applyGuestMoveHousehold(
+  user: SessionUser,
+  payload: unknown,
+): Promise<{ id: string }> {
+  const parsed = guestMoveHouseholdSchema.parse(payload);
+
+  const current = await db.guest.findUnique({ where: { id: parsed.guestId } });
+  if (!current) {
+    throw new Error(
+      "Guest not found — they may have been removed since the proposal was made.",
+    );
+  }
+  if (current.archived) {
+    throw new Error("Guest is archived — restore them before moving households.");
+  }
+  // A +1 follows its host's household automatically (syncPlusOne copies
+  // the host's householdId onto the child); moving one directly would
+  // be silently undone. Refuse loudly instead.
+  if (current.parentGuestId) {
+    throw new Error(
+      "This guest is a +1 — move their host guest instead; the +1 follows the host's household.",
+    );
+  }
+  if (current.householdId === parsed.householdId) {
+    throw new Error("Guest is already in that household — nothing to move.");
+  }
+
+  // Verify the destination exists — the FK would throw anyway, but a
+  // clear message beats a raw constraint error on the claim rollback.
+  const household = await db.household.findUnique({
+    where: { id: parsed.householdId },
+    select: { id: true },
+  });
+  if (!household) {
+    throw new Error(
+      "Destination household not found — it may have been deleted since the proposal was made.",
+    );
+  }
+
+  await requireSectionEdit(user, "guests");
+  await moveGuestHouseholdCore(user, parsed.guestId, parsed.householdId);
   return { id: parsed.guestId };
 }
 
@@ -189,6 +248,8 @@ export async function applyGuestProposal(
       return applyGuestSetRsvp(user, payload);
     case "guest.archive":
       return applyGuestArchive(user, payload);
+    case "guest.move_household":
+      return applyGuestMoveHousehold(user, payload);
     case "household.update":
       return applyHouseholdUpdate(user, payload);
     default:

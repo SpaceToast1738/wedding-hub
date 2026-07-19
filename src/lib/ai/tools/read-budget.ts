@@ -13,7 +13,22 @@ import {
 import { fetchAllHeadcounts } from "@/lib/headcount";
 import type { AiTool } from "./types";
 
-const inputSchema = z.object({});
+// v2.8.1 (Tier 2, Slice B): pagination over categories. Totals are
+// still computed across ALL categories (the maths must stay correct for
+// the grand total); only the per-category detail is sliced to a page so
+// a large budget doesn't blow the 24k tool-result cap.
+const DEFAULT_LIMIT = 8;
+
+const inputSchema = z.object({
+  offset: z.number().int().min(0).optional().describe("Skip this many categories (default 0)."),
+  limit: z
+    .number()
+    .int()
+    .min(1)
+    .max(50)
+    .optional()
+    .describe(`Max categories to return per page (default ${DEFAULT_LIMIT}).`),
+});
 
 function penceToLabel(pence: number): string {
   return `£${(pence / 100).toFixed(2)}`;
@@ -54,16 +69,31 @@ function componentEstimatedPounds(
 export const readBudget: AiTool<typeof inputSchema> = {
   name: "read_budget",
   description:
-    "Read the wedding budget — per-category totals (effective estimated vs actual vs paid, same maths as the /budget page: per-head × live headcount, component sums, B2 payment rollup), every line with its lineId/componentId (usable in budget.* proposals), and the top 10 payments coming due with their paymentIds. All per-line money is integer pence. Couple-only: refuses if the caller doesn't have access to /budget.",
+    "Read the wedding budget — grand totals (effective estimated vs actual vs paid, computed across ALL categories, same maths as the /budget page: per-head × live headcount, component sums, B2 payment rollup), a PAGE of categories each with its lines/componentIds (usable in budget.* proposals), and the top 10 payments coming due with their paymentIds. Categories are paged — pass offset/limit and follow nextOffset for the rest; totalCategories tells you how many exist. All per-line money is integer pence. Couple-only: refuses if the caller doesn't have access to /budget.",
   inputSchema,
   progressLabel: "Reading the budget…",
   definition: {
     name: "read_budget",
     description:
-      "Read the wedding budget — per-category totals (effective estimated vs actual vs paid), every line with its lineId/componentId (usable in budget.* proposals), and the top 10 payments coming due with paymentIds. Per-line money is integer pence. Couple-only.",
-    input_schema: { type: "object", properties: {} },
+      "Read the wedding budget — grand totals across all categories, a page of categories (offset/limit → nextOffset, totalCategories) with lineId/componentId (usable in budget.* proposals), and the top 10 payments coming due with paymentIds. Per-line money is integer pence. Couple-only.",
+    input_schema: {
+      type: "object",
+      properties: {
+        offset: {
+          type: "integer",
+          minimum: 0,
+          description: "Skip this many categories (default 0).",
+        },
+        limit: {
+          type: "integer",
+          minimum: 1,
+          maximum: 50,
+          description: `Max categories per page (default ${DEFAULT_LIMIT}).`,
+        },
+      },
+    },
   },
-  async handler(_input, ctx) {
+  async handler(input, ctx) {
     if (!(await canView(ctx.user, "budget"))) {
       return { ok: false, error: "Budget is couple-only; caller doesn't have access." };
     }
@@ -186,6 +216,13 @@ export const readBudget: AiTool<typeof inputSchema> = {
       };
     });
 
+    // Totals above were computed across ALL categories; now slice the
+    // per-category detail to the requested page.
+    const offset = input.offset ?? 0;
+    const limit = input.limit ?? DEFAULT_LIMIT;
+    const pageCats = cats.slice(offset, offset + limit);
+    const nextOffset = offset + limit < cats.length ? offset + limit : null;
+
     return {
       ok: true,
       data: {
@@ -194,7 +231,13 @@ export const readBudget: AiTool<typeof inputSchema> = {
           actual: penceToLabel(Math.round(totalActual * 100)),
           paid: penceToLabel(Math.round(totalPaid * 100)),
         },
-        categories: cats,
+        categories: pageCats,
+        page: {
+          offset,
+          limit,
+          totalCategories: cats.length,
+          nextOffset,
+        },
         upcomingPayments: upcomingPayments.map((p) => ({
           paymentId: p.id,
           description: p.description,

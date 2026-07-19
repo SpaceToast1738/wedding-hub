@@ -52,6 +52,7 @@ import {
   guestCreateSchema,
   supplierCommunicationSchema,
   supplierContactAddSchema,
+  supplierContractUpdateSchema,
   supplierCreateSchema,
   supplierUpdateSchema,
   taskCreateSchema,
@@ -84,9 +85,11 @@ import {
 import {
   createSupplierCommunicationCore,
   createSupplierContactCore,
+  createSupplierContractCore,
   createSupplierCore,
   supplierCommunicationInputSchema,
   supplierContactInputSchema,
+  supplierContractInputSchema,
   supplierInputSchema,
   updateSupplierCore,
   type SupplierInput,
@@ -520,6 +523,24 @@ async function applyLoadedProposal(
       // supplierId as the affected entity, same convention as
       // book.card.append's subsectionId.
       created = { id: parsed.supplierId };
+    } else if (proposal.kind === "supplier.contract_update") {
+      // v2.8.1: contract record via the session-free core. The AI
+      // payload carries NO amount (read+write amount parity with
+      // read_suppliers), so amount is always null — a human editing a
+      // contract in the app still posts it, but the agent never does.
+      const parsed = supplierContractUpdateSchema.parse(merged);
+      await requireSectionEdit(user, "suppliers");
+      created = await createSupplierContractCore(
+        user,
+        supplierContractInputSchema.parse({
+          supplierId: parsed.supplierId,
+          signed: parsed.signed,
+          signedAt: parsed.signedAt ?? null,
+          notes: parsed.notes ?? null,
+          fileId: parsed.fileId ?? null,
+          amount: null,
+        }),
+      );
     } else if (proposal.kind === "supplier.contact.add") {
       const parsed = supplierContactAddSchema.parse(merged);
       await requireSectionEdit(user, "suppliers");
@@ -560,7 +581,8 @@ async function applyLoadedProposal(
       proposal.kind === "guest.update" ||
       proposal.kind === "guest.set_rsvp" ||
       proposal.kind === "guest.archive" ||
-      proposal.kind === "household.update"
+      proposal.kind === "household.update" ||
+      proposal.kind === "guest.move_household"
     ) {
       created = await applyGuestProposal(user, proposal.kind, merged);
     } else if (proposal.kind === "event.update") {
@@ -577,7 +599,13 @@ async function applyLoadedProposal(
       proposal.kind === "question.answer" ||
       proposal.kind === "song.add" ||
       proposal.kind === "custom_field.set" ||
-      proposal.kind === "seat.assign"
+      proposal.kind === "seat.assign" ||
+      // v2.8.1 (Tier 2): seating rearrangement + song-request triage.
+      proposal.kind === "seat.unassign" ||
+      proposal.kind === "seat.swap" ||
+      proposal.kind === "seating.table.create" ||
+      proposal.kind === "seating.table.update" ||
+      proposal.kind === "song_request.assign"
     ) {
       created = await applyMiscProposal(user, proposal.kind, merged);
     } else {

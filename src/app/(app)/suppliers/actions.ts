@@ -1,7 +1,6 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { z } from "zod";
 import { SupplierStatus } from "@prisma/client";
 import { db } from "@/lib/db";
 import { audit, requireEdit } from "@/lib/actions";
@@ -11,13 +10,17 @@ import { audit, requireEdit } from "@/lib/actions";
 // session-free with an explicit user. The wrappers below stay the
 // ONLY exports here — "use server" exports are client-invokable, so
 // the auth-free cores must never appear in this file's export list.
+// v2.8.1: createSupplierContract's body + its Zod schema likewise moved
+// (createSupplierContractCore / supplierContractInputSchema) for the
+// supplier.contract_update self-apply.
 import {
   createSupplierCommunicationCore,
   createSupplierContactCore,
+  createSupplierContractCore,
   createSupplierCore,
-  parseAmount,
   supplierCommunicationInputSchema,
   supplierContactInputSchema,
+  supplierContractInputSchema,
   supplierInputSchema,
   updateSupplierCore,
 } from "@/lib/core/suppliers";
@@ -250,21 +253,14 @@ export async function deleteSupplierCommunication(id: string, supplierId: string
   revalidatePath(`/suppliers/${supplierId}`);
 }
 
-const contractSchema = z.object({
-  supplierId: z.string().min(1),
-  signed: z.boolean().optional(),
-  signedAt: z.string().optional().nullable(),
-  amount: z.string().optional().nullable(),
-  notes: z.string().max(2000).optional().nullable(),
-  // v2.4.3: optional link to an uploaded File (the signed contract PDF
-  // etc). The column existed since the model was added but nothing
-  // could ever set it.
-  fileId: z.string().optional().nullable(),
-});
-
+// v2.8.1: parse + auth + delegate — the signedAt defaulting, FK-safe
+// fileId verify-or-drop, amount parse, audit row and revalidate all live
+// in createSupplierContractCore so the AI apply path shares one
+// implementation. The form still posts `amount`, so human behaviour is
+// byte-identical; the AI surface never sends an amount.
 export async function createSupplierContract(formData: FormData) {
   const user = await requireEdit("suppliers");
-  const parsed = contractSchema.parse({
+  const parsed = supplierContractInputSchema.parse({
     supplierId: formData.get("supplierId"),
     signed: formData.get("signed") === "on",
     signedAt: formData.get("signedAt") || null,
@@ -272,43 +268,7 @@ export async function createSupplierContract(formData: FormData) {
     notes: formData.get("notes") || null,
     fileId: formData.get("fileId") || null,
   });
-  const signedAt = parsed.signedAt ? new Date(parsed.signedAt) : parsed.signed ? new Date() : null;
-  const amount = parsed.amount ? parseAmount(parsed.amount) : null;
-  // A hallucinated/stale file id must not FK-fail the whole create —
-  // verify and drop silently (the attach action below covers fix-up).
-  const fileId =
-    parsed.fileId &&
-    (await db.file.findUnique({ where: { id: parsed.fileId }, select: { id: true } }))
-      ? parsed.fileId
-      : null;
-  const created = await db.supplierContract.create({
-    data: {
-      supplierId: parsed.supplierId,
-      signed: !!parsed.signed,
-      signedAt,
-      amount,
-      notes: parsed.notes ?? null,
-      fileId,
-    },
-  });
-  // Lookup supplier name for the audit row.
-  const supplier = await db.supplier.findUnique({
-    where: { id: parsed.supplierId },
-    select: { name: true },
-  });
-  await audit(user, {
-    action: "create",
-    entity: "SupplierContract",
-    entityId: created.id,
-    metadata: {
-      supplierId: parsed.supplierId,
-      supplierName: supplier?.name ?? null,
-      signed: created.signed,
-      signedAt: created.signedAt,
-      amount: created.amount == null ? null : Number(created.amount.toString()),
-    },
-  });
-  revalidatePath(`/suppliers/${parsed.supplierId}`);
+  await createSupplierContractCore(user, parsed);
 }
 
 /** v2.4.3: attach (or detach with null) an uploaded File to an

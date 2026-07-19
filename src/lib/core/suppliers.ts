@@ -280,3 +280,76 @@ export async function createSupplierCommunicationCore(
   revalidatePath(`/suppliers/${parsed.supplierId}`);
   if (result.taskId) revalidatePath("/tasks");
 }
+
+// ── Supplier contracts (v2.8.1) ───────────────────────────────────────────
+//
+// Extracted from suppliers/actions.ts's createSupplierContract so the AI
+// apply path (supplier.contract_update) can record a contract without a
+// browser session. Mirrors the createSupplier pattern for the money
+// field: the input schema carries `amount` (a pound-string the human
+// contract form still posts) so the human wrapper stays byte-identical,
+// while the AI surface never sends one — supplierContractUpdateSchema has
+// no amount field and the apply bridge passes amount:null. read_suppliers
+// only ever exposes a hasAmount flag, so the AI can neither read nor
+// write contract amounts.
+
+export const supplierContractInputSchema = z.object({
+  supplierId: z.string().min(1),
+  signed: z.boolean().optional(),
+  signedAt: z.string().optional().nullable(),
+  amount: z.string().optional().nullable(),
+  notes: z.string().max(2000).optional().nullable(),
+  // v2.4.3: optional link to an uploaded File (the signed contract PDF
+  // etc). Verified-or-dropped below so a stale id can't FK-fail the
+  // whole create.
+  fileId: z.string().optional().nullable(),
+});
+export type SupplierContractInput = z.infer<typeof supplierContractInputSchema>;
+
+export async function createSupplierContractCore(
+  user: SessionUser,
+  parsed: SupplierContractInput,
+): Promise<{ id: string }> {
+  const signedAt = parsed.signedAt ? new Date(parsed.signedAt) : parsed.signed ? new Date() : null;
+  const amount = parsed.amount ? parseAmount(parsed.amount) : null;
+  // A hallucinated/stale file id must not FK-fail the whole create —
+  // verify and drop silently (the attach action covers fix-up).
+  const fileId =
+    parsed.fileId &&
+    (await db.file.findUnique({ where: { id: parsed.fileId }, select: { id: true } }))
+      ? parsed.fileId
+      : null;
+  const created = await db.supplierContract.create({
+    data: {
+      supplierId: parsed.supplierId,
+      signed: !!parsed.signed,
+      signedAt,
+      amount,
+      notes: parsed.notes ?? null,
+      fileId,
+    },
+  });
+  // Lookup supplier name for the audit row.
+  const supplier = await db.supplier.findUnique({
+    where: { id: parsed.supplierId },
+    select: { name: true },
+  });
+  await logAudit({
+    userId: user.id,
+    action: "create",
+    entity: "SupplierContract",
+    entityId: created.id,
+    metadata: {
+      supplierId: parsed.supplierId,
+      supplierName: supplier?.name ?? null,
+      signed: created.signed,
+      signedAt: created.signedAt,
+      amount: created.amount == null ? null : Number(created.amount.toString()),
+    },
+  });
+  revalidatePath(`/suppliers/${parsed.supplierId}`);
+  // v2.8.1: return the id so the AI apply-bridge can link the AiProposal
+  // to the contract row (the form action discards it — non-breaking,
+  // same precedent as createSupplierCore).
+  return { id: created.id };
+}

@@ -10,7 +10,11 @@ import { audit, requireEdit } from "@/lib/actions";
 // a browser session. The wrapper keeps the FormData parse + the
 // requireEdit("songs") gate; the core keeps the order computation, the
 // audit row and the revalidation.
-import { createSongCore, songInputSchema } from "@/lib/core/misc";
+import {
+  addGuestRequestToPlaylistCore,
+  createSongCore,
+  songInputSchema,
+} from "@/lib/core/misc";
 import { DISMISSED_SENTINEL_NAME } from "./constants";
 import {
   SpotifyError,
@@ -198,88 +202,18 @@ async function getOrCreateDismissedSentinelPlaylistId(): Promise<string> {
   return created.id;
 }
 
-// v2.5.2 (review fix): internal control-flow signal for the atomic
-// claim-then-write pattern below — never surfaced past the action
-// that throws it.
-class RequestAlreadyHandledError extends Error {}
-
-const addRequestToPlaylistSchema = z.object({
-  requestId: z.string().min(1),
-  playlistId: z.string().min(1),
-});
-
 // Copies a guest's request into a real playlist as a Song (source =
 // requester's name, so the row still shows where it came from) and marks
 // the request as placed so it drops out of the pending queue.
+// v2.8.1: body lives in addGuestRequestToPlaylistCore (the atomic
+// claim-then-create transaction) so the AI apply path (song_request.assign)
+// shares one implementation. The wrapper keeps the requireEdit("songs")
+// gate and returns the same result-object shape the /songs UI expects.
 export async function addGuestRequestToPlaylist(input: { requestId: string; playlistId: string }) {
   const user = await requireEdit("songs");
-  const parsed = addRequestToPlaylistSchema.parse(input);
-
-  const request = await db.songRequest.findUnique({
-    where: { id: parsed.requestId },
-    include: { guest: { select: { firstName: true, lastName: true } } },
-  });
-  if (!request) return { ok: false as const, error: "Request not found." };
-  if (request.playlistId) return { ok: false as const, error: "This request has already been handled." };
-
-  const playlist = await db.playlist.findUnique({ where: { id: parsed.playlistId }, select: { name: true } });
-  if (!playlist) return { ok: false as const, error: "Playlist not found." };
-
-  const requesterName = request.guest ? `${request.guest.firstName} ${request.guest.lastName}`.trim() : "Guest request";
-
-  // v2.5.2 (review fix): the "already handled" check above and the
-  // write below used to be two separate steps, so two near-
-  // simultaneous triage actions on the same request (one Add, one
-  // Dismiss) could both pass the null-check and both write — either
-  // two Songs from one request, or a Song followed by a silent
-  // reassignment to the dismissed sentinel. updateMany's where clause
-  // makes the claim atomic with the check: it can only ever succeed
-  // for whichever call gets there first, and the whole claim+create
-  // is one transaction, so a lost race never creates an orphan Song.
-  let song;
-  try {
-    song = await db.$transaction(async (tx) => {
-      const claim = await tx.songRequest.updateMany({
-        where: { id: parsed.requestId, playlistId: null },
-        data: { playlistId: parsed.playlistId },
-      });
-      if (claim.count === 0) throw new RequestAlreadyHandledError();
-
-      const last = await tx.song.findFirst({
-        where: { playlistId: parsed.playlistId },
-        orderBy: { order: "desc" },
-      });
-      return tx.song.create({
-        data: {
-          playlistId: parsed.playlistId,
-          title: request.title,
-          artist: request.artist,
-          source: requesterName,
-          order: (last?.order ?? -1) + 1,
-        },
-      });
-    });
-  } catch (err) {
-    if (err instanceof RequestAlreadyHandledError) {
-      return { ok: false as const, error: "This request has already been handled." };
-    }
-    throw err;
-  }
-
-  await audit(user, {
-    action: "create",
-    entity: "Song",
-    entityId: song.id,
-    metadata: {
-      title: song.title,
-      artist: song.artist,
-      playlistId: parsed.playlistId,
-      playlistName: playlist.name,
-      fromGuestRequestId: parsed.requestId,
-    },
-  });
-  revalidatePath("/songs");
-  return { ok: true as const, playlistName: playlist.name };
+  const result = await addGuestRequestToPlaylistCore(user, input);
+  if (!result.ok) return { ok: false as const, error: result.error };
+  return { ok: true as const, playlistName: result.playlistName };
 }
 
 // Clears a request from the pending queue without adding it to any

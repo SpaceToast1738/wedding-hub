@@ -229,9 +229,11 @@ export async function POST(req: Request): Promise<Response> {
   }
 
   const canWrite = await canEdit(user, "ai_write");
-  // Fresh batchId per request: each MCP tools/call is its own HTTP
-  // request, so MCP proposals never batch-group in /ai. Deliberate —
-  // documented in docs/MCP.md.
+  // v2.8.1: batchId is (re)derived per tools/call in the callTool closure
+  // below from an optional `batchKey` argument — pass the same key across
+  // calls to group their proposals into one reviewable /ai batch. This
+  // random default only stands in for the handshake path, where no tool —
+  // and therefore no proposal — ever runs. See docs/MCP.md.
   const ctx: ToolContext = {
     user,
     canWrite,
@@ -252,6 +254,22 @@ export async function POST(req: Request): Promise<Response> {
       })),
     callTool: async (name, args) => {
       if (!hasTool(name)) return { text: "", isError: true, unknownTool: true };
+      // v2.8.1: opt-in batch grouping. The model can only influence a
+      // tool's `arguments` (never JSON-RPC `_meta`), so a shared
+      // `batchKey` string threaded through several tools/call requests
+      // groups their proposals into one reviewable /ai batch. Namespaced
+      // by user id so two members can't collide on the same key. Absent
+      // (or blank) → a fresh random id per call, so proposals stay
+      // singletons as before. The tools' own non-strict Zod schemas drop
+      // the extra key on safeParse, so no per-tool schema edit is needed.
+      const batchKey =
+        typeof args === "object" && args !== null && !Array.isArray(args)
+          ? (args as Record<string, unknown>).batchKey
+          : undefined;
+      ctx.batchId =
+        typeof batchKey === "string" && batchKey.length > 0
+          ? `mcp:${user.id}:${batchKey}`
+          : randomUUID();
       const { result, text } = await runTool(name, args, ctx);
       return { text, isError: !result.ok };
     },

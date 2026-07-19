@@ -176,13 +176,17 @@ tokens are revoked from Settings without any restart.
 
 ## Behaviour notes
 
-- **Proposals from separate calls never batch-group.** Each MCP
-  `tools/call` is its own HTTP request and mints its own `batchId`, so
-  proposals created across calls appear individually on `/ai` rather
-  than as one reviewable batch. This is deliberate, not a bug — there
-  is no "turn" boundary to group by. (A single call that creates
-  several proposals — e.g. `propose_task_breakdown` — still shows up
-  as one batch.)
+- **Proposals from separate calls are singletons unless you group them.**
+  Each MCP `tools/call` is its own HTTP request, so by default every call
+  mints a fresh `batchId` and its proposals appear individually on `/ai`.
+  A single call that creates several proposals — e.g.
+  `propose_task_breakdown` — still shows up as one batch. To group
+  proposals *across* several calls into one reviewable `/ai` batch
+  (v2.8.1+), pass the same **`batchKey`** string in the `arguments` of
+  each `propose_*` call: the server derives a shared, per-user batchId
+  (`mcp:<userId>:<batchKey>`) from it. Omit `batchKey` for the old
+  one-proposal-per-call behaviour. The key is namespaced by the token's
+  user, so two members can reuse the same string without colliding.
 - **Tool results are capped at 24,000 characters** with an explicit
   truncation marker (same cap as planner chat). If a client hits it,
   narrow the query (most read tools take filters).

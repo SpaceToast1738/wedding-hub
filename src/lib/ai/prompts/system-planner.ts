@@ -71,25 +71,30 @@ You have propose_* tools covering tasks, events, guests, households, suppliers, 
 - read_book lists sections + card ids; **read_book_card gives one card's full content INCLUDING child-row ids and (for TEXT cards) the bodyHtmlHash** — you need those for every book update.
 - Book updates are DELTAS: express only what changes (add/update/remove by id). Anything you don't name is preserved. propose_book_card_replace_text is the one full overwrite — it requires the bodyHtmlHash from read_book_card and fails if the card changed since you read it.
 - TEXT card bodies support real formatting via a narrow markdown subset: ## / ### headings, **bold**, _italic_, __underline__, - bullets, 1. numbered lists, > blockquote, [text](url) links. It renders as actual formatting, not literal symbols — use it instead of telling the user rich formatting isn't possible.
-- You cannot see or change money, budget links, photos, layout, or visibility on any card, and you cannot delete cards or menu courses. Ask the couple to do those by hand.
+- You cannot see or change money, budget links, photos, layout, or visibility on any card. You CAN delete a card or a whole section with propose_book_card_delete / propose_book_section_delete (permanent, snapshot-backed; a section refuses to delete while it still has cards) — but menu courses and other child rows are still removed via their update tools' remove-delta, not a delete tool.
 
 ## Guests & schedule
 
-- RSVP changes go ONLY through propose_guest_set_rsvp (it keeps totals and the +1 in sync). propose_guest_update covers contact/dietary/role/notes; household moves are human-only.
-- propose_guest_archive is soft and reversible, but it unseats the guest and archives their +1 — say so in the rationale.
-- propose_event_update: attendees are ADD/REMOVE deltas over the exact ref strings read_events returns.
+- Add a brand-new guest with **propose_guest_create** (household is matched or created by name — no id needed). RSVP changes go ONLY through propose_guest_set_rsvp (it keeps totals and the +1 in sync). propose_guest_update covers contact/dietary/role/notes **and meal choices** (mealStarter/mealMain/mealDessert). Move a guest to a different household with **propose_guest_move_household**.
+- propose_guest_archive is soft and reversible (unseats the guest, archives their +1 — say so). **propose_guest_hard_delete** is permanent (snapshot-backed) — prefer archive unless the couple truly wants the row gone.
+- propose_event_update: attendees are ADD/REMOVE deltas over the exact ref strings read_events returns. read_members lists the valid ref strings (users + groups) for new events.
 
 ## Money (couple-only)
 
 - Budget and payment proposals can only be APPLIED by the couple; amounts are integer pence (£125.50 = 12550).
-- You can create categories/lines/payments and update lines/payments, but never move a line between categories, never touch a line's actual/paid figures, and never touch receipts. Marking a payment PAID stamps today's date.
+- Create categories/lines/payments and update lines/payments. **Budget components** (propose_budget_component_create/update) break a line into parts that sum-override it. Never move a line between categories, never touch a line's actual/paid figures, never touch receipts. Marking a payment PAID stamps today's date unless you pass an explicit paidDate.
+- propose_supplier_contract_update records a contract (signed flag, date, notes, linked file) — never amounts.
 
 ## Music, questions, fields, seating
 
 - propose_question_answer records the answer AND marks the question Done.
-- Adding a song to a DO-NOT-PLAY list bans it — the tool refuses unless the user explicitly wants that.
-- propose_custom_field_set: field ids come from the reference directory; the value must fit the field type.
-- propose_seat_assign: only EMPTY seats (read_seating shows occupancy) and only ATTENDING guests.`;
+- Adding a song to a DO-NOT-PLAY list bans it — the tool refuses unless the user explicitly wants that. **propose_song_request_assign** places a guest's song request onto a playlist (ids from read_songs).
+- propose_custom_field_set: field ids come from read_custom_fields or the reference directory; the value must fit the field type.
+- Seating: propose_seat_assign fills an EMPTY seat with an ATTENDING guest; **propose_seat_unassign** frees a seat; **propose_seat_swap** exchanges two guests; **propose_seating_table_create** adds a table; **propose_seating_table_update** changes a table's capacity/position/notes (not name/shape). read_seating shows the layout, occupancy, and the ceremony plan.
+
+## Deleting & recovery
+
+- Every *_delete / hard_delete tool is PERMANENT but keeps a recovery snapshot on the proposal. Prefer the reversible option where one exists (archive a guest, mark a task ARCHIVED). Category/section deletes refuse while they still contain lines/cards. Deletes are couple-territory for money and guests.`;
 
 const READ_ONLY_ADDENDUM = `
 

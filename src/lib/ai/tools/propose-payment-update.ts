@@ -24,6 +24,14 @@ const inputSchema = z.object({
   description: z.string().min(1).max(200).optional(),
   amountPence: z.number().int().min(1).max(100_000_000).optional(),
   status: z.enum(PAYMENT_STATUSES).optional(),
+  paidDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD")
+    .optional()
+    .nullable()
+    .describe(
+      "Explicit paid date (YYYY-MM-DD). Sets the recorded paid date, null clears it. Omit to follow the status default (PAID stamps today, off-PAID clears).",
+    ),
   dueDate: z.string().max(30).optional().nullable(),
   method: z.string().max(100).optional().nullable(),
   supplierId: z.string().optional().nullable(),
@@ -42,13 +50,13 @@ const inputSchema = z.object({
 export const proposePaymentUpdate: AiTool<typeof inputSchema> = {
   name: "propose_payment_update",
   description:
-    "Propose a partial update to an existing payment. Only include fields you want changed — omitted fields keep their current value, null clears. Money is integer PENCE. Receipts, book-item links, and the recorded paid date are never touched — they're carried through from the live row. To just flip the status, prefer propose_payment_set_status. Requires a paymentId from read_payments. Include a rationale.",
+    "Propose a partial update to an existing payment. Only include fields you want changed — omitted fields keep their current value, null clears. Money is integer PENCE. Receipts and book-item links are never touched — they're carried through from the live row. paidDate can be set explicitly (or omitted to follow the status default). To just flip the status, prefer propose_payment_set_status. Requires a paymentId from read_payments. Include a rationale.",
   inputSchema,
   progressLabel: "Proposing payment update…",
   definition: {
     name: "propose_payment_update",
     description:
-      "Propose a partial update to a payment. Omit fields to keep them, pass null to clear. Amount is integer pence. Receipts, book links, and the paid date are carried through unchanged.",
+      "Propose a partial update to a payment. Omit fields to keep them, pass null to clear. Amount is integer pence. Receipts and book links are carried through unchanged; paidDate can be set explicitly or omitted to follow the status default.",
     input_schema: {
       type: "object",
       properties: {
@@ -56,6 +64,11 @@ export const proposePaymentUpdate: AiTool<typeof inputSchema> = {
         description: { type: "string" },
         amountPence: { type: "integer", description: "New amount in integer pence (£250.00 = 25000)." },
         status: { type: "string", enum: [...PAYMENT_STATUSES] },
+        paidDate: {
+          type: ["string", "null"],
+          description:
+            "Explicit paid date (YYYY-MM-DD). Sets the recorded paid date, null clears it. Omit to follow the status default.",
+        },
         dueDate: { type: ["string", "null"], description: "ISO date (YYYY-MM-DD). null clears." },
         method: { type: ["string", "null"] },
         supplierId: { type: ["string", "null"], description: "Supplier id. null unlinks." },
@@ -91,6 +104,7 @@ export const proposePaymentUpdate: AiTool<typeof inputSchema> = {
     if (input.description !== undefined) patch.description = input.description;
     if (input.amountPence !== undefined) patch.amountPence = input.amountPence;
     if (input.status !== undefined) patch.status = input.status;
+    if (input.paidDate !== undefined) patch.paidDate = input.paidDate;
     if (input.dueDate !== undefined) patch.dueDate = input.dueDate;
     if (input.method !== undefined) patch.method = input.method;
     if (input.supplierId !== undefined) patch.supplierId = input.supplierId;
@@ -162,6 +176,8 @@ export const proposePaymentUpdate: AiTool<typeof inputSchema> = {
       bits.push(`amount → £${(input.amountPence / 100).toFixed(2)}`);
     }
     if (input.status !== undefined) bits.push(`status → ${input.status}`);
+    if (typeof input.paidDate === "string") bits.push(`paid ${input.paidDate}`);
+    else if (input.paidDate === null) bits.push("clears paid date");
     if (typeof input.supplierId === "string") {
       bits.push(`supplier: ${names.suppliers.get(input.supplierId)}`);
     }

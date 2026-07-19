@@ -963,6 +963,20 @@ When wrapping up a meaningful iteration:
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
 
+### 2026-07-19 · v2.8.1 — MCP planner build-out (Tier 2): coverage completion
+
+Closes the read/write gaps that blocked whole planner workflows. No schema migrations — everything reuses v2.8.0's session-free core + propose→apply machinery.
+
+**New read tools:** `read_activity` (30-day AuditLog deltas — "what changed since yesterday"), `read_members` (users + built-in/custom groups, the valid `attendeeRef` pool for events), `read_custom_fields` (field definitions so `propose_custom_field_set` stops guessing ids), `read_nudge_preview` (who'd be nudged + the draft, read-only). Enriched: `read_guests` now returns meal choices / seat / song requests; `read_seating` adds the ceremony plan + plan notes; `read_seating`/`read_budget` gained pagination to escape the 24k cap; `read_proposals` gained a status filter (APPLIED/DISMISSED history).
+
+**New write kinds:** `propose_guest_create` (late additions; household matched-or-created by name), guest meal choices on `propose_guest_update`, `propose_guest_move_household`; seating rearrangement — `propose_seat_unassign` / `propose_seat_swap` / `propose_seating_table_create` / `propose_seating_table_update` (capacity/position/notes); `propose_song_request_assign` (place a request on a playlist); `propose_supplier_contract_update` (signed flag/date/notes/file — never amounts); `propose_budget_component_create`/`update` (line sub-components); explicit `paidDate` on payment set-status/update. Every new kind gates its section before writing (couple-only for money) — verified by a per-domain gate audit, and human `/ai`/form flows stay byte-identical.
+
+**Nudge = preview-only** (Jamie's call): the agent can see and draft the digest but a human sends it in Settings — no agent-triggered email. **Event soft-cancel deferred** (the only item needing a migration).
+
+**Infra:** the PDF `read_file_content` gap is fixed — pdf-parse's tree is now copied into the alpine standalone image (it was missing because `serverExternalPackages` delegates tracing to nft, which can't follow pdf-parse's dynamic requires), so contract PDFs become readable. Opt-in proposal grouping: pass a `batchKey` in a `propose_*` call's arguments and cross-call proposals group into one bulk-approvable `/ai` card (`mcp:<userId>:<key>`); omit for the old one-per-call behaviour.
+
+Planner system prompt updated for all new tools (and corrected now-false claims like "household moves are human-only"). Typecheck clean, 726 tests green, lint clean, `next build` verified; per-domain security-gate audit clean (no blockers/majors/minors).
+
 ### 2026-07-19 · v2.8.0 — MCP planner build-out (Tier 1): self-apply, destructive kinds, file content, agent feedback
 
 The MCP agent goes from "reads + proposes" to a fully-fledged planner. Jamie's explicit policy calls (2026-07-19): full self-apply, deletes allowed via proposals, file-content read, and an agent-driven product-feedback channel. This is Tier 1 of the [v2.8.x epic](../.claude/plans) — Tiers 2 (coverage completion) and 3 (MCP prompts + proactive cadence) follow.

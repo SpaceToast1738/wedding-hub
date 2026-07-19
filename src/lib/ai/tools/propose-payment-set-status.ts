@@ -12,6 +12,13 @@ const inputSchema = z.object({
     .min(1)
     .describe("Payment id — get this from read_payments, never invent one."),
   status: z.enum(PAYMENT_STATUSES),
+  paidDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD")
+    .optional()
+    .describe(
+      "Only meaningful with status PAID: the date it was actually paid (YYYY-MM-DD). Omit to use today.",
+    ),
   rationale: z
     .string()
     .min(1)
@@ -34,6 +41,10 @@ export const proposePaymentSetStatus: AiTool<typeof inputSchema> = {
       properties: {
         paymentId: { type: "string", description: "Payment id from read_payments." },
         status: { type: "string", enum: [...PAYMENT_STATUSES] },
+        paidDate: {
+          type: "string",
+          description: "With status PAID only: the date paid (YYYY-MM-DD). Omit for today.",
+        },
         rationale: {
           type: "string",
           description: "One or two sentences explaining why the status should change.",
@@ -72,6 +83,10 @@ export const proposePaymentSetStatus: AiTool<typeof inputSchema> = {
     const payloadResult = paymentSetStatusSchema.safeParse({
       paymentId: input.paymentId,
       status: input.status,
+      // paidDate is only honoured when marking PAID; ignore it otherwise
+      // so the payload doesn't carry a misleading date onto a non-PAID
+      // transition.
+      paidDate: input.status === "PAID" ? input.paidDate ?? null : null,
     });
     if (!payloadResult.success) {
       return { ok: false, error: `Payload validation failed: ${payloadResult.error.message}` };
@@ -89,7 +104,9 @@ export const proposePaymentSetStatus: AiTool<typeof inputSchema> = {
 
     const bits: string[] = [`${payment.status} → ${input.status}`];
     if (input.status === "PAID") {
-      bits.push("PAID stamps today as the paid date");
+      bits.push(
+        input.paidDate ? `paid ${input.paidDate}` : "PAID stamps today as the paid date",
+      );
     } else if (payment.status === "PAID") {
       bits.push("moving off PAID clears the recorded paid date");
     }

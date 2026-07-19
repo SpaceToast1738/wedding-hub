@@ -106,7 +106,10 @@ export async function setPaymentStatus(id: string, status: PaymentStatus) {
   const user = await requireEdit("payments");
   // v2.8.0: body lives in setPaymentStatusCore — stamps paidDate on
   // PAID, clears it off-PAID.
-  await setPaymentStatusCore(user, id, status);
+  // v2.8.1: pass null for the explicit paidDate override — the core's
+  // `null ?? new Date()` yields today on PAID, byte-identical to the
+  // status-button behaviour before the override existed.
+  await setPaymentStatusCore(user, id, status, null);
 }
 
 export async function deletePayment(id: string) {

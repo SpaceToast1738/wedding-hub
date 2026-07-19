@@ -68,6 +68,21 @@ import { proposeSeatAssign } from "./propose-seat-assign";
 import { readFileContent } from "./read-file-content";
 import { readEnhancements } from "./read-enhancements";
 import { suggestEnhancement } from "./suggest-enhancement";
+// v2.8.1 (Tier 2): read completeness + write coverage.
+import { readActivity } from "./read-activity";
+import { readMembers } from "./read-members";
+import { readCustomFields } from "./read-custom-fields";
+import { readNudgePreview } from "./read-nudge-preview";
+import { proposeGuestCreate } from "./propose-guest-create";
+import { proposeGuestMoveHousehold } from "./propose-guest-move-household";
+import { proposeSeatUnassign } from "./propose-seat-unassign";
+import { proposeSeatSwap } from "./propose-seat-swap";
+import { proposeSeatingTableCreate } from "./propose-seating-table-create";
+import { proposeSeatingTableUpdate } from "./propose-seating-table-update";
+import { proposeSongRequestAssign } from "./propose-song-request-assign";
+import { proposeSupplierContractUpdate } from "./propose-supplier-contract-update";
+import { proposeBudgetComponentCreate } from "./propose-budget-component-create";
+import { proposeBudgetComponentUpdate } from "./propose-budget-component-update";
 import { proposeTaskDelete } from "./propose-task-delete";
 import { proposeEventDelete } from "./propose-event-delete";
 import { proposeGuestHardDelete } from "./propose-guest-hard-delete";
@@ -113,6 +128,11 @@ const READ_TOOLS: AiTool<any>[] = [
   readFileContent,
   readEnhancements,
   suggestEnhancement,
+  // v2.8.1 (Tier 2): activity/members/custom-field reads + nudge preview.
+  readActivity,
+  readMembers,
+  readCustomFields,
+  readNudgePreview,
 ];
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -175,6 +195,17 @@ const WRITE_TOOLS: AiTool<any>[] = [
   proposeBookSectionDelete,
   proposeSongRemove,
   proposeSeatingTableDelete,
+  // v2.8.1 (Tier 2): write coverage completion. Append-only (prompt-cache).
+  proposeGuestCreate,
+  proposeGuestMoveHousehold,
+  proposeSeatUnassign,
+  proposeSeatSwap,
+  proposeSeatingTableCreate,
+  proposeSeatingTableUpdate,
+  proposeSongRequestAssign,
+  proposeSupplierContractUpdate,
+  proposeBudgetComponentCreate,
+  proposeBudgetComponentUpdate,
 ];
 
 // v2.8.0: MCP-only self-apply pair. NOT in WRITE_TOOLS — the in-app

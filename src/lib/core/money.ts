@@ -492,11 +492,19 @@ export async function updatePaymentCore(
 }
 
 /** v2.8.0: extracted body of setPaymentStatus. Void-returning. Stamps
- *  today's paidDate on PAID; clears it when moving off PAID. */
+ *  a paidDate on PAID; clears it when moving off PAID.
+ *
+ *  v2.8.1: optional explicit `paidDate`. When marking PAID it's stamped
+ *  instead of today (`paidDate ?? new Date()`); moving off PAID always
+ *  clears it. The human setPaymentStatus wrapper passes null, so
+ *  `null ?? new Date()` = today — byte-identical to the old
+ *  unconditional `new Date()` on PAID. The AI apply bridge
+ *  (applyPaymentSetStatus) passes the parsed payload date. */
 export async function setPaymentStatusCore(
   user: SessionUser,
   id: string,
   status: PaymentStatus,
+  paidDate?: Date | null,
 ): Promise<void> {
   const before = await db.payment.findUnique({
     where: { id },
@@ -506,7 +514,7 @@ export async function setPaymentStatusCore(
     where: { id },
     data: {
       status,
-      paidDate: status === PaymentStatus.PAID ? new Date() : null,
+      paidDate: status === PaymentStatus.PAID ? (paidDate ?? new Date()) : null,
     },
   });
   await logAudit({
@@ -524,4 +532,143 @@ export async function setPaymentStatusCore(
   });
   revalidatePath("/payments");
   revalidatePath("/");
+}
+
+// ─── Budget-line component cores (v2.8.1) ───────────────────────────
+//
+// Sub-cost rows on a BudgetLine. Moved from budget/actions.ts's
+// module-private componentSchema + the createComponent / updateComponent
+// bodies so the MCP self-apply path (budget.component_create /
+// budget.component_update) runs the identical write logic — pence ints
+// written directly, order = current component count, changedFields diff,
+// audit rows and revalidations — without a browser session. Couple-only:
+// budget is a COUPLE_ONLY_SECTION, so the wrappers' requireEdit("budget")
+// and the apply bridge's requireSectionEdit("budget") both hard-deny
+// non-couple callers.
+
+/** Full component shape — mirrors the old module-private componentSchema
+ *  in budget/actions.ts verbatim (lineId + label + the flat/per-head
+ *  cost fields). Pence values are integers, written straight to the DB. */
+export const componentInputSchema = z.object({
+  lineId: z.string().min(1),
+  label: z.string().min(1).max(200),
+  // Flat OR per-head — caller sends pence values. Sender enforces
+  // mutual exclusion in the UI; server keeps both nullable so a dirty
+  // payload can still save without rejection.
+  flatPence: z.number().int().min(0).optional().nullable(),
+  perHeadPence: z.number().int().min(0).optional().nullable(),
+  headcountSource: z.nativeEnum(PerHeadSource).optional().nullable(),
+  manualHeadcount: z.number().int().min(0).optional().nullable(),
+  minimumHeadcount: z.number().int().min(0).optional().nullable(),
+  notes: z.string().max(2000).optional().nullable(),
+  fundSource: z.nativeEnum(FundSource).optional().nullable(),
+  fundLabel: z.string().max(120).optional().nullable(),
+});
+export type ComponentInput = z.infer<typeof componentInputSchema>;
+
+/** Update input = the same fields minus lineId. A component never
+ *  relocates lines (the human updateComponent never wrote lineId, and a
+ *  wrong line would silently move the component), so the update path
+ *  omits it — the AI update schema (budgetComponentUpdateSchema) has no
+ *  lineId either. */
+export const componentUpdateInputSchema = componentInputSchema.omit({ lineId: true });
+export type ComponentUpdateInput = z.infer<typeof componentUpdateInputSchema>;
+
+/** v2.8.1: extracted body of createComponent's try-block. Throws on a
+ *  missing line (the wrapper's catch turns it into the same
+ *  { ok:false, error:"Budget line not found" } shape the action
+ *  returned; the AI apply path lets it propagate to rollback). */
+export async function createComponentCore(
+  user: SessionUser,
+  parsed: ComponentInput,
+): Promise<{ id: string }> {
+  const line = await db.budgetLine.findUnique({
+    where: { id: parsed.lineId },
+    include: { _count: { select: { components: true } } },
+  });
+  if (!line) throw new Error("Budget line not found");
+  const created = await db.budgetLineComponent.create({
+    data: {
+      lineId: parsed.lineId,
+      label: parsed.label,
+      flatPence: parsed.flatPence ?? null,
+      perHeadPence: parsed.perHeadPence ?? null,
+      headcountSource: parsed.headcountSource ?? null,
+      manualHeadcount: parsed.manualHeadcount ?? null,
+      minimumHeadcount: parsed.minimumHeadcount ?? null,
+      notes: parsed.notes ?? null,
+      fundSource: parsed.fundSource ?? null,
+      fundLabel: (parsed.fundLabel?.trim() || null) ?? null,
+      order: line._count.components,
+    },
+  });
+  await logAudit({
+    userId: user.id,
+    action: "budget-component-create",
+    entity: "BudgetLineComponent",
+    entityId: created.id,
+    metadata: {
+      lineId: parsed.lineId,
+      lineDescription: line.description,
+      label: parsed.label,
+      flatPence: parsed.flatPence ?? null,
+      perHeadPence: parsed.perHeadPence ?? null,
+      headcountSource: parsed.headcountSource ?? null,
+    },
+  });
+  revalidatePath("/budget");
+  return { id: created.id };
+}
+
+/** v2.8.1: extracted body of updateComponent's try-block. Void-returning
+ *  (caller already knows the componentId). Throws on a missing component
+ *  — same wrapper-catch translation as createComponentCore. Never writes
+ *  lineId, so a component can't be relocated by an update. */
+export async function updateComponentCore(
+  user: SessionUser,
+  id: string,
+  parsed: ComponentUpdateInput,
+): Promise<void> {
+  const before = await db.budgetLineComponent.findUnique({
+    where: { id },
+    include: { line: { select: { description: true } } },
+  });
+  if (!before) throw new Error("Component not found");
+  const nextFundLabel = (parsed.fundLabel?.trim() || null) ?? null;
+  await db.budgetLineComponent.update({
+    where: { id },
+    data: {
+      label: parsed.label,
+      flatPence: parsed.flatPence ?? null,
+      perHeadPence: parsed.perHeadPence ?? null,
+      headcountSource: parsed.headcountSource ?? null,
+      manualHeadcount: parsed.manualHeadcount ?? null,
+      minimumHeadcount: parsed.minimumHeadcount ?? null,
+      notes: parsed.notes ?? null,
+      fundSource: parsed.fundSource ?? null,
+      fundLabel: nextFundLabel,
+    },
+  });
+  const changedFields: string[] = [];
+  if (before.label !== parsed.label) changedFields.push("label");
+  if (before.flatPence !== (parsed.flatPence ?? null)) changedFields.push("flatPence");
+  if (before.perHeadPence !== (parsed.perHeadPence ?? null)) changedFields.push("perHeadPence");
+  if (before.headcountSource !== (parsed.headcountSource ?? null)) changedFields.push("headcountSource");
+  if (before.manualHeadcount !== (parsed.manualHeadcount ?? null)) changedFields.push("manualHeadcount");
+  if (before.minimumHeadcount !== (parsed.minimumHeadcount ?? null)) changedFields.push("minimumHeadcount");
+  if (before.notes !== (parsed.notes ?? null)) changedFields.push("notes");
+  if (before.fundSource !== (parsed.fundSource ?? null)) changedFields.push("fundSource");
+  if (before.fundLabel !== nextFundLabel) changedFields.push("fundLabel");
+  await logAudit({
+    userId: user.id,
+    action: "budget-component-update",
+    entity: "BudgetLineComponent",
+    entityId: id,
+    metadata: {
+      lineDescription: before.line.description,
+      label: parsed.label,
+      changedFields,
+    },
+  });
+  revalidatePath("/budget");
 }
