@@ -62,10 +62,26 @@ export type McpToolDef = {
   inputSchema: Record<string, unknown>;
 };
 
+// v2.8.2: prompts capability. Shapes mirror the MCP prompts spec —
+// prompts/list returns definitions, prompts/get returns a message list.
+export type McpPromptListItem = {
+  name: string;
+  description: string;
+  arguments?: { name: string; description: string; required?: boolean }[];
+};
+export type McpPromptGetResult = {
+  description: string;
+  messages: { role: "user" | "assistant"; content: { type: "text"; text: string } }[];
+};
+
 export type ProtocolDeps = {
   serverVersion: string;
   listTools: () => McpToolDef[];
   callTool: (name: string, args: unknown) => Promise<ToolCallOutput>;
+  // v2.8.2: canned planner workflows. getPrompt returns null for an
+  // unknown name (→ -32602), matching the tools/call unknown-tool path.
+  listPrompts: () => McpPromptListItem[];
+  getPrompt: (name: string, args: Record<string, string>) => McpPromptGetResult | null;
 };
 
 /** The route maps outcomes to HTTP: `response` → 200 + body (JSON-RPC
@@ -131,7 +147,9 @@ export async function handleMcpMessage(
         : LATEST_PROTOCOL_VERSION;
       return resultResponse(id, {
         protocolVersion: negotiated,
-        capabilities: { tools: {} },
+        // v2.8.2: declare prompts alongside tools. listChanged is
+        // omitted on both — the sets are static per release.
+        capabilities: { tools: {}, prompts: {} },
         serverInfo: { name: SERVER_NAME, version: deps.serverVersion },
         instructions:
           "Wedding Hub planning data for Jamie & Bryony's wedding. " +
@@ -167,6 +185,31 @@ export async function handleMcpMessage(
         content: [{ type: "text", text: out.text }],
         isError: out.isError,
       });
+    }
+
+    case "prompts/list":
+      // Static, small — no pagination (a cursor param is ignored, as in
+      // tools/list).
+      return resultResponse(id, { prompts: deps.listPrompts() });
+
+    case "prompts/get": {
+      const name = params.name;
+      if (typeof name !== "string" || name.length === 0) {
+        return errorResponse(id, INVALID_PARAMS, "prompts/get requires a string `name`");
+      }
+      // The spec types prompt arguments as strings; ignore non-object
+      // arguments rather than reject (lenient, like tools/call).
+      const rawArgs = isPlainObject(params.arguments) ? params.arguments : {};
+      const args: Record<string, string> = {};
+      for (const [k, v] of Object.entries(rawArgs)) {
+        if (typeof v === "string") args[k] = v;
+      }
+      const result = deps.getPrompt(name, args);
+      if (!result) {
+        // Same -32602 treatment as an unknown tool.
+        return errorResponse(id, INVALID_PARAMS, `Unknown prompt: ${name}`);
+      }
+      return resultResponse(id, result);
     }
 
     default:

@@ -963,6 +963,18 @@ When wrapping up a meaningful iteration:
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
 
+### 2026-07-19 · v2.8.2 — MCP planner build-out (Tier 3): prompts capability + PDF fix
+
+Closes the epic's app-side work. No migrations.
+
+**MCP prompts capability.** The server now advertises `prompts` alongside `tools` and serves six canned planner workflows via `prompts/list` / `prompts/get`: `weekly_review`, `overdue_triage`, `rsvp_chase`, `supplier_confirmation_sweep`, `payment_reconciliation`, `day_of_runsheet`. Clients that support prompts (Claude Code's prompt menu, MCP Inspector) get them as one-click starting points; each briefs the agent on the workflow and points at the right read/propose tools, grounded in `docs/planner/PLANNER.md`'s judgement rules (read-first, draft-don't-send, don't self-apply money/deletes/guest-facing changes). Wired through `protocol.ts` with the same client-compat contract as the tools handlers — errors ride HTTP 200, unknown/missing prompt → -32602, capability declared in `initialize`. `src/lib/mcp/prompts.ts` is pure data (no app imports), unit-tested at the protocol seam.
+
+**PDF extraction fixed.** `read_file_content` now reads contract PDFs. Root cause of the v2.8.1 "not supported" was `DOMMatrix is not defined` — pdf-parse@2's pdfjs-dist needs canvas/DOM globals at import, absent in the headless alpine standalone. Swapped to **unpdf** (a canvas-free serverless pdfjs distribution that stubs the browser globals pdfjs reaches for); it bundles into the standalone build and is copied into the alpine image. The failure-isolation seam is preserved even though unpdf loads pdfjs lazily — a bundle-resolution failure is classified as a deploy problem ("not supported") rather than misreported as a corrupt file.
+
+Deliberate deviations / accepted nits: `prompts/list` isn't tier-filtered like `tools/list` (a view-only token sees couple-only workflows like `payment_reconciliation` and hits access-denied mid-run — degrades gracefully, low-impact for a couple-token deployment); unpdf's `mergePages` collapses whitespace, so tabular PDFs lose row structure (text still extracted). Both noted for a future pass.
+
+Typecheck clean, 733 tests green, lint clean, `next build` verified; adversarial review of the protocol + PDF change (protocol approved, PDF approve-with-changes → the one real fix, the failure-isolation seam, applied).
+
 ### 2026-07-19 · v2.8.1 — MCP planner build-out (Tier 2): coverage completion
 
 Closes the read/write gaps that blocked whole planner workflows. No schema migrations — everything reuses v2.8.0's session-free core + propose→apply machinery.

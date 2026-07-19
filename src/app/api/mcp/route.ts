@@ -40,6 +40,7 @@ import {
 } from "@/lib/mcp/protocol";
 import { hasTool, runTool, toolDefinitions } from "@/lib/ai/tools/registry";
 import type { ToolContext } from "@/lib/ai/tools/types";
+import { listPrompts, getPrompt } from "@/lib/mcp/prompts";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -273,6 +274,11 @@ export async function POST(req: Request): Promise<Response> {
       const { result, text } = await runTool(name, args, ctx);
       return { text, isError: !result.ok };
     },
+    // v2.8.2: canned planner workflows (pure data — no gate beyond the
+    // ai_chat check already applied above to reach any non-handshake
+    // method).
+    listPrompts,
+    getPrompt,
   };
 
   const outcome = await handleMcpMessage(msg, deps);

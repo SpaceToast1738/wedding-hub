@@ -46,6 +46,15 @@ function makeDeps(
     serverVersion: "2.7.0-test",
     listTools: () => TOOLS,
     callTool: vi.fn(callTool ?? (async () => ({ text: "ok", isError: false }))),
+    // v2.8.2: prompts seam. Fakes: one known prompt, null otherwise.
+    listPrompts: () => [{ name: "weekly_review", description: "Weekly review" }],
+    getPrompt: (name) =>
+      name === "weekly_review"
+        ? {
+            description: "Weekly review",
+            messages: [{ role: "user", content: { type: "text", text: "run the review" } }],
+          }
+        : null,
   };
 }
 
@@ -340,5 +349,83 @@ describe("handleMcpMessage — tools/call", () => {
     );
     expect(responseBody(out).error).toBeUndefined();
     expect(deps.callTool).toHaveBeenCalledWith("read_stats", {});
+  });
+});
+
+describe("handleMcpMessage — prompts (v2.8.2)", () => {
+  it("initialize declares the prompts capability alongside tools", async () => {
+    const out = await handleMcpMessage(
+      { jsonrpc: "2.0", id: 0, method: "initialize", params: {} },
+      makeDeps(),
+    );
+    const result = responseBody(out).result as {
+      capabilities: { tools: unknown; prompts: unknown };
+    };
+    expect(result.capabilities.prompts).toEqual({});
+    expect(result.capabilities.tools).toEqual({});
+  });
+
+  it("prompts/list returns the injected prompt definitions", async () => {
+    const out = await handleMcpMessage(
+      { jsonrpc: "2.0", id: 1, method: "prompts/list" },
+      makeDeps(),
+    );
+    const body = responseBody(out);
+    expect(body.error).toBeUndefined();
+    expect(body.result).toEqual({
+      prompts: [{ name: "weekly_review", description: "Weekly review" }],
+    });
+  });
+
+  it("prompts/get returns the message list for a known prompt", async () => {
+    const out = await handleMcpMessage(
+      { jsonrpc: "2.0", id: 2, method: "prompts/get", params: { name: "weekly_review" } },
+      makeDeps(),
+    );
+    const body = responseBody(out);
+    expect(body.error).toBeUndefined();
+    expect(body.result).toEqual({
+      description: "Weekly review",
+      messages: [{ role: "user", content: { type: "text", text: "run the review" } }],
+    });
+  });
+
+  it("prompts/get for an unknown name is -32602 (like an unknown tool)", async () => {
+    const out = await handleMcpMessage(
+      { jsonrpc: "2.0", id: 3, method: "prompts/get", params: { name: "nope" } },
+      makeDeps(),
+    );
+    const body = responseBody(out);
+    expect(body.error?.code).toBe(-32602);
+    expect(body.error?.message).toContain("nope");
+  });
+
+  it("prompts/get with no name is -32602", async () => {
+    const out = await handleMcpMessage(
+      { jsonrpc: "2.0", id: 4, method: "prompts/get", params: {} },
+      makeDeps(),
+    );
+    expect(responseBody(out).error?.code).toBe(-32602);
+  });
+});
+
+describe("planner prompt content (src/lib/mcp/prompts.ts)", () => {
+  it("lists the six canned workflows, each with a message and the read-first rule", async () => {
+    const { listPrompts, getPrompt } = await import("@/lib/mcp/prompts");
+    const names = listPrompts().map((p) => p.name);
+    expect(names).toEqual([
+      "weekly_review",
+      "overdue_triage",
+      "rsvp_chase",
+      "supplier_confirmation_sweep",
+      "payment_reconciliation",
+      "day_of_runsheet",
+    ]);
+    for (const name of names) {
+      const got = getPrompt(name, {});
+      expect(got, name).not.toBeNull();
+      expect(got!.messages[0]?.content.text).toContain("read_");
+    }
+    expect(getPrompt("unknown", {})).toBeNull();
   });
 });

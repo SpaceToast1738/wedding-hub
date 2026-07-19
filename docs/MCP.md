@@ -187,6 +187,14 @@ tokens are revoked from Settings without any restart.
   (`mcp:<userId>:<batchKey>`) from it. Omit `batchKey` for the old
   one-proposal-per-call behaviour. The key is namespaced by the token's
   user, so two members can reuse the same string without colliding.
+- **Planner prompts (v2.8.2).** The server advertises the MCP `prompts`
+  capability — a set of canned planner workflows (`weekly_review`,
+  `overdue_triage`, `rsvp_chase`, `supplier_confirmation_sweep`,
+  `payment_reconciliation`, `day_of_runsheet`). Clients that support
+  prompts (Claude Code's prompt menu, MCP Inspector) can list and run
+  them as one-click starting points; each briefs the agent on the
+  workflow and points at the right read/propose tools. They follow the
+  same judgement rules as `docs/planner/PLANNER.md`.
 - **Tool results are capped at 24,000 characters** with an explicit
   truncation marker (same cap as planner chat). If a client hits it,
   narrow the query (most read tools take filters).

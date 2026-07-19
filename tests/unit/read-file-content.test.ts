@@ -2,9 +2,14 @@
 // read_files deliberately never offered. Covers the guardrail ladder
 // (permission gate → probe-safe lookup → size caps → MIME allowlist)
 // and the extraction paths (text decode + null-strip, truncation
-// marker, real PDF extraction via pdf-parse against a fixture built
-// from scratch — no mocking of the extractor, so a pdf-parse/pdfjs
-// breakage surfaces here and not in production).
+// marker, PDF extraction through the unpdf seam).
+//
+// v2.8.2: PDF extraction moved from pdf-parse to unpdf (canvas-free
+// serverless pdfjs — pdf-parse's pdfjs threw "DOMMatrix is not defined"
+// in the headless alpine standalone). The extractor is mocked here so
+// the handler's PDF branch (success → content, empty → "no extractable
+// text", throw → "corrupt") is driven deterministically without
+// depending on the pdfjs bundle resolving in the test env.
 //
 // UPLOADS_DIR is computed at MODULE LOAD in src/lib/uploads.ts, so the
 // env override below must be in place before the tool module is
@@ -69,6 +74,22 @@ vi.mock("react", async () => {
   return { ...actual, cache: <T>(fn: T) => fn };
 });
 
+// Stub the unpdf extractor. Each PDF test stages what the stub returns
+// (its `text`) or makes it throw, so the handler's PDF branch is driven
+// deterministically without loading the real pdfjs bundle. getDocumentProxy
+// is the parse step that rejects on a malformed PDF → the "corrupt" branch.
+const pdfMock = vi.hoisted(() => ({ text: "" as string, throws: false }));
+vi.mock("unpdf", () => ({
+  getDocumentProxy: vi.fn(async (data: Uint8Array) => {
+    if (pdfMock.throws) throw new Error("Invalid PDF structure");
+    return { _pdfInfo: {}, data };
+  }),
+  extractText: vi.fn(async () => {
+    if (pdfMock.throws) throw new Error("Invalid PDF structure");
+    return { totalPages: 1, text: pdfMock.text };
+  }),
+}));
+
 const { readFileContent } = await import("@/lib/ai/tools/read-file-content");
 
 const NUL = String.fromCharCode(0);
@@ -121,36 +142,11 @@ function addFile(opts: {
   return id;
 }
 
-/** Build a real single-page PDF from scratch (correct xref offsets)
- *  so the pdf-parse path is exercised end-to-end without fixtures on
- *  disk in the repo. `text` must be ASCII without parens. */
-function buildPdf(text: string): Buffer {
-  const stream = `BT /F1 24 Tf 72 720 Td (${text}) Tj ET`;
-  const bodies = [
-    "<</Type/Catalog/Pages 2 0 R>>",
-    "<</Type/Pages/Kids[3 0 R]/Count 1>>",
-    "<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792]/Contents 4 0 R/Resources<</Font<</F1 5 0 R>>>>>>",
-    `<</Length ${stream.length}>>stream\n${stream}\nendstream`,
-    "<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>",
-  ];
-  let pdf = "%PDF-1.4\n";
-  const offsets: number[] = [];
-  bodies.forEach((body, i) => {
-    offsets.push(pdf.length);
-    pdf += `${i + 1} 0 obj\n${body}\nendobj\n`;
-  });
-  const xrefStart = pdf.length;
-  pdf += `xref\n0 ${bodies.length + 1}\n0000000000 65535 f \n`;
-  for (const off of offsets) {
-    pdf += `${String(off).padStart(10, "0")} 00000 n \n`;
-  }
-  pdf += `trailer\n<</Size ${bodies.length + 1}/Root 1 0 R>>\nstartxref\n${xrefStart}\n%%EOF`;
-  return Buffer.from(pdf, "latin1");
-}
-
 beforeEach(() => {
   fileRows = {};
   permissionRows = [];
+  pdfMock.text = "";
+  pdfMock.throws = false;
 });
 
 afterAll(() => {
@@ -303,12 +299,13 @@ describe("read_file_content — text extraction", () => {
   });
 });
 
-describe("read_file_content — PDF extraction", () => {
-  it("extracts text from a real PDF via pdf-parse", async () => {
+describe("read_file_content — PDF extraction (via unpdf)", () => {
+  it("extracts text from a PDF via unpdf", async () => {
+    pdfMock.text = "Hello Wedding";
     const id = addFile({
       name: "contract.pdf",
       mimeType: "application/pdf",
-      bytes: buildPdf("Hello Wedding"),
+      bytes: "%PDF-1.4 has-text",
     });
     const result = await readFileContent.handler({ fileId: id }, coupleCtx);
     expect(result.ok).toBe(true);
@@ -317,11 +314,32 @@ describe("read_file_content — PDF extraction", () => {
     }
   });
 
+  it("strips NULs and truncates extracted PDF text at 16000 chars", async () => {
+    // unpdf can surface embedded NULs; the handler null-strips then caps.
+    const NUL = String.fromCharCode(0);
+    pdfMock.text = `${NUL}${"y".repeat(25_000)}`;
+    const id = addFile({
+      name: "long-contract.pdf",
+      mimeType: "application/pdf",
+      bytes: "%PDF-1.4 long",
+    });
+    const result = await readFileContent.handler({ fileId: id }, coupleCtx);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const data = result.data as { content: string; truncated?: boolean; totalChars?: number };
+      expect(data.content).not.toContain(NUL);
+      expect(data.content).toContain("[truncated at 16000 chars");
+      expect(data.truncated).toBe(true);
+      expect(data.totalChars).toBe(25_000); // after NUL-strip, before cap
+    }
+  });
+
   it("reports a PDF with no extractable text", async () => {
+    pdfMock.text = ""; // image-only/scanned PDF: unpdf returns empty text
     const id = addFile({
       name: "scan.pdf",
       mimeType: "application/pdf",
-      bytes: buildPdf(""),
+      bytes: "%PDF-1.4 image-only",
     });
     const result = await readFileContent.handler({ fileId: id }, coupleCtx);
     expect(result.ok).toBe(false);
@@ -329,6 +347,7 @@ describe("read_file_content — PDF extraction", () => {
   });
 
   it("reports a corrupt PDF cleanly instead of throwing", async () => {
+    pdfMock.throws = true; // unpdf rejects when it can't parse the PDF
     const id = addFile({
       name: "broken.pdf",
       mimeType: "application/pdf",

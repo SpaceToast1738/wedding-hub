@@ -5,12 +5,14 @@ const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
   productionBrowserSourceMaps: false,
-  // v2.8.0: read_file_content's PDF extraction. pdf-parse drags in
-  // pdfjs-dist plus the native @napi-rs/canvas addon — webpack must not
-  // try to bundle that tree (native .node binaries + dynamic requires
-  // break it). External packages are require()d from node_modules at
-  // runtime and traced into the standalone output by Next's file tracing.
-  serverExternalPackages: ["pdf-parse"],
+  // v2.8.0: read_file_content's PDF extraction. unpdf bundles a
+  // serverless pdfjs build and loads it via a dynamic `import("unpdf/pdfjs")`
+  // — webpack must not try to bundle that tree (the ~1.6 MB pdfjs chunk
+  // plus the self-referencing subpath import break it). External packages
+  // are require()d from node_modules at runtime; the standalone image
+  // copies the unpdf dir explicitly (see Dockerfile) since Next's tracer
+  // can't follow the dynamic subpath import.
+  serverExternalPackages: ["unpdf"],
   experimental: {
     serverActions: {
       // Headroom for the file upload action — see src/lib/uploads.ts where

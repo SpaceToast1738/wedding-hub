@@ -71,39 +71,48 @@ function decodeText(bytes: Buffer): string {
   return stripNulls(bytes.toString("utf8"));
 }
 
-// Dynamic import on purpose: pdf-parse drags in pdfjs-dist (~1 MB of
-// JS plus the native @napi-rs/canvas addon), which most calls — text
-// and CSV reads — never need. It's also the failure isolation seam:
-// if the native dep didn't install in some environment, the import
-// rejects and the caller reports extraction as unsupported instead of
-// the whole tool module failing to load (kept distinct from the
-// corrupt-PDF error so a deploy problem doesn't masquerade as a bad
-// file). Kept out of the webpack bundle via serverExternalPackages in
-// next.config.ts.
-async function loadPdfParser(): Promise<typeof import("pdf-parse").PDFParse | null> {
+// Dynamic import on purpose: unpdf bundles a serverless pdfjs build
+// (~1.6 MB of JS), which most calls — text and CSV reads — never need.
+// Failure-isolation seam: a packaging/deploy problem must report as
+// "unsupported", NOT masquerade as a corrupt file. Two failure points:
+// the top-level `import("unpdf")` here (loadUnpdf → null), AND — because
+// unpdf loads its heavy pdfjs bundle LAZILY via an internal
+// `import("unpdf/pdfjs")` inside getDocumentProxy — a bundle-resolution
+// throw during extraction. isBundleLoadError() below classifies the
+// latter so both map to the same "unsupported" message. unpdf is
+// canvas-free and DOM-free
+// on purpose — it stubs the browser globals (DOMMatrix, ImageData, …)
+// pdfjs reaches for, so text extraction works in the headless alpine
+// standalone where pdf-parse's canvas-backed pdfjs threw "DOMMatrix is
+// not defined". Kept out of the webpack bundle via serverExternalPackages
+// in next.config.ts.
+async function loadUnpdf(): Promise<typeof import("unpdf") | null> {
   try {
-    return (await import("pdf-parse")).PDFParse;
+    return await import("unpdf");
   } catch {
     return null;
   }
 }
 
 async function extractPdfText(
-  PDFParse: NonNullable<Awaited<ReturnType<typeof loadPdfParser>>>,
+  unpdf: NonNullable<Awaited<ReturnType<typeof loadUnpdf>>>,
   bytes: Buffer,
 ): Promise<string> {
   // Copy: pdfjs takes ownership of (and may detach) the array it's given.
-  const parser = new PDFParse({ data: new Uint8Array(bytes) });
-  try {
-    const result = await parser.getText();
-    // The default pageJoiner stamps "-- 1 of N --" markers into .text —
-    // useful for citing a page, but they'd make an image-only scan look
-    // non-empty. Judge emptiness on the per-page text instead.
-    const hasText = result.pages.some((p) => p.text.trim().length > 0);
-    return hasText ? result.text : "";
-  } finally {
-    await parser.destroy();
-  }
+  const pdf = await unpdf.getDocumentProxy(new Uint8Array(bytes));
+  // mergePages joins page text into one string (no page markers), so an
+  // image-only scan comes back as whitespace and the handler's
+  // `!text.trim()` check flags it as having no extractable text.
+  const { text } = await unpdf.extractText(pdf, { mergePages: true });
+  return text;
+}
+
+/** True when the throw is unpdf's serverless pdfjs bundle failing to
+ *  resolve — a deploy/packaging fault, not a bad file. Keeps the
+ *  failure-isolation seam intact now that the bundle loads lazily. */
+function isBundleLoadError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return /bundle could not be resolved|Cannot find module|ERR_MODULE_NOT_FOUND|pdfjs/i.test(msg);
 }
 
 export const readFileContent: AiTool<typeof inputSchema> = {
@@ -194,13 +203,19 @@ export const readFileContent: AiTool<typeof inputSchema> = {
 
     let text: string;
     if (isPdf) {
-      const PDFParse = await loadPdfParser();
-      if (!PDFParse) {
+      const unpdf = await loadUnpdf();
+      if (!unpdf) {
         return { ok: false, error: "PDF text extraction not supported in this deployment." };
       }
       try {
-        text = stripNulls(await extractPdfText(PDFParse, bytes));
-      } catch {
+        text = stripNulls(await extractPdfText(unpdf, bytes));
+      } catch (err) {
+        // A lazy pdfjs-bundle load failure is a DEPLOY problem, not a
+        // bad file — report it as unsupported so it doesn't send an
+        // operator hunting a phantom corrupt PDF.
+        if (isBundleLoadError(err)) {
+          return { ok: false, error: "PDF text extraction not supported in this deployment." };
+        }
         return {
           ok: false,
           error: `Couldn't extract text from "${file.name}" — the PDF may be corrupt or password-protected.`,
