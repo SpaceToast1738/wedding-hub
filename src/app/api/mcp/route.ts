@@ -56,13 +56,23 @@ function mcpEnabled(): boolean {
   return process.env.MCP_ENABLED !== "false";
 }
 
-function lanHost(): string {
-  return process.env.MCP_LAN_HOST ?? "192.168.50.25:8090";
+// v2.7.1: comma-separated allowlist. Beyond the Caddy LAN listener,
+// the endpoint is reachable over the user's tailnet (Tower publishes
+// caddy's :8090 on its own IPs via a compose ports: mapping — the
+// bridge-network path, since macvlan isolation stops Tower reaching
+// 192.168.50.25 itself). Tailscale traffic is WireGuard-encrypted,
+// so plain HTTP is fine there. Still never internet-exposed: the
+// Cloudflare Tunnel only routes :80, which 403s /api/mcp.
+function allowedHosts(): string[] {
+  return (process.env.MCP_LAN_HOST ?? "192.168.50.25:8090")
+    .split(",")
+    .map((h) => h.trim())
+    .filter(Boolean);
 }
 
 function isAllowedHost(host: string | null): boolean {
   if (!host) return false;
-  if (host === lanHost()) return true;
+  if (allowedHosts().includes(host)) return true;
   // localhost is fine: not remotely reachable, needed for dev + e2e,
   // and DNS rebinding always arrives under an attacker hostname.
   const hostname = host.split(":")[0]?.toLowerCase();

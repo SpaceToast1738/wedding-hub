@@ -963,6 +963,16 @@ When wrapping up a meaningful iteration:
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
 
+### 2026-07-19 · v2.7.1 — MCP remote access over Tailscale
+
+Jamie wants the MCP server reachable away from home. Tower already runs Tailscale (`100.79.99.19`), which keeps the original LAN/VPN-only decision intact — no internet exposure, and the tailnet hop is WireGuard-encrypted so plain HTTP is fine there.
+
+The blocker was macvlan isolation, confirmed live: the Unraid host cannot reach caddy's br0 address `192.168.50.25` at all, so tailnet traffic routed through Tower (and SSH tunnels originating on it) could never reach the `:8090` listener. Fix: publish caddy's `:8090` on Tower's own IPs via a compose `ports:` mapping — that path rides the `internal` bridge network, which has no macvlan restriction — and make the route's `MCP_LAN_HOST` Host-allowlist comma-separated so `192.168.50.110:8090` (LAN via Tower) and `100.79.99.19:8090` (tailnet) are admitted alongside the original listener address.
+
+docs/MCP.md gains a "Remote access (Tailscale)" section. Host-side: the live compose gets the `ports:` mapping and the live `.env` gets the extended `MCP_LAN_HOST` — reconciled over SSH at deploy time.
+
+Typecheck clean, tests green, lint clean, `next build` verified.
+
 ### 2026-07-19 · v2.7.0 — LAN-only MCP server: the AI tool registry, reachable from Claude Code on the LAN
 
 Wedding Hub is now an MCP server. `POST /api/mcp` speaks stateless MCP streamable HTTP and exposes the existing AI tool registry (13 read tools + 43 propose tools) to MCP clients on the LAN — Claude Code, MCP Inspector, or Claude Desktop via `mcp-remote`. Full setup + client-config guide in [docs/MCP.md](docs/MCP.md).
