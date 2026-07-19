@@ -157,6 +157,12 @@ export function isProposeTool(name: string): boolean {
   return PROPOSE_TOOL_NAMES.has(name);
 }
 
+/** v2.7.0: registry-miss check for the MCP dispatch layer — an unknown
+ *  tool name is a protocol-level -32602 there, not a tool result. */
+export function hasTool(name: string): boolean {
+  return BY_NAME.has(name);
+}
+
 export function progressLabelFor(name: string): string {
   return BY_NAME.get(name)?.progressLabel ?? `Running ${name}…`;
 }

@@ -161,6 +161,10 @@ Two layers gate access:
 
 All writes are audit-logged via `audit()` (`src/lib/actions.ts`); the AuditLog viewer in Settings (planned v1.21.0) surfaces it.
 
+## MCP server (LAN-only)
+
+v2.7.0 exposes the AI tool registry to MCP clients (Claude Code, Claude Desktop via `mcp-remote`, MCP Inspector) at `http://192.168.50.25:8090/api/mcp` — reachable from the home LAN only, never through the tunnel. Auth is per-user bearer tokens generated in Settings → MCP tokens. Read tools return live data; propose tools only create proposals a human reviews on `/ai`. Client setup, permissions, and security notes: [docs/MCP.md](docs/MCP.md).
+
 ## Production deployment
 
 The stack runs on the Unraid server via `docker compose`, fronted by **Cloudflare Tunnel** — no public ports on the host, no Let's Encrypt to manage. Cloudflare terminates TLS at the edge and forwards plain HTTP through the tunnel to Caddy, which is reachable only on the LAN.

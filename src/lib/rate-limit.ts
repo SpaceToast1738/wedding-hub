@@ -90,15 +90,41 @@ export function decideRateLimit(args: {
 // pre-check (when ok), and the verify page was *also* recording on
 // failure — effective budget was 2–3, not 5. The new shape: the
 // pre-check is read-only for guesses; only failures count.
-export type AttemptBucket = "send" | "guess";
+export type AttemptBucket = "send" | "guess" | "mcp";
+
+// v2.7.0: failed MCP bearer-auth attempts, keyed per client IP.
+// Guess-pattern semantics (only failures count) — a legitimate client
+// making many authenticated calls never touches the budget.
+export const MCP_AUTH_LIMIT_MAX_PER_IP = 10;
+export const MCP_AUTH_LIMIT_WINDOW_MS = 5 * 60 * 1000; // 5 min
+
+const BUCKET_PREFIXES = ["verify:", "mcp:"] as const;
 
 function bucketParams(bucket: AttemptBucket) {
-  return bucket === "guess"
-    ? { max: VERIFY_LIMIT_MAX_PER_EMAIL, windowMs: VERIFY_LIMIT_WINDOW_MS, prefix: "verify:" }
-    : { max: RATE_LIMIT_MAX_PER_EMAIL, windowMs: RATE_LIMIT_WINDOW_MS, prefix: "" };
+  switch (bucket) {
+    case "guess":
+      return { max: VERIFY_LIMIT_MAX_PER_EMAIL, windowMs: VERIFY_LIMIT_WINDOW_MS, prefix: "verify:" };
+    case "mcp":
+      return { max: MCP_AUTH_LIMIT_MAX_PER_IP, windowMs: MCP_AUTH_LIMIT_WINDOW_MS, prefix: "mcp:" };
+    default:
+      return { max: RATE_LIMIT_MAX_PER_EMAIL, windowMs: RATE_LIMIT_WINDOW_MS, prefix: "" };
+  }
 }
 
-async function readBucket(identifier: string, windowMs: number, now: Date) {
+// v2.7.0: the prune must be scoped to the calling bucket. Buckets have
+// different window lengths (send 60min, guess 15min, mcp 5min), so an
+// unscoped `createdAt < windowStart` delete from a short-window bucket
+// would wipe rows the longer-window buckets still need — e.g. every
+// 5-minute MCP check erasing an hour's worth of send-quota history.
+// The send bucket has no prefix, so its scope is "not any prefixed
+// bucket" rather than a startsWith match.
+function pruneScope(prefix: string) {
+  return prefix === ""
+    ? { NOT: BUCKET_PREFIXES.map((p) => ({ identifier: { startsWith: p } })) }
+    : { identifier: { startsWith: prefix } };
+}
+
+async function readBucket(identifier: string, windowMs: number, now: Date, prefix: string) {
   const windowStart = new Date(now.getTime() - windowMs);
   const [attemptsInWindow, oldest] = await Promise.all([
     db.magicLinkAttempt.count({
@@ -110,7 +136,7 @@ async function readBucket(identifier: string, windowMs: number, now: Date) {
       select: { createdAt: true },
     }),
     db.magicLinkAttempt
-      .deleteMany({ where: { createdAt: { lt: windowStart } } })
+      .deleteMany({ where: { ...pruneScope(prefix), createdAt: { lt: windowStart } } })
       .catch(() => undefined),
   ]);
   return { attemptsInWindow, oldest: oldest?.createdAt ?? null };
@@ -128,7 +154,7 @@ export async function checkAndRecordAttempt(input: {
   const baseIdentifier = input.identifier.toLowerCase().trim();
   const identifier = `${prefix}${baseIdentifier}`;
 
-  const { attemptsInWindow, oldest } = await readBucket(identifier, windowMs, now);
+  const { attemptsInWindow, oldest } = await readBucket(identifier, windowMs, now, prefix);
   const decision = decideRateLimit({
     attemptsInWindow,
     oldestAttemptInWindow: oldest,
@@ -160,8 +186,8 @@ export async function checkGuessLimit(
   now: Date = new Date(),
 ): Promise<RateLimitDecision> {
   const identifier = `verify:${email.toLowerCase().trim()}`;
-  const { windowMs, max } = bucketParams("guess");
-  const { attemptsInWindow, oldest } = await readBucket(identifier, windowMs, now);
+  const { windowMs, max, prefix } = bucketParams("guess");
+  const { attemptsInWindow, oldest } = await readBucket(identifier, windowMs, now, prefix);
   return decideRateLimit({
     attemptsInWindow,
     oldestAttemptInWindow: oldest,
@@ -182,5 +208,34 @@ export async function recordFailedGuess(
   const identifier = `verify:${email.toLowerCase().trim()}`;
   await db.magicLinkAttempt
     .create({ data: { identifier, ip: ip ?? null } })
+    .catch(() => undefined);
+}
+
+// v2.7.0: MCP bearer-auth failure limiting, guess-pattern (read-only
+// pre-check; only failed token validations burn budget). Keyed on the
+// client IP as seen through Caddy's X-Forwarded-For — callers pass
+// "direct" when no XFF is present. The route only records attempts
+// that actually presented an Authorization header, so cross-origin
+// no-cors griefing (which can't set that header) writes nothing.
+export async function checkMcpAuthLimit(
+  ip: string,
+  now: Date = new Date(),
+): Promise<RateLimitDecision> {
+  const { windowMs, max, prefix } = bucketParams("mcp");
+  const identifier = `${prefix}${ip.toLowerCase().trim()}`;
+  const { attemptsInWindow, oldest } = await readBucket(identifier, windowMs, now, prefix);
+  return decideRateLimit({
+    attemptsInWindow,
+    oldestAttemptInWindow: oldest,
+    now,
+    max,
+    windowMs,
+  });
+}
+
+export async function recordFailedMcpAuth(ip: string): Promise<void> {
+  const identifier = `mcp:${ip.toLowerCase().trim()}`;
+  await db.magicLinkAttempt
+    .create({ data: { identifier, ip } })
     .catch(() => undefined);
 }

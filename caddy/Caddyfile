@@ -46,6 +46,14 @@
 	@scans path_regexp ^/(wp-admin|wp-login|xmlrpc|phpmyadmin|.well-known/acme-challenge/dummy)
 	respond @scans 404
 
+	# ── MCP is LAN-only ──────────────────────────────────────────────────
+	# The tunnel must never reach the MCP endpoint — it lives on the :8090
+	# LAN listener below. `respond` sorts before `reverse_proxy` in Caddy's
+	# directive order, so this wins wherever it sits; placing it above the
+	# proxy anyway is belt-and-braces.
+	@mcp path /api/mcp*
+	respond @mcp "Forbidden" 403
+
 	# Cap any single request body. The app accepts files up to 25 MB
 	# (see src/lib/uploads.ts MAX_UPLOAD_BYTES), so 26 MB here gives a
 	# small allowance for multipart framing overhead.
@@ -61,6 +69,40 @@
 		header_up X-Forwarded-Proto https
 		header_up X-Real-IP {http.request.header.CF-Connecting-IP}
 		header_up X-Forwarded-For {http.request.header.CF-Connecting-IP}
+	}
+
+	log {
+		output stdout
+		format console
+		level INFO
+	}
+}
+
+# ── LAN-only MCP listener ────────────────────────────────────────────────
+# Reachable at 192.168.50.25:8090 from the LAN (br0 macvlan — no compose
+# `ports:` change needed). The Cloudflare Tunnel only routes :80, so this
+# socket is never internet-exposed. Auth lives at the app layer: per-user
+# bearer tokens plus a Host-header allowlist (MCP_LAN_HOST).
+:8090 {
+	# MCP requests are single JSON-RPC messages — 2 MB is generous.
+	request_body {
+		max_size 2MB
+	}
+
+	# Mutually exclusive handle blocks: a bare `respond` would otherwise
+	# sort before `reverse_proxy` in Caddy's directive order and swallow
+	# the MCP path too.
+	handle /api/mcp* {
+		reverse_proxy web:3000 {
+			header_up X-Forwarded-Proto https
+			header_up X-Forwarded-For {client_ip}
+			header_up X-Real-IP {client_ip}
+		}
+	}
+
+	# Nothing else exists on this port.
+	handle {
+		respond "Not found" 404
 	}
 
 	log {

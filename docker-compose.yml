@@ -24,6 +24,7 @@ x-logging: &default-logging
 
 services:
   caddy:
+    # Also listens on :8090 — the LAN-only MCP listener (see caddy/Caddyfile). br0 macvlan exposes it directly; no `ports:` mapping needed.
     image: caddy:2-alpine
     restart: unless-stopped
     logging: *default-logging
@@ -82,6 +83,10 @@ services:
       # doesn't error when they're absent from .env.
       SPOTIFY_CLIENT_ID: ${SPOTIFY_CLIENT_ID:-}
       SPOTIFY_CLIENT_SECRET: ${SPOTIFY_CLIENT_SECRET:-}
+      # MCP server (v2.7.0). Kill-switch: "false" disables /api/mcp.
+      MCP_ENABLED: "${MCP_ENABLED:-true}"
+      # Host-header allowlist for the :8090 LAN listener (see caddy/Caddyfile).
+      MCP_LAN_HOST: "${MCP_LAN_HOST:-192.168.50.25:8090}"
     volumes:
       - uploads:/app/uploads
     depends_on:

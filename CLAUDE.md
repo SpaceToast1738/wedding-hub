@@ -63,7 +63,7 @@ The `prototype/` directory contains JSX mockups — one per page (`GuestsPage.js
 Multipart server action at `src/app/(app)/files/actions.ts` writes physical bytes under `UPLOADS_DIR` (defaults to `/app/uploads` in production, `./uploads` in dev). The Dockerfile creates this directory with `node:node` ownership before the named volume mount; downloads go through `src/app/api/files/[id]/route.ts` with a session + `canView("files")` gate. Body-size budget: Caddy `request_body max_size 26MB` → Next `serverActions.bodySizeLimit: "26mb"` → app-level `MAX_UPLOAD_BYTES = 25 MB`. MIME allowlist in `src/lib/uploads.ts` — extending it requires updating `MIME_EXTENSIONS` there.
 
 ### Caddy is on TWO networks
-`caddy` joins both `br0` (static IP `192.168.50.25` for inbound from cloudflared) AND `internal` (so it can reach `web:3000` by service name). When editing the compose, **don't drop either network** from the caddy service or the inbound or upstream side breaks.
+`caddy` joins both `br0` (static IP `192.168.50.25` for inbound from cloudflared) AND `internal` (so it can reach `web:3000` by service name). When editing the compose, **don't drop either network** from the caddy service or the inbound or upstream side breaks. `:8090` is the LAN-only MCP listener (v2.7.0) — don't drop it when editing the Caddyfile, and the host copy at `/mnt/user/appdata/wedding-hub/caddy/Caddyfile` must be synced (`caddy validate` the new file first) and caddy restarted when it changes.
 
 ### Postgres user is NOT 999
 `postgres:16-alpine`'s built-in `postgres` user is UID **70**. **Don't add `user: "999:999"`** (or any UID other than 70) to the `db` service — it makes `initdb` fail with "Operation not permitted" on the data dir.
@@ -135,10 +135,11 @@ Image is private. The Unraid host has cached credentials in `/root/.docker/confi
 │   └── seed.ts                       # transpiled to seed.js at build time
 ├── public/.gitkeep                   # required so the Dockerfile COPY succeeds (no static assets yet)
 ├── src/                              # Next.js app
+│   └── lib/mcp/                      # MCP server (v2.7.0): protocol + token auth behind /api/mcp — see docs/MCP.md
 ├── HANDOVER.md                       # current-state snapshot for resuming work
 ├── ROADMAP.md                        # living plan + changelog (read this!)
 ├── prototype/                        # JSX mockups — design source-of-truth for v2.0
-├── docs/                             # DESIGN-PASS-BRIEF, COMPONENT-INVENTORY, FORM-PATTERNS, MOBILE
+├── docs/                             # DESIGN-PASS-BRIEF, COMPONENT-INVENTORY, FORM-PATTERNS, MOBILE, MCP
 ├── README.md                         # user-facing docs
 └── .env.production.example
 ```
@@ -160,6 +161,8 @@ Image is private. The Unraid host has cached credentials in `/root/.docker/confi
 | `ANTHROPIC_API_KEY` | AI planner API key (v2.1.0+) | 1Password; missing = AI features off |
 | `AI_MONTHLY_CAP_PENCE` | Fallback monthly cap when `WeddingSettings.aiMonthlyCapPence` is null | `3000` (£30) |
 | `AI_ENABLED` | Kill-switch for the AI surface | `true` |
+| `MCP_ENABLED` | Kill-switch for the LAN MCP endpoint (v2.7.0) | `true` (compose defaults via `:-`) |
+| `MCP_LAN_HOST` | Host-header allowlist for the `:8090` MCP listener | `192.168.50.25:8090` (compose defaults via `:-`) |
 
 ## Common tasks
 
@@ -167,6 +170,9 @@ Image is private. The Unraid host has cached credentials in `/root/.docker/confi
 **v1.69.0+:** sign in to production as a couple-tier user, go to **Settings → Invite a member**, enter the email, pick the role, send. The invitee gets a magic-link sign-in email and lands as the role you picked.
 
 (Pre-v1.69.0 path was editing `AUTH_ALLOWED_EMAILS` in `.env` and recreating the stack — still works as the bootstrap fallback if no couple-tier user exists yet, but otherwise superseded.)
+
+### Connect an MCP client
+**v2.7.0+:** LAN-only MCP endpoint at `http://192.168.50.25:8090/api/mcp` (Caddy `:8090` → `web:3000`; the public `:80` block 403s it). Generate a bearer token in **Settings → MCP tokens** (couple-only; shown once), then follow [docs/MCP.md](docs/MCP.md) for the exact Claude Code / Claude Desktop (`mcp-remote` bridge) / MCP Inspector setup. Writes only ever create proposals reviewed on `/ai`.
 
 ### Push a new build
 ```bash

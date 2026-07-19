@@ -20,6 +20,8 @@ import { AiApiKeyPanel } from "./AiApiKeyPanel";
 import { readAnthropicApiKeyState } from "./wedding-settings-actions";
 import { DEFAULT_MONTHLY_CAP_PENCE } from "@/lib/ai/config";
 import { AuditLogPanel } from "./AuditLogPanel";
+import { McpTokensPanel } from "./McpTokensPanel";
+import { listMcpTokens, listTokenEligibleUsers } from "./mcp-token-actions";
 import { NudgesPanel } from "./NudgesPanel";
 import { NavTagsBlock } from "./NavTagsBlock";
 import { PermissionGroupsBlock } from "./PermissionGroupsBlock";
@@ -183,6 +185,15 @@ export default async function SettingsPage({
   const apiKeyState = user.isCouple
     ? await readAnthropicApiKeyState()
     : null;
+
+  // v2.7.0: MCP token rows + token-eligible users for the couple-only
+  // McpTokensPanel. Same server-side call pattern as
+  // readAnthropicApiKeyState above — the actions re-check
+  // requireCouple themselves.
+  const [mcpTokens, mcpEligibleUsers] = await Promise.all([
+    user.isCouple ? listMcpTokens() : Promise.resolve([]),
+    user.isCouple ? listTokenEligibleUsers() : Promise.resolve([]),
+  ]);
 
   // Format the date for the datetime-local input + read view.
   const pad = (n: number) => String(n).padStart(2, "0");
@@ -478,6 +489,12 @@ export default async function SettingsPage({
             }))}
             rolePermissions={rolePermissions}
           />
+
+          {/* v2.7.0: MCP bearer tokens — per-member credentials for
+              the LAN MCP server. Lives next to InviteBlock because
+              both issue app access to a member; couple-only like the
+              rest of this section. */}
+          <McpTokensPanel tokens={mcpTokens} eligibleUsers={mcpEligibleUsers} />
 
           {/* v1.45.0: per-user editor — replaces the dense
               PermissionMatrix table. Each user is its own

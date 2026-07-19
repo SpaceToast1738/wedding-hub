@@ -39,6 +39,14 @@ These are the changes from this session, newest first. Worth understanding befor
 
 ## Things to watch out for
 
+### v2.7.0 adds a second auth surface: /api/mcp + the :8090 LAN listener
+
+The MCP server (see [docs/MCP.md](docs/MCP.md)) is a new way into the app that does NOT go through Auth.js — per-user bearer tokens (`whmcp_…`, hashed in `McpToken`) verified in `src/app/api/mcp/route.ts`. Three things to hold in your head:
+
+1. **Deploying a Caddyfile change now requires a host sync.** The repo's `caddy/Caddyfile` gained the `:80` `/api/mcp*` 403 matcher and the whole `:8090` LAN site block. The production caddy reads a **bind-mounted host copy** at `/mnt/user/appdata/wedding-hub/caddy/Caddyfile` — pushing the image does nothing to it. Deploy order matters: validate the NEW bytes in a throwaway container (`docker run --rm -v /tmp/Caddyfile.new:/etc/caddy/Caddyfile:ro caddy:2-alpine caddy validate --config /etc/caddy/Caddyfile`), then `cp` over the mounted file — **never rename/mv-replace over the bind mount** (the container keeps the stale inode) — then restart caddy **BEFORE** pulling/upping web. The reverse order internet-exposes the endpoint until caddy restarts. (Belt-and-braces: the route's own Host allowlist would still 403 public-hostname requests.)
+2. **`src/middleware.ts`'s matcher now excludes `api/mcp`** (alongside `api/health`). If you touch the matcher, keep both exclusions — dropping `api/mcp` makes every MCP client get a 307 HTML redirect to /signin instead of JSON.
+3. Failed MCP auth is rate-limited per-IP via a new `"mcp"` bucket in `src/lib/rate-limit.ts`, which also scoped the previously-global prune (`pruneScope`) — the buckets have different windows, so don't "simplify" the prune back to an unscoped delete.
+
 ### v1.75.0 has a side-effect on BUILD materials
 
 Creating a payment with `bookBuildMaterialId` set will **auto-flip that material's `ordered` flag to true** (only when it was previously false — preserves any pre-existing ordering history). This is intentional and matches the user's "log the receipt → mark it ordered" mental model. If a user accidentally links the wrong material, detaching the link does NOT un-set `ordered` — the user has to manually un-tick the material on the BUILD card. Audit log entry: `build-material-ordered-by-payment`.

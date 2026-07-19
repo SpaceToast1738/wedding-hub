@@ -47,6 +47,25 @@ test.describe("anonymous redirects", () => {
     expect([200, 503]).toContain(response?.status() ?? 0);
   });
 
+  test("/api/mcp answers unauthenticated POSTs with 401 JSON (no auth redirect)", async ({ request }) => {
+    // What we're asserting: middleware allowlists /api/mcp (sibling of
+    // the /api/health carve-out) so MCP clients get a clean JSON 401 —
+    // never a 307 HTML redirect to /signin, which SDK clients would
+    // surface as an inscrutable transport failure. Uses the request
+    // fixture because GET /api/mcp is 405 by design (stateless server,
+    // no SSE channel) — page.goto would test the wrong method.
+    const response = await request.post("/api/mcp", {
+      data: { jsonrpc: "2.0", id: 1, method: "ping" },
+      maxRedirects: 0,
+    });
+    expect(response.status()).toBe(401);
+    expect(response.headers()["content-type"]).toContain("application/json");
+    // WWW-Authenticate tells clients this is bearer auth — without it
+    // some SDKs go probing for OAuth discovery metadata.
+    expect(response.headers()["www-authenticate"]).toBe("Bearer");
+    expect(response.url()).not.toContain("/signin");
+  });
+
   test("/signin renders without authentication", async ({ page }) => {
     await page.goto("/signin");
     await expect(page).toHaveTitle(/Wedding Hub|Sign in/i);

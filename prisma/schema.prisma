@@ -49,6 +49,9 @@ model User {
   aiThreads        AiThread[]
   aiProposals      AiProposal[]
   aiUsage          AiUsage[]
+  // v2.7.0: LAN-only MCP server. Tokens are per-user so the existing
+  // permission system and proposal attribution apply unchanged.
+  mcpTokens        McpToken[]
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
 
@@ -1678,6 +1681,28 @@ model MagicLinkAttempt {
 
   @@index([identifier, createdAt])
   @@index([createdAt])
+}
+
+// v2.7.0: bearer tokens for the LAN-only MCP server (/api/mcp).
+// Only the SHA-256 hex of the token is stored — the raw token is shown
+// exactly once at creation. Revocation is checked on every lookup, so
+// a revoked token dies immediately. Tokens are per-user: the mapped
+// user's permissions (ai_chat / ai_write) and proposal attribution
+// apply exactly as they do for the in-app AI chat.
+model McpToken {
+  id         String    @id @default(cuid())
+  tokenHash  String    @unique // SHA-256 hex of the full token string
+  label      String // "Jamie's desktop", etc. — shown in Settings
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt  DateTime  @default(now())
+  // Best-effort "is this token alive" signal — refreshed at most once
+  // an hour (stateless row-compare, no cache), so a busy client doesn't
+  // write on every call.
+  lastUsedAt DateTime?
+  revokedAt  DateTime?
+
+  @@index([userId])
 }
 
 // ─── Custom fields (Settings) ──────────────────────────────────────────────

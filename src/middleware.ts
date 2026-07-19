@@ -32,5 +32,8 @@ export default auth((req) => {
 });
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|api/health).*)"],
+  // api/mcp is excluded like api/health: it does its own bearer-token
+  // auth (cookie-JWT middleware would 307 MCP clients to /signin HTML).
+  // See src/app/api/mcp/route.ts for its auth stack.
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|api/health|api/mcp).*)"],
 };

@@ -963,6 +963,36 @@ When wrapping up a meaningful iteration:
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
 
+### 2026-07-19 · v2.7.0 — LAN-only MCP server: the AI tool registry, reachable from Claude Code on the LAN
+
+Wedding Hub is now an MCP server. `POST /api/mcp` speaks stateless MCP streamable HTTP and exposes the existing AI tool registry (13 read tools + 43 propose tools) to MCP clients on the LAN — Claude Code, MCP Inspector, or Claude Desktop via `mcp-remote`. Full setup + client-config guide in [docs/MCP.md](docs/MCP.md).
+
+**Safety model is the app's own, unchanged.** Tokens are per-user (couple issues them from **Settings → MCP tokens**; `whmcp_` prefix, 32 random bytes, only the SHA-256 stored, raw value shown exactly once, revocable instantly). Each request maps its token to the real user row and replicates the chat loop's gate stack: `canView("ai_chat")` for anything past the handshake, `canEdit("ai_write")` → `ctx.canWrite`. Propose tools never write real data — they create `AiProposal` rows the human approves on `/ai`, exactly as chat does. Tool calls hit only the local DB: zero Anthropic spend, so the AI budget/rate guards don't apply.
+
+**LAN-only by three independent layers:** (1) Caddy's public `:80` block 403s `/api/mcp*` so the Cloudflare Tunnel can never reach it; (2) a new Caddy `:8090` LAN listener (no compose `ports:` needed on macvlan — reachable at `192.168.50.25:8090`) proxies only `/api/mcp*`; (3) the route itself enforces a Host allowlist (`MCP_LAN_HOST`, drift-proof even if the host Caddyfile sync lags), rejects any browser `Origin` (MCP-spec DNS-rebinding MUST), and requires the bearer token. Failed auth is rate-limited 10/5min per IP (guess-pattern: only failures count, and only when an Authorization header was present — cross-site no-cors griefing writes nothing) and audited (`mcp_auth_failed`, capped per window so bursts can't flood the 30-day audit log).
+
+**Protocol subset, hand-rolled deliberately** (no `@modelcontextprotocol/sdk` — its transport is Node-req/res-shaped and this repo's `legacy-peer-deps` posture makes new deps a known hazard): `initialize`/`ping`/`tools/list`/`tools/call`, notifications → 202, GET/DELETE → 405, single messages only. The adversarial design review caught the traps that would have broken every real client on day one, now pinned by unit tests: SDK clients send `initialize` with `id: 0` (notification classification is by id *presence*, never truthiness); JSON-RPC error objects must ride HTTP 200 (SDK transports treat non-2xx as fatal before reading the body); current clients request protocol `2025-11-25` and accept our `2025-06-18` counter-offer (the counter-offer branch is the hot path); unknown tool → `-32602`, but validation/execution failures stay `isError` tool results so the model can self-correct.
+
+Plumbing: `McpToken` model + additive migration (`20260719000000_mcp_tokens`); `src/lib/mcp/protocol.ts` (pure, DI seam — tests inject fakes, zero mocks) + `auth.ts` (react-free) + thin `route.ts`; middleware matcher now excludes `api/mcp` (with an e2e regression spec: unauthenticated POST gets 401 JSON, never a `/signin` redirect); `MCP_ENABLED` kill-switch (default-on, mirroring `AI_ENABLED`) + `MCP_LAN_HOST` in compose/env-example. Fixed in passing: `rate-limit.ts`'s opportunistic prune was **unscoped across buckets** — any short-window check deleted other buckets' still-in-window rows (latent guess-vs-send bug, would have been weaponizable via the new unauthenticated 5-min bucket); prunes are now scoped per bucket, with cross-bucket isolation tests.
+
+Built via staged workflows: research (4 parallel readers + gap-filling critic) → adversarial design review (protocol/security/repo-fit lenses + adjudicator; 7 must-fixes adopted, incl. the prune bug and a deploy-order fix — Caddy before web so the endpoint is never tunnel-exposed mid-deploy) → parallel implementation (core inline; Settings panel / infra+docs / tests as disjoint agent slices) → adversarial code review (4 dimensions, every finding independently verified; all 7 confirmed minors fixed: byte-counted streaming body cap, audit-flood bound, docs wording, registry-seam test).
+
+Typecheck clean, 699 tests green (47 files), lint clean, full `next build` verified.
+
+### 2026-07-18 · v2.6.14 — HOTFIX: production down, "Functions cannot be passed directly to Client Components"
+
+User reported the site down with a generic Next.js server-side exception (digest 932191155) on every authenticated page. SSH'd into the Unraid host and pulled the real `docker logs wedding-hub-web-1` — this is what should have happened first, before any speculative fix.
+
+Root cause: `src/components/shell/Sidebar.tsx` is a Server Component (`async function`, does DB reads) that renders `<SidebarItem icon={item.icon} />`. `SidebarItem.tsx` is a `"use client"` component (needs `usePathname()` for active-state). Since the v2.6.10 nav-config icon migration, `item.icon` is a `LucideIcon` — a `forwardRef`-wrapped component reference, i.e. a function. Passing a live function reference as a prop across a Server→Client boundary is exactly what Next.js's RSC serialization forbids ("Functions cannot be passed directly to Client Components... {$$typeof, render, displayName}" — that shape IS a Lucide icon). This fires on literally every authenticated page load, because the sidebar is global app shell.
+
+None of the other icon-migration phases have this bug: every other place a `LucideIcon`-typed value is used renders it directly within the same file (Server Component instantiating and rendering a component is fine — only passing the *unrendered reference* as *prop data* into a separate Client Component boundary is the violation). Verified this by auditing every `LucideIcon`-typed prop in the codebase (`book/page.tsx`'s `meta.icon`, `RecentActivityFeed.tsx`'s `badge.icon`, `today/day-of/page.tsx`'s `QuickLink`, `Tag.tsx`'s `icon` prop) — all same-file renders or client-to-client prop passes, none cross the boundary. `Sidebar.tsx` → `SidebarItem.tsx` was the only offender.
+
+Fix: `SidebarItem`'s `icon` prop is now `ReactNode`, not `LucideIcon`. `Sidebar.tsx` renders the icon (`<item.icon aria-hidden className="w-3.5 h-3.5" />`) itself and passes the resulting *element* down — JSX elements are plain serializable objects; component references aren't. Standard fix for this class of RSC bug.
+
+Typecheck clean, 652 tests green, lint clean, full `next build` verified. Deployed directly via SSH (`docker compose pull && up -d`) given the site was actively down — see chat for the incident timeline.
+
+(Entry relocated 2026-07-19: it was originally inserted mid-changelog, breaking the newest-first ordering.)
+
 ### 2026-07-06 · v2.6.8 — Icon migration Phase 1: 43 trivial emoji swaps
 
 8 parallel agents across ~30 disjoint files, migrating every bare ✨/⚠/🔒/🔓 emoji to `lucide-react` components (`Sparkles`, `AlertTriangle`, `Lock`, `Unlock`). Every icon sized to match its old text-size context (e.g. `text-3xl` → `w-8 h-8`) and left to inherit color via `currentColor` from its existing wrapping tone class — the same pattern proven in the Phase 0 pilot.
@@ -1014,18 +1044,6 @@ Excluded, matching the original scope: `SubsectionReorderControls.tsx`/`Subsecti
 This closes every phase with a scoped, well-understood fix. What remains — `RecentActivityFeed.tsx`'s `ENTITY_BADGE` map — was explicitly deprioritized in the original scope as already the most internally consistent piece (one map, one render site, one size); optional, do-last.
 
 Typecheck clean, 652 tests green, lint clean, full `next build` verified.
-
-### 2026-07-18 · v2.6.14 — HOTFIX: production down, "Functions cannot be passed directly to Client Components"
-
-User reported the site down with a generic Next.js server-side exception (digest 932191155) on every authenticated page. SSH'd into the Unraid host and pulled the real `docker logs wedding-hub-web-1` — this is what should have happened first, before any speculative fix.
-
-Root cause: `src/components/shell/Sidebar.tsx` is a Server Component (`async function`, does DB reads) that renders `<SidebarItem icon={item.icon} />`. `SidebarItem.tsx` is a `"use client"` component (needs `usePathname()` for active-state). Since the v2.6.10 nav-config icon migration, `item.icon` is a `LucideIcon` — a `forwardRef`-wrapped component reference, i.e. a function. Passing a live function reference as a prop across a Server→Client boundary is exactly what Next.js's RSC serialization forbids ("Functions cannot be passed directly to Client Components... {$$typeof, render, displayName}" — that shape IS a Lucide icon). This fires on literally every authenticated page load, because the sidebar is global app shell.
-
-None of the other icon-migration phases have this bug: every other place a `LucideIcon`-typed value is used renders it directly within the same file (Server Component instantiating and rendering a component is fine — only passing the *unrendered reference* as *prop data* into a separate Client Component boundary is the violation). Verified this by auditing every `LucideIcon`-typed prop in the codebase (`book/page.tsx`'s `meta.icon`, `RecentActivityFeed.tsx`'s `badge.icon`, `today/day-of/page.tsx`'s `QuickLink`, `Tag.tsx`'s `icon` prop) — all same-file renders or client-to-client prop passes, none cross the boundary. `Sidebar.tsx` → `SidebarItem.tsx` was the only offender.
-
-Fix: `SidebarItem`'s `icon` prop is now `ReactNode`, not `LucideIcon`. `Sidebar.tsx` renders the icon (`<item.icon aria-hidden className="w-3.5 h-3.5" />`) itself and passes the resulting *element* down — JSX elements are plain serializable objects; component references aren't. Standard fix for this class of RSC bug.
-
-Typecheck clean, 652 tests green, lint clean, full `next build` verified. Deployed directly via SSH (`docker compose pull && up -d`) given the site was actively down — see chat for the incident timeline.
 
 ### 2026-07-06 · v2.6.13 — Icon migration Phase 5: entity badge glyphs (final phase)
 
