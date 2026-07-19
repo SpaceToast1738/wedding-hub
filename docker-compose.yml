@@ -32,15 +32,6 @@ services:
       - /mnt/user/appdata/wedding-hub/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
-    # v2.7.1: publish :8090 on Tower's own IPs too (LAN 192.168.50.110 and
-    # the Tailscale address). macvlan isolation stops the Unraid host — and
-    # therefore tailnet traffic routed through it — from reaching
-    # 192.168.50.25 directly; this mapping rides the `internal` bridge
-    # instead, which has no such restriction. Remote (tailnet) hosts must
-    # also be present in MCP_LAN_HOST or the app 403s them. Never
-    # internet-exposed: the Cloudflare Tunnel only routes :80.
-    ports:
-      - "8090:8090"
     networks:
       br0:
         ipv4_address: 192.168.50.25
@@ -50,6 +41,29 @@ services:
     depends_on:
       web:
         condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+
+  # v2.7.1: TCP relay that makes the MCP listener reachable on Tower's own
+  # IPs (LAN 192.168.50.110 and the Tailscale address) for remote access.
+  # Why not `ports:` on caddy: Docker silently skips port publishing when a
+  # container's primary network is macvlan (caddy's is br0), and macvlan
+  # isolation stops the Unraid host reaching 192.168.50.25 directly. This
+  # container is bridge-only, so its publish works normally; it forwards to
+  # caddy's :8090 by service name. Remote hosts must also appear in
+  # MCP_LAN_HOST or the app 403s them. Never internet-exposed: the
+  # Cloudflare Tunnel only routes :80.
+  mcp-proxy:
+    image: alpine/socat
+    restart: unless-stopped
+    logging: *default-logging
+    command: TCP-LISTEN:8090,fork,reuseaddr TCP:caddy:8090
+    networks:
+      - internal
+    ports:
+      - "8090:8090"
+    depends_on:
+      - caddy
     security_opt:
       - no-new-privileges:true
 

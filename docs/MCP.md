@@ -129,12 +129,14 @@ http://100.79.99.19:8090/api/mcp
 
 as the server URL in any of the client configs above (same bearer token).
 Tailscale encrypts the hop end-to-end (WireGuard), so plain HTTP is fine
-here. How it works: Tower publishes caddy's `:8090` on its own IPs via a
-compose `ports:` mapping — necessary because macvlan isolation stops the
-Unraid host (and traffic routed through it) from reaching `192.168.50.25`
-directly — and the app's `MCP_LAN_HOST` allowlist includes the Tailscale
-address. Nothing here is internet-exposed: the Cloudflare Tunnel still
-only routes `:80`, which 403s `/api/mcp`.
+here. How it works: a tiny `mcp-proxy` compose service (`alpine/socat`,
+bridge-network-only) publishes `:8090` on Tower's own IPs and relays to
+caddy's listener — necessary because macvlan isolation stops the Unraid
+host (and traffic routed through it) from reaching `192.168.50.25`
+directly, and Docker skips `ports:` publishing entirely for containers
+whose primary network is macvlan — and the app's `MCP_LAN_HOST` allowlist
+includes the Tailscale address. Nothing here is internet-exposed: the
+Cloudflare Tunnel still only routes `:80`, which 403s `/api/mcp`.
 
 On the home LAN, `http://192.168.50.110:8090/api/mcp` (Tower's own IP)
 works too, alongside the original `192.168.50.25:8090` listener.

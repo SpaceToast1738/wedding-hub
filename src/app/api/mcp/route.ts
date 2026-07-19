@@ -57,12 +57,13 @@ function mcpEnabled(): boolean {
 }
 
 // v2.7.1: comma-separated allowlist. Beyond the Caddy LAN listener,
-// the endpoint is reachable over the user's tailnet (Tower publishes
-// caddy's :8090 on its own IPs via a compose ports: mapping — the
-// bridge-network path, since macvlan isolation stops Tower reaching
-// 192.168.50.25 itself). Tailscale traffic is WireGuard-encrypted,
-// so plain HTTP is fine there. Still never internet-exposed: the
-// Cloudflare Tunnel only routes :80, which 403s /api/mcp.
+// the endpoint is reachable over the user's tailnet: the mcp-proxy
+// compose service (bridge-only socat) publishes :8090 on Tower's own
+// IPs and relays to caddy — needed because macvlan isolation stops
+// Tower reaching 192.168.50.25, and Docker skips ports: publishing
+// for macvlan-primary containers. Tailscale traffic is WireGuard-
+// encrypted, so plain HTTP is fine there. Still never internet-
+// exposed: the Cloudflare Tunnel only routes :80, which 403s /api/mcp.
 function allowedHosts(): string[] {
   return (process.env.MCP_LAN_HOST ?? "192.168.50.25:8090")
     .split(",")
