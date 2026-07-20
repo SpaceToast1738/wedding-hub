@@ -35,6 +35,11 @@ export type ToolContext = {
    *  handler restricts targets to proposals created by the token's own
    *  user. Absent for chat, same as canApply. */
   canDismissOwn?: boolean;
+  /** v2.9.2: token-level "may propose a nudge digest SEND"
+   *  (McpToken.canProposeSend). Gates propose_nudge_send — the most
+   *  side-effectful propose kind (Apply emails the couple + planners).
+   *  Absent for chat, which never proposes sends. */
+  canProposeSend?: boolean;
 };
 
 export type ToolResult = { ok: true; data: unknown } | { ok: false; error: string };

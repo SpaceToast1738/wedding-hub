@@ -186,7 +186,8 @@ export async function POST(req: Request): Promise<Response> {
   // user — verifyMcpToken returns both so the same member can hold a
   // self-applying token and a propose-only one. v2.9.0 adds the
   // narrower canDismissOwn (dismiss_proposals only, own rows only).
-  const { user, canApply, canDismissOwn } = verified;
+  // v2.9.2 adds canProposeSend (gates propose_nudge_send).
+  const { user, canApply, canDismissOwn, canProposeSend } = verified;
 
   // Byte-capped incremental read, only after auth: the cap exists for
   // callers that bypass Caddy's 2MB request_body limit by reaching
@@ -251,12 +252,14 @@ export async function POST(req: Request): Promise<Response> {
     canApply,
     // v2.9.0: dismiss-own-only rights, same threading rules.
     canDismissOwn,
+    // v2.9.2: "may propose a nudge digest send" — gates propose_nudge_send.
+    canProposeSend,
   };
 
   const deps: ProtocolDeps = {
     serverVersion: APP_VERSION,
     listTools: () =>
-      toolDefinitions({ canWrite, canApply, canDismissOwn }).map((d) => ({
+      toolDefinitions({ canWrite, canApply, canDismissOwn, canProposeSend }).map((d) => ({
         name: d.name,
         description: d.description ?? "",
         inputSchema: d.input_schema as Record<string, unknown>,

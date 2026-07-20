@@ -36,6 +36,7 @@ import { canEdit, type Section } from "@/lib/permissions";
 import type { SessionUser } from "@/lib/actions";
 import {
   budgetCategoryCreateSchema,
+  budgetCategoryUpdateSchema,
   budgetComponentCreateSchema,
   budgetComponentUpdateSchema,
   budgetLineCreateSchema,
@@ -55,6 +56,7 @@ import {
   createPaymentCore,
   lineInputSchema,
   paymentInputSchema,
+  renameCategoryCore,
   setPaymentStatusCore,
   updateComponentCore,
   updateLineCore,
@@ -96,6 +98,18 @@ async function applyBudgetCategoryCreate(
   );
   if (!result?.id) throw new Error("createCategory did not return an id.");
   return { id: result.id };
+}
+
+/** v2.9.2: rename a budget category. Couple-only via the budget gate;
+ *  the core no-ops when the name is unchanged and throws for a missing
+ *  category (claim rolls back). */
+async function applyBudgetCategoryUpdate(
+  user: SessionUser,
+  payload: unknown,
+): Promise<{ id: string }> {
+  const parsed = budgetCategoryUpdateSchema.parse(payload);
+  await requireSectionEdit(user, "budget");
+  return renameCategoryCore(user, parsed.categoryId, parsed.name);
 }
 
 async function applyBudgetLineCreate(
@@ -144,8 +158,24 @@ async function applyBudgetLineUpdate(
     );
   }
 
-  // categoryId is ALWAYS the current one — the payload has no such
-  // field because a wrong category silently relocates the line.
+  // v2.9.2: categoryId is now an OPT-IN move. Omitted → keep the current
+  // category (the pre-v2.9.2 behaviour). Set to a DIFFERENT id → validate
+  // the target exists before relocating, so an unknown id throws (claim
+  // rolls back) rather than silently orphaning the line via an FK error.
+  let categoryId = current.categoryId;
+  if (parsed.categoryId !== undefined && parsed.categoryId !== current.categoryId) {
+    const target = await db.budgetCategory.findUnique({
+      where: { id: parsed.categoryId },
+      select: { id: true },
+    });
+    if (!target) {
+      throw new Error(
+        "Target budget category not found — re-propose with a valid categoryId from read_budget.",
+      );
+    }
+    categoryId = parsed.categoryId;
+  }
+
   const estimated =
     parsed.estimatedPence !== undefined
       ? parsed.estimatedPence === null
@@ -169,7 +199,7 @@ async function applyBudgetLineUpdate(
     user,
     parsed.lineId,
     lineInputSchema.parse({
-      categoryId: current.categoryId,
+      categoryId,
       description: parsed.description !== undefined ? parsed.description : current.description,
       estimated: estimated || null,
       // actual + paid are NEVER AI-writable: always the current Decimal
@@ -426,6 +456,9 @@ export async function applyMoneyProposal(
   switch (kind) {
     case "budget.category.create":
       return applyBudgetCategoryCreate(user, payload);
+    // v2.9.2: category rename.
+    case "budget.category.update":
+      return applyBudgetCategoryUpdate(user, payload);
     case "budget.line.create":
       return applyBudgetLineCreate(user, payload);
     case "budget.line.update":

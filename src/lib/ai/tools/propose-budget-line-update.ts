@@ -13,14 +13,23 @@ import type { AiTool } from "./types";
 // Patch semantics: omit = keep the current value, null = clear.
 // updateLine is a full-record replace underneath (every omitted
 // FormData field WIPES), so the apply bridge merges this patch against
-// the live row. `categoryId` is deliberately absent — a wrong category
-// silently relocates the line — and `actual`/`paid` are bridge-carried
-// so the AI can never pin or unpin the B2 actual-override.
+// the live row. v2.9.2: `categoryId` is now an OPT-IN move — omit to
+// keep the line where it is; set it to relocate the line to another
+// category (the apply bridge validates the target exists first).
+// `actual`/`paid` stay bridge-carried so the AI can never pin or unpin
+// the B2 actual-override.
 const inputSchema = z.object({
   lineId: z
     .string()
     .min(1)
     .describe("Budget line id — get this from read_budget, never invent one."),
+  categoryId: z
+    .string()
+    .min(1)
+    .optional()
+    .describe(
+      "Move the line to this budget category id (from read_budget). Omit to keep it where it is.",
+    ),
   description: z.string().min(1).max(200).optional(),
   estimatedPence: z.number().int().min(0).max(100_000_000).optional().nullable(),
   supplierId: z.string().optional().nullable(),
@@ -41,17 +50,21 @@ const inputSchema = z.object({
 export const proposeBudgetLineUpdate: AiTool<typeof inputSchema> = {
   name: "propose_budget_line_update",
   description:
-    "Propose a partial update to an existing budget line. Only include fields you want changed — omitted fields keep their current value, null clears. Money is integer PENCE. You cannot change the line's category, actual, or paid figures — those stay exactly as they are. Requires a lineId from read_budget. Include a rationale.",
+    "Propose a partial update to an existing budget line. Only include fields you want changed — omitted fields keep their current value, null clears. Money is integer PENCE. You CAN move the line to another category by passing categoryId (validated at apply). You cannot change the line's actual or paid figures — those stay exactly as they are. Requires a lineId from read_budget. Include a rationale.",
   inputSchema,
   progressLabel: "Proposing budget line update…",
   definition: {
     name: "propose_budget_line_update",
     description:
-      "Propose a partial update to a budget line. Omit fields to keep them, pass null to clear. Money is integer pence. The line's category, actual, and paid figures cannot be changed.",
+      "Propose a partial update to a budget line. Omit fields to keep them, pass null to clear. Money is integer pence. Pass categoryId to move the line to another category. The line's actual and paid figures cannot be changed.",
     input_schema: {
       type: "object",
       properties: {
         lineId: { type: "string", description: "Budget line id from read_budget." },
+        categoryId: {
+          type: "string",
+          description: "Move the line to this category id (from read_budget). Omit to keep it.",
+        },
         description: { type: "string" },
         estimatedPence: {
           type: ["integer", "null"],
@@ -99,6 +112,7 @@ export const proposeBudgetLineUpdate: AiTool<typeof inputSchema> = {
     }
 
     const patch: Record<string, unknown> = { lineId: input.lineId };
+    if (input.categoryId !== undefined) patch.categoryId = input.categoryId;
     if (input.description !== undefined) patch.description = input.description;
     if (input.estimatedPence !== undefined) patch.estimatedPence = input.estimatedPence;
     if (input.supplierId !== undefined) patch.supplierId = input.supplierId;
@@ -120,6 +134,7 @@ export const proposeBudgetLineUpdate: AiTool<typeof inputSchema> = {
 
     const { invalid, names } = await resolveRefs({
       budgetLineIds: [input.lineId],
+      budgetCategoryIds: input.categoryId ? [input.categoryId] : [],
       supplierIds: typeof input.supplierId === "string" ? [input.supplierId] : [],
     });
     if (invalid.length) {
@@ -142,6 +157,9 @@ export const proposeBudgetLineUpdate: AiTool<typeof inputSchema> = {
     });
 
     const bits: string[] = [];
+    if (input.categoryId) {
+      bits.push(`moves to → ${names.budgetCategories.get(input.categoryId)}`);
+    }
     if (typeof input.estimatedPence === "number") {
       bits.push(`estimated → £${(input.estimatedPence / 100).toFixed(2)}`);
     }

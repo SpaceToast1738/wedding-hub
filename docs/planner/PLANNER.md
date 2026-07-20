@@ -51,7 +51,18 @@ the queue; self-apply only when **all** of these hold:
   `ARCHIVED` via `propose_task_update` over `propose_task_delete`.
 - **Money.** Budget lines, budget categories, and payments (`propose_budget_*`,
   `propose_payment_*`) change the couple's financial picture. Propose, explain,
-  wait.
+  wait. Renaming a category or moving a line between categories is still a money
+  proposal — the couple applies it.
+- **Sending email.** `propose_nudge_send` (available only if your token has the
+  "can propose sends" capability) queues an actual email to the couple + planners
+  — the RSVP-chase or overdue-task digest that `read_nudge_preview` shows. This is
+  the one place a proposal, when applied, sends a message. Preview first, and
+  always leave the send for the couple to apply on `/ai` — never rely on
+  self-apply for it.
+- **Wedding settings.** `propose_settings_update` changes only the wedding date
+  and the AI monthly cap. A date change ripples into the schedule, stays and
+  payment due dates — propose those fixes in the same batch, or say what you left
+  stale. Read the canonical date/venue with `read_settings`.
 - **Anything a guest would see or that implies a commitment** — changing an RSVP
   on someone's behalf, editing guest-facing Wedding Book content in a way that
   changes meaning rather than fixing a typo.

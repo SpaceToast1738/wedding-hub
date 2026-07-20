@@ -22,6 +22,8 @@ import {
   createTableCore,
   swapSeatsCore,
   tableCreateInputSchema,
+  updateSeatingChecklistCore,
+  updateSeatingNotesCore,
   updateTableCapacityCore,
   updateTableNotesCore,
   updateTablePositionCore,
@@ -161,32 +163,11 @@ const seatingChecklistSchema = z
 export async function updateSeatingChecklist(items: ChecklistItem[]) {
   const user = await requireEdit("seating");
   const parsed = seatingChecklistSchema.parse(items);
-  await db.weddingSettings.upsert({
-    where: { id: 1 },
-    update: {
-      seatingChecklist:
-        parsed.length === 0 ? Prisma.JsonNull : (parsed as Prisma.InputJsonValue),
-    },
-    create: {
-      id: 1,
-      weddingDate: new Date(process.env.WEDDING_DATE ?? "2026-09-24T14:00:00Z"),
-      venue: process.env.WEDDING_VENUE ?? "Alveston Manor",
-      seatingChecklist:
-        parsed.length === 0 ? Prisma.JsonNull : (parsed as Prisma.InputJsonValue),
-    },
-  });
-  const doneCount = parsed.filter((i) => i.done).length;
-  await audit(user, {
-    action: "seating-checklist",
-    entity: "WeddingSettings",
-    entityId: "1",
-    metadata: {
-      itemCount: parsed.length,
-      doneCount,
-      cleared: parsed.length === 0,
-    },
-  });
-  revalidatePath("/seating");
+  // v2.10.0: body lives in updateSeatingChecklistCore (session-free) so
+  // the seating.plan.update AI apply path writes identically. The core
+  // carries the v2.9.1-corrected 2026-09-24 date fallback for a missing
+  // bootstrap row.
+  await updateSeatingChecklistCore(user, parsed);
 }
 
 // v1.23.0: plan-level seating notes — stored on the WeddingSettings
@@ -196,30 +177,11 @@ const seatingNotesSchema = z.string().max(5000);
 export async function updateSeatingNotes(notes: string) {
   const user = await requireEdit("seating");
   const parsed = seatingNotesSchema.parse(notes);
-  await db.weddingSettings.upsert({
-    where: { id: 1 },
-    update: { seatingNotes: parsed === "" ? null : parsed },
-    // Defensive: in the unlikely case the singleton row doesn't yet
-    // exist, create a minimal one. Other fields fall back to defaults
-    // already declared in the schema. weddingDate is required and has
-    // no default — pull it from env if absent (matches the seed).
-    create: {
-      id: 1,
-      weddingDate: new Date(process.env.WEDDING_DATE ?? "2026-09-24T14:00:00Z"),
-      venue: process.env.WEDDING_VENUE ?? "Alveston Manor",
-      seatingNotes: parsed === "" ? null : parsed,
-    },
-  });
-  await audit(user, {
-    action: "seating-notes",
-    entity: "WeddingSettings",
-    entityId: "1",
-    metadata: {
-      notesLength: parsed.length,
-      cleared: parsed === "",
-    },
-  });
-  revalidatePath("/seating");
+  // v2.10.0: body lives in updateSeatingNotesCore (session-free) so the
+  // seating.plan.update AI apply path writes identically. The core keeps
+  // the upsert-with-create fallback (v2.9.1-corrected 2026-09-24 date)
+  // for a missing bootstrap row.
+  await updateSeatingNotesCore(user, parsed);
 }
 
 // v1.23.0: ceremony seating layout — singleton row, configures rows

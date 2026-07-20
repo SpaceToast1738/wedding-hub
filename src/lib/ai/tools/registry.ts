@@ -100,6 +100,13 @@ import { applyProposals as applyProposalsTool, dismissProposals as dismissPropos
 import { proposeSupplierContactUpdate } from "./propose-supplier-contact-update";
 import { proposeBookSectionUpdate } from "./propose-book-section-update";
 import { proposeFileUpload } from "./propose-file-upload";
+// v2.9.2: settings read + patch, category rename, plan write, and the
+// gated nudge-digest send.
+import { readSettings } from "./read-settings";
+import { proposeSettingsUpdate } from "./propose-settings-update";
+import { proposeBudgetCategoryUpdate } from "./propose-budget-category-update";
+import { proposeSeatingPlanUpdate } from "./propose-seating-plan-update";
+import { proposeNudgeSend } from "./propose-nudge-send";
 
 // AiTool<TSchema> is invariant in TSchema, so a heterogeneous list of
 // tools with different Zod object shapes can't share a single default
@@ -137,6 +144,8 @@ const READ_TOOLS: AiTool<any>[] = [
   readMembers,
   readCustomFields,
   readNudgePreview,
+  // v2.9.2: wedding-settings read (couple-only). Append-only (prompt-cache).
+  readSettings,
 ];
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -215,7 +224,23 @@ const WRITE_TOOLS: AiTool<any>[] = [
   proposeSupplierContactUpdate,
   proposeBookSectionUpdate,
   proposeFileUpload,
+  // v2.9.2: settings patch, budget category rename, plan-level seating
+  // write. Append-only (prompt-cache rule above). propose_nudge_send is
+  // NOT here — it's flag-gated (SEND_TOOLS below), never in the default
+  // write list nor the in-app chat.
+  proposeSettingsUpdate,
+  proposeBudgetCategoryUpdate,
+  proposeSeatingPlanUpdate,
 ];
+
+// v2.9.2: the flag-gated send tool. Listed ONLY for MCP tokens with the
+// canProposeSend capability (never in the in-app chat, which has no such
+// flag). It IS a propose tool (mints an AiProposal, participates in
+// supersede/batch), so it goes in PROPOSE_TOOL_NAMES + ALL_TOOLS below —
+// but Apply of the resulting nudge.send proposal actually EMAILS people,
+// which is why proposing it is a separate opt-in from ordinary ai_write.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const SEND_TOOLS: AiTool<any>[] = [proposeNudgeSend];
 
 // v2.8.0: MCP-only self-apply pair. NOT in WRITE_TOOLS — the in-app
 // chat must never list them (chat contexts have no ctx.canApply), and
@@ -225,7 +250,7 @@ const WRITE_TOOLS: AiTool<any>[] = [
 const APPLY_TOOLS: AiTool<any>[] = [applyProposalsTool, dismissProposalsTool]; // eslint-disable-line @typescript-eslint/no-explicit-any
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const ALL_TOOLS: AiTool<any>[] = [...READ_TOOLS, ...WRITE_TOOLS, ...APPLY_TOOLS];
+const ALL_TOOLS: AiTool<any>[] = [...READ_TOOLS, ...WRITE_TOOLS, ...SEND_TOOLS, ...APPLY_TOOLS];
 
 const BY_NAME = new Map(ALL_TOOLS.map((t) => [t.name, t] as const));
 
@@ -238,25 +263,30 @@ const BY_NAME = new Map(ALL_TOOLS.map((t) => [t.name, t] as const));
  *  chat's tool list is unchanged.
  *  v2.9.0: `canDismissOwn` lists ONLY dismiss_proposals (whose handler
  *  then restricts targets to the token user's own rows) — a narrower
- *  opt-in than canApply, which supersedes it when both are set. */
+ *  opt-in than canApply, which supersedes it when both are set.
+ *  v2.9.2: `canProposeSend` additionally lists propose_nudge_send (the
+ *  gated digest-send propose tool). Orthogonal to canApply/canDismissOwn.
+ *  The list is built additively so a stable prefix stays cache-warm. */
 export function toolDefinitions(opts?: {
   canWrite?: boolean;
   canApply?: boolean;
   canDismissOwn?: boolean;
+  canProposeSend?: boolean;
 }): Anthropic.Tool[] {
-  const tools = opts?.canWrite
-    ? opts?.canApply
-      ? [...READ_TOOLS, ...WRITE_TOOLS, ...APPLY_TOOLS]
-      : opts?.canDismissOwn
-        ? [...READ_TOOLS, ...WRITE_TOOLS, dismissProposalsTool]
-        : [...READ_TOOLS, ...WRITE_TOOLS]
-    : READ_TOOLS;
+  if (!opts?.canWrite) return READ_TOOLS.map((t) => t.definition);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const tools: AiTool<any>[] = [...READ_TOOLS, ...WRITE_TOOLS];
+  if (opts?.canProposeSend) tools.push(...SEND_TOOLS);
+  if (opts?.canApply) tools.push(...APPLY_TOOLS);
+  else if (opts?.canDismissOwn) tools.push(dismissProposalsTool);
   return tools.map((t) => t.definition);
 }
 
 /** Tool names classified as "creates a proposal". Used by the chat
- *  loop to emit a proposal_created SSE event after a successful call. */
-const PROPOSE_TOOL_NAMES = new Set(WRITE_TOOLS.map((t) => t.name));
+ *  loop to emit a proposal_created SSE event after a successful call,
+ *  and by the MCP route's supersede path. Includes SEND_TOOLS —
+ *  propose_nudge_send mints a proposal like any other propose tool. */
+const PROPOSE_TOOL_NAMES = new Set([...WRITE_TOOLS, ...SEND_TOOLS].map((t) => t.name));
 export function isProposeTool(name: string): boolean {
   return PROPOSE_TOOL_NAMES.has(name);
 }

@@ -23,6 +23,7 @@ import {
   createLineCore,
   decimalToNumber,
   lineInputSchema,
+  renameCategoryCore,
   updateComponentCore,
   updateLineCore,
 } from "@/lib/core/money";
@@ -53,25 +54,11 @@ export async function renameCategory(
 ): Promise<DeleteResult> {
   const user = await requireEdit("budget");
   try {
-    const parsed = categoryInputSchema.parse({ name });
-    const before = await db.budgetCategory.findUnique({ where: { id } });
-    if (!before) return { ok: false, error: "Category not found" };
-    if (before.name === parsed.name) return { ok: true }; // no-op
-    await db.budgetCategory.update({
-      where: { id },
-      data: { name: parsed.name },
-    });
-    await audit(user, {
-      action: "update",
-      entity: "BudgetCategory",
-      entityId: id,
-      metadata: {
-        priorName: before.name,
-        name: parsed.name,
-        changedFields: ["name"],
-      },
-    });
-    revalidatePath("/budget");
+    // v2.9.2: body lives in renameCategoryCore (session-free) so the
+    // budget.category.update AI apply path renames identically. The core
+    // throws "Category not found" for a missing row and no-ops when the
+    // name is unchanged, matching the prior inline behaviour.
+    await renameCategoryCore(user, id, name);
     return { ok: true };
   } catch (err) {
     console.error("renameCategory failed", err);

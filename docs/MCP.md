@@ -1,6 +1,6 @@
 # MCP server — LAN-only client access to the AI tools
 
-**Status:** v2.9.0. Last updated 20 July 2026.
+**Status:** v2.10.0. Last updated 20 July 2026.
 
 Wedding Hub exposes its AI tool registry (the same `read_*` / `propose_*`
 tools the in-app planner chat uses) to MCP clients — Claude Code, Claude
@@ -49,7 +49,9 @@ gate. For anyone else:
 | Connect / handshake (`initialize`, `ping`) | any valid token |
 | Anything beyond the handshake (`tools/list`, `tools/call`) | **ai_chat** at VIEW |
 | Call `propose_*` tools | **ai_write** at EDIT |
+| Call `propose_nudge_send` (queue a digest **send**) | ai_write EDIT **+ couple-tier + the `canProposeSend` token flag** |
 | Call `apply_proposals` / `dismiss_proposals` | ai_write EDIT **plus** the token flag below |
+| Read `read_settings` / apply a `settings.update` | couple-tier (settings are a couple surface) |
 
 Without `ai_write`, `tools/list` simply omits the propose tools — the
 client only sees what it can call.
@@ -61,6 +63,7 @@ On top of user permissions, two **per-token capability flags** (Settings
 |---|---|
 | **Can apply changes** (`canApply`, v2.8.0) | `apply_proposals` + `dismiss_proposals` — the agent's own proposals become real without human review |
 | **Can dismiss its own proposals** (`canDismissOwn`, v2.9.0) | `dismiss_proposals` ONLY, restricted to proposals created by the token's user — lets a propose-only agent withdraw its own mistakes with zero apply power |
+| **Can propose sends** (`canProposeSend`, v2.10.0) | `propose_nudge_send` ONLY — the agent may QUEUE a proposal to email the RSVP-chase / overdue-task nudge digest to the couple + planners (never guests). Applying it (a human on `/ai`, or a `canApply` token) is what actually sends. Couple-tier tokens in practice (the tool is couple-only). |
 
 ---
 
@@ -233,6 +236,36 @@ tokens are revoked from Settings without any restart.
   full ripple map (date → schedule/stays/payments; booking → contacts/
   contract/budget/payments; RSVP → seating/meals/headcounts; purchase →
   task/card/actuals) lives in the `consistency_check` prompt.
+- **Proposal-gated digest send (v2.10.0).** `propose_nudge_send` is the
+  most side-effectful propose kind: Applying the resulting `nudge.send`
+  proposal actually **emails** the couple + planners the RSVP-chase or
+  overdue-task digest (`read_nudge_preview` still only previews). It's
+  triple-gated — ai_write EDIT, couple-tier, AND the per-token
+  `canProposeSend` flag (default off) — so even queuing a send is a
+  deliberate opt-in. The proposal payload SNAPSHOTS the recipient list +
+  item count so the `/ai` reviewer sees exactly who gets emailed; the
+  actual send re-derives eligibility from live data (nobody who has since
+  responded is chased, and the 7-day cooldown always holds). Apply is
+  idempotent: the atomic PENDING→APPLIED claim means re-applying the same
+  proposal never re-sends.
+- **Wedding-settings read + patch (v2.10.0).** `read_settings` (couple-
+  only) returns the canonical wedding date, venue, couple names, the AI
+  monthly cap + its source, and the AI/MCP kill-switch states — so a
+  date/venue discrepancy is a first-class read, not something you infer
+  from `read_stats`. `propose_settings_update` writes back ONLY the
+  wedding date and the AI monthly cap (venue/couple/names/API key stay a
+  human-only form edit). A date change ripples into schedule / stays /
+  payment due dates — propose those fixes in the same batchKey, or say
+  what was left stale.
+- **More write coverage (v2.10.0).** `propose_seating_table_update` now
+  takes `name` + `shape` (shape never changes the seat count, so the
+  existing seated-vs-capacity guard is unaffected); `propose_budget_line_update`
+  takes an optional `categoryId` to MOVE a line between categories
+  (validated at apply); `propose_budget_category_update` renames a
+  category; `propose_seating_plan_update` writes the plan-level seating
+  notes + day-of checklist. `read_tasks` gained `offset` pagination
+  (follow `page.nextOffset`) and an `assignee` filter (user id or name
+  substring) so the 90+ open tasks can be fully enumerated.
 - **Tool results are capped at 24,000 characters** with an explicit
   truncation marker (same cap as planner chat). If a client hits it,
   narrow the query (most read tools take filters).

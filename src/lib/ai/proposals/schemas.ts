@@ -86,6 +86,12 @@ export const PROPOSAL_KINDS = [
   "supplier.contact.update",
   "book.section.update",
   "file.upload",
+  // v2.9.2: nudge digest send (gated), wedding-settings patch, budget
+  // category rename, and the plan-level seating notes/checklist write.
+  "nudge.send",
+  "settings.update",
+  "budget.category.update",
+  "seating.plan.update",
 ] as const;
 export type ProposalKind = (typeof PROPOSAL_KINDS)[number];
 
@@ -816,12 +822,16 @@ export const budgetLineCreateSchema = z.object({
 });
 export type BudgetLineCreatePayload = z.infer<typeof budgetLineCreateSchema>;
 
-/** No categoryId — a wrong category silently relocates the line, so
- *  moves stay human-only. `actual`/`paid` are never in the payload:
- *  the bridge always carries the current values, so the AI can never
- *  pin or unpin the actual-override. */
+/** v2.9.2: `categoryId` is now an OPT-IN move — omitted keeps the line
+ *  where it is (the pre-v2.9.2 behaviour); set it to relocate the line
+ *  to another category. The apply bridge validates the target category
+ *  exists before writing (an unknown id throws, no silent relocation).
+ *  `actual`/`paid` are never in the payload: the bridge always carries
+ *  the current values, so the AI can never pin or unpin the
+ *  actual-override. */
 export const budgetLineUpdateSchema = z.object({
   lineId: cid,
+  categoryId: cid.optional(),
   description: z.string().min(1).max(200).optional(),
   ...budgetLineFields,
 });
@@ -1051,15 +1061,19 @@ export const seatingTableCreateSchema = z.object({
 });
 export type SeatingTableCreatePayload = z.infer<typeof seatingTableCreateSchema>;
 
-/** Update a table's capacity, grid position or notes. Name and shape
- *  are intentionally absent — no clean human mutator exists for them
- *  yet (deferred). Shrinking capacity below the seated count is
- *  refused at apply (no silent eviction). posX/posY must be supplied
- *  together — a lone coordinate can't describe a move; rotation is an
- *  optional companion to a position change. */
+/** Update a table's name, shape, capacity, grid position or notes.
+ *  v2.9.2 added name + shape (the couple's "table names or numbers"
+ *  decision needed a write path). Shape never changes the seat count,
+ *  so it carries no eviction risk; a capacity change still runs the
+ *  shrink-repack guard at apply (refuses below the seated count — no
+ *  silent eviction). posX/posY must be supplied together — a lone
+ *  coordinate can't describe a move; rotation is an optional companion
+ *  to a position change. */
 export const seatingTableUpdateSchema = z
   .object({
     tableId: cid,
+    name: z.string().min(1).max(100).optional(),
+    shape: z.enum(TABLE_SHAPES).optional(),
     capacity: z.number().int().min(1).max(40).optional(),
     posX: z.number().min(0).max(5000).optional(),
     posY: z.number().min(0).max(5000).optional(),
@@ -1201,6 +1215,75 @@ export const fileUploadSchema = z.object({
 });
 export type FileUploadPayload = z.infer<typeof fileUploadSchema>;
 
+// ─── v2.9.2: nudge send, settings patch, category rename, plan write ─
+
+/** Proposal-gated send of the RSVP / overdue-task nudge digest — the
+ *  most side-effectful proposal kind (Apply actually emails the couple
+ *  + planners). The payload is a PROPOSE-TIME SNAPSHOT for the /ai
+ *  reviewer: `recipients` (who gets emailed) + `count` (items in the
+ *  digest) + a small `preview`. The apply bridge does NOT trust the
+ *  snapshot for the send — it re-derives eligibility from live data at
+ *  send time (so the 7-day cooldown is always honoured and nobody who
+ *  has since RSVP'd / closed their task gets chased) then stamps
+ *  lastNudgedAt. The atomic apply-claim makes re-applying the same
+ *  proposal a no-op ("already applied"), so a send never double-fires. */
+export const NUDGE_DIGEST_KINDS = ["rsvp", "tasks"] as const;
+export const nudgeSendSchema = z.object({
+  digestKind: z.enum(NUDGE_DIGEST_KINDS),
+  recipients: z.array(z.string().max(200)).max(20).default([]),
+  count: z.number().int().min(0),
+  preview: z.array(z.string().max(200)).max(10).default([]),
+});
+export type NudgeSendPayload = z.infer<typeof nudgeSendSchema>;
+
+/** Tightly-scoped wedding-settings patch — ONLY the wedding date and
+ *  the AI monthly cap. venue/couple/names stay off the AI write surface
+ *  (a whole-record form edit is human-only). `weddingDate` is an ISO
+ *  date or timestamp (the apply bridge refuses an unparseable value);
+ *  `aiMonthlyCapPence` is integer pence, null clears the DB override
+ *  (falls back to env then the £30 default), undefined keeps it.
+ *  Couple-only at apply. A date change ripples into schedule / stays /
+ *  payment due dates — the tool tells the agent to batch those fixes. */
+export const settingsUpdateSchema = z
+  .object({
+    weddingDate: z.string().min(1).max(40).optional(),
+    aiMonthlyCapPence: nullable(z.number().int().min(0).max(1_000_000)),
+  })
+  .refine((v) => v.weddingDate !== undefined || v.aiMonthlyCapPence !== undefined, {
+    message: "Nothing to change — set weddingDate and/or aiMonthlyCapPence.",
+  });
+export type SettingsUpdatePayload = z.infer<typeof settingsUpdateSchema>;
+
+/** Rename a budget category. Couple-only at apply (budget is a
+ *  COUPLE_ONLY section). The apply bridge is a no-op when the name is
+ *  unchanged, matching the human renameCategory. */
+export const budgetCategoryUpdateSchema = z.object({
+  categoryId: cid,
+  name: z.string().min(1).max(100),
+});
+export type BudgetCategoryUpdatePayload = z.infer<typeof budgetCategoryUpdateSchema>;
+
+/** Plan-level seating write — the wedding-wide seating notes and the
+ *  day-of checklist that render at the top of /seating (stored on the
+ *  WeddingSettings singleton). `notes`: null clears, undefined keeps.
+ *  `checklist`: a WHOLE-LIST replacement (the human action overwrites
+ *  too) — null or [] clears, undefined keeps the current list. Gated
+ *  on the seating section (couple + planner). */
+const seatingChecklistItemSchema = z.object({
+  id: z.string().min(1).max(50),
+  label: z.string().min(1).max(200),
+  done: z.boolean(),
+});
+export const seatingPlanUpdateSchema = z
+  .object({
+    notes: nullable(z.string().max(5000)),
+    checklist: z.array(seatingChecklistItemSchema).max(100).nullable().optional(),
+  })
+  .refine((v) => v.notes !== undefined || v.checklist !== undefined, {
+    message: "Nothing to change — set notes and/or checklist.",
+  });
+export type SeatingPlanUpdatePayload = z.infer<typeof seatingPlanUpdateSchema>;
+
 export function schemaForKind(kind: string): z.ZodTypeAny | null {
   switch (kind) {
     case "task.create":
@@ -1341,6 +1424,15 @@ export function schemaForKind(kind: string): z.ZodTypeAny | null {
       return bookSectionUpdateSchema;
     case "file.upload":
       return fileUploadSchema;
+    // v2.9.2
+    case "nudge.send":
+      return nudgeSendSchema;
+    case "settings.update":
+      return settingsUpdateSchema;
+    case "budget.category.update":
+      return budgetCategoryUpdateSchema;
+    case "seating.plan.update":
+      return seatingPlanUpdateSchema;
     default:
       return null;
   }
@@ -1488,6 +1580,15 @@ export function humanLabel(kind: ProposalKind): string {
       return "Rename book section";
     case "file.upload":
       return "Upload file";
+    // v2.9.2
+    case "nudge.send":
+      return "Send nudge digest";
+    case "settings.update":
+      return "Update wedding settings";
+    case "budget.category.update":
+      return "Rename budget category";
+    case "seating.plan.update":
+      return "Update seating plan";
   }
 }
 
@@ -1774,6 +1875,7 @@ export function summariseProposal(kind: string, payload: unknown): string {
   }
   if (kind === "budget.line.update") {
     const bits: string[] = [];
+    if (typeof p.categoryId === "string") bits.push("moves to another category");
     if (p.description !== undefined) bits.push(`description → "${clip(p.description, 40)}"`);
     if (typeof p.estimatedPence === "number")
       bits.push(`estimated → £${(p.estimatedPence / 100).toFixed(2)}`);
@@ -1855,6 +1957,8 @@ export function summariseProposal(kind: string, payload: unknown): string {
   }
   if (kind === "seating.table.update") {
     const bits: string[] = [];
+    if (typeof p.name === "string") bits.push(`name → "${clip(p.name, 40)}"`);
+    if (typeof p.shape === "string") bits.push(`shape → ${p.shape}`);
     if (typeof p.capacity === "number") bits.push(`capacity → ${p.capacity}`);
     if (typeof p.posX === "number" && typeof p.posY === "number") bits.push("moves the table");
     if (typeof p.rotation === "number") bits.push(`rotation → ${p.rotation}°`);
@@ -1936,6 +2040,43 @@ export function summariseProposal(kind: string, payload: unknown): string {
     const folder = str(p.folder) ? ` · folder "${clip(p.folder, 30)}"` : "";
     const vis = p.visibility === "COUPLE_ONLY" ? " · couple-only" : "";
     return `${name}${size}${folder}${vis}`;
+  }
+
+  // v2.9.2: nudge send, settings patch, category rename, plan write.
+  if (kind === "nudge.send") {
+    const dk = p.digestKind === "tasks" ? "overdue-task" : "RSVP";
+    const count = typeof p.count === "number" ? p.count : "?";
+    const recips = Array.isArray(p.recipients) ? p.recipients.length : 0;
+    const to =
+      Array.isArray(p.recipients) && p.recipients.length
+        ? ` to ${p.recipients.map((r) => clip(r, 40)).join(", ")}`
+        : recips
+          ? ` to ${recips} recipient${recips === 1 ? "" : "s"}`
+          : "";
+    return `EMAILS the ${dk} digest (${count} item${count === 1 ? "" : "s"} at propose time)${to} — recomputed at send time; the couple + planners are the recipients`;
+  }
+  if (kind === "settings.update") {
+    const bits: string[] = [];
+    if (typeof p.weddingDate === "string") {
+      bits.push(`wedding date → ${clip(p.weddingDate, 30)} (ripples into schedule/stays/payments)`);
+    }
+    if (typeof p.aiMonthlyCapPence === "number") {
+      bits.push(`AI monthly cap → £${(p.aiMonthlyCapPence / 100).toFixed(2)}`);
+    } else if (p.aiMonthlyCapPence === null) {
+      bits.push("clears the AI cap override (falls back to the env default)");
+    }
+    return bits.join(" · ") || "small tweak";
+  }
+  if (kind === "budget.category.update") {
+    return `Category name → "${clip(p.name, 60)}"`;
+  }
+  if (kind === "seating.plan.update") {
+    const bits: string[] = [];
+    if (typeof p.notes === "string") bits.push("sets plan notes");
+    else if (p.notes === null) bits.push("clears plan notes");
+    if (Array.isArray(p.checklist)) bits.push(`sets checklist (${p.checklist.length} item${p.checklist.length === 1 ? "" : "s"})`);
+    else if (p.checklist === null) bits.push("clears checklist");
+    return bits.join(" · ") || "small tweak";
   }
 
   // v2.8.0: destructive kinds. One shared shape so no delete can ever

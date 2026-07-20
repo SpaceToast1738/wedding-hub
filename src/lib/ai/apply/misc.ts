@@ -33,9 +33,13 @@ import {
   swapSeatsCore,
   tableCreateInputSchema,
   unassignSeatCore,
+  updateSeatingChecklistCore,
+  updateSeatingNotesCore,
   updateTableCapacityCore,
+  updateTableNameCore,
   updateTableNotesCore,
   updateTablePositionCore,
+  updateTableShapeCore,
 } from "@/lib/core/misc";
 import {
   customFieldSetSchema,
@@ -43,6 +47,7 @@ import {
   seatAssignSchema,
   seatSwapSchema,
   seatUnassignSchema,
+  seatingPlanUpdateSchema,
   seatingTableCreateSchema,
   seatingTableUpdateSchema,
   songAddSchema,
@@ -269,11 +274,19 @@ async function applySeatingTableUpdate(
     );
   }
   await requireSectionEdit(user, "seating");
-  // Dispatch only the fields the payload carries. capacity goes through
-  // the shrink-repack core (refuses over-occupancy → throw, so no silent
-  // eviction); position + notes are independent void cores. rotation only
-  // takes effect as a companion to a posX/posY move (the schema pairs
-  // them and the propose tool guides the model to that shape).
+  // Dispatch only the fields the payload carries. v2.9.2: name + shape
+  // are independent void cores (shape never changes the seat count, so
+  // it needs no eviction guard). capacity goes through the shrink-repack
+  // core (refuses over-occupancy → throw, so no silent eviction);
+  // position + notes are independent void cores. rotation only takes
+  // effect as a companion to a posX/posY move (the schema pairs them and
+  // the propose tool guides the model to that shape).
+  if (parsed.name !== undefined) {
+    await updateTableNameCore(user, parsed.tableId, parsed.name);
+  }
+  if (parsed.shape !== undefined) {
+    await updateTableShapeCore(user, parsed.tableId, parsed.shape);
+  }
   if (parsed.capacity !== undefined) {
     ensureOk(await updateTableCapacityCore(user, parsed.tableId, parsed.capacity));
   }
@@ -291,6 +304,28 @@ async function applySeatingTableUpdate(
     await updateTableNotesCore(user, parsed.tableId, parsed.notes ?? "");
   }
   return { id: parsed.tableId };
+}
+
+// ── seating.plan.update (v2.9.2) ──────────────────────────────────────
+// Plan-level seating notes + day-of checklist (stored on the
+// WeddingSettings singleton). Gates canEdit("seating") — same section
+// the human updateSeatingNotes/updateSeatingChecklist gate — then writes
+// whichever fields the payload carries via the session-free cores. null
+// notes → "" (clears); null checklist → [] (clears). The entity id is
+// the singleton "1", same convention as the other WeddingSettings writes.
+async function applySeatingPlanUpdate(
+  user: SessionUser,
+  payload: unknown,
+): Promise<{ id: string }> {
+  const parsed = seatingPlanUpdateSchema.parse(payload);
+  await requireSectionEdit(user, "seating");
+  if (parsed.notes !== undefined) {
+    await updateSeatingNotesCore(user, parsed.notes ?? "");
+  }
+  if (parsed.checklist !== undefined) {
+    await updateSeatingChecklistCore(user, parsed.checklist ?? []);
+  }
+  return { id: "1" };
 }
 
 async function applySongRequestAssign(
@@ -336,6 +371,9 @@ export async function applyMiscProposal(
       return applySeatingTableUpdate(user, payload);
     case "song_request.assign":
       return applySongRequestAssign(user, payload);
+    // v2.9.2: plan-level seating notes/checklist.
+    case "seating.plan.update":
+      return applySeatingPlanUpdate(user, payload);
     default:
       throw new Error(`Unknown misc proposal kind: ${kind}`);
   }

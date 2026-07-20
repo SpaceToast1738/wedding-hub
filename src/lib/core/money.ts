@@ -198,6 +198,33 @@ export async function createCategoryCore(
   return { id: created.id };
 }
 
+/** v2.9.2: session-free extraction of renameCategory (budget/actions.ts).
+ *  The human wrapper keeps its requireEdit + try/catch → DeleteResult
+ *  shape; the AI apply path (budget.category.update) gates
+ *  canEdit(user, "budget") then calls in. No-op when the name is
+ *  unchanged; throws "Category not found" for a missing row so the AI
+ *  apply claim rolls back. */
+export async function renameCategoryCore(
+  user: SessionUser,
+  id: string,
+  name: string,
+): Promise<{ id: string }> {
+  const parsed = categoryInputSchema.parse({ name });
+  const before = await db.budgetCategory.findUnique({ where: { id } });
+  if (!before) throw new Error("Category not found");
+  if (before.name === parsed.name) return { id }; // no-op — nothing to audit
+  await db.budgetCategory.update({ where: { id }, data: { name: parsed.name } });
+  await logAudit({
+    userId: user.id,
+    action: "update",
+    entity: "BudgetCategory",
+    entityId: id,
+    metadata: { priorName: before.name, name: parsed.name, changedFields: ["name"] },
+  });
+  revalidatePath("/budget");
+  return { id };
+}
+
 /** v2.8.0: extracted body of createLine. */
 export async function createLineCore(
   user: SessionUser,

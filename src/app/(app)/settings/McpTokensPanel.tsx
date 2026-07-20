@@ -20,6 +20,7 @@ import {
   revokeMcpToken,
   setMcpTokenCanApply,
   setMcpTokenCanDismissOwn,
+  setMcpTokenCanProposeSend,
   type McpTokenRow,
   type TokenEligibleUser,
 } from "./mcp-token-actions";
@@ -104,6 +105,25 @@ export function McpTokensPanel({
           canDismissOwn
             ? `"${tokenLabel}" can now dismiss its own proposals`
             : `"${tokenLabel}" can no longer dismiss its own proposals`,
+        );
+      } else {
+        notify("error", res.error);
+      }
+    });
+  }
+
+  // v2.9.2: the gated nudge-send opt-in — same no-confirm pattern. This
+  // one only lets the agent QUEUE a send proposal; a human (or a canApply
+  // token) still Applies it to actually email anyone.
+  function toggleCanProposeSend(id: string, tokenLabel: string, canProposeSend: boolean) {
+    startTransition(async () => {
+      const res = await setMcpTokenCanProposeSend(id, canProposeSend);
+      if (res.ok) {
+        notify(
+          "success",
+          canProposeSend
+            ? `"${tokenLabel}" can now propose sending the nudge digest`
+            : `"${tokenLabel}" can no longer propose sends`,
         );
       } else {
         notify("error", res.error);
@@ -312,6 +332,43 @@ export function McpTokensPanel({
                         a review sweep. It cannot apply anything, and it cannot
                         touch proposals from anyone else. Dismissed proposals
                         stay in the history.
+                      </span>
+                    </label>
+                  </div>
+                )}
+                {/* v2.9.2: the gated nudge-send opt-in. Only lets the
+                    agent QUEUE a send proposal — a human (or a "Can
+                    apply changes" token) still Applies it before any
+                    email goes out. Couple-tier tokens only in practice
+                    (the tool is couple-only). */}
+                {!t.revokedAt && (
+                  <div className="mt-2 flex items-start gap-2">
+                    <input
+                      type="checkbox"
+                      id={`can-propose-send-${t.id}`}
+                      checked={t.canProposeSend}
+                      disabled={pending}
+                      onChange={(e) => toggleCanProposeSend(t.id, t.label, e.target.checked)}
+                      className="accent-moss-500 mt-0.5"
+                    />
+                    <label
+                      htmlFor={`can-propose-send-${t.id}`}
+                      className="cursor-pointer min-w-0"
+                    >
+                      <span className="text-xs text-ink-primary block">
+                        Can propose sends
+                      </span>
+                      <span
+                        className={`text-[11px] block ${
+                          t.canProposeSend ? "text-marigold-700" : "text-ink-tertiary"
+                        }`}
+                      >
+                        Lets the connected agent QUEUE a proposal to email the
+                        RSVP-chase or overdue-task nudge digest to you and any
+                        planners (never guests). Nothing is emailed until the
+                        proposal is Applied — by you on the AI page, or
+                        automatically if this token also has &quot;Can apply
+                        changes&quot;. Leave off to keep the agent preview-only.
                       </span>
                     </label>
                   </div>

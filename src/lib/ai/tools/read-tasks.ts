@@ -15,6 +15,13 @@ const inputSchema = z.object({
   dueAfter: z.string().optional(),
   overdue: z.boolean().optional(),
   titleContains: z.string().max(120).optional(),
+  // v2.9.2: filter by assignee — a user id (exact) OR a case-insensitive
+  // substring of their name / first name. Lets the agent enumerate "what
+  // is Josh on the hook for?" without pulling every task.
+  assignee: z.string().max(120).optional(),
+  // v2.9.2: offset pagination (mirrors read_seating / read_budget). Follow
+  // nextOffset until it's null to enumerate all matches past the 50-cap.
+  offset: z.number().int().min(0).optional(),
   limit: z.number().int().min(1).max(50).optional(),
 });
 
@@ -45,13 +52,13 @@ function resolveCustomFields(
 export const readTasks: AiTool<typeof inputSchema> = {
   name: "read_tasks",
   description:
-    "Read tasks (or questions or decisions) matching the given filters. Use this before making task suggestions so you don't propose duplicates. Returns the most recent 20 by default; ask for more with `limit`. Set `overdue: true` to fetch just tasks whose due date has passed. Each task carries its supplier link, topic links (book sections/cards, nav tags, guest groups), and resolved custom fields — the ids in those are real and usable in propose_task_update.",
+    "Read tasks (or questions or decisions) matching the given filters. Use this before making task suggestions so you don't propose duplicates. Returns the most recent 20 by default; ask for more with `limit` (max 50). To enumerate ALL matches (the hub has 90+ open tasks), page with `offset` — follow the returned page.nextOffset until it's null. Filter to one person's workload with `assignee` (their user id, or a substring of their name). Set `overdue: true` to fetch just tasks whose due date has passed. Each task carries its supplier link, topic links (book sections/cards, nav tags, guest groups), and resolved custom fields — the ids in those are real and usable in propose_task_update.",
   inputSchema,
   progressLabel: "Reading tasks…",
   definition: {
     name: "read_tasks",
     description:
-      "Read tasks (or questions or decisions) matching the given filters. Use this before making task suggestions so you don't propose duplicates. Returns the most recent 20 by default; ask for more with `limit`. Set `overdue: true` to fetch just tasks whose due date has passed. Each task carries its supplier link, topic links, and resolved custom fields.",
+      "Read tasks (or questions or decisions) matching the given filters. Returns the most recent 20 by default; `limit` (max 50) + `offset` page through the rest — follow page.nextOffset until null. `assignee` filters to one person (user id or name substring). Set `overdue: true` for tasks whose due date has passed. Each task carries its supplier link, topic links, and resolved custom fields.",
     input_schema: {
       type: "object",
       properties: {
@@ -62,6 +69,8 @@ export const readTasks: AiTool<typeof inputSchema> = {
         dueAfter: { type: "string", description: "ISO date. Return tasks with dueDate after this." },
         overdue: { type: "boolean", description: "Shortcut: tasks with dueDate < now and status != DONE/ARCHIVED." },
         titleContains: { type: "string", description: "Case-insensitive substring match on the title." },
+        assignee: { type: "string", description: "Assignee filter: a user id, or a case-insensitive substring of their name / first name." },
+        offset: { type: "integer", minimum: 0, description: "Skip this many matches (default 0). Follow page.nextOffset to paginate." },
         limit: { type: "integer", minimum: 1, maximum: 50, description: "Default 20." },
       },
     },
@@ -78,6 +87,23 @@ export const readTasks: AiTool<typeof inputSchema> = {
     if (input.priority) where.priority = input.priority;
     if (input.titleContains) {
       where.title = { contains: input.titleContains, mode: "insensitive" };
+    }
+    if (input.assignee) {
+      // Match a user id exactly OR a case-insensitive substring of their
+      // name / first name — one filter covers "user:<id>" precision and
+      // "Josh" convenience.
+      const a = input.assignee.trim();
+      if (a) {
+        where.assignees = {
+          some: {
+            OR: [
+              { id: a },
+              { name: { contains: a, mode: "insensitive" } },
+              { firstName: { contains: a, mode: "insensitive" } },
+            ],
+          },
+        };
+      }
     }
     if (input.overdue) {
       where.dueDate = { lt: new Date() };
@@ -115,11 +141,17 @@ export const readTasks: AiTool<typeof inputSchema> = {
       where.dueDate = range;
     }
 
-    const [tasks, fieldDefs] = await Promise.all([
+    const offset = input.offset ?? 0;
+    const limit = input.limit ?? 20;
+
+    const [tasks, fieldDefs, total] = await Promise.all([
       db.task.findMany({
         where,
-        take: input.limit ?? 20,
-        orderBy: [{ dueDate: "asc" }, { updatedAt: "desc" }],
+        skip: offset,
+        take: limit,
+        // id is the final tiebreaker so offset pagination is stable
+        // across pages (dueDate/updatedAt alone can tie).
+        orderBy: [{ dueDate: "asc" }, { updatedAt: "desc" }, { id: "asc" }],
         select: {
           id: true,
           title: true,
@@ -143,12 +175,16 @@ export const readTasks: AiTool<typeof inputSchema> = {
         orderBy: { order: "asc" },
         select: { id: true, name: true },
       }),
+      db.task.count({ where }),
     ]);
+
+    const nextOffset = offset + limit < total ? offset + limit : null;
 
     return {
       ok: true,
       data: {
         count: tasks.length,
+        page: { offset, limit, total, nextOffset },
         tasks: tasks.map((t) => {
           // Topic sub-lists only when non-empty — most tasks have no
           // topics and 20 × 4 empty arrays is pure token waste.

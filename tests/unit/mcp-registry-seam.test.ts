@@ -98,4 +98,44 @@ describe("registry → MCP mapping seam", () => {
       names({ canWrite: true, canApply: true }),
     );
   });
+
+  // v2.9.2: propose_nudge_send is the flag-gated send tool. It appears
+  // ONLY for canWrite + canProposeSend, never in read-only/propose-only,
+  // and needs canWrite. It IS a propose tool (dispatchable, in
+  // PROPOSE_TOOL_NAMES) so supersede/SSE treat it like any other.
+  it("propose_nudge_send appears only for canWrite + canProposeSend", () => {
+    const names = (opts: {
+      canWrite?: boolean;
+      canProposeSend?: boolean;
+      canApply?: boolean;
+    }) => new Set(toolDefinitions(opts).map((d) => d.name));
+
+    const propose = names({ canWrite: true });
+    const withSend = names({ canWrite: true, canProposeSend: true });
+
+    // Never in the default propose-only or read-only listings.
+    expect(propose.has("propose_nudge_send")).toBe(false);
+    expect(names({ canWrite: false }).has("propose_nudge_send")).toBe(false);
+    // Present exactly once when the flag is set — one tool wider.
+    expect(withSend.has("propose_nudge_send")).toBe(true);
+    expect(withSend.size).toBe(propose.size + 1);
+    // The flag does nothing without canWrite.
+    expect(names({ canWrite: false, canProposeSend: true }).has("propose_nudge_send")).toBe(false);
+    // Orthogonal to canApply — both flags stack additively.
+    const both = names({ canWrite: true, canApply: true, canProposeSend: true });
+    expect(both.has("propose_nudge_send")).toBe(true);
+    expect(both.has("apply_proposals")).toBe(true);
+
+    // Dispatchable + classified as a propose tool.
+    expect(hasTool("propose_nudge_send")).toBe(true);
+    expect(isProposeTool("propose_nudge_send")).toBe(true);
+  });
+
+  // v2.9.2: read_settings is a plain read tool — present in every
+  // listing including read-only, and never a propose tool.
+  it("read_settings is a read tool present in read-only listings", () => {
+    const readOnly = new Set(toolDefinitions({ canWrite: false }).map((d) => d.name));
+    expect(readOnly.has("read_settings")).toBe(true);
+    expect(isProposeTool("read_settings")).toBe(false);
+  });
 });

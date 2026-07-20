@@ -42,6 +42,9 @@ export type McpTokenRow = {
   // v2.9.0: narrower — dismiss_proposals only, restricted to the
   // token user's own proposals. Independent of canApply.
   canDismissOwn: boolean;
+  // v2.9.2: gates propose_nudge_send (the digest-send propose tool).
+  // Independent of canApply/canDismissOwn.
+  canProposeSend: boolean;
   user: { email: string; name: string | null };
 };
 
@@ -220,6 +223,53 @@ export async function setMcpTokenCanDismissOwn(
   return { ok: true };
 }
 
+// v2.9.2: per-token opt-in to propose_nudge_send — the digest-send
+// propose tool. The narrowest, most side-effectful surface: even queuing
+// a send (which a human still Applies) is a deliberate per-token choice,
+// on top of ai_write + couple-tier. Same contract as the other two
+// flag setters: couple-only, refuses revoked tokens, idempotent, takes
+// effect on the token's next request.
+export async function setMcpTokenCanProposeSend(
+  id: string,
+  canProposeSend: boolean,
+): Promise<McpTokenResult> {
+  const actor = await requireCouple();
+  const row = await db.mcpToken.findUnique({
+    where: { id },
+    select: {
+      label: true,
+      revokedAt: true,
+      canProposeSend: true,
+      userId: true,
+      user: { select: { email: true } },
+    },
+  });
+  if (!row) return { ok: false, error: "Token not found" };
+  if (row.revokedAt) return { ok: false, error: "Token is revoked" };
+  // Already in the requested state — idempotent no-op, nothing new to audit.
+  if (row.canProposeSend === canProposeSend) return { ok: true };
+
+  await db.mcpToken.update({ where: { id }, data: { canProposeSend } });
+
+  await audit(actor, {
+    action: canProposeSend
+      ? "mcp_token.can_propose_send_enabled"
+      : "mcp_token.can_propose_send_disabled",
+    entity: "McpToken",
+    entityId: id,
+    metadata: {
+      label: row.label,
+      targetUserId: row.userId,
+      summary: canProposeSend
+        ? `MCP token "${row.label}" (${row.user.email}) may now propose sending the nudge digest`
+        : `MCP token "${row.label}" (${row.user.email}) can no longer propose sending the nudge digest`,
+    },
+  });
+
+  revalidatePath("/settings");
+  return { ok: true };
+}
+
 export async function listMcpTokens(): Promise<McpTokenRow[]> {
   await requireCouple();
   return db.mcpToken.findMany({
@@ -232,6 +282,7 @@ export async function listMcpTokens(): Promise<McpTokenRow[]> {
       revokedAt: true,
       canApply: true,
       canDismissOwn: true,
+      canProposeSend: true,
       user: { select: { email: true, name: true } },
     },
   });

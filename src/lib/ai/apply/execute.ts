@@ -54,6 +54,8 @@ import {
   bookCardAppendSchema,
   eventCreateSchema,
   guestCreateSchema,
+  nudgeSendSchema,
+  settingsUpdateSchema,
   supplierCommunicationSchema,
   supplierContactAddSchema,
   supplierContactUpdateSchema,
@@ -67,6 +69,9 @@ import {
   type SupplierUpdatePayload,
   type TaskUpdatePayload,
 } from "@/lib/ai/proposals/schemas";
+// v2.9.2: proposal-gated digest send + tightly-scoped settings patch.
+import { sendDigestCore } from "@/lib/core/nudge";
+import { updateWeddingSettingsPartialCore } from "@/lib/core/settings";
 import {
   createTaskCore,
   updateTaskCore,
@@ -629,9 +634,48 @@ async function applyLoadedProposal(
       proposal.kind === "seat.swap" ||
       proposal.kind === "seating.table.create" ||
       proposal.kind === "seating.table.update" ||
-      proposal.kind === "song_request.assign"
+      proposal.kind === "song_request.assign" ||
+      // v2.9.2: plan-level seating notes/checklist.
+      proposal.kind === "seating.plan.update"
     ) {
       created = await applyMiscProposal(user, proposal.kind, merged);
+    } else if (proposal.kind === "nudge.send") {
+      // v2.9.2: the most side-effectful kind — Apply actually EMAILS the
+      // couple + planners the RSVP / overdue-task digest. Couple-only
+      // (same gate as the /settings send button + read_nudge_preview).
+      // The atomic PENDING→APPLIED claim above already fired, so a
+      // concurrent/second apply of THIS proposal can't re-send; the core
+      // additionally recomputes eligibility and sends BEFORE stamping the
+      // 7-day cooldown, so a bookkeeping hiccup never double-sends either.
+      const parsed = nudgeSendSchema.parse(merged);
+      if (!user.isCouple) {
+        throw new Error("Only the couple can send the nudge digest.");
+      }
+      const sent = await sendDigestCore(user, parsed.digestKind);
+      if (!sent.ok) throw new Error(sent.error);
+      // Synthetic entity id — no row is created by a send.
+      created = { id: `nudge:${parsed.digestKind}` };
+    } else if (proposal.kind === "settings.update") {
+      // v2.9.2: tightly-scoped wedding-settings patch (date + AI cap only).
+      // Couple-only, same as the human Settings form. A date change ripples
+      // into schedule/stays/payment due dates — the propose tool tells the
+      // agent to batch those consistency fixes; apply does not cascade.
+      const parsed = settingsUpdateSchema.parse(merged);
+      if (!user.isCouple) {
+        throw new Error("Only the couple can change wedding settings.");
+      }
+      const patch: { weddingDate?: Date; aiMonthlyCapPence?: number | null } = {};
+      if (parsed.weddingDate !== undefined) {
+        const d = new Date(parsed.weddingDate);
+        if (Number.isNaN(d.getTime())) {
+          throw new Error("Wedding date must be a valid date or ISO timestamp.");
+        }
+        patch.weddingDate = d;
+      }
+      if (parsed.aiMonthlyCapPence !== undefined) {
+        patch.aiMonthlyCapPence = parsed.aiMonthlyCapPence;
+      }
+      created = await updateWeddingSettingsPartialCore(user, patch);
     } else {
       await rollbackClaim(proposal.id);
       return { ok: false, error: `Unknown proposal kind: ${proposal.kind}` };

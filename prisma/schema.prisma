@@ -1714,6 +1714,12 @@ model McpToken {
   // apply power. canApply keeps defaulting false (standing invariant);
   // this flag is independent and also defaults off.
   canDismissOwn Boolean @default(false)
+  // v2.9.2: gates propose_nudge_send — the most side-effectful propose
+  // kind (Apply actually emails the couple + planners the RSVP/overdue
+  // digest). Off by default: even QUEUING a send proposal is an explicit
+  // per-token opt-in, on top of ai_write + couple-tier. Applying the
+  // queued send still needs canApply (or a human clicks Apply on /ai).
+  canProposeSend Boolean @default(false)
 
   @@index([userId])
 }

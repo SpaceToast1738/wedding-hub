@@ -664,6 +664,113 @@ export async function updateTableNotesCore(
   revalidatePath("/seating");
 }
 
+// ── seating.table.update: name + shape (v2.9.2) ───────────────────────
+// New AI-apply-only cores — no human form renames or reshapes a table
+// today (see the deferral note that used to sit on seatingTableUpdateSchema),
+// so these have no "use server" wrapper yet, same as updateSupplierContactCore
+// (v2.9.0). Shape never changes the seat count, so neither core touches
+// seats; a capacity change goes through updateTableCapacityCore's
+// shrink-repack guard separately.
+
+const tableNameInputSchema = z.string().min(1).max(100);
+
+export async function updateTableNameCore(
+  user: SessionUser,
+  id: string,
+  name: string,
+): Promise<void> {
+  const parsed = tableNameInputSchema.parse(name);
+  const before = await db.table.findUnique({ where: { id }, select: { name: true } });
+  if (!before) throw new Error("Table not found");
+  await db.table.update({ where: { id }, data: { name: parsed } });
+  await logAudit({
+    userId: user.id,
+    action: "rename",
+    entity: "Table",
+    entityId: id,
+    metadata: { from: before.name, to: parsed },
+  });
+  revalidatePath("/seating");
+}
+
+export async function updateTableShapeCore(
+  user: SessionUser,
+  id: string,
+  shape: TableShape,
+): Promise<void> {
+  const updated = await db.table.update({ where: { id }, data: { shape } });
+  await logAudit({
+    userId: user.id,
+    action: "shape",
+    entity: "Table",
+    entityId: id,
+    metadata: { tableName: updated.name, shape },
+  });
+  revalidatePath("/seating");
+}
+
+// ── seating.plan.update: plan notes + day-of checklist (v2.9.2) ────────
+// Session-free extractions of updateSeatingNotes / updateSeatingChecklist
+// (seating/actions.ts). The human wrappers now parse + gate then delegate
+// here; the AI apply path (seating.plan.update) gates canEdit("seating")
+// then calls in. Both write the WeddingSettings singleton (the plan-level
+// fields render at the top of /seating), keep the upsert-with-create
+// fallback for a missing bootstrap row, and audit + revalidate identically.
+export type SeatingChecklistItem = { id: string; label: string; done: boolean };
+
+export async function updateSeatingNotesCore(
+  user: SessionUser,
+  notes: string,
+): Promise<void> {
+  await db.weddingSettings.upsert({
+    where: { id: 1 },
+    update: { seatingNotes: notes === "" ? null : notes },
+    create: {
+      id: 1,
+      weddingDate: new Date(process.env.WEDDING_DATE ?? "2026-09-24T14:00:00Z"),
+      venue: process.env.WEDDING_VENUE ?? "Alveston Manor",
+      seatingNotes: notes === "" ? null : notes,
+    },
+  });
+  await logAudit({
+    userId: user.id,
+    action: "seating-notes",
+    entity: "WeddingSettings",
+    entityId: "1",
+    metadata: { notesLength: notes.length, cleared: notes === "" },
+  });
+  revalidatePath("/seating");
+}
+
+export async function updateSeatingChecklistCore(
+  user: SessionUser,
+  items: SeatingChecklistItem[],
+): Promise<void> {
+  await db.weddingSettings.upsert({
+    where: { id: 1 },
+    update: {
+      seatingChecklist:
+        items.length === 0 ? Prisma.JsonNull : (items as Prisma.InputJsonValue),
+    },
+    create: {
+      id: 1,
+      weddingDate: new Date(process.env.WEDDING_DATE ?? "2026-09-24T14:00:00Z"),
+      venue: process.env.WEDDING_VENUE ?? "Alveston Manor",
+      seatingChecklist:
+        items.length === 0 ? Prisma.JsonNull : (items as Prisma.InputJsonValue),
+    },
+  });
+  const doneCount = items.filter((i) => i.done).length;
+  await logAudit({
+    userId: user.id,
+    action: "seating-checklist",
+    entity: "WeddingSettings",
+    entityId: "1",
+    metadata: { itemCount: items.length, doneCount, cleared: items.length === 0 },
+  });
+  revalidatePath("/seating");
+}
+
 // ── song_request.assign ───────────────────────────────────────────────
 // v2.8.1: extracted body of addGuestRequestToPlaylist (songs/actions.ts).
 // The wrapper keeps the requireEdit("songs") gate and returns the result

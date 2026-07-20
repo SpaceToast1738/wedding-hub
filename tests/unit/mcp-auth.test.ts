@@ -21,6 +21,8 @@ type McpTokenRow = {
   canApply: boolean;
   // v2.9.0: per-token dismiss-own rights, likewise passed through.
   canDismissOwn: boolean;
+  // v2.9.2: per-token "may propose a nudge send" rights.
+  canProposeSend: boolean;
   user: {
     id: string;
     email: string;
@@ -70,6 +72,7 @@ function baseRow(overrides: Partial<McpTokenRow> = {}): McpTokenRow {
     revokedAt: null,
     canApply: false,
     canDismissOwn: false,
+    canProposeSend: false,
     user: {
       id: "u_jamie",
       email: "jamie@example.com",
@@ -159,6 +162,7 @@ describe("verifyMcpToken", () => {
       },
       canApply: false,
       canDismissOwn: false,
+      canProposeSend: false,
     });
   });
 
@@ -177,6 +181,17 @@ describe("verifyMcpToken", () => {
     const verified = await verifyMcpToken(token);
     expect(verified?.canDismissOwn).toBe(true);
     expect(verified?.canApply).toBe(false);
+  });
+
+  // v2.9.2: same passthrough for the nudge-send flag, independent of the
+  // other two.
+  it("passes the row's canProposeSend flag through when set", async () => {
+    const { token, tokenHash } = generateMcpToken();
+    tokenRows = [baseRow({ tokenHash, canProposeSend: true })];
+    const verified = await verifyMcpToken(token);
+    expect(verified?.canProposeSend).toBe(true);
+    expect(verified?.canApply).toBe(false);
+    expect(verified?.canDismissOwn).toBe(false);
   });
 });
 

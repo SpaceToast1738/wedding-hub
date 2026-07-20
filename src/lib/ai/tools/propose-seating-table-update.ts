@@ -1,17 +1,29 @@
 import { z } from "zod";
 import { db } from "@/lib/db";
-import { seatingTableUpdateSchema } from "@/lib/ai/proposals/schemas";
+import { seatingTableUpdateSchema, TABLE_SHAPES } from "@/lib/ai/proposals/schemas";
 import { takeProposalSlots } from "./propose-common";
 import type { AiTool } from "./types";
 
 // v2.8.1 (Tier 2, Slice 3): edit an existing table's capacity, canvas
 // position, rotation or notes. Bridges to the seating.table.update apply
-// handler (src/lib/ai/apply/misc.ts). Name + shape are intentionally NOT
-// editable (no clean human mutator exists for them). Shrinking capacity
-// below the number of seated guests is refused at apply-time (no silent
-// eviction); this tool also warns at propose-time.
+// handler (src/lib/ai/apply/misc.ts). Shrinking capacity below the number
+// of seated guests is refused at apply-time (no silent eviction); this
+// tool also warns at propose-time.
+// v2.9.2: name + shape are now editable (the couple's "table names or
+// numbers" decision needed a write path). Shape never changes the seat
+// count, so it carries no eviction risk.
 const inputSchema = z.object({
   tableId: z.string().min(1).describe("Table id from read_seating."),
+  name: z
+    .string()
+    .min(1)
+    .max(100)
+    .optional()
+    .describe("New table name or number, e.g. \"Top Table\" or \"Table 7\"."),
+  shape: z
+    .enum(TABLE_SHAPES)
+    .optional()
+    .describe("New shape: ROUND, RECTANGLE or HEAD. Does not change the seat count."),
   capacity: z
     .number()
     .int()
@@ -55,17 +67,23 @@ const inputSchema = z.object({
 export const proposeSeatingTableUpdate: AiTool<typeof inputSchema> = {
   name: "propose_seating_table_update",
   description:
-    "Propose editing an existing table's capacity, canvas position, rotation or notes. Name and shape are NOT editable here. Shrinking capacity below the number of seated guests is refused (no silent eviction) — unseat guests first with propose_seat_unassign. Position: send posX and posY together; rotation only takes effect alongside a position change. At least one editable field must be set. Requires a tableId from read_seating.",
+    "Propose editing an existing table's name, shape, capacity, canvas position, rotation or notes. Renaming (e.g. \"Top Table\", \"Table 7\") and reshaping (ROUND/RECTANGLE/HEAD) are supported. Shape does not change the seat count. Shrinking capacity below the number of seated guests is refused (no silent eviction) — unseat guests first with propose_seat_unassign. Position: send posX and posY together; rotation only takes effect alongside a position change. At least one editable field must be set. Requires a tableId from read_seating.",
   inputSchema,
   progressLabel: "Proposing table update…",
   definition: {
     name: "propose_seating_table_update",
     description:
-      "Propose editing a table's capacity / position / rotation / notes (NOT name or shape). Shrinking below the seated count is refused. Send posX+posY together. Requires tableId from a prior read_seating call.",
+      "Propose editing a table's name / shape / capacity / position / rotation / notes. Shrinking below the seated count is refused. Send posX+posY together. Requires tableId from a prior read_seating call.",
     input_schema: {
       type: "object",
       properties: {
         tableId: { type: "string", description: "Table id from read_seating." },
+        name: { type: "string", description: "New table name or number." },
+        shape: {
+          type: "string",
+          enum: [...TABLE_SHAPES],
+          description: "New shape: ROUND, RECTANGLE or HEAD. Does not change the seat count.",
+        },
         capacity: {
           type: "integer",
           minimum: 1,
@@ -95,6 +113,8 @@ export const proposeSeatingTableUpdate: AiTool<typeof inputSchema> = {
     if (guard) return guard;
 
     const hasField =
+      input.name !== undefined ||
+      input.shape !== undefined ||
       input.capacity !== undefined ||
       input.posX !== undefined ||
       input.posY !== undefined ||
@@ -104,7 +124,7 @@ export const proposeSeatingTableUpdate: AiTool<typeof inputSchema> = {
       return {
         ok: false,
         error:
-          "Nothing to change — set at least one of capacity, posX+posY, rotation or notes.",
+          "Nothing to change — set at least one of name, shape, capacity, posX+posY, rotation or notes.",
       };
     }
     if ((input.posX === undefined) !== (input.posY === undefined)) {
@@ -138,6 +158,8 @@ export const proposeSeatingTableUpdate: AiTool<typeof inputSchema> = {
 
     const payloadResult = seatingTableUpdateSchema.safeParse({
       tableId: input.tableId,
+      ...(input.name !== undefined && { name: input.name }),
+      ...(input.shape !== undefined && { shape: input.shape }),
       ...(input.capacity !== undefined && { capacity: input.capacity }),
       ...(input.posX !== undefined && { posX: input.posX }),
       ...(input.posY !== undefined && { posY: input.posY }),
@@ -159,6 +181,8 @@ export const proposeSeatingTableUpdate: AiTool<typeof inputSchema> = {
     });
 
     const bits: string[] = [];
+    if (input.name !== undefined) bits.push(`name → "${input.name}"`);
+    if (input.shape !== undefined) bits.push(`shape → ${input.shape}`);
     if (input.capacity !== undefined) bits.push(`capacity → ${input.capacity}`);
     if (input.posX !== undefined && input.posY !== undefined) bits.push("moves the table");
     if (input.rotation !== undefined) bits.push(`rotation → ${input.rotation}°`);
