@@ -963,6 +963,16 @@ When wrapping up a meaningful iteration:
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
 
+### 2026-07-20 · v2.8.5 — HOTFIX: code sign-in succeeded server-side but the browser stayed logged out
+
+Third and final regression in the sign-in chain. With v2.8.3 (hashed-token lookup) and v2.8.4 (verify-request bypass) in place, entering a valid 6-digit code was fully accepted **server-side** — `signin_code_succeeded` → `signin` event fired, `emailVerified` stamped, the JWT minted — yet the browser bounced straight back to `/signin`, no error shown. The magic-link button worked; the typed code did not.
+
+Root cause (confirmed by replaying the exact callback on the box — it returned `302 → /` with a correct `__Secure-authjs.session-token` Set-Cookie, and by a three-agent source trace): the session cookie is minted by the `/api/auth/callback/nodemailer` **Route Handler**, but `verifyCode` was a Server Action (`"use server"`) that reached that handler via `redirect()`. In the Next.js App Router, **a Route Handler's `Set-Cookie` is committed to the browser only when the handler is reached by a real top-level navigation** — reached via a Server-Action `redirect()`, the cookie is consumed inside the router's internal RSC/fetch pipeline and never lands in the browser. So the next request to `/` was cookieless and `middleware.ts` redirected it back to `/signin`. The magic link was unaffected because clicking it is a genuine top-level GET; the phone was unaffected because it held a prior JWT and never re-ran the callback. The one-time-token `callback_rejection` double-consume was a co-symptom of the same soft-navigation and is removed by this fix too.
+
+Fix: split `src/app/signin/verify/page.tsx` into a server shell + `src/app/signin/verify/actions.ts` (`verifyCode` now **returns** `{ status: "ok", url }` instead of `redirect()`-ing) + `src/app/signin/verify/VerifyForm.tsx` (a client component that, on success, does a single guarded `window.location.replace(url)` — a real top-level GET that commits the callback's cookie exactly like the magic link, and keeps the single-use token URL out of history). Every validation / rate-limit / audit step is preserved verbatim. Verified live: the replayed callback deposits the session cookie and lands on `/` logged-in.
+
+Typecheck clean, 737 tests green, lint clean, `next build` verified.
+
 ### 2026-07-20 · v2.8.4 — HOTFIX: sign-in 500 before the code form (`signIn` verify-request redirect)
 
 Second regression from the same `@auth/core` 0.41 skew (v2.8.3 fixed the first). After sending the email, next-auth beta.25's `signIn()` auto-redirects the user to `res.redirect`, which under 0.41 is `/api/auth/verify-request` — and hitting that URL makes `@auth/core` throw `UnknownAction: Cannot handle action: verify-request`, a 500 that stopped the user ever reaching the 6-digit code form (the email still sent; the `VerificationToken` row was written first, which is why a fresh token appeared but no code-verify audit ever did). Confirmed from prod logs: the `verify-request` `[auth][error]` fired on each attempt with no `signin_code_*` row following it.
