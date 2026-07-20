@@ -78,4 +78,24 @@ describe("registry → MCP mapping seam", () => {
     // canApply without canWrite must NOT unlock apply tools.
     expect(names({ canWrite: false, canApply: true }).has("apply_proposals")).toBe(false);
   });
+
+  // v2.9.0: the narrower canDismissOwn listing — dismiss_proposals
+  // only, never apply_proposals; canApply supersedes it when both set.
+  it("canDismissOwn lists dismiss_proposals but never apply_proposals", () => {
+    const names = (opts: { canWrite?: boolean; canApply?: boolean; canDismissOwn?: boolean }) =>
+      new Set(toolDefinitions(opts).map((d) => d.name));
+
+    const propose = names({ canWrite: true });
+    const dismissOwn = names({ canWrite: true, canDismissOwn: true });
+    expect(dismissOwn.has("dismiss_proposals")).toBe(true);
+    expect(dismissOwn.has("apply_proposals")).toBe(false);
+    // Strictly one tool wider than propose-only.
+    expect(dismissOwn.size).toBe(propose.size + 1);
+    // Without canWrite the flag unlocks nothing.
+    expect(names({ canWrite: false, canDismissOwn: true }).has("dismiss_proposals")).toBe(false);
+    // Both flags → the full canApply listing (no double-count).
+    expect(names({ canWrite: true, canApply: true, canDismissOwn: true })).toEqual(
+      names({ canWrite: true, canApply: true }),
+    );
+  });
 });

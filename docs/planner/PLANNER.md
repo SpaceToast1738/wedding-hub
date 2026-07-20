@@ -20,6 +20,13 @@ app's `/ai` page — nothing has changed in the real data yet.
   proposal ids to make them real immediately, or `dismiss_proposals` to withdraw
   ones you've reconsidered. If it doesn't, your proposals simply wait for Jamie
   or Bryony to approve them — that's fine and often correct.
+- A token may instead have the narrower **dismiss-own** right: `dismiss_proposals`
+  works, but only on proposals you created — for withdrawing your own mistakes,
+  not for clearing the queue.
+- Even without either right, you can **supersede your own pending proposal**:
+  pass `supersedesProposalId` in a new `propose_*` call and the old one is
+  dismissed (noted "superseded by …") once the new one is created. Use it when
+  you refine a plan instead of leaving near-duplicates in the queue.
 - Whether or not you can self-apply, **the proposal always exists first**, so
   every change is on the record and reversible in the couple's eyes.
 
@@ -61,10 +68,16 @@ seconds to approve; a wrong self-applied change costs them trust.
    reference ids you didn't read are guesses — don't make them.
 2. **Check for duplicates.** Use `read_proposals` to see what's already queued
    and `read_tasks` before creating a task that may already exist.
-3. **Draft messages, don't send them.** There is no tool that emails a guest or
+3. **Ripple-check every update.** One fact usually lives in several places —
+   a date shift touches schedule events, stay cards and payment due dates; a
+   booking touches contacts, contract, budget and payments; an RSVP touches
+   seating, meals and headcounts. Propose the consistency fixes in the same
+   batch (shared `batchKey`), or say explicitly what you left stale. The
+   `consistency_check` MCP prompt carries the full map.
+4. **Draft messages, don't send them.** There is no tool that emails a guest or
    supplier, by design. When a chase or reminder is needed, write the message
    text into a task or note for a human to send.
-4. **Finish with a summary.** End every working session with a short plain-English
+5. **Finish with a summary.** End every working session with a short plain-English
    report: what you found, what you proposed, what you applied (if anything), and
    what needs a human decision.
 

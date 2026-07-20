@@ -39,6 +39,9 @@ export type McpTokenRow = {
   revokedAt: Date | null;
   // v2.8.0: whether this token may call the apply/dismiss MCP tools.
   canApply: boolean;
+  // v2.9.0: narrower — dismiss_proposals only, restricted to the
+  // token user's own proposals. Independent of canApply.
+  canDismissOwn: boolean;
   user: { email: string; name: string | null };
 };
 
@@ -171,6 +174,52 @@ export async function setMcpTokenCanApply(
   return { ok: true };
 }
 
+// v2.9.0: per-token opt-in to dismiss_proposals restricted to the
+// token user's own proposals — a smaller step than canApply for a
+// propose-only agent that wants to withdraw its own mistakes. Same
+// contract as setMcpTokenCanApply: couple-only, refuses revoked
+// tokens, idempotent, takes effect on the token's next request.
+export async function setMcpTokenCanDismissOwn(
+  id: string,
+  canDismissOwn: boolean,
+): Promise<McpTokenResult> {
+  const actor = await requireCouple();
+  const row = await db.mcpToken.findUnique({
+    where: { id },
+    select: {
+      label: true,
+      revokedAt: true,
+      canDismissOwn: true,
+      userId: true,
+      user: { select: { email: true } },
+    },
+  });
+  if (!row) return { ok: false, error: "Token not found" };
+  if (row.revokedAt) return { ok: false, error: "Token is revoked" };
+  // Already in the requested state — idempotent no-op, nothing new to audit.
+  if (row.canDismissOwn === canDismissOwn) return { ok: true };
+
+  await db.mcpToken.update({ where: { id }, data: { canDismissOwn } });
+
+  await audit(actor, {
+    action: canDismissOwn
+      ? "mcp_token.can_dismiss_own_enabled"
+      : "mcp_token.can_dismiss_own_disabled",
+    entity: "McpToken",
+    entityId: id,
+    metadata: {
+      label: row.label,
+      targetUserId: row.userId,
+      summary: canDismissOwn
+        ? `MCP token "${row.label}" (${row.user.email}) may now dismiss its own proposals`
+        : `MCP token "${row.label}" (${row.user.email}) can no longer dismiss its own proposals`,
+    },
+  });
+
+  revalidatePath("/settings");
+  return { ok: true };
+}
+
 export async function listMcpTokens(): Promise<McpTokenRow[]> {
   await requireCouple();
   return db.mcpToken.findMany({
@@ -182,6 +231,7 @@ export async function listMcpTokens(): Promise<McpTokenRow[]> {
       lastUsedAt: true,
       revokedAt: true,
       canApply: true,
+      canDismissOwn: true,
       user: { select: { email: true, name: true } },
     },
   });

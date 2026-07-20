@@ -30,6 +30,11 @@ export type ToolContext = {
    *  (McpToken.canApply). Absent for chat — the in-app loop never
    *  self-applies, every proposal goes through the human review UI. */
   canApply?: boolean;
+  /** v2.9.0: token-level dismiss-own rights (McpToken.canDismissOwn).
+   *  Narrower than canApply: exposes ONLY dismiss_proposals, and the
+   *  handler restricts targets to proposals created by the token's own
+   *  user. Absent for chat, same as canApply. */
+  canDismissOwn?: boolean;
 };
 
 export type ToolResult = { ok: true; data: unknown } | { ok: false; error: string };

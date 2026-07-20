@@ -82,6 +82,10 @@ export const PROPOSAL_KINDS = [
   "supplier.contract_update",
   "budget.component_create",
   "budget.component_update",
+  // v2.9.0: contact patching, section rename, staged file upload.
+  "supplier.contact.update",
+  "book.section.update",
+  "file.upload",
 ] as const;
 export type ProposalKind = (typeof PROPOSAL_KINDS)[number];
 
@@ -1128,6 +1132,75 @@ export const budgetComponentUpdateSchema = z.object({
 });
 export type BudgetComponentUpdatePayload = z.infer<typeof budgetComponentUpdateSchema>;
 
+// ─── v2.9.0: contact patching, section rename, staged upload ────────
+
+/** Patch an existing supplier contact. Same conventions as the other
+ *  *.update kinds: `undefined` keeps the current value, `null` clears
+ *  a nullable column (role/email/phone). `primary: true` also unmarks
+ *  any other primary contact at apply — same swap createSupplierContact
+ *  runs; `primary: false` simply unmarks this one (the supplier may be
+ *  left without a primary — the summary says so). */
+export const supplierContactUpdateSchema = z
+  .object({
+    contactId: cid,
+    name: z.string().min(1).max(200).optional(),
+    role: nullable(z.string().max(100)),
+    email: nullable(z.string().max(200)),
+    phone: nullable(z.string().max(50)),
+    primary: z.boolean().optional(),
+  })
+  .refine(
+    (v) =>
+      v.name !== undefined ||
+      v.role !== undefined ||
+      v.email !== undefined ||
+      v.phone !== undefined ||
+      v.primary !== undefined,
+    { message: "Nothing to change — set at least one field." },
+  );
+export type SupplierContactUpdatePayload = z.infer<typeof supplierContactUpdateSchema>;
+
+/** Rename a Wedding Book section's title and/or subtitle. The slug is
+ *  deliberately NOT re-derived from the new title — it stays stable so
+ *  existing /book/<slug> links, bookmarks and sectionSlug references
+ *  keep working (same rule as the human updateBookSection action). */
+export const bookSectionUpdateSchema = z
+  .object({
+    sectionId: cid,
+    title: z.string().min(1).max(120).optional(),
+    subtitle: nullable(z.string().max(240)),
+  })
+  .refine((v) => v.title !== undefined || v.subtitle !== undefined, {
+    message: "Nothing to change — set title and/or subtitle.",
+  });
+export type BookSectionUpdatePayload = z.infer<typeof bookSectionUpdateSchema>;
+
+/** Proposal-gated file upload. The payload carries NO bytes — the
+ *  decoded file is staged on disk (src/lib/ai/uploads-staging.ts) and
+ *  `stagedName` references it: Apply renames the stage into a real
+ *  stored file + File row; Dismiss unlinks it; abandoned stages are
+ *  TTL-swept. The strict stagedName pattern means a tampered payload
+ *  can never point the apply/dismiss filesystem calls outside the
+ *  uploads dir. sizeBytes caps at 10 MB (MAX_AI_UPLOAD_BYTES) — below
+ *  the app's human 25 MB cap. */
+export const FILE_VISIBILITIES = ["EVERYONE", "COUPLE_ONLY"] as const;
+
+export const fileUploadSchema = z.object({
+  stagedName: z
+    .string()
+    .regex(/^pending-[0-9a-f]{32}\.[a-z0-9]{1,8}$/, "Invalid staged file reference"),
+  filename: z.string().min(1).max(200),
+  mimeType: z.string().min(1).max(150),
+  sizeBytes: z
+    .number()
+    .int()
+    .min(1)
+    .max(10 * 1024 * 1024),
+  folder: nullable(z.string().max(100)),
+  visibility: z.enum(FILE_VISIBILITIES).default("EVERYONE"),
+});
+export type FileUploadPayload = z.infer<typeof fileUploadSchema>;
+
 export function schemaForKind(kind: string): z.ZodTypeAny | null {
   switch (kind) {
     case "task.create":
@@ -1261,6 +1334,13 @@ export function schemaForKind(kind: string): z.ZodTypeAny | null {
       return budgetComponentCreateSchema;
     case "budget.component_update":
       return budgetComponentUpdateSchema;
+    // v2.9.0
+    case "supplier.contact.update":
+      return supplierContactUpdateSchema;
+    case "book.section.update":
+      return bookSectionUpdateSchema;
+    case "file.upload":
+      return fileUploadSchema;
     default:
       return null;
   }
@@ -1401,6 +1481,13 @@ export function humanLabel(kind: ProposalKind): string {
       return "New budget component";
     case "budget.component_update":
       return "Update budget component";
+    // v2.9.0
+    case "supplier.contact.update":
+      return "Update supplier contact";
+    case "book.section.update":
+      return "Rename book section";
+    case "file.upload":
+      return "Upload file";
   }
 }
 
@@ -1814,6 +1901,41 @@ export function summariseProposal(kind: string, payload: unknown): string {
       if (p[k] !== undefined) bits.push(`sets ${k}`);
     }
     return bits.join(", ") || "small tweak";
+  }
+
+  // v2.9.0: contact patching, section rename, staged upload.
+  if (kind === "supplier.contact.update") {
+    const bits: string[] = [];
+    if (typeof p.name === "string") bits.push(`name → "${clip(p.name, 40)}"`);
+    if (typeof p.role === "string") bits.push(`role → ${clip(p.role, 30)}`);
+    else if (p.role === null) bits.push("clears role");
+    if (typeof p.email === "string") bits.push("email updated");
+    else if (p.email === null) bits.push("clears email");
+    if (typeof p.phone === "string") bits.push("phone updated");
+    else if (p.phone === null) bits.push("clears phone");
+    if (p.primary === true) bits.push("makes PRIMARY — replaces the current primary contact");
+    if (p.primary === false) bits.push("unmarks primary — the supplier may be left without one");
+    return bits.join(", ") || "small tweak";
+  }
+  if (kind === "book.section.update") {
+    const bits: string[] = [];
+    if (typeof p.title === "string") bits.push(`title → "${clip(p.title, 60)}"`);
+    if (typeof p.subtitle === "string") bits.push(`subtitle → "${clip(p.subtitle, 60)}"`);
+    else if (p.subtitle === null) bits.push("clears subtitle");
+    bits.push("URL slug unchanged");
+    return bits.join(" · ");
+  }
+  if (kind === "file.upload") {
+    const name = clip(p.filename, 60) || "(unnamed file)";
+    const size =
+      typeof p.sizeBytes === "number"
+        ? p.sizeBytes >= 1024 * 1024
+          ? ` · ${(p.sizeBytes / (1024 * 1024)).toFixed(1)} MB`
+          : ` · ${Math.max(1, Math.round(p.sizeBytes / 1024))} KB`
+        : "";
+    const folder = str(p.folder) ? ` · folder "${clip(p.folder, 30)}"` : "";
+    const vis = p.visibility === "COUPLE_ONLY" ? " · couple-only" : "";
+    return `${name}${size}${folder}${vis}`;
   }
 
   // v2.8.0: destructive kinds. One shared shape so no delete can ever

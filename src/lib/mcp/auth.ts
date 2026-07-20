@@ -41,7 +41,7 @@ export function generateMcpToken(): { token: string; tokenHash: string } {
  *  propose-only token). */
 export async function verifyMcpToken(
   token: string,
-): Promise<{ user: SessionUser; canApply: boolean } | null> {
+): Promise<{ user: SessionUser; canApply: boolean; canDismissOwn: boolean } | null> {
   if (!token.startsWith(MCP_TOKEN_PREFIX)) return null;
   const row = await db.mcpToken.findUnique({
     where: { tokenHash: hashMcpToken(token) },
@@ -68,5 +68,7 @@ export async function verifyMcpToken(
       role: row.user.role,
     },
     canApply: row.canApply,
+    // v2.9.0: narrower flag — dismiss_proposals only, own rows only.
+    canDismissOwn: row.canDismissOwn,
   };
 }

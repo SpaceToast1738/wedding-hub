@@ -22,6 +22,9 @@ const PAYLOAD_ID_FIELDS = new Set([
   // before) — the summary/detail line names the target, so the id is
   // noise here too.
   "subsectionId", "lineId", "categoryId", "songId", "tableId",
+  // v2.9.0: file.upload's internal staged-file reference — the
+  // summary line already names the file, size and folder.
+  "stagedName",
 ]);
 
 function humanizeFieldKey(key: string): string {

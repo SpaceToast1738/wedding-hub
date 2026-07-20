@@ -43,7 +43,10 @@ const PREAMBLE =
   "session's reads, never memory. Draft any guest/supplier messages as " +
   "task notes — never send. Prefer leaving proposals in the /ai review " +
   "queue; only self-apply routine, additive, clearly-correct changes, " +
-  "and never self-apply deletes, money, or guest-facing changes. Finish " +
+  "and never self-apply deletes, money, or guest-facing changes. When " +
+  "you propose an update, ripple-check what else references the same " +
+  "fact (the consistency_check prompt has the map) and fix or flag it " +
+  "in the same batch. Finish " +
   "with a short plain-English summary of what you found, proposed, and " +
   "(if anything) applied.";
 
@@ -102,6 +105,30 @@ const SPECS: PromptSpec[] = [
       "1. read_payments(dueBefore: the next milestone) and read_budget for the full tree.\n" +
       "2. Check every booked supplier balance has a payment row with a sane due date; propose_payment_create / propose_payment_update / propose_payment_set_status for gaps or status drift (marking PAID stamps today unless you pass an explicit paidDate).\n" +
       "Never self-apply money changes — leave them for the couple to approve. Summarise what's due, what's missing, and any variance.",
+  },
+  {
+    // v2.9.0: the long form of the server-instructions consistency
+    // rule (protocol.ts keeps the initialize string tight). Usable
+    // standalone as an audit, or after any batch of updates.
+    name: "consistency_check",
+    description:
+      "Walk the ripple map for a change (or audit the whole hub): find every place that references the same fact and propose the consistency fixes as one batch.",
+    arguments: [
+      {
+        name: "change",
+        description:
+          "The change to ripple-check, e.g. 'ceremony moved to 3pm' or 'booked the florist'. Omit to audit the whole hub for stale cross-references.",
+        required: false,
+      },
+    ],
+    build: (args) =>
+      `${PREAMBLE}\n\nRun a consistency check${args.change ? ` for this change: ${args.change}` : " across the hub"}.\n` +
+      "One fact usually lives in several places — check each and propose fixes for every stale echo, using one shared batchKey so they review as a single card. Common ripple maps:\n" +
+      "- Wedding date/time → schedule events (read_events), STAY/LODGING card check-in/out dates (read_book), payment due dates keyed to the date (read_payments).\n" +
+      "- A supplier booking → supplier status (propose_supplier_update), contact person (propose_supplier_contact_add/update), contract record (propose_supplier_contract_update), related book cards, its budget line (couple-only), scheduled payments, and any placeholder guests (band members, photographers who eat).\n" +
+      "- An RSVP change → seating (read_seating; unseat/reseat), meal pre-orders (propose_guest_update), headcount-driven budget components (couple-only), and RSVP chase lists in task notes.\n" +
+      "- A completed purchase → its task status, the outfit/build/book card that tracked it, and budget actuals (couple-only — flag, don't guess figures).\n" +
+      "Anything you can't fix (no permission, missing data), say explicitly what was left stale. Finish with a summary of what was in sync, what you fixed, and what still needs a human.",
   },
   {
     name: "day_of_runsheet",

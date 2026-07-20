@@ -179,6 +179,81 @@ export async function createSupplierContactCore(
   revalidatePath("/today/day-of");
 }
 
+// v2.9.0: patch an existing contact person. No human mutator exists
+// for this yet (the UI only creates/deletes contacts), so this core is
+// currently AI-apply-only — but it lives here beside the create/delete
+// halves so a future edit form can delegate to it. Merge rules match
+// the AI *.update convention: `undefined` keeps the current value,
+// `null` clears a nullable column.
+export type SupplierContactPatch = {
+  name?: string;
+  role?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  primary?: boolean;
+};
+
+export async function updateSupplierContactCore(
+  user: SessionUser,
+  contactId: string,
+  patch: SupplierContactPatch,
+): Promise<{ id: string; supplierId: string }> {
+  const current = await db.supplierContact.findUnique({
+    where: { id: contactId },
+    include: { supplier: { select: { name: true } } },
+  });
+  if (!current) {
+    throw new Error(
+      "Supplier contact not found — it may have been removed since the proposal was made.",
+    );
+  }
+  const next = {
+    name: patch.name !== undefined ? patch.name : current.name,
+    role: patch.role !== undefined ? patch.role : current.role,
+    email: patch.email !== undefined ? patch.email : current.email,
+    phone: patch.phone !== undefined ? patch.phone : current.phone,
+    primary: patch.primary !== undefined ? patch.primary : current.primary,
+  };
+  // Same primary-swap transaction shape as createSupplierContactCore:
+  // whenever this contact ends up primary, unmark every sibling first.
+  await db.$transaction([
+    ...(next.primary
+      ? [
+          db.supplierContact.updateMany({
+            where: {
+              supplierId: current.supplierId,
+              primary: true,
+              id: { not: contactId },
+            },
+            data: { primary: false },
+          }),
+        ]
+      : []),
+    db.supplierContact.update({ where: { id: contactId }, data: next }),
+  ]);
+  const changedFields: string[] = [];
+  if (current.name !== next.name) changedFields.push("name");
+  if (current.role !== next.role) changedFields.push("role");
+  if (current.email !== next.email) changedFields.push("email");
+  if (current.phone !== next.phone) changedFields.push("phone");
+  if (current.primary !== next.primary) changedFields.push("primary");
+  await logAudit({
+    userId: user.id,
+    action: "update",
+    entity: "SupplierContact",
+    entityId: contactId,
+    metadata: {
+      supplierId: current.supplierId,
+      supplierName: current.supplier.name,
+      contactName: next.name,
+      changedFields,
+    },
+  });
+  revalidatePath(`/suppliers/${current.supplierId}`);
+  revalidatePath("/today/day-of");
+  return { id: contactId, supplierId: current.supplierId };
+}
+
 export const supplierCommunicationInputSchema = z.object({
   supplierId: z.string().min(1),
   channel: z.enum(["email", "call", "meeting", "message"]),
