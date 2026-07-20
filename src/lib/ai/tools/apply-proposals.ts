@@ -15,6 +15,7 @@
 // canApply + canWrite before touching it.
 
 import { z } from "zod";
+import { db } from "@/lib/db";
 import type { AiTool, ToolContext, ToolResult } from "./types";
 
 // execute.ts transitively imports the app server-action graph (the not-
@@ -87,24 +88,67 @@ export const applyProposals: AiTool<typeof idsSchema> = {
   },
 };
 
+const NO_DISMISS_RIGHTS =
+  "This token can propose but not dismiss — proposals stay PENDING for review on /ai. " +
+  "The couple can enable 'Can apply changes' or 'Can dismiss its own proposals' on the token in Settings → MCP tokens.";
+
 export const dismissProposals: AiTool<typeof idsSchema> = {
   name: "dismiss_proposals",
   description:
     "Dismiss pending proposals you created (e.g. superseded by a better plan or filed in error). " +
-    "Dismissed proposals are kept for the record but never applied. Requires a token with apply rights.",
+    "Dismissed proposals are kept for the record but never applied. Requires a token with apply rights, " +
+    "or dismiss-own rights (in which case only proposals created by this token's user can be dismissed).",
   inputSchema: idsSchema,
   progressLabel: "Dismissing proposals…",
   definition: {
     name: "dismiss_proposals",
     description:
-      "Dismiss pending proposals by id — kept for the record, never applied (token needs apply rights).",
+      "Dismiss pending proposals by id — kept for the record, never applied (token needs apply rights, " +
+      "or dismiss-own rights limited to its own proposals).",
     input_schema: IDS_JSON_SCHEMA,
   },
   async handler(input, ctx) {
-    const refused = gate(ctx);
-    if (refused) return refused;
+    // v2.9.0: two tiers. canApply keeps the v2.8.0 behaviour (dismiss
+    // anything loadOwnedProposal grants — a couple token reaches every
+    // row). canDismissOwn WITHOUT canApply is strictly narrower: only
+    // rows created by the token's own user, even for a couple-tier
+    // user (the point of the flag is a small blast radius).
+    if (!ctx.canApply && !ctx.canDismissOwn) {
+      return { ok: false, error: NO_DISMISS_RIGHTS };
+    }
+    if (!ctx.canWrite) return { ok: false, error: NO_WRITE_RIGHTS };
     const { runBulkCore } = await loadEngine();
-    const { results } = await runBulkCore(ctx.user, input.ids, "dismiss");
+
+    if (ctx.canApply) {
+      const { results } = await runBulkCore(ctx.user, input.ids, "dismiss");
+      const dismissed = results.filter((r) => r.ok).length;
+      return { ok: true, data: { dismissed, failed: results.length - dismissed, results } };
+    }
+
+    // Own-only mode: pre-filter to rows this user created. Foreign or
+    // missing ids get the same "Proposal not found." the ownership
+    // check in loadOwnedProposal uses — existence is never leaked.
+    const unique = [...new Set(input.ids)];
+    const rows = await db.aiProposal.findMany({
+      where: { id: { in: unique }, createdById: ctx.user.id },
+      select: { id: true },
+    });
+    const own = new Set(rows.map((r) => r.id));
+    const ownIds = unique.filter((id) => own.has(id));
+    const byId = new Map<string, { id: string; ok: boolean; entityId: string | null; error: string | null }>();
+    if (ownIds.length > 0) {
+      const { results } = await runBulkCore(ctx.user, ownIds, "dismiss");
+      for (const r of results) byId.set(r.id, r);
+    }
+    const results = unique.map(
+      (id) =>
+        byId.get(id) ?? {
+          id,
+          ok: false,
+          entityId: null,
+          error: "Proposal not found.",
+        },
+    );
     const dismissed = results.filter((r) => r.ok).length;
     return { ok: true, data: { dismissed, failed: results.length - dismissed, results } };
   },

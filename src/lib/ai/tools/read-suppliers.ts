@@ -37,13 +37,13 @@ function resolveCustomFields(
 export const readSuppliers: AiTool<typeof inputSchema> = {
   name: "read_suppliers",
   description:
-    "Read the couple's suppliers/vendors — name, category, booking status, primary contact, the latest logged communication with any follow-up date, resolved custom fields, and a contracts summary (signed / hasFile / hasAmount flags only — contract amounts are never shown here). Use the returned supplier ids to link proposed tasks to a vendor (propose_task's supplierId). Filter by status (e.g. SHORTLIST = still deciding, BOOKED = confirmed) or category (venue, photographer, florist…).",
+    "Read the couple's suppliers/vendors — name, category, booking status, all contact people (with ids for propose_supplier_contact_update/remove), the latest logged communication with any follow-up date, resolved custom fields, and a contracts summary (signed / hasFile / hasAmount flags only — contract amounts are never shown here). Use the returned supplier ids to link proposed tasks to a vendor (propose_task's supplierId). Filter by status (e.g. SHORTLIST = still deciding, BOOKED = confirmed) or category (venue, photographer, florist…).",
   inputSchema,
   progressLabel: "Reading suppliers…",
   definition: {
     name: "read_suppliers",
     description:
-      "Read suppliers/vendors: name, category, status, primary contact, latest communication + follow-up date, custom fields, and a contracts summary (flags only, no amounts). Returns supplier ids usable in propose_task.supplierId.",
+      "Read suppliers/vendors: name, category, status, contact people (ids usable in propose_supplier_contact_update/remove), latest communication + follow-up date, custom fields, and a contracts summary (flags only, no amounts). Returns supplier ids usable in propose_task.supplierId.",
     input_schema: {
       type: "object",
       properties: {
@@ -83,10 +83,19 @@ export const readSuppliers: AiTool<typeof inputSchema> = {
           status: true,
           website: true,
           customFieldValues: true,
+          // v2.9.0: ALL contacts (was primary-only) so the contact ids
+          // are a real currency for propose_supplier_contact_update /
+          // propose_supplier_contact_remove. Primary sorts first.
           contacts: {
-            where: { primary: true },
-            take: 1,
-            select: { name: true, email: true, phone: true },
+            orderBy: [{ primary: "desc" }, { name: "asc" }],
+            select: {
+              id: true,
+              name: true,
+              role: true,
+              email: true,
+              phone: true,
+              primary: true,
+            },
           },
           communications: {
             orderBy: { createdAt: "desc" },
@@ -112,7 +121,9 @@ export const readSuppliers: AiTool<typeof inputSchema> = {
       data: {
         count: suppliers.length,
         suppliers: suppliers.map((s) => {
-          const contact = s.contacts[0] ?? null;
+          // primary sorts first in the select, so [0] is the primary
+          // when one exists — but verify the flag rather than assume.
+          const contact = s.contacts.find((c) => c.primary) ?? null;
           const lastComm = s.communications[0] ?? null;
           return {
             id: s.id,
@@ -120,9 +131,23 @@ export const readSuppliers: AiTool<typeof inputSchema> = {
             category: s.category,
             status: s.status,
             website: s.website,
+            // Kept for compatibility with existing prompts/clients —
+            // same shape as before v2.9.0.
             primaryContact: contact
               ? { name: contact.name, email: contact.email, phone: contact.phone }
               : null,
+            // v2.9.0: the full contact list, ids included — the
+            // currency for propose_supplier_contact_update/remove.
+            contacts: s.contacts.length
+              ? s.contacts.map((c) => ({
+                  id: c.id,
+                  name: c.name,
+                  role: c.role,
+                  email: c.email,
+                  phone: c.phone,
+                  primary: c.primary,
+                }))
+              : undefined,
             lastCommunication: lastComm
               ? {
                   channel: lastComm.channel,

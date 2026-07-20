@@ -264,6 +264,51 @@ export async function createBookSectionCore(
   return { id: created.id };
 }
 
+// v2.9.0: rename a section's title and/or subtitle. Moved verbatim
+// from updateBookSection in book/actions.ts (which now delegates) so
+// the AI apply path (book.section.update) can run it session-free.
+// THE SLUG IS NEVER TOUCHED — it stays stable across renames so
+// /book/<slug> links, bookmarks and sectionSlug references survive
+// (v1.94.0 rule, preserved). Returns null when the section doesn't
+// exist so the human wrapper can keep its exact
+// { ok: false, error: "Section not found" } shape without a throw.
+export async function updateBookSectionCore(
+  user: SessionUser,
+  id: string,
+  input: { title: string; subtitle?: string | null },
+): Promise<{ id: string; slug: string } | null> {
+  const before = await db.bookSection.findUnique({ where: { id } });
+  if (!before) return null;
+  const subtitle =
+    input.subtitle && input.subtitle.trim() ? input.subtitle.trim() : null;
+  // v1.30.5 audit convention — record only the fields that actually
+  // changed so the activity feed reads cleanly.
+  const changedFields: string[] = [];
+  if (before.title !== input.title) changedFields.push("title");
+  if ((before.subtitle ?? null) !== subtitle) changedFields.push("subtitle");
+  const updated = await db.bookSection.update({
+    where: { id },
+    data: { title: input.title, subtitle },
+  });
+  await logAudit({
+    userId: user.id,
+    action: "update",
+    entity: "BookSection",
+    entityId: id,
+    metadata: {
+      slug: updated.slug,
+      changedFields,
+      titleBefore: before.title,
+      titleAfter: updated.title,
+      subtitleBefore: before.subtitle,
+      subtitleAfter: updated.subtitle,
+    },
+  });
+  revalidatePath("/book");
+  revalidatePath(`/book/${updated.slug}`);
+  return { id: updated.id, slug: updated.slug };
+}
+
 // v1.26.0: kind-aware. Every new card seeds the per-kind structured
 // data so the renderer never has to handle a missing relation.
 export async function createBookSubsectionCore(

@@ -13,6 +13,7 @@ import { audit, requireEdit } from "@/lib/actions";
 import {
   updateBookSubsectionCore,
   createBookSectionCore,
+  updateBookSectionCore,
   createBookSubsectionCore,
   setBookFieldValueCore,
   saveRecipeCardCore,
@@ -102,6 +103,10 @@ export async function createBookSection(formData: FormData): Promise<{ id: strin
 // stable (URLs are public-shareable + couple's bookmark / muscle
 // memory survives a rename). Couple can only edit via /book/[slug]
 // header → EditSectionToggle modal.
+// v2.9.0: parse + auth + delegate — the write half (changed-fields
+// audit, revalidates, slug-stability rule) lives in
+// updateBookSectionCore so the AI apply path (book.section.update)
+// shares it session-free. Behaviour is byte-identical.
 export async function updateBookSection(
   id: string,
   formData: FormData,
@@ -119,35 +124,11 @@ export async function updateBookSection(
       error: err instanceof z.ZodError ? err.errors[0]?.message ?? "Invalid input" : "Invalid input",
     };
   }
-  const before = await db.bookSection.findUnique({ where: { id } });
-  if (!before) return { ok: false, error: "Section not found" };
-  const subtitle =
-    parsed.subtitle && parsed.subtitle.trim() ? parsed.subtitle.trim() : null;
-  // v1.30.5 audit convention — record only the fields that actually
-  // changed so the activity feed reads cleanly ("renamed Clothing to
-  // Outfits" rather than "updated Clothing").
-  const changedFields: string[] = [];
-  if (before.title !== parsed.title) changedFields.push("title");
-  if ((before.subtitle ?? null) !== subtitle) changedFields.push("subtitle");
-  const updated = await db.bookSection.update({
-    where: { id },
-    data: { title: parsed.title, subtitle },
+  const updated = await updateBookSectionCore(user, id, {
+    title: parsed.title,
+    subtitle: parsed.subtitle ?? null,
   });
-  await audit(user, {
-    action: "update",
-    entity: "BookSection",
-    entityId: id,
-    metadata: {
-      slug: updated.slug,
-      changedFields,
-      titleBefore: before.title,
-      titleAfter: updated.title,
-      subtitleBefore: before.subtitle,
-      subtitleAfter: updated.subtitle,
-    },
-  });
-  revalidatePath("/book");
-  revalidatePath(`/book/${updated.slug}`);
+  if (!updated) return { ok: false, error: "Section not found" };
   return { ok: true };
 }
 

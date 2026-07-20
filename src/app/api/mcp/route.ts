@@ -38,14 +38,19 @@ import {
   type JsonRpcId,
   type ProtocolDeps,
 } from "@/lib/mcp/protocol";
-import { hasTool, runTool, toolDefinitions } from "@/lib/ai/tools/registry";
+import { hasTool, isProposeTool, runTool, toolDefinitions } from "@/lib/ai/tools/registry";
 import type { ToolContext } from "@/lib/ai/tools/types";
 import { listPrompts, getPrompt } from "@/lib/mcp/prompts";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const MAX_BODY_BYTES = 256 * 1024;
+// v2.9.0: raised from 256 KB to admit propose_file_upload payloads —
+// 10 MB of decoded bytes is ~13.4 MB of base64 plus JSON-RPC framing.
+// Still a hard memory bound per request (the capped reader aborts past
+// it), and Caddy's :8090 request_body cap is sized to match — keep the
+// two in lockstep when changing either.
+const MAX_BODY_BYTES = 16 * 1024 * 1024;
 
 // JSON-RPC implementation-defined server-error code for "authenticated
 // but not permitted" — distinct from -32602 so clients surface it as a
@@ -179,8 +184,9 @@ export async function POST(req: Request): Promise<Response> {
   }
   // v2.8.0: canApply is a property of the presented TOKEN, not the
   // user — verifyMcpToken returns both so the same member can hold a
-  // self-applying token and a propose-only one.
-  const { user, canApply } = verified;
+  // self-applying token and a propose-only one. v2.9.0 adds the
+  // narrower canDismissOwn (dismiss_proposals only, own rows only).
+  const { user, canApply, canDismissOwn } = verified;
 
   // Byte-capped incremental read, only after auth: the cap exists for
   // callers that bypass Caddy's 2MB request_body limit by reaching
@@ -243,12 +249,14 @@ export async function POST(req: Request): Promise<Response> {
     // v2.8.0: token-level apply rights — the apply/dismiss tools check
     // this on top of canWrite. Chat contexts never set it.
     canApply,
+    // v2.9.0: dismiss-own-only rights, same threading rules.
+    canDismissOwn,
   };
 
   const deps: ProtocolDeps = {
     serverVersion: APP_VERSION,
     listTools: () =>
-      toolDefinitions({ canWrite, canApply }).map((d) => ({
+      toolDefinitions({ canWrite, canApply, canDismissOwn }).map((d) => ({
         name: d.name,
         description: d.description ?? "",
         inputSchema: d.input_schema as Record<string, unknown>,
@@ -263,15 +271,50 @@ export async function POST(req: Request): Promise<Response> {
       // (or blank) → a fresh random id per call, so proposals stay
       // singletons as before. The tools' own non-strict Zod schemas drop
       // the extra key on safeParse, so no per-tool schema edit is needed.
-      const batchKey =
+      const plainArgs =
         typeof args === "object" && args !== null && !Array.isArray(args)
-          ? (args as Record<string, unknown>).batchKey
+          ? (args as Record<string, unknown>)
           : undefined;
+      const batchKey = plainArgs?.batchKey;
       ctx.batchId =
         typeof batchKey === "string" && batchKey.length > 0
           ? `mcp:${user.id}:${batchKey}`
           : randomUUID();
       const { result, text } = await runTool(name, args, ctx);
+
+      // v2.9.0: opt-in supersede. Any propose_* call may name a still-
+      // PENDING proposal of the same user via `supersedesProposalId`
+      // (dropped by the tools' non-strict Zod schemas, like batchKey);
+      // once the NEW proposal exists, the old one is dismissed with a
+      // "superseded by <id>" metadata note. Runs only on success — a
+      // failed propose never dismisses anything. The outcome rides an
+      // extra JSON line after the tool result so the agent can see
+      // whether the supersede landed. Dynamic import keeps the module
+      // off the tool-listing path (same reasoning as loadEngine() in
+      // apply-proposals.ts).
+      const supersedesId = plainArgs?.supersedesProposalId;
+      if (
+        result.ok &&
+        typeof supersedesId === "string" &&
+        supersedesId.length > 0 &&
+        isProposeTool(name)
+      ) {
+        const data = (result as { data?: Record<string, unknown> }).data;
+        const newId =
+          typeof data?.proposalId === "string"
+            ? data.proposalId
+            : Array.isArray(data?.proposalIds) && typeof data.proposalIds[0] === "string"
+              ? data.proposalIds[0]
+              : null;
+        if (newId) {
+          const { supersedeProposal } = await import("@/lib/ai/proposals/supersede");
+          const sup = await supersedeProposal(user.id, supersedesId, newId);
+          const line = sup.ok
+            ? { supersede: { proposalId: supersedesId, ok: true } }
+            : { supersede: { proposalId: supersedesId, ok: false, reason: sup.reason } };
+          return { text: `${text}\n${JSON.stringify(line)}`, isError: false };
+        }
+      }
       return { text, isError: !result.ok };
     },
     // v2.8.2: canned planner workflows (pure data — no gate beyond the

@@ -96,6 +96,10 @@ import { proposeBookSectionDelete } from "./propose-book-section-delete";
 import { proposeSongRemove } from "./propose-song-remove";
 import { proposeSeatingTableDelete } from "./propose-seating-table-delete";
 import { applyProposals as applyProposalsTool, dismissProposals as dismissProposalsTool } from "./apply-proposals";
+// v2.9.0: contact patching, section rename, staged file upload.
+import { proposeSupplierContactUpdate } from "./propose-supplier-contact-update";
+import { proposeBookSectionUpdate } from "./propose-book-section-update";
+import { proposeFileUpload } from "./propose-file-upload";
 
 // AiTool<TSchema> is invariant in TSchema, so a heterogeneous list of
 // tools with different Zod object shapes can't share a single default
@@ -206,6 +210,11 @@ const WRITE_TOOLS: AiTool<any>[] = [
   proposeSupplierContractUpdate,
   proposeBudgetComponentCreate,
   proposeBudgetComponentUpdate,
+  // v2.9.0: contact patching, section rename, staged file upload.
+  // Append-only (prompt-cache rule above).
+  proposeSupplierContactUpdate,
+  proposeBookSectionUpdate,
+  proposeFileUpload,
 ];
 
 // v2.8.0: MCP-only self-apply pair. NOT in WRITE_TOOLS — the in-app
@@ -226,12 +235,21 @@ const BY_NAME = new Map(ALL_TOOLS.map((t) => [t.name, t] as const));
  *  again as belt-and-braces.
  *  v2.8.0: `canApply` additionally lists the MCP self-apply pair —
  *  only the MCP route ever passes it (per-token flag), so the in-app
- *  chat's tool list is unchanged. */
-export function toolDefinitions(opts?: { canWrite?: boolean; canApply?: boolean }): Anthropic.Tool[] {
+ *  chat's tool list is unchanged.
+ *  v2.9.0: `canDismissOwn` lists ONLY dismiss_proposals (whose handler
+ *  then restricts targets to the token user's own rows) — a narrower
+ *  opt-in than canApply, which supersedes it when both are set. */
+export function toolDefinitions(opts?: {
+  canWrite?: boolean;
+  canApply?: boolean;
+  canDismissOwn?: boolean;
+}): Anthropic.Tool[] {
   const tools = opts?.canWrite
     ? opts?.canApply
       ? [...READ_TOOLS, ...WRITE_TOOLS, ...APPLY_TOOLS]
-      : [...READ_TOOLS, ...WRITE_TOOLS]
+      : opts?.canDismissOwn
+        ? [...READ_TOOLS, ...WRITE_TOOLS, dismissProposalsTool]
+        : [...READ_TOOLS, ...WRITE_TOOLS]
     : READ_TOOLS;
   return tools.map((t) => t.definition);
 }

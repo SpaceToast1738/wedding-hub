@@ -410,7 +410,7 @@ describe("handleMcpMessage — prompts (v2.8.2)", () => {
 });
 
 describe("planner prompt content (src/lib/mcp/prompts.ts)", () => {
-  it("lists the six canned workflows, each with a message and the read-first rule", async () => {
+  it("lists the seven canned workflows, each with a message and the read-first rule", async () => {
     const { listPrompts, getPrompt } = await import("@/lib/mcp/prompts");
     const names = listPrompts().map((p) => p.name);
     expect(names).toEqual([
@@ -419,6 +419,8 @@ describe("planner prompt content (src/lib/mcp/prompts.ts)", () => {
       "rsvp_chase",
       "supplier_confirmation_sweep",
       "payment_reconciliation",
+      // v2.9.0: long form of the server-instructions consistency rule.
+      "consistency_check",
       "day_of_runsheet",
     ]);
     for (const name of names) {
@@ -427,5 +429,18 @@ describe("planner prompt content (src/lib/mcp/prompts.ts)", () => {
       expect(got!.messages[0]?.content.text).toContain("read_");
     }
     expect(getPrompt("unknown", {})).toBeNull();
+  });
+
+  // v2.9.0: the consistency_check prompt threads its optional `change`
+  // argument into the briefing, and falls back to a whole-hub audit.
+  it("consistency_check reflects the change argument", async () => {
+    const { getPrompt } = await import("@/lib/mcp/prompts");
+    const withChange = getPrompt("consistency_check", { change: "ceremony moved to 3pm" });
+    expect(withChange!.messages[0]!.content.text).toContain("ceremony moved to 3pm");
+    const without = getPrompt("consistency_check", {});
+    expect(without!.messages[0]!.content.text).toContain("across the hub");
+    // The ripple map itself is present (the long form the initialize
+    // instructions point at).
+    expect(without!.messages[0]!.content.text).toContain("batchKey");
   });
 });

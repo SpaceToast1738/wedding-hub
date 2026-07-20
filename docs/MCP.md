@@ -1,6 +1,6 @@
 # MCP server — LAN-only client access to the AI tools
 
-**Status:** v2.7.0. Last updated 19 July 2026.
+**Status:** v2.9.0. Last updated 20 July 2026.
 
 Wedding Hub exposes its AI tool registry (the same `read_*` / `propose_*`
 tools the in-app planner chat uses) to MCP clients — Claude Code, Claude
@@ -49,9 +49,18 @@ gate. For anyone else:
 | Connect / handshake (`initialize`, `ping`) | any valid token |
 | Anything beyond the handshake (`tools/list`, `tools/call`) | **ai_chat** at VIEW |
 | Call `propose_*` tools | **ai_write** at EDIT |
+| Call `apply_proposals` / `dismiss_proposals` | ai_write EDIT **plus** the token flag below |
 
 Without `ai_write`, `tools/list` simply omits the propose tools — the
 client only sees what it can call.
+
+On top of user permissions, two **per-token capability flags** (Settings
+→ MCP tokens, both default **off**):
+
+| Token flag | Unlocks |
+|---|---|
+| **Can apply changes** (`canApply`, v2.8.0) | `apply_proposals` + `dismiss_proposals` — the agent's own proposals become real without human review |
+| **Can dismiss its own proposals** (`canDismissOwn`, v2.9.0) | `dismiss_proposals` ONLY, restricted to proposals created by the token's user — lets a propose-only agent withdraw its own mistakes with zero apply power |
 
 ---
 
@@ -187,14 +196,43 @@ tokens are revoked from Settings without any restart.
   (`mcp:<userId>:<batchKey>`) from it. Omit `batchKey` for the old
   one-proposal-per-call behaviour. The key is namespaced by the token's
   user, so two members can reuse the same string without colliding.
+- **Superseding a pending proposal (v2.9.0).** Any `propose_*` call
+  accepts an optional **`supersedesProposalId`** argument (alongside
+  `batchKey`). Once the new proposal is created, the referenced one —
+  if it is still PENDING and was created by the same token's user — is
+  dismissed with a `superseded by <new id>` note in its metadata, and
+  the outcome is reported on an extra JSON line after the tool result.
+  This needs no `canApply`/`canDismissOwn`: it can only retire the
+  agent's own pending proposal in favour of a newer one, never touch
+  anyone else's. A superseded `file.upload` proposal also has its
+  staged file deleted.
+- **File uploads are staged (v2.9.0).** `propose_file_upload` takes a
+  base64 file (10 MB cap — below the app's 25 MB human limit; MIME
+  allowlist from `src/lib/uploads.ts`). The bytes are staged on disk
+  immediately, but NO File row exists until the proposal is applied —
+  the file is invisible in the app until then. Dismissing (or
+  superseding) the proposal deletes the staged bytes; abandoned stages
+  are swept after 7 days. Transport note: the `:8090` Caddy listener's
+  `request_body` cap and the route's body cap were raised to 16 MB for
+  this — when deploying, sync the host Caddyfile
+  (`/mnt/user/appdata/wedding-hub/caddy/Caddyfile`, `caddy validate`
+  first) and restart caddy, or uploads over ~2 MB die at the proxy.
 - **Planner prompts (v2.8.2).** The server advertises the MCP `prompts`
   capability — a set of canned planner workflows (`weekly_review`,
   `overdue_triage`, `rsvp_chase`, `supplier_confirmation_sweep`,
-  `payment_reconciliation`, `day_of_runsheet`). Clients that support
+  `payment_reconciliation`, `consistency_check`, `day_of_runsheet`).
+  Clients that support
   prompts (Claude Code's prompt menu, MCP Inspector) can list and run
   them as one-click starting points; each briefs the agent on the
   workflow and points at the right read/propose tools. They follow the
   same judgement rules as `docs/planner/PLANNER.md`.
+- **Consistency rule (v2.9.0).** The server's `initialize` instructions
+  tell every connected client: when proposing an update, consider what
+  else references the same fact and propose the consistency fixes in
+  the same batch (shared `batchKey`) — or say what was left stale. The
+  full ripple map (date → schedule/stays/payments; booking → contacts/
+  contract/budget/payments; RSVP → seating/meals/headcounts; purchase →
+  task/card/actuals) lives in the `consistency_check` prompt.
 - **Tool results are capped at 24,000 characters** with an explicit
   truncation marker (same cap as planner chat). If a client hits it,
   narrow the query (most read tools take filters).

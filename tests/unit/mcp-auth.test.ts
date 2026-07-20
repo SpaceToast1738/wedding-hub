@@ -19,6 +19,8 @@ type McpTokenRow = {
   revokedAt: Date | null;
   // v2.8.0: per-token apply rights, passed through to the caller.
   canApply: boolean;
+  // v2.9.0: per-token dismiss-own rights, likewise passed through.
+  canDismissOwn: boolean;
   user: {
     id: string;
     email: string;
@@ -67,6 +69,7 @@ function baseRow(overrides: Partial<McpTokenRow> = {}): McpTokenRow {
     lastUsedAt: null,
     revokedAt: null,
     canApply: false,
+    canDismissOwn: false,
     user: {
       id: "u_jamie",
       email: "jamie@example.com",
@@ -155,6 +158,7 @@ describe("verifyMcpToken", () => {
         role: "COUPLE",
       },
       canApply: false,
+      canDismissOwn: false,
     });
   });
 
@@ -164,6 +168,15 @@ describe("verifyMcpToken", () => {
     const verified = await verifyMcpToken(token);
     expect(verified?.canApply).toBe(true);
     expect(verified?.user.id).toBe("u_jamie");
+  });
+
+  // v2.9.0: same passthrough for the narrower dismiss-own flag.
+  it("passes the row's canDismissOwn flag through when set", async () => {
+    const { token, tokenHash } = generateMcpToken();
+    tokenRows = [baseRow({ tokenHash, canDismissOwn: true })];
+    const verified = await verifyMcpToken(token);
+    expect(verified?.canDismissOwn).toBe(true);
+    expect(verified?.canApply).toBe(false);
   });
 });
 

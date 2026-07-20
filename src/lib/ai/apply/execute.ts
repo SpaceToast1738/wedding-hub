@@ -46,12 +46,17 @@ import { applyEventUpdate } from "@/lib/ai/apply/schedule";
 import { applyMoneyProposal } from "@/lib/ai/apply/money";
 import { applyMiscProposal } from "@/lib/ai/apply/misc";
 import { applyDeleteProposal } from "@/lib/ai/apply/deletes";
+// v2.9.0: staged file uploads — apply promotes the stage, dismiss
+// discards it (see src/lib/ai/uploads-staging.ts for the lifecycle).
+import { applyFileUpload } from "@/lib/ai/apply/files";
+import { discardStage, stagedNameFromPayload } from "@/lib/ai/uploads-staging";
 import {
   bookCardAppendSchema,
   eventCreateSchema,
   guestCreateSchema,
   supplierCommunicationSchema,
   supplierContactAddSchema,
+  supplierContactUpdateSchema,
   supplierContractUpdateSchema,
   supplierCreateSchema,
   supplierUpdateSchema,
@@ -87,6 +92,7 @@ import {
   createSupplierContactCore,
   createSupplierContractCore,
   createSupplierCore,
+  updateSupplierContactCore,
   supplierCommunicationInputSchema,
   supplierContactInputSchema,
   supplierContractInputSchema,
@@ -557,6 +563,24 @@ async function applyLoadedProposal(
       );
       // Void-returning core — the supplier is the affected entity.
       created = { id: parsed.supplierId };
+    } else if (proposal.kind === "supplier.contact.update") {
+      // v2.9.0: patch one contact row. The core loads the current row
+      // and merges (undefined keeps, null clears); primary:true swaps
+      // the primary flag in one transaction, same as contact.add.
+      const parsed = supplierContactUpdateSchema.parse(merged);
+      await requireSectionEdit(user, "suppliers");
+      created = await updateSupplierContactCore(user, parsed.contactId, {
+        name: parsed.name,
+        role: parsed.role,
+        email: parsed.email,
+        phone: parsed.phone,
+        primary: parsed.primary,
+      });
+    } else if (proposal.kind === "file.upload") {
+      // v2.9.0: promote the staged file into a real upload. The
+      // handler gates EDIT(files) itself and renames the stage BEFORE
+      // creating the File row (rename back on insert failure).
+      created = await applyFileUpload(user, merged, proposal.id);
     } else if (DELETE_KINDS.has(proposal.kind)) {
       // v2.8.0: all 12 destructive kinds — snapshot-then-delete with
       // per-kind refusal rules; each handler gates its own section.
@@ -660,7 +684,7 @@ async function rollbackClaim(id: string): Promise<void> {
  *  applyLoadedProposal: no gate, no revalidate. */
 async function dismissLoadedProposal(
   user: { id: string },
-  proposal: { id: string; kind: string; status: string },
+  proposal: { id: string; kind: string; status: string; payload?: unknown },
 ): Promise<ApplyResult | { ok: true; entityId: null }> {
   if (proposal.status !== "PENDING") {
     return { ok: false, error: `Proposal is already ${proposal.status.toLowerCase()}.` };
@@ -675,6 +699,15 @@ async function dismissLoadedProposal(
       ok: false,
       error: "Proposal was already handled — maybe in another tab.",
     };
+  }
+  // v2.9.0: dismissing a staged upload deletes the staged bytes —
+  // best-effort AFTER the claim won (a lost race must not unlink a
+  // file another tab is about to apply). stagedNameFromPayload
+  // validates the strict pending-name pattern, so a tampered row can
+  // never steer the unlink outside the uploads dir.
+  if (proposal.kind === "file.upload") {
+    const stagedName = stagedNameFromPayload(proposal.payload);
+    if (stagedName) await discardStage(stagedName);
   }
   await logAudit({
     userId: user.id,

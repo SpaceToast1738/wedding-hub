@@ -34,6 +34,7 @@ import { db } from "@/lib/db";
 import type { SessionUser } from "@/lib/actions";
 import {
   createBookSectionCore,
+  updateBookSectionCore,
   createBookSubsectionCore,
   updateBookSubsectionCore,
   setBookFieldValueCore,
@@ -65,6 +66,7 @@ import {
 } from "@/lib/core/book";
 import {
   bookSectionCreateSchema,
+  bookSectionUpdateSchema,
   bookCardCreateSchema,
   bookCardRenameSchema,
   bookCardReplaceTextSchema,
@@ -132,6 +134,38 @@ export async function applyBookProposal(
       if (p.subtitle != null) fd.append("subtitle", p.subtitle);
       const created = await createBookSectionCore(user, fd);
       return { id: created.id };
+    }
+
+    case "book.section.update": {
+      // v2.9.0: rename title/subtitle. The core NEVER touches the slug
+      // (stable-URL rule), so links and sectionSlug references survive.
+      const p = bookSectionUpdateSchema.parse(payload);
+      const section = await db.bookSection.findUnique({
+        where: { id: p.sectionId },
+        select: { title: true, subtitle: true, visibility: true },
+      });
+      if (!section) {
+        throw new Error(
+          "Book section not found — it may have been deleted since the proposal was made.",
+        );
+      }
+      // Same couple-only wall as book.section.delete: non-couple
+      // ai_write holders never touch couple-only book content.
+      if (!user.isCouple && section.visibility === "COUPLE_ONLY") {
+        throw new Error("This section is couple-only — only the couple can apply changes to it.");
+      }
+      // undefined = keep the current value (the *.update convention);
+      // the core needs the full title either way.
+      const updated = await updateBookSectionCore(user, p.sectionId, {
+        title: p.title !== undefined ? p.title : section.title,
+        subtitle: p.subtitle !== undefined ? p.subtitle : section.subtitle,
+      });
+      if (!updated) {
+        throw new Error(
+          "Book section not found — it may have been deleted since the proposal was made.",
+        );
+      }
+      return { id: updated.id };
     }
 
     case "book.card.create": {

@@ -84,9 +84,12 @@
 # socket is never internet-exposed. Auth lives at the app layer: per-user
 # bearer tokens plus a Host-header allowlist (MCP_LAN_HOST).
 :8090 {
-	# MCP requests are single JSON-RPC messages — 2 MB is generous.
+	# MCP requests are single JSON-RPC messages. 16 MB (was 2 MB pre-
+	# v2.9.0) admits propose_file_upload payloads — 10 MB of file bytes
+	# is ~13.4 MB base64 + JSON framing. Keep in lockstep with
+	# MAX_BODY_BYTES in src/app/api/mcp/route.ts.
 	request_body {
-		max_size 2MB
+		max_size 16MB
 	}
 
 	# Mutually exclusive handle blocks: a bare `respond` would otherwise

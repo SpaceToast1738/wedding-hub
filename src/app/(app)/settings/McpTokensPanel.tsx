@@ -19,6 +19,7 @@ import {
   createMcpToken,
   revokeMcpToken,
   setMcpTokenCanApply,
+  setMcpTokenCanDismissOwn,
   type McpTokenRow,
   type TokenEligibleUser,
 } from "./mcp-token-actions";
@@ -85,6 +86,24 @@ export function McpTokensPanel({
           canApply
             ? `"${tokenLabel}" can now apply changes`
             : `"${tokenLabel}" is back to propose-only`,
+        );
+      } else {
+        notify("error", res.error);
+      }
+    });
+  }
+
+  // v2.9.0: the narrower dismiss-own opt-in — same no-confirm pattern
+  // as toggleCanApply (instantly reversible, warning text always shown).
+  function toggleCanDismissOwn(id: string, tokenLabel: string, canDismissOwn: boolean) {
+    startTransition(async () => {
+      const res = await setMcpTokenCanDismissOwn(id, canDismissOwn);
+      if (res.ok) {
+        notify(
+          "success",
+          canDismissOwn
+            ? `"${tokenLabel}" can now dismiss its own proposals`
+            : `"${tokenLabel}" can no longer dismiss its own proposals`,
         );
       } else {
         notify("error", res.error);
@@ -261,6 +280,38 @@ export function McpTokensPanel({
                         human review. Deletions keep a recovery snapshot but
                         undoing them is manual. Leave off to keep every change
                         in the review queue.
+                      </span>
+                    </label>
+                  </div>
+                )}
+                {/* v2.9.0: narrower opt-in — dismiss its own proposals
+                    only, no apply power. Redundant while "Can apply
+                    changes" is on (that already includes dismiss), but
+                    kept independent so switching apply off doesn't
+                    silently drop dismiss-own. */}
+                {!t.revokedAt && (
+                  <div className="mt-2 flex items-start gap-2">
+                    <input
+                      type="checkbox"
+                      id={`can-dismiss-own-${t.id}`}
+                      checked={t.canDismissOwn}
+                      disabled={pending}
+                      onChange={(e) => toggleCanDismissOwn(t.id, t.label, e.target.checked)}
+                      className="accent-moss-500 mt-0.5"
+                    />
+                    <label
+                      htmlFor={`can-dismiss-own-${t.id}`}
+                      className="cursor-pointer min-w-0"
+                    >
+                      <span className="text-xs text-ink-primary block">
+                        Can dismiss its own proposals
+                      </span>
+                      <span className="text-[11px] block text-ink-tertiary">
+                        Lets the connected agent withdraw proposals it created
+                        itself (e.g. after refining a plan) without waiting for
+                        a review sweep. It cannot apply anything, and it cannot
+                        touch proposals from anyone else. Dismissed proposals
+                        stay in the history.
                       </span>
                     </label>
                   </div>

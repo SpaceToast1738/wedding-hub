@@ -151,11 +151,21 @@ export async function handleMcpMessage(
         // omitted on both — the sets are static per release.
         capabilities: { tools: {}, prompts: {} },
         serverInfo: { name: SERVER_NAME, version: deps.serverVersion },
+        // Keep this tight — it lands in every connected client's
+        // context. The fuller ripple-map version lives in the
+        // consistency_check prompt (src/lib/mcp/prompts.ts).
         instructions:
           "Wedding Hub planning data for Jamie & Bryony's wedding. " +
           "read_* tools return live data. propose_* tools never write " +
           "directly — they create proposals that a human reviews and " +
-          "applies (or dismisses) in the app's AI page.",
+          "applies (or dismisses) in the app's AI page. " +
+          "When proposing any update, consider what else references the " +
+          "same fact (a date shift ripples into schedule, stays and " +
+          "payment due dates; a booking into contacts, contract, budget " +
+          "and payments; an RSVP into seating, meals and headcounts) — " +
+          "propose the consistency fixes in the same batch (shared " +
+          "batchKey), or say explicitly what you left stale. The " +
+          "consistency_check prompt has the full ripple map.",
       });
     }
 
