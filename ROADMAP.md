@@ -963,6 +963,14 @@ When wrapping up a meaningful iteration:
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
 
+### 2026-07-20 · v2.8.3 — HOTFIX: code sign-in broken (verification token now hashed)
+
+Jamie reported the 6-digit sign-in code never logging him in — no error, the code just cleared and the page stayed put. Root-caused from production logs + the live DB, not guesswork: the `@auth/core` upgrade (≥0.41, the nodemailer peer-dep cascade in CLAUDE.md) started **hashing** email verification tokens before storing them — the `VerificationToken` row now holds `sha256(code + AUTH_SECRET)`, a 64-hex string, not the plaintext 6 digits. The custom code-entry flow on `/signin/verify` still did a **plaintext** `findUnique`, so every code was a false `no_match`. (Magic-link clicks kept working — Auth.js hashes on its own callback path.) Confirmed the exact scheme by brute-forcing the live stored hash inside the container: `sha256(code + AUTH_SECRET)` reproduced it.
+
+Fix: `verifyCode` now hashes the entered code the same way before the lookup, via a new tested `hashVerificationToken` helper (`src/lib/verification-token.ts`) that mirrors `@auth/core`'s `send-token.js` (`createHash(\`${token}${secret}\`)`). The redirect still hands Auth.js the plaintext code, which re-hashes it identically. A unit test locks the algorithm so a future dependency bump fails CI instead of silently breaking sign-in again.
+
+Typecheck clean, 737 tests green, lint clean, `next build` verified.
+
 ### 2026-07-19 · v2.8.2 — MCP planner build-out (Tier 3): prompts capability + PDF fix
 
 Closes the epic's app-side work. No migrations.

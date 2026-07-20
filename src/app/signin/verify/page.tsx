@@ -7,6 +7,7 @@ import {
   recordFailedGuess,
   VERIFY_LIMIT_MAX_PER_EMAIL,
 } from "@/lib/rate-limit";
+import { hashVerificationToken } from "@/lib/verification-token";
 import { SubmitButton } from "../SubmitButton";
 
 // v1.50.0: code-entry sign-in. Replaces the v1.20.0 "check your inbox"
@@ -82,11 +83,17 @@ async function verifyCode(formData: FormData) {
   }
 
   // Validate the code against the VerificationToken table. PrismaAdapter
-  // writes one row per send keyed by (identifier, token). Match → redirect
-  // to the same callback URL Auth.js builds for magic-link clicks.
-  // Failed match → record + redirect with error.
+  // writes one row per send keyed by (identifier, HASHED token).
+  // v2.8.3: @auth/core >=0.41 stores sha256(code + AUTH_SECRET), NOT the
+  // plaintext 6 digits — so hash the entered code the same way before
+  // the lookup, or every entry is a false no_match (the regression that
+  // silently broke code sign-in after the dependency bump). The redirect
+  // below still hands Auth.js the PLAINTEXT code; its callback re-hashes
+  // it identically. Match → redirect to the same callback URL Auth.js
+  // builds for magic-link clicks. Failed match → record + redirect.
+  const hashedCode = hashVerificationToken(rawCode, process.env.AUTH_SECRET ?? "");
   const row = await db.verificationToken.findUnique({
-    where: { identifier_token: { identifier: email, token: rawCode } },
+    where: { identifier_token: { identifier: email, token: hashedCode } },
   });
   if (!row || row.expires < new Date()) {
     const ip = (await headers()).get("x-forwarded-for")?.split(",")[0]?.trim() ?? null;
