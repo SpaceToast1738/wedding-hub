@@ -963,6 +963,14 @@ When wrapping up a meaningful iteration:
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
 
+### 2026-07-20 · v2.8.4 — HOTFIX: sign-in 500 before the code form (`signIn` verify-request redirect)
+
+Second regression from the same `@auth/core` 0.41 skew (v2.8.3 fixed the first). After sending the email, next-auth beta.25's `signIn()` auto-redirects the user to `res.redirect`, which under 0.41 is `/api/auth/verify-request` — and hitting that URL makes `@auth/core` throw `UnknownAction: Cannot handle action: verify-request`, a 500 that stopped the user ever reaching the 6-digit code form (the email still sent; the `VerificationToken` row was written first, which is why a fresh token appeared but no code-verify audit ever did). Confirmed from prod logs: the `verify-request` `[auth][error]` fired on each attempt with no `signin_code_*` row following it.
+
+Fix (`src/app/signin/page.tsx`): send with `signIn("nodemailer", { email, redirect: false })` and route the user to our own `/signin/verify` page ourselves, bypassing next-auth's broken auto-redirect. The email is still sent by the `Auth()` call inside `signIn`; only the fatal redirect is skipped. An error result (rate-limited / failed send) is still honoured. With v2.8.3's token-hash fix, sign-in now works end to end: send → code form → hashed lookup → callback → session.
+
+Typecheck clean, 737 tests green, lint clean, `next build` verified.
+
 ### 2026-07-20 · v2.8.3 — HOTFIX: code sign-in broken (verification token now hashed)
 
 Jamie reported the 6-digit sign-in code never logging him in — no error, the code just cleared and the page stayed put. Root-caused from production logs + the live DB, not guesswork: the `@auth/core` upgrade (≥0.41, the nodemailer peer-dep cascade in CLAUDE.md) started **hashing** email verification tokens before storing them — the `VerificationToken` row now holds `sha256(code + AUTH_SECRET)`, a 64-hex string, not the plaintext 6 digits. The custom code-entry flow on `/signin/verify` still did a **plaintext** `findUnique`, so every code was a false `no_match`. (Magic-link clicks kept working — Auth.js hashes on its own callback path.) Confirmed the exact scheme by brute-forcing the live stored hash inside the container: `sha256(code + AUTH_SECRET)` reproduced it.

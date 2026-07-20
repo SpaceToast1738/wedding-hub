@@ -28,7 +28,21 @@ async function startSignIn(formData: FormData) {
     maxAge: 15 * 60,
     path: "/signin",
   });
-  await signIn("nodemailer", { email, redirectTo: "/" });
+  // v2.8.4: next-auth beta.25 + the cascaded @auth/core 0.41 (see the
+  // nodemailer peer-dep note in CLAUDE.md) are version-skewed. After the
+  // email is sent, signIn()'s own redirect targets /api/auth/verify-request,
+  // and @auth/core 0.41 throws "UnknownAction: verify-request" when that
+  // URL is hit — a 500 that stops the user ever reaching the code form
+  // (the email still sends; a VerificationToken row is written first).
+  // So send with redirect:false and route to our own /signin/verify page
+  // ourselves, bypassing the broken auto-redirect. `res` is the URL
+  // @auth/core WOULD have navigated to; honour it only if it's an error
+  // (e.g. a rate-limited or failed send), otherwise go to the code page.
+  const res = await signIn("nodemailer", { email, redirect: false });
+  if (typeof res === "string" && /error/i.test(res)) {
+    redirect(res);
+  }
+  redirect("/signin/verify");
 }
 
 export default async function SignInPage({
