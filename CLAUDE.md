@@ -1,6 +1,6 @@
 # Wedding Hub — context for Claude Code
 
-A small private Next.js app for Jamie & Bryony's wedding (26 September 2026, Alveston Manor). Five users total: the couple, two wedding-party members, one planner. Hosted on Jamie's Unraid box.
+A small private Next.js app for Jamie & Bryony's wedding (24 September 2026, Alveston Manor). Five users total: the couple, two wedding-party members, one planner. Hosted on Jamie's Unraid box.
 
 This file gives you (Claude Code) the context you need to work productively on this repo. **Read it before making changes.** Two siblings to read alongside:
 
@@ -157,7 +157,7 @@ Image is private. The Unraid host has cached credentials in `/root/.docker/confi
 | `DATABASE_URL` | Prisma connection (computed) | Built from `POSTGRES_PASSWORD` |
 | `EMAIL_SERVER_*` | SMTP config | Resend (host=`smtp.resend.com`, user=`resend`, password=API key) |
 | `EMAIL_FROM` | Sender | `Wedding Hub <noreply@spencer-net.com>` (apex — DKIM aligns) |
-| `WEDDING_DATE` | App-level constant | `2026-09-26T14:00:00Z` |
+| `WEDDING_DATE` | App-level constant | `2026-09-24T14:00:00Z` |
 | `ANTHROPIC_API_KEY` | AI planner API key (v2.1.0+) | 1Password; missing = AI features off |
 | `AI_MONTHLY_CAP_PENCE` | Fallback monthly cap when `WeddingSettings.aiMonthlyCapPence` is null | `3000` (£30) |
 | `AI_ENABLED` | Kill-switch for the AI surface | `true` |
@@ -211,7 +211,7 @@ See [README.md](README.md)'s "Routine ops" section for the `psql` restore comman
 
 ## Wedding details (for context-aware suggestions)
 
-- **Date:** 26 September 2026, 2:00pm ceremony
+- **Date:** 24 September 2026, 2:00pm ceremony
 - **Venue:** Alveston Manor
 - **Couple:** Jamie & Bryony Spencer
 - **Wedding party:** Josh, Aimee

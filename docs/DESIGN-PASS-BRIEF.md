@@ -9,7 +9,7 @@ This document is the entry point for the Claude design pass. It states the goal,
 
 ## Who's using this app
 
-Wedding Hub is built for **one wedding**: Bryony Olwyn-Davis & Jamie Spencer, 26 September 2026, Alveston Manor (Stratford-upon-Avon, UK). Five admin users:
+Wedding Hub is built for **one wedding**: Bryony Olwyn-Davis & Jamie Spencer, 24 September 2026, Alveston Manor (Stratford-upon-Avon, UK). Five admin users:
 
 - **Couple-tier** (full edit on everything): Bryony + Jamie.
 - **Wedding party**: Joshua Dickson (best man), Aimee Hollingsworth (maid of honour) — see most things, not budget / payments.
@@ -253,7 +253,7 @@ Once v2.0 ships, the v2.x arc continues with **Phase C — day-of readiness**:
 - DR-6 wedding-day freeze procedure (document; not code)
 - DR-7 DMARC follow-ups (operational)
 
-These are sequenced backwards from 26 Sep 2026.
+These are sequenced backwards from 24 Sep 2026.
 
 ---
 

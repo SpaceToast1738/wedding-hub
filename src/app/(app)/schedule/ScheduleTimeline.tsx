@@ -41,7 +41,7 @@ function groupByDay(events: Event[]): Array<{ key: string; label: string; date: 
 }
 
 // v2.5.0 (design pass #11): relative time anchor for each sticky day
-// header — grounds "Friday, 26 September 2026" with how far off it is
+// header — grounds "Thursday, 24 September 2026" with how far off it is
 // (mirrors the countdown card's framing on the Today page). Kept local
 // to this file since src/lib/format.ts sits outside this pass's
 // ownership list.

@@ -46,7 +46,7 @@ const QuestionsPage = () => {
   const isOverdue = (q) => {
     if (q.status !== 'OPEN' || !q.due) return false;
     const dueDate = new Date(q.due.split(' ').reverse().join(' '));
-    return dueDate < new Date('2026-09-26');
+    return dueDate < new Date('2026-09-24');
   };
 
   return (

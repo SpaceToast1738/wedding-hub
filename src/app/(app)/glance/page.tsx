@@ -416,7 +416,7 @@ export default async function AtAGlancePage() {
                   </div>
                   <div>
                     <div className="text-sm font-semibold text-ink-primary">days to go</div>
-                    <div className="text-[11px] text-ink-tertiary">26 September 2026</div>
+                    <div className="text-[11px] text-ink-tertiary">24 September 2026</div>
                   </div>
                 </div>
                 <div className="mt-3.5 text-xs text-ink-tertiary flex items-center gap-1.5">

@@ -30,7 +30,7 @@ const SchedulePage = () => {
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       <PageHeader
         title="Schedule"
-        subtitle="26 September 2026 · Alveston Manor"
+        subtitle="24 September 2026 · Alveston Manor"
         actions={
           <>
             <Button variant="ghost" size="sm" onClick={() => setPrintMode(true)}>⎙ Print</Button>
@@ -108,7 +108,7 @@ const SchedulePrint = ({ events, onClose }) => (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 32 }}>
         <div>
           <div style={{ fontFamily: 'var(--font-display)', fontSize: 28, fontWeight: 600, color: 'var(--ink-primary)' }}>Jamie & Bryony</div>
-          <div style={{ fontSize: 14, color: 'var(--ink-secondary)', marginTop: 4 }}>26 September 2026 · Alveston Manor, Stratford-upon-Avon</div>
+          <div style={{ fontSize: 14, color: 'var(--ink-secondary)', marginTop: 4 }}>24 September 2026 · Alveston Manor, Stratford-upon-Avon</div>
         </div>
         <Button variant="ghost" size="sm" onClick={onClose}>← Back</Button>
       </div>

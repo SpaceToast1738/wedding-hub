@@ -1,6 +1,6 @@
 /* Wedding Hub — Today Dashboard + At a Glance (with viewer role + day-of mode) */
 
-const WEDDING_DATE = new Date('2026-09-26T14:00:00');
+const WEDDING_DATE = new Date('2026-09-24T14:00:00');
 const TODAY_OVERRIDE_KEY = 'wh_today_override';
 const COUNTDOWN_UNIT_KEY = 'wh_countdown_unit';
 
@@ -22,11 +22,11 @@ const MY_TASKS = [
 ];
 
 const UPCOMING_EVENTS = [
-  { time: '1:00 pm',  title: 'Arrival',           date: '26 Sep', who: 'Everyone' },
-  { time: '2:00 pm',  title: 'Ceremony',           date: '26 Sep', who: 'Everyone' },
-  { time: '2:30 pm',  title: 'Drinks Reception',   date: '26 Sep', who: 'Everyone' },
-  { time: '4:00 pm',  title: 'Wedding Breakfast',  date: '26 Sep', who: 'Everyone' },
-  { time: '6:00 pm',  title: 'Speeches',           date: '26 Sep', who: 'Groom · Best Man' },
+  { time: '1:00 pm',  title: 'Arrival',           date: '24 Sep', who: 'Everyone' },
+  { time: '2:00 pm',  title: 'Ceremony',           date: '24 Sep', who: 'Everyone' },
+  { time: '2:30 pm',  title: 'Drinks Reception',   date: '24 Sep', who: 'Everyone' },
+  { time: '4:00 pm',  title: 'Wedding Breakfast',  date: '24 Sep', who: 'Everyone' },
+  { time: '6:00 pm',  title: 'Speeches',           date: '24 Sep', who: 'Groom · Best Man' },
 ];
 
 // Day-of timeline (used when viewing on/after wedding day)
@@ -141,7 +141,7 @@ const CountdownCard = () => {
           {unit}
         </div>
         <div style={{ fontSize: 13, color: 'var(--marigold-700)', fontWeight: 500 }}>Jamie & Bryony's Wedding</div>
-        <div style={{ fontSize: 12, color: 'var(--ink-secondary)', marginTop: 2 }}>26 September 2026 · Alveston Manor</div>
+        <div style={{ fontSize: 12, color: 'var(--ink-secondary)', marginTop: 2 }}>24 September 2026 · Alveston Manor</div>
       </div>
     </div>
   );
@@ -154,7 +154,7 @@ const DayOfMode = ({ onExit, viewer }) => (
       {/* Hero band */}
       <div style={{ background: 'var(--moss-700)', color: '#fff', borderRadius: 'var(--r-lg)', padding: '24px 28px', marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
         <div>
-          <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.1em', opacity: 0.7 }}>Day of · Saturday 26 September 2026</div>
+          <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.1em', opacity: 0.7 }}>Day of · Thursday 24 September 2026</div>
           <div style={{ fontFamily: 'var(--font-display)', fontSize: 30, fontWeight: 600, marginTop: 4 }}>Today is the day.</div>
           <div style={{ fontSize: 13, opacity: 0.85, marginTop: 4 }}>Alveston Manor · {viewer ? `Logged in as ${viewer.name}` : ''}</div>
         </div>
@@ -378,7 +378,7 @@ const AtAGlancePage = ({ onNavigate, viewer }) => {
                 </div>
                 <div>
                   <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink-primary)' }}>days to go</div>
-                  <div style={{ fontSize: 11, color: 'var(--ink-tertiary)' }}>26 September 2026</div>
+                  <div style={{ fontSize: 11, color: 'var(--ink-tertiary)' }}>24 September 2026</div>
                 </div>
               </div>
               <div style={{ marginTop: 14, fontSize: 12, color: 'var(--ink-tertiary)', display: 'flex', alignItems: 'center', gap: 6 }}>

@@ -6,7 +6,7 @@
 
 ## Snapshot
 
-- **Wedding date:** 26 September 2026
+- **Wedding date:** 24 September 2026
 - **Production URL:** wedding.spencer-net.com (private)
 - **Repo:** [SpaceToast1738/wedding-hub](https://github.com/SpaceToast1738/wedding-hub) · `claude/main` (releases) + `dev` (work-in-progress)
 - **Stack:** Next.js 15 · TypeScript · Tailwind v4 · Prisma · Postgres 16 · Auth.js v5 · Caddy · Docker Compose
@@ -326,7 +326,7 @@ feature flag.
 
 **Phase B — design pass (v2.0.0).** External Claude design pass. Receives DP-2 (component inventory) and DP-3/4 (resolved patterns) as input. Outputs a redesigned design language that re-skins the existing components without changing their API contracts. Ship as **v2.0.0** when complete.
 
-**Phase C — day-of readiness (v2.1.x → v2.x.0).** Pre-wedding hardening, sequenced backwards from 26 Sep 2026.
+**Phase C — day-of readiness (v2.1.x → v2.x.0).** Pre-wedding hardening, sequenced backwards from 24 Sep 2026.
 
 | ID | Item | Sizing | Target |
 |---|---|---|---|
@@ -901,7 +901,7 @@ Even though this is a private app for one wedding, a small amount of versioning 
 | **PATCH** (`0.3.0` → `0.3.1`) | Bug fix, copy tweak, dep bump that doesn't change behaviour. No schema change. No env change. | Fix a broken Edit button. Bump Next.js patch. Adjust a sidebar label. |
 | **MINOR** (`0.3.0` → `0.4.0`) | New feature or finished phase. May add a Prisma migration but it must be **additive** (new table / new nullable column / new optional relation). May add new env vars *with sensible defaults*. | Phase D (file uploads). Add a "completed at" column to Task. Add the day-of mode. |
 | **MAJOR** (`0.x.y` → `1.0.0`) | Schema migration that requires data backfill or manual ops, drops or renames columns, breaks the API/UI in a way that needs the user to re-learn something, or adds a required env var without a default. | Rename `Task.tags` to `Task.categories`. Require a new `STORAGE_PROVIDER` env. Move from JWT to database sessions. |
-| **Special: `1.0.0`** | Reserved for the moment we're confident the app is good for the wedding day itself. Can land before 26 Sep 2026 — most likely a few weeks before, after the rehearsal data is real. | — |
+| **Special: `1.0.0`** | Reserved for the moment we're confident the app is good for the wedding day itself. Can land before 24 Sep 2026 — most likely a few weeks before, after the rehearsal data is real. | — |
 
 **Pre-1.0 caveat:** while we're below `1.0.0`, treat MINOR bumps as potentially breaking *if* I'm rushed and need to land something quickly. Document anything that would normally be a MAJOR in the changelog under a **⚠ Breaking** subheading.
 
@@ -962,6 +962,18 @@ When wrapping up a meaningful iteration:
 ## Changelog
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
+
+### 2026-07-20 · v2.9.1 — Wedding date corrected to 24 September 2026 (was 26 September)
+
+Jamie confirmed the wedding is **Thursday 24 September 2026**. The live `WeddingSettings` DB row already held `2026-09-24` — only the repo's docs and config *defaults* were stale — so the running app already shows the right date; this is a source-tree cleanup. Repo-wide sweep of `26 September` / `26 Sep` / `2026-09-26` wedding-date references → the 24th, flipping the day-of weekday **Saturday → Thursday** wherever it was spelled out beside the date (day-of hero, guests header, schedule-timeline comment).
+
+Touched (25 files): CLAUDE.md (intro, Wedding-details, `WEDDING_DATE` env-table row), README.md, ROADMAP.md (snapshot + phase notes), REMEDIATION-PLAN.md, docs/DESIGN-PASS-BRIEF.md; the `WEDDING_DATE` fallback default in `.env.example`, `.env.production.example`, `docker-compose.yml`, CI `build.yml`, `src/lib/wedding-settings.ts`, `src/app/(app)/seating/actions.ts`; hard-coded display/comment strings in `glance/page.tsx`, `CountdownCard.tsx`, `Sidebar.tsx`, `ScheduleTimeline.tsx`, `WeddingSettingsPanel.tsx`; and the `prototype/` mockups (AppShell, Guests, Schedule, Songs, Suppliers, Tasks, Today, Questions).
+
+**Deliberately left, and why (a find/replace would be wrong or out of scope):** `prisma/seed.ts` + `tests/**` are self-contained demo/fixture dates (already a mix of the 24th and 26th) — a seed reschedule is its own task, not a doc fix; the `prototype/` Saturday-*wedding* narratives that never name the 26th (`WeddingBookPage.jsx` bridal-suite "Fri & Sat nights" / "setup Saturday morning", `WeddingPartySection.jsx`) would need a holistic reschedule; the date-format *examples* in `src/lib/csv.ts` + `propose-book-field-set.ts` and the `AUDIT.md` note about a date-format bug are unrelated matches. No schema change, no behaviour change beyond the fallback default → **PATCH**.
+
+**Ops flag (production, not touched from here):** the `.env` on Tower (`/boot/config/plugins/compose.manager/projects/wedding-hub/`) may still carry `WEDDING_DATE=2026-09-26T14:00:00Z`. The live DB `WeddingSettings` overrides it so the app is already correct, but that env line should be fixed on the next deploy so a fresh `WeddingSettings` bootstrap can't reintroduce the 26th.
+
+Typecheck clean, 781 tests green (56 files), `next build` verified.
 
 ### 2026-07-20 · v2.9.0 — MCP planner capability tier: contact patching, section rename, staged file uploads, supersede, dismiss-own
 

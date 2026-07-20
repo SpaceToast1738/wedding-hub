@@ -99,7 +99,7 @@ services:
       EMAIL_SERVER_USER: ${EMAIL_SERVER_USER:-}
       EMAIL_SERVER_PASSWORD: ${EMAIL_SERVER_PASSWORD:-}
       EMAIL_FROM: ${EMAIL_FROM:-Wedding Hub <noreply@spencer-net.com>}
-      WEDDING_DATE: ${WEDDING_DATE:-2026-09-26T14:00:00Z}
+      WEDDING_DATE: ${WEDDING_DATE:-2026-09-24T14:00:00Z}
       # Spotify integration. Optional — leaving these blank disables the
       # Sync UI on the Songs page and shows the "Not configured" chip in
       # Settings → Spotify integration. The `:-` default ensures compose

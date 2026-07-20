@@ -1,6 +1,6 @@
 # Wedding Hub
 
-Private wedding-planning app for Jamie & Bryony — replaces a Notion + Say I Do setup. Used through to the wedding day on **26 September 2026**.
+Private wedding-planning app for Jamie & Bryony — replaces a Notion + Say I Do setup. Used through to the wedding day on **24 September 2026**.
 
 - **Live:** wedding.spencer-net.com (private — magic-link sign-in, env-list of allowed emails)
 - **Stack:** Next.js 15 (App Router) · TypeScript · Tailwind v4 · Prisma · Postgres 16 · Auth.js v5

@@ -6,7 +6,7 @@
 > turns them into actionable work items with sizing, dependencies, and
 > phase ordering.
 >
-> **Wedding date:** 26 September 2026 — about 5 months out.
+> **Wedding date:** 24 September 2026 — about 5 months out.
 > **Audit budget:** session-by-session. Aim for fix → test → ship cycles
 > short enough to run inside Claude Code without big-bang rewrites.
 

@@ -6,7 +6,7 @@ const SONG_CATEGORIES = [
   { id:'drinks',   label:'Drinks Reception', hint:'Background music in the walled garden',          color:'var(--moss-500)',     bg:'var(--moss-50)',     border:'var(--moss-100)', playlist:'Drinks Reception · Garden' },
   { id:'breakfast',label:'Wedding Breakfast',hint:'Ambient dinner music while plates land',         color:'var(--moss-500)',     bg:'var(--moss-50)',     border:'var(--moss-100)', playlist:'Wedding Breakfast · Background' },
   { id:'first',    label:'First Dance',   hint:'One song · played immediately after speeches',      color:'var(--marigold-700)', bg:'var(--marigold-50)', border:'var(--marigold-100)', playlist:'First Dance' },
-  { id:'must',     label:'Must Play',     hint:'Played at some point during the reception',         color:'var(--moss-500)',     bg:'var(--moss-50)',     border:'var(--moss-100)', playlist:'Must Play · Wedding 26 Sep' },
+  { id:'must',     label:'Must Play',     hint:'Played at some point during the reception',         color:'var(--moss-500)',     bg:'var(--moss-50)',     border:'var(--moss-100)', playlist:'Must Play · Wedding 24 Sep' },
   { id:'do_not',   label:'Do Not Play',   hint:'Block-list — never queued by Spotify',              color:'var(--alert-500)',    bg:'#FEF1ED',            border:'#F8DCD0', playlist:'Do Not Play (block list)' },
 ];
 

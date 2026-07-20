@@ -99,7 +99,7 @@ const AppShell = ({ currentPage, onNavigate, dark, onToggleDark, viewer, onViewe
           <div style={{ fontFamily: 'var(--font-display)', fontSize: 17, fontWeight: 600, color: 'var(--moss-700)', letterSpacing: '-0.01em' }}>
             Wedding Hub
           </div>
-          <div style={{ fontSize: 11, color: 'var(--ink-tertiary)', marginTop: 2 }}>Jamie & Bryony · 26 Sep 2026</div>
+          <div style={{ fontSize: 11, color: 'var(--ink-tertiary)', marginTop: 2 }}>Jamie & Bryony · 24 Sep 2026</div>
         </div>
 
         <nav style={{ flex: 1, overflow: 'auto', padding: '8px 0' }}>

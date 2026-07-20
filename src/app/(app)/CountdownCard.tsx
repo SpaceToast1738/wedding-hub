@@ -71,7 +71,7 @@ export function CountdownCard({
   targetIso: string;
   venueLabel: string;
   // v1.19.0: replaces the old `ceremonyLabel` prop. The mockup shows
-  // "Jamie & Bryony's Wedding" + "26 September 2026 · Alveston Manor"
+  // "Jamie & Bryony's Wedding" + "24 September 2026 · Alveston Manor"
   // inside the card; the ceremony-time line is now part of the
   // schedule, not the countdown.
   coupleLabel: string;

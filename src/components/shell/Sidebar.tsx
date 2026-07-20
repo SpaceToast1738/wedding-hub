@@ -17,7 +17,7 @@ export async function Sidebar({ user, counts, signOutAction }: Props) {
   })).filter((g) => g.items.length > 0);
   const wedding = await getWeddingSettings();
   // v2.5.0: the subline was a static date — every page carried the
-  // same "26 Sep 2026" no matter how close the wedding got. A running
+  // same "24 Sep 2026" no matter how close the wedding got. A running
   // countdown gives a gentle, always-current time anchor without
   // needing its own page. Exact date still available on hover.
   const daysLeft = Math.ceil(

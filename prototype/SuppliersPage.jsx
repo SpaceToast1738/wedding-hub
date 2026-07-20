@@ -1,7 +1,7 @@
 /* Wedding Hub — Suppliers Page */
 
 const SUPPLIERS_DATA = [
-  { id:1,  category:'Venue',       name:'Alveston Manor',                    contact:'Events Team',        email:'events@alvestonmanor.co.uk', phone:'01789 204600', status:'BOOKED', lastContact:'12 days ago', summary:'Final numbers confirmed for 26 Sep. Awaiting balance invoice.' },
+  { id:1,  category:'Venue',       name:'Alveston Manor',                    contact:'Events Team',        email:'events@alvestonmanor.co.uk', phone:'01789 204600', status:'BOOKED', lastContact:'12 days ago', summary:'Final numbers confirmed for 24 Sep. Awaiting balance invoice.' },
   { id:2,  category:'Registrar',   name:'Warwickshire Registrar',            contact:'Registry Office',    email:'registrar@warwickshire.gov.uk', phone:'01926 412040', status:'BOOKED', lastContact:'28 days ago', summary:'Notice of marriage filed. Confirmed for 2pm ceremony.' },
   { id:3,  category:'Planner',     name:'Bespoke Weddings',                  contact:'Aimee-Louise Summer',email:'aimee@bespokeweddings.co.uk', phone:'07812 345678', status:'PAID', lastContact:'3 days ago', summary:'Running schedule finalised. On-call day-of.' },
   { id:4,  category:'Photography', name:'CG Media',                          contact:'Louis Brough',       email:'louis@cgmedia.co.uk', phone:'07923 456789', status:'BOOKED', lastContact:'20 days ago', summary:'Shot list shared. Final payment due 15 Sep.' },

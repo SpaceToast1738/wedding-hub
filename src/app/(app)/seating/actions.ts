@@ -169,7 +169,7 @@ export async function updateSeatingChecklist(items: ChecklistItem[]) {
     },
     create: {
       id: 1,
-      weddingDate: new Date(process.env.WEDDING_DATE ?? "2026-09-26T14:00:00Z"),
+      weddingDate: new Date(process.env.WEDDING_DATE ?? "2026-09-24T14:00:00Z"),
       venue: process.env.WEDDING_VENUE ?? "Alveston Manor",
       seatingChecklist:
         parsed.length === 0 ? Prisma.JsonNull : (parsed as Prisma.InputJsonValue),
@@ -205,7 +205,7 @@ export async function updateSeatingNotes(notes: string) {
     // no default — pull it from env if absent (matches the seed).
     create: {
       id: 1,
-      weddingDate: new Date(process.env.WEDDING_DATE ?? "2026-09-26T14:00:00Z"),
+      weddingDate: new Date(process.env.WEDDING_DATE ?? "2026-09-24T14:00:00Z"),
       venue: process.env.WEDDING_VENUE ?? "Alveston Manor",
       seatingNotes: parsed === "" ? null : parsed,
     },

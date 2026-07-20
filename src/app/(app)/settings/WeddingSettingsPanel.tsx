@@ -136,7 +136,7 @@ function Field({
 function formatDateForRead(localIsoLike: string): string {
   if (!localIsoLike) return "—";
   // `localIsoLike` came from the parent as `YYYY-MM-DDTHH:mm`. Reformat
-  // for human display: "26 September 2026 · 14:00".
+  // for human display: "24 September 2026 · 14:00".
   const d = new Date(localIsoLike);
   if (Number.isNaN(d.getTime())) return localIsoLike;
   return `${d.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })} · ${d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false })}`;

@@ -32,7 +32,7 @@ export type WeddingSettings = {
 };
 
 function envDefaults(): WeddingSettings {
-  const dateStr = process.env.WEDDING_DATE ?? "2026-09-26T14:00:00Z";
+  const dateStr = process.env.WEDDING_DATE ?? "2026-09-24T14:00:00Z";
   return {
     weddingDate: new Date(dateStr),
     ceremonyTime: process.env.WEDDING_CEREMONY_TIME ?? "2:00pm ceremony",

@@ -35,9 +35,9 @@ const TASKS_DATA = [
 ];
 
 const GROOMSMEN_SCHEDULE = [
-  { time: '10:00 am', title: 'Groomsmen arrive at venue', date: '26 Sep' },
-  { time: '1:00 pm',  title: 'Get dressed & ready', date: '26 Sep' },
-  { time: '1:45 pm',  title: 'Groomsmen in position at ceremony', date: '26 Sep' },
+  { time: '10:00 am', title: 'Groomsmen arrive at venue', date: '24 Sep' },
+  { time: '1:00 pm',  title: 'Get dressed & ready', date: '24 Sep' },
+  { time: '1:45 pm',  title: 'Groomsmen in position at ceremony', date: '24 Sep' },
 ];
 
 const TasksPage = ({ viewer }) => {

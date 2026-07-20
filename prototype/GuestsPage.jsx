@@ -439,7 +439,7 @@ const VenueCateringExport = ({ onClose }) => {
             <div style={{ borderBottom: '2px solid var(--ink-primary)', paddingBottom: 14, marginBottom: 18 }}>
               <div style={{ fontFamily: 'var(--font-display)', fontSize: 22, fontWeight: 600, color: 'var(--ink-primary)', marginBottom: 4 }}>Spencer · Olwyn-Davis Wedding</div>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--ink-secondary)' }}>
-                <div>Saturday 26 September 2026 · Alveston Manor, Stratford-upon-Avon</div>
+                <div>Thursday 24 September 2026 · Alveston Manor, Stratford-upon-Avon</div>
                 <div>Generated 27 Apr 2026</div>
               </div>
             </div>
