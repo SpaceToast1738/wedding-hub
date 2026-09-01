@@ -190,10 +190,23 @@ export async function applyBookProposal(
       fd.append("sectionId", p.sectionId);
       fd.append("title", p.title);
       fd.append("kind", p.kind);
-      // body is TEXT-only. The propose tool rejects body on other
-      // kinds; if one slips through anyway we just never post it.
-      if (p.kind === "TEXT" && p.body) fd.append("body", p.body);
       const created = await createBookSubsectionCore(user, fd);
+      // v2.13.2: the body is written as `bodyHtml` — the column the TEXT
+      // renderer, read_book_card and the replace_text staleness hash all
+      // read. Pre-fix the body was posted to the create core's legacy
+      // plain `body` column, which none of those look at first, so a
+      // created card arrived blank (bodyHtmlHash = sha256("")) and the
+      // couple saw lost work; the only remedy was a second replace_text
+      // proposal. Rendered through the same markdown subset as
+      // book.card.replace_text so the two write paths agree. TEXT-only —
+      // the propose tool rejects body on other kinds; if one slipped
+      // through we just never post it.
+      if (p.kind === "TEXT" && p.body && p.body.trim()) {
+        await updateBookSubsectionCore(user, created.id, {
+          title: p.title,
+          bodyHtml: markdownToBookHtml(p.body),
+        });
+      }
       return { id: created.id };
     }
 

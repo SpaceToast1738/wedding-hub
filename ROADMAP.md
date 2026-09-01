@@ -963,6 +963,14 @@ When wrapping up a meaningful iteration:
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
 
+### 2026-09-01 · v2.13.2 — Proposed Book cards keep their body on apply
+
+**The bug (enhancement `cmtizozr`).** `propose_book_card_create` for the "Escape Box Game" TEXT card (~2,300 chars of body) applied as an empty card: `bodyText ""`, `bodyHtmlHash` = sha256 of the empty string. Two things conspired. The apply bridge posted the body to the create core's legacy plain `body` column — but the TEXT renderer, `read_book_card` and the `replace_text` staleness hash all read `bodyHtml` first, so the content was invisible to every consumer that mattered. And the tool's input schema silently *stripped* unknown keys, so a body sent as `bodyText` (the name `read_book_card` returns it under) or `text` (the name `replace_text` uses) vanished before the proposal was even written. Either way the couple saw lost work and the only remedy was a second `replace_text` proposal against the empty hash.
+
+**Fixes.** The apply bridge now writes the body as `bodyHtml` through `markdownToBookHtml` — the same renderer `book.card.replace_text` uses, so the two write paths agree and a created card carries a real staleness hash. The input schema is `.strict()`: an unknown key is rejected with an error that names it (`Unrecognized key(s) in object: 'bodyText'`) instead of a silent drop, and the tool descriptions say the field is `body`, exactly, and that it takes the same markdown subset as `replace_text` (headings, bold / italic / underline, bullets, numbered lists, blockquote, links). `additionalProperties: false` on the MCP `input_schema` tells clients the same.
+
+**Verification.** typecheck ✅, 828 tests ✅ (6 new in `tests/unit/book-card-create.test.ts`: body rendered into `bodyHtml` with real formatting and no literal `###`, no write for null / whitespace bodies, and `bodyText` / `text` rejected by name), lint ✅, build ✅.
+
 ### 2026-09-01 · v2.13.1 — Host edits no longer overwrite a plus-one's explicit decline
 
 **The bug (enhancement `cmskr1r7`).** Any save of a host guest re-ran the +1 cascade, which re-stamps the host's RSVP onto the +1 row. So an edit that never touched RSVP — Luke Maple's email, phone and three meal courses on 5 Aug 2026 — flipped Hannah Salyer from her explicit DECLINED back to ATTENDING, and the headcount went 45/4 → 46/3 with nothing in the log to say why. A note on Luke's record already warned about it: the data had folklore for a bug.

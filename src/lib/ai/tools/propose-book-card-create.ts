@@ -5,26 +5,34 @@ import { resolveRefs, unknownIdsError } from "./validate-refs";
 import { takeProposalSlots } from "./propose-common";
 import type { AiTool } from "./types";
 
-const inputSchema = bookCardCreateSchema.extend({
-  rationale: z
-    .string()
-    .min(1)
-    .max(500)
-    .describe("One or two sentences explaining WHY this card belongs in the book. Shown to the couple."),
-});
+// v2.13.2: `.strict()` — an unknown key is an error that NAMES the key,
+// not a silent drop. Zod's default strips unrecognised keys, so a caller
+// that sent the body as `bodyText` (the name read_book_card returns it
+// under) or `text` (replace_text's name) got a proposal that applied as
+// a blank card with no hint why. Loud beats lost.
+const inputSchema = bookCardCreateSchema
+  .extend({
+    rationale: z
+      .string()
+      .min(1)
+      .max(500)
+      .describe("One or two sentences explaining WHY this card belongs in the book. Shown to the couple."),
+  })
+  .strict();
 
 export const proposeBookCardCreate: AiTool<typeof inputSchema> = {
   name: "propose_book_card_create",
   description:
-    "Propose a new Wedding Book card inside an existing section. Writes a proposal — does NOT change the book; the couple will Apply or Dismiss it. `body` is plain text and only allowed on TEXT cards. Note: MENU cards are seeded with placeholder Starter/Main/Dessert courses and WEDDING_PARTY cards with a placeholder member plus Dress/Shoes/Accessories items — edit those with the matching update tools afterwards.",
+    "Propose a new Wedding Book card inside an existing section. Writes a proposal — does NOT change the book; the couple will Apply or Dismiss it. The card's content goes in `body` (that exact field name — not bodyText or text; unknown fields are rejected) and is only allowed on TEXT cards. `body` supports the same narrow markdown subset as propose_book_card_replace_text, rendered as real formatting: ## heading, ### subheading, **bold**, _italic_, __underline__, - bullet (or *), 1. numbered list, > blockquote, [text](url) link; blank lines separate paragraphs. Note: MENU cards are seeded with placeholder Starter/Main/Dessert courses and WEDDING_PARTY cards with a placeholder member plus Dress/Shoes/Accessories items — edit those with the matching update tools afterwards.",
   inputSchema,
   progressLabel: "Proposing book card…",
   definition: {
     name: "propose_book_card_create",
     description:
-      "Propose a new Wedding Book card in an existing section. Writes a proposal — does not create the card directly. body is plain text and only valid when kind is TEXT. MENU and WEDDING_PARTY cards are created with placeholder rows the couple can edit later.",
+      "Propose a new Wedding Book card in an existing section. Writes a proposal — does not create the card directly. Card content goes in `body` (exactly that name; unknown fields are rejected), only valid when kind is TEXT, and supports the same markdown subset as propose_book_card_replace_text (headings, bold/italic/underline, bullets, numbered lists, blockquote, links; blank line = new paragraph). MENU and WEDDING_PARTY cards are created with placeholder rows the couple can edit later.",
     input_schema: {
       type: "object",
+      additionalProperties: false,
       properties: {
         sectionId: {
           type: "string",
@@ -38,7 +46,8 @@ export const proposeBookCardCreate: AiTool<typeof inputSchema> = {
         },
         body: {
           type: ["string", "null"],
-          description: "Plain-text body — TEXT cards only. Rendered into simple paragraphs.",
+          description:
+            "Card content — TEXT cards only. Markdown subset (## / ### headings, **bold**, _italic_, __underline__, - bullets, 1. numbered, > blockquote, [text](url)); blank lines separate paragraphs. Max 20,000 chars.",
         },
         rationale: {
           type: "string",

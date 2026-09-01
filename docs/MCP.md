@@ -288,6 +288,11 @@ tokens are revoked from Settings without any restart.
   `propose_task_update` that changes `notes`** — that field is replaced
   wholesale, and its cap is now 16,000 chars (was 2,000) so a full page
   can be carried back losslessly.
+- **`propose_book_card_create` bodies (v2.13.2).** The content field is
+  `body` — exactly that name; unknown keys are rejected with the key
+  named. It takes the same markdown subset as
+  `propose_book_card_replace_text` and lands in `bodyHtml` on apply, so a
+  created card renders its content and carries a real `bodyHtmlHash`.
 - **No API cost.** MCP tool calls run entirely against the local DB — the
   Anthropic API is never involved, so the AI budget/usage dashboards don't
   move. The *client* (Claude Code etc.) pays its own model costs.
