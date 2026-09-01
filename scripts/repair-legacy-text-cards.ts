@@ -19,10 +19,14 @@
  * uses) into `bodyHtml`.
  *
  * Safety:
- *   - A card is touched ONLY when bodyHtml is NULL or still equals
- *     legacyBodyToHtml(body) — i.e. nobody has edited it in Tiptap since
- *     it was created. A hand-edited card has a different bodyHtml and is
- *     skipped, listed as such.
+ *   - A card is touched ONLY when bodyHtml is NULL or its TEXT CONTENT
+ *     (tags stripped, entities decoded, whitespace collapsed) still
+ *     equals `body` — i.e. nobody has edited it in Tiptap since it was
+ *     created. A hand-edited card has different text and is skipped,
+ *     listed as such. (v2.13.6: compared on text rather than on
+ *     legacyBodyToHtml() output — that helper needs sanitize-html, which
+ *     Next bundles into the server chunk and never ships as a package
+ *     in the runtime image, so the script couldn't load it.)
  *   - `body` is left in place for provenance.
  *   - Idempotent: after a run, bodyHtml no longer equals the legacy form,
  *     so a second run skips everything.
@@ -38,7 +42,12 @@
 
 import { BookSubsectionKind, PrismaClient } from "@prisma/client";
 import { markdownToBookHtml } from "../src/lib/ai/apply/markdown-to-book-html";
-import { legacyBodyToHtml, sanitizeBookHtml } from "../src/lib/sanitize-book-html";
+import { stripHtml } from "../src/lib/html-text";
+
+/** Plain-text form of a body for the untouched-since-creation check. */
+function collapse(s: string): string {
+  return s.replace(/\s+/g, " ").trim();
+}
 
 const db = new PrismaClient();
 const APPLY = process.argv.includes("--apply");
@@ -67,16 +76,15 @@ async function main(): Promise<void> {
 
   for (const c of cards) {
     const body = c.body ?? "";
-    const legacy = legacyBodyToHtml(body);
-    const untouchedSinceCreate = c.bodyHtml == null || c.bodyHtml === legacy;
+    const untouchedSinceCreate = c.bodyHtml == null || stripHtml(c.bodyHtml) === collapse(body);
     if (!untouchedSinceCreate) {
       skipped++;
       console.log(`skip   ${c.id}  [${c.section.slug}] ${c.title} — bodyHtml hand-edited since creation`);
       continue;
     }
-    // Defence-in-depth: the renderer already targets the allow-list;
-    // sanitising again mirrors what updateBookSubsectionCore does.
-    const next = sanitizeBookHtml(markdownToBookHtml(body));
+    // markdownToBookHtml escapes its input and emits only allow-listed
+    // tags — the same output updateBookSubsectionCore would sanitise to.
+    const next = markdownToBookHtml(body);
     if (next === c.bodyHtml) {
       skipped++;
       console.log(`same   ${c.id}  [${c.section.slug}] ${c.title} — already rendered`);

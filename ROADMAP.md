@@ -963,6 +963,12 @@ When wrapping up a meaningful iteration:
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
 
+### 2026-09-01 · v2.13.6 — Card-repair tool runs inside the image (no sanitize-html)
+
+v2.13.5's dry run failed on Tower with `Cannot find module 'sanitize-html'`: Next bundles that package into the server chunk, so it never exists as a standalone package in the runtime image's `node_modules`, and the transpiled `legacyBodyToHtml` couldn't load it. The script now decides "untouched since creation" by comparing the card's **text content** (`stripHtml` from `src/lib/html-text.ts` — tags stripped, entities decoded, whitespace collapsed) against `body`, which is both dependency-free and more robust than a byte-for-byte match against sanitiser output. Output is `markdownToBookHtml(body)` directly — it escapes its input and emits only allow-listed tags, i.e. exactly what the update core would sanitise to. Its only runtime require is `@prisma/client`.
+
+**Verification.** typecheck ✅, lint ✅, transpiles under the Dockerfile's tsc flags with `html-text.js` + `markdown-to-book-html.js` emitted alongside; dry run executes in the container.
+
 ### 2026-09-01 · v2.13.5 — Markdown headings / bullets on TEXT cards: root cause + repair tool
 
 **The bug (enhancement `cmszrjor`).** On the live site "### Entrance (~2:00)" printed with literal hashes and "- " bullets ran into the paragraph, even though `propose_book_card_replace_text` advertises headings and lists as real formatting. The renderer was never the problem — `markdownToBookHtml` has emitted `<h2>/<h3>/<ul>/<ol>/<blockquote>` since v2.6.6 and `replace_text` goes through it. The affected cards were created by `book.card.create` **before v2.13.2**, whose apply path posted the body to the legacy plain `body` column; that column renders via `legacyBodyToHtml`, which HTML-escapes and `<p>`-wraps the text *verbatim* — markdown and all. (Same reason `read_book_card` returned the raw markers with paragraph breaks collapsed.) v2.13.2 fixed the path for every card created from now on; this release repairs the ones created before it.
