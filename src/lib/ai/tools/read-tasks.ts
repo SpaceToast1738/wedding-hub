@@ -52,13 +52,13 @@ function resolveCustomFields(
 export const readTasks: AiTool<typeof inputSchema> = {
   name: "read_tasks",
   description:
-    "Read tasks (or questions or decisions) matching the given filters. Use this before making task suggestions so you don't propose duplicates. Returns the most recent 20 by default; ask for more with `limit` (max 50). To enumerate ALL matches (the hub has 90+ open tasks), page with `offset` — follow the returned page.nextOffset until it's null. Filter to one person's workload with `assignee` (their user id, or a substring of their name). Set `overdue: true` to fetch just tasks whose due date has passed. Each task carries its supplier link, topic links (book sections/cards, nav tags, guest groups), and resolved custom fields — the ids in those are real and usable in propose_task_update.",
+    "Read tasks (or questions or decisions) matching the given filters. Use this before making task suggestions so you don't propose duplicates. Returns the most recent 20 by default; ask for more with `limit` (max 50). To enumerate ALL matches (the hub has 90+ open tasks), page with `offset` — follow the returned page.nextOffset until it's null. Filter to one person's workload with `assignee` (their user id, or a substring of their name). Set `overdue: true` to fetch just tasks whose due date has passed. Each task carries its supplier link, topic links (book sections/cards, nav tags, guest groups), and resolved custom fields — the ids in those are real and usable in propose_task_update. NOTE: `notes` here is clipped to 240 chars and `notesTruncated: true` marks it — call read_task for the full text, and ALWAYS do so before a propose_task_update that changes notes, since that field is replaced wholesale.",
   inputSchema,
   progressLabel: "Reading tasks…",
   definition: {
     name: "read_tasks",
     description:
-      "Read tasks (or questions or decisions) matching the given filters. Returns the most recent 20 by default; `limit` (max 50) + `offset` page through the rest — follow page.nextOffset until null. `assignee` filters to one person (user id or name substring). Set `overdue: true` for tasks whose due date has passed. Each task carries its supplier link, topic links, and resolved custom fields.",
+      "Read tasks (or questions or decisions) matching the given filters. Returns the most recent 20 by default; `limit` (max 50) + `offset` page through the rest — follow page.nextOffset until null. `assignee` filters to one person (user id or name substring). Set `overdue: true` for tasks whose due date has passed. Each task carries its supplier link, topic links, and resolved custom fields. `notes` is clipped to 240 chars (`notesTruncated: true`) — use read_task for the full text, and always before updating notes.",
     input_schema: {
       type: "object",
       properties: {

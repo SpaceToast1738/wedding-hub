@@ -8,6 +8,7 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import type { AiTool, ToolContext, ToolResult } from "./types";
 import { readTasks } from "./read-tasks";
+import { readTask } from "./read-task";
 import { readEvents } from "./read-events";
 import { readGuests } from "./read-guests";
 import { readBook } from "./read-book";
@@ -120,6 +121,7 @@ import { proposeNudgeSend } from "./propose-nudge-send";
 const READ_TOOLS: AiTool<any>[] = [
   readStats,
   readTasks,
+  readTask,
   readEvents,
   readGuests,
   readBook,

@@ -279,6 +279,15 @@ tokens are revoked from Settings without any restart.
   truncation marker, so concatenating `content.slice(0, returnedChars)`
   across calls reassembles the file exactly. Before this, the tail of any
   file over 16k was unreachable from a client.
+- **Full task text is readable (v2.12.0).** `read_tasks` clips `notes` to
+  240 chars (`notesTruncated: true`). `read_task(taskId)` returns one task
+  with its long text untruncated — `field` picks `notes` (default),
+  `questionAnswer` or `decisionAnswer`; `textFields` gives all three
+  lengths; text over 16k pages with `offset` / `page.nextOffset` on the
+  same contract as `read_file_content`. **Always call it before a
+  `propose_task_update` that changes `notes`** — that field is replaced
+  wholesale, and its cap is now 16,000 chars (was 2,000) so a full page
+  can be carried back losslessly.
 - **No API cost.** MCP tool calls run entirely against the local DB — the
   Anthropic API is never involved, so the AI budget/usage dashboards don't
   move. The *client* (Claude Code etc.) pays its own model costs.

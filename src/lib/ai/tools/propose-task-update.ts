@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { taskUpdateSchema } from "@/lib/ai/proposals/schemas";
 import { buildDetailLine, resolveRefs, unknownIdsError } from "./validate-refs";
 import { takeProposalSlots } from "./propose-common";
+import { DEFAULT_SLICE_CHARS } from "./slice-text";
 import type { AiTool } from "./types";
 
 const inputSchema = z.object({
@@ -18,7 +19,15 @@ const inputSchema = z.object({
     .optional(),
   priority: z.enum(["LOW", "MEDIUM", "HIGH", "URGENT"]).optional(),
   dueDate: z.string().optional().describe("ISO date (YYYY-MM-DD)."),
-  notes: z.string().max(2000).optional(),
+  // v2.12.0: raised from the house-standard 2000 to the read page size.
+  // `notes` REPLACES the field, so a lossless rewrite has to be able to
+  // carry back everything read_task just handed over — at 2000 a task
+  // with 2500 chars of notes was readable but not rewritable, which is
+  // the same read/write asymmetry this enhancement set out to close.
+  // The invariant: anything readable in one page is writable in one
+  // proposal. Other propose_* tools keep 2000 — none of them have a
+  // paired full-text read.
+  notes: z.string().max(DEFAULT_SLICE_CHARS).optional(),
   // v2.4.3: link/unlink the task's supplier — the gap the planner
   // itself reported ("task linking isn't something I can do").
   // undefined = untouched, null = unlink, id = link.
@@ -70,7 +79,11 @@ export const proposeTaskUpdate: AiTool<typeof inputSchema> = {
         status: { type: "string", enum: ["OPEN", "IN_PROGRESS", "WAITING", "DONE", "ARCHIVED"] },
         priority: { type: "string", enum: ["LOW", "MEDIUM", "HIGH", "URGENT"] },
         dueDate: { type: "string", description: "ISO date (YYYY-MM-DD)." },
-        notes: { type: "string" },
+        notes: {
+          type: "string",
+          description:
+            "REPLACES the entire notes field — it is not appended to. Call read_task first and carry forward anything worth keeping, otherwise text you never saw is destroyed (read_tasks clips notes at 240 chars).",
+        },
         supplierId: {
           type: ["string", "null"],
           description:

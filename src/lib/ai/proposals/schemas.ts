@@ -10,6 +10,7 @@
 // fields; the apply-time defaults live here.
 
 import { z } from "zod";
+import { DEFAULT_SLICE_CHARS } from "@/lib/ai/tools/slice-text";
 
 export const PROPOSAL_KINDS = [
   "task.create",
@@ -208,7 +209,11 @@ export const taskUpdateSchema = z.object({
     .optional(),
   priority: z.enum(["LOW", "MEDIUM", "HIGH", "URGENT"]).optional(),
   dueDate: z.string().optional().nullable(),
-  notes: z.string().max(2000).optional().nullable(),
+  // v2.12.0: must track propose_task_update's cap exactly — if the
+  // propose side accepts more than the apply side, the proposal is
+  // created and then fails validation at apply time, which is a far
+  // worse failure than refusing it up front.
+  notes: z.string().max(DEFAULT_SLICE_CHARS).optional().nullable(),
   /** v2.4.3: link/unlink the task's supplier. undefined = untouched
    *  (updateTask only writes supplierId when the field is posted),
    *  null = unlink, id = link. */

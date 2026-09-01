@@ -963,6 +963,20 @@ When wrapping up a meaningful iteration:
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
 
+### 2026-09-01 · v2.12.0 — `read_task`: full task notes are readable, so they're finally safe to update
+
+**Found by using the thing (again).** `read_tasks` clips `notes` to 240 chars and flags `notesTruncated`, and `propose_task_update.notes` REPLACES the field. Together that made any notes edit on a long-notes task unsafe — the proposer would overwrite text it had never seen — so the only safe move was not to propose at all, and stale notes stayed stale. Real case, 2 Aug 2026: the cake plan changed from three tiers to three separate cakes; "Trial bake weekend" and "Test transport methods for cake" still described tier assembly in notes that were clipped. (Enhancement `cmsbqk9e`.)
+
+**The fix — a paired full-text read, not an append op.** New `read_task(taskId, field?, offset?)` returns ONE task with its long text untruncated. `field` selects `notes` (default), `questionAnswer` or `decisionAnswer` — the three unbounded `@db.Text` columns — and `textFields` reports the length of all three so the caller can see what else it hasn't fetched. Text over 16,000 chars pages with `offset` / `page.nextOffset`, byte-exact, on the same contract as `read_file_content`. Same `canView("tasks")` gate as `read_tasks`.
+
+- The paging contract was extracted to `src/lib/ai/tools/slice-text.ts` (`sliceText` / `slicePage` / `pastEndError`, `DEFAULT_SLICE_CHARS = 16_000`); `read_file_content` uses it too, so the two tools can't drift.
+- `propose_task_update.notes` cap raised 2,000 → 16,000 (the read page size) and the apply-side schema tracks it exactly. The invariant: *anything readable in one page is writable in one proposal* — at 2,000, a 2,500-char notes field was readable but not rewritable. The field's description now says out loud that it is replaced, not appended, and to call `read_task` first.
+- `read_tasks` descriptions (planner chat + MCP) now say the clip exists and point at `read_task`.
+
+Why not an append-only op: an addendum leaves the wrong text in place; the real need was a lossless rewrite, which only a full read enables.
+
+**Verification.** typecheck ✅, 812 tests ✅ (10 new in `tests/unit/read-task.test.ts` — permission gate both ways, unknown id, untruncated past the clip, per-field lengths, `field` selection, null field, 16k paging reassembly, truncation marker, past-end error), lint ✅, build ✅.
+
 ### 2026-08-01 · v2.11.0 — `read_file_content` pages past 16k: the tail of a long contract is reachable again
 
 **Found by using the thing.** A planner session reading the Alveston Manor wedding contract (`cmrtamn4e0050dv3q5f1zb0q5`, 21,139 chars of extracted text) hit the 16,000-char cap mid-clause 8.1. Everything from there on — including any cake/corkage exceptions, which was the live question — was simply unreachable: the tool had no `offset`, so there was no second call to make. It already returned `totalChars` and `truncated`, so it *told* you what you were missing without offering a way to get it.
