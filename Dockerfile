@@ -41,7 +41,10 @@ RUN npx tsc prisma/seed.ts \
 # reset-book) the same way. Both scripts import from prisma/seed and
 # need to live alongside the transpiled seed.js so the relative-path
 # require() resolves at runtime.
+# v2.13.5: repair-legacy-text-cards pulls in two pure src/lib renderers
+# by relative import; tsc emits them under scripts-build/src/ alongside.
 RUN npx tsc prisma/seed.ts scripts/seed-samples-only.ts scripts/reset-book.ts \
+      scripts/repair-legacy-text-cards.ts \
       --outDir scripts-build \
       --module commonjs \
       --moduleResolution node \

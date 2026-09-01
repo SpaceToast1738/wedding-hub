@@ -963,6 +963,14 @@ When wrapping up a meaningful iteration:
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
 
+### 2026-09-01 · v2.13.5 — Markdown headings / bullets on TEXT cards: root cause + repair tool
+
+**The bug (enhancement `cmszrjor`).** On the live site "### Entrance (~2:00)" printed with literal hashes and "- " bullets ran into the paragraph, even though `propose_book_card_replace_text` advertises headings and lists as real formatting. The renderer was never the problem — `markdownToBookHtml` has emitted `<h2>/<h3>/<ul>/<ol>/<blockquote>` since v2.6.6 and `replace_text` goes through it. The affected cards were created by `book.card.create` **before v2.13.2**, whose apply path posted the body to the legacy plain `body` column; that column renders via `legacyBodyToHtml`, which HTML-escapes and `<p>`-wraps the text *verbatim* — markdown and all. (Same reason `read_book_card` returned the raw markers with paragraph breaks collapsed.) v2.13.2 fixed the path for every card created from now on; this release repairs the ones created before it.
+
+**The tool.** `scripts/repair-legacy-text-cards.ts` (transpiled into the image next to `reset-book`; run with `node scripts-build/scripts/repair-legacy-text-cards.js`, add `--apply` to write) re-renders each TEXT card's `body` through `markdownToBookHtml` into `bodyHtml`. Safety rules: a card is touched only when its `bodyHtml` is NULL or still equals `legacyBodyToHtml(body)` — i.e. nobody has edited it in Tiptap since — so hand-edited cards are skipped and listed; `body` is kept for provenance; every change writes an audit row; idempotent; **dry run by default** with before/after heads. Prod had 7 candidate cards at the time of writing.
+
+**Verification.** typecheck ✅, 847 tests ✅, lint ✅, build ✅; the script transpiles under the Dockerfile's exact tsc flags with its two relative renderer imports emitted alongside.
+
 ### 2026-09-01 · v2.13.4 — `read_guests` pages past the cap; unknown parameters are loud
 
 **The bug (enhancement `cmtidwct`).** `read_guests` accepted `offset` and `query` without complaint and silently ignored both — neither was in its schema, and zod's default drops unrecognised keys. With 48 attending guests the full response hit the 24k result cap around 28 guests, so the tail of the alphabet (the Scotts, Spencers, Yates…) was unreachable by the obvious route; building the per-guest meal sheet for the Alveston final-details meeting on 1 Sept meant slicing on the `side` filter instead. Same silent-strip failure class as v2.13.2's `bodyText`.
