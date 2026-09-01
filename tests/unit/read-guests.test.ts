@@ -8,8 +8,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SessionUser } from "@/lib/actions";
 
-const guestFindMany = vi.fn(async () => [] as unknown[]);
-const guestCount = vi.fn(async () => 48);
+const guestFindMany = vi.fn<(args: FindManyArgs) => Promise<unknown[]>>(async () => []);
+const guestCount = vi.fn<(args: { where: Record<string, unknown> }) => Promise<number>>(async () => 48);
 const guestGroupBy = vi.fn(async () => [{ rsvp: "ATTENDING", _count: { _all: 48 } }]);
 const fieldFindMany = vi.fn(async () => []);
 
