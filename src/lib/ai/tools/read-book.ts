@@ -1,22 +1,15 @@
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { canView } from "@/lib/permissions";
+// v2.13.3: shared stripper that also DECODES entities — the local copy
+// left `&amp;` in the "plain" text and it round-tripped onto the site.
+import { stripHtml } from "@/lib/html-text";
 import type { AiTool } from "./types";
 
 const inputSchema = z.object({
   sectionSlug: z.string().optional(),
   includeBody: z.boolean().optional(),
 });
-
-/** Strip HTML tags for the AI — we ship the plain text so the model
- *  reasons about the *content* rather than the markup. */
-function stripHtml(html: string | null | undefined): string {
-  if (!html) return "";
-  return html
-    .replace(/<[^>]+>/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
 
 export const readBook: AiTool<typeof inputSchema> = {
   name: "read_book",

@@ -293,6 +293,11 @@ tokens are revoked from Settings without any restart.
   named. It takes the same markdown subset as
   `propose_book_card_replace_text` and lands in `bodyHtml` on apply, so a
   created card renders its content and carries a real `bodyHtmlHash`.
+- **Reads return plain text (v2.13.3).** `read_book` / `read_book_card`
+  text fields (`bodyText`, section bodies) are tag-stripped AND
+  entity-decoded — `&amp;` comes back as `&`. Quote a read straight into
+  a `propose_*` text field; the site escapes once at render. (Before
+  this, doing so produced literal "&amp;" on the site.)
 - **No API cost.** MCP tool calls run entirely against the local DB — the
   Anthropic API is never involved, so the AI budget/usage dashboards don't
   move. The *client* (Claude Code etc.) pays its own model costs.

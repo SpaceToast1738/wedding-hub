@@ -12,6 +12,9 @@ import { createHash } from "crypto";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { canView } from "@/lib/permissions";
+// v2.13.3: shared stripper that also DECODES entities — the local copy
+// left `&amp;` in bodyText and it round-tripped onto the site.
+import { stripHtml } from "@/lib/html-text";
 import type { AiTool } from "./types";
 
 const inputSchema = z.object({
@@ -22,14 +25,6 @@ const inputSchema = z.object({
 
 /** Hard cap per child list — a runaway card can't blow the context. */
 const CHILD_ROW_CAP = 100;
-
-function stripHtml(html: string | null | undefined): string {
-  if (!html) return "";
-  return html
-    .replace(/<[^>]+>/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
 
 /** Notes/description fields are unbounded @db.Text columns — clip so
  *  one chatty card can't dominate the tool result. */

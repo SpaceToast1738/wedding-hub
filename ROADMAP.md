@@ -963,6 +963,14 @@ When wrapping up a meaningful iteration:
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
 
+### 2026-09-01 · v2.13.3 — Book reads return plain text: no more `&amp;` round-tripping onto the site
+
+**The bug (enhancement `cmsz2lj1`).** `read_book` and `read_book_card` each carried a local `stripHtml` that removed tags but never decoded entities. `bodyHtml` is legitimately entity-escaped (the markdown renderer and sanitiser write `&amp;`, `&lt;`, `&quot;`…), so the "plain text" the model got back still said `&amp;`. Quote that into any plain-text write — a rename, a notes edit, a supersede-with-tweak — and the site escapes it once more at render and shows a literal "&amp;". By 18 Aug 2026 two section titles ("Ceremony & Music", "Clothing & Accessories"), two card titles, two tasks' notes and a budget note on the live site read that way, every one traceable to a read quoted back into a write; seven cleanup proposals were needed. The propose_* side was never at fault — it expects plain text, and the site escapes exactly once at render. The asymmetry was on the read side.
+
+**Fix.** One shared `stripHtml` in `src/lib/html-text.ts` (tags → spaces so block boundaries still separate words, entities decoded, whitespace collapsed) replaces both local copies. `decodeHtmlEntities` covers the named entities sanitised book HTML actually emits plus decimal / hex numeric references, single-pass like a browser (`&amp;lt;` → the text `&lt;`), and leaves unknown names alone rather than guessing. What a read tool hands the model is now what a browser would *show*, so read → write is lossless. Escaping stays strictly a render-time concern. (No other read tool formats HTML — task titles / notes are plain columns, and the "&amp;" seen in them was the round-trip's output, not the read's.)
+
+**Verification.** typecheck ✅, 839 tests ✅ (9 new in `tests/unit/html-text.test.ts`, including the exact "Ceremony & Music" round-trip), lint ✅, build ✅.
+
 ### 2026-09-01 · v2.13.2 — Proposed Book cards keep their body on apply
 
 **The bug (enhancement `cmtizozr`).** `propose_book_card_create` for the "Escape Box Game" TEXT card (~2,300 chars of body) applied as an empty card: `bodyText ""`, `bodyHtmlHash` = sha256 of the empty string. Two things conspired. The apply bridge posted the body to the create core's legacy plain `body` column — but the TEXT renderer, `read_book_card` and the `replace_text` staleness hash all read `bodyHtml` first, so the content was invisible to every consumer that mattered. And the tool's input schema silently *stripped* unknown keys, so a body sent as `bodyText` (the name `read_book_card` returns it under) or `text` (the name `replace_text` uses) vanished before the proposal was even written. Either way the couple saw lost work and the only remedy was a second `replace_text` proposal against the empty hash.
