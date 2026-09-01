@@ -1,6 +1,6 @@
 # MCP server — LAN-only client access to the AI tools
 
-**Status:** v2.10.0. Last updated 20 July 2026.
+**Status:** v2.11.0. Last updated 1 August 2026.
 
 Wedding Hub exposes its AI tool registry (the same `read_*` / `propose_*`
 tools the in-app planner chat uses) to MCP clients — Claude Code, Claude
@@ -269,6 +269,16 @@ tokens are revoked from Settings without any restart.
 - **Tool results are capped at 24,000 characters** with an explicit
   truncation marker (same cap as planner chat). If a client hits it,
   narrow the query (most read tools take filters).
+- **Long files are paged, not cut off (v2.11.0).** `read_file_content`
+  returns at most 16,000 chars per call, but takes an optional
+  **`offset`** and returns
+  `page: { offset, returnedChars, totalChars, nextOffset }` — follow
+  `nextOffset` until it's `null` to read a whole document. The offset is
+  a character position in the **extracted** text, so it means the same
+  thing for a PDF as for a `.txt`. `returnedChars` excludes the
+  truncation marker, so concatenating `content.slice(0, returnedChars)`
+  across calls reassembles the file exactly. Before this, the tail of any
+  file over 16k was unreachable from a client.
 - **No API cost.** MCP tool calls run entirely against the local DB — the
   Anthropic API is never involved, so the AI budget/usage dashboards don't
   move. The *client* (Claude Code etc.) pays its own model costs.

@@ -299,6 +299,111 @@ describe("read_file_content — text extraction", () => {
   });
 });
 
+describe("read_file_content — offset paging (v2.11.0)", () => {
+  type Paged = {
+    content: string;
+    truncated?: boolean;
+    totalChars: number;
+    page: {
+      offset: number;
+      returnedChars: number;
+      totalChars: number;
+      nextOffset: number | null;
+    };
+  };
+
+  // 21,139 chars is the real Alveston Manor contract that exposed this
+  // gap — clauses 8+ sat past the 16k cap with no way to reach them.
+  const LONG = "abcdefghij".repeat(2114) + "TAIL-CLAUSE-8.1";
+
+  it("reports nextOffset on the first slice and returns the remainder from it", async () => {
+    const id = addFile({ name: "contract.txt", mimeType: "text/plain", bytes: LONG });
+
+    const first = await readFileContent.handler({ fileId: id }, coupleCtx);
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    const p1 = first.data as Paged;
+    expect(p1.page.offset).toBe(0);
+    expect(p1.page.nextOffset).toBe(16_000);
+    expect(p1.page.totalChars).toBe(LONG.length);
+    expect(p1.truncated).toBe(true);
+
+    const second = await readFileContent.handler(
+      { fileId: id, offset: p1.page.nextOffset! },
+      coupleCtx,
+    );
+    expect(second.ok).toBe(true);
+    if (!second.ok) return;
+    const p2 = second.data as Paged;
+    // The tail that used to be unreachable.
+    expect(p2.content).toContain("TAIL-CLAUSE-8.1");
+    expect(p2.page.nextOffset).toBeNull();
+    expect(p2.truncated).toBeUndefined();
+    expect(p2.content).not.toContain("[truncated at");
+  });
+
+  it("reassembles the exact original text by following nextOffset", async () => {
+    const id = addFile({ name: "contract.txt", mimeType: "text/plain", bytes: LONG });
+    let offset: number | null = 0;
+    let assembled = "";
+    let calls = 0;
+    while (offset !== null) {
+      const r = await readFileContent.handler({ fileId: id, offset }, coupleCtx);
+      expect(r.ok).toBe(true);
+      if (!r.ok) return;
+      const p = r.data as Paged;
+      assembled += p.content.slice(0, p.page.returnedChars);
+      offset = p.page.nextOffset;
+      if (++calls > 10) throw new Error("nextOffset failed to terminate");
+    }
+    expect(assembled).toBe(LONG);
+    expect(calls).toBe(2);
+  });
+
+  it("excludes the truncation marker from returnedChars", async () => {
+    const id = addFile({ name: "contract.txt", mimeType: "text/plain", bytes: LONG });
+    const r = await readFileContent.handler({ fileId: id }, coupleCtx);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const p = r.data as Paged;
+    expect(p.page.returnedChars).toBe(16_000);
+    expect(p.content.length).toBeGreaterThan(16_000); // marker is extra
+  });
+
+  it("rejects an offset past the end with the real length", async () => {
+    const id = addFile({ name: "short.txt", mimeType: "text/plain", bytes: "tiny" });
+    const r = await readFileContent.handler({ fileId: id, offset: 500 }, coupleCtx);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain("4 chars");
+  });
+
+  it("pages PDF-extracted text on the same character offsets", async () => {
+    pdfMock.text = LONG;
+    const id = addFile({ name: "contract.pdf", mimeType: "application/pdf", bytes: "%PDF-1.4" });
+    const r = await readFileContent.handler({ fileId: id, offset: 16_000 }, coupleCtx);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const p = r.data as Paged;
+    expect(p.content).toContain("TAIL-CLAUSE-8.1");
+    expect(p.page.nextOffset).toBeNull();
+  });
+
+  it("defaults to offset 0 when omitted (unchanged for short files)", async () => {
+    const id = addFile({ name: "note.txt", mimeType: "text/plain", bytes: "book the florist" });
+    const r = await readFileContent.handler({ fileId: id }, coupleCtx);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const p = r.data as Paged;
+    expect(p.content).toBe("book the florist");
+    expect(p.page).toEqual({
+      offset: 0,
+      returnedChars: 16,
+      totalChars: 16,
+      nextOffset: null,
+    });
+  });
+});
+
 describe("read_file_content — PDF extraction (via unpdf)", () => {
   it("extracts text from a PDF via unpdf", async () => {
     pdfMock.text = "Hello Wedding";

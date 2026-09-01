@@ -963,6 +963,23 @@ When wrapping up a meaningful iteration:
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
 
+### 2026-08-01 · v2.11.0 — `read_file_content` pages past 16k: the tail of a long contract is reachable again
+
+**Found by using the thing.** A planner session reading the Alveston Manor wedding contract (`cmrtamn4e0050dv3q5f1zb0q5`, 21,139 chars of extracted text) hit the 16,000-char cap mid-clause 8.1. Everything from there on — including any cake/corkage exceptions, which was the live question — was simply unreachable: the tool had no `offset`, so there was no second call to make. It already returned `totalChars` and `truncated`, so it *told* you what you were missing without offering a way to get it.
+
+**The fix** mirrors the `offset`/`page.nextOffset` convention v2.10.0 gave `read_tasks`:
+
+- **`offset` (optional integer)** on `read_file_content` — a character offset into the **extracted** text (post-PDF-extraction, post-NUL-strip), so the same offset means the same place whether the source was a `.txt` or a PDF. The 16k per-call cap is unchanged; it's now a page size rather than a ceiling.
+- **`page: { offset, returnedChars, totalChars, nextOffset }`** on every response. `returnedChars` deliberately **excludes** the truncation marker, so a caller reassembling slices with `content.slice(0, returnedChars)` gets the file back byte-exact. `totalChars` is now always present, not just when truncated.
+- **The marker names the next call.** Was `…[truncated at 16000 chars — open the full file on /files]`, which read as a dead end. Now `…[truncated at 16000 chars — 5139 to go; call read_file_content again with offset=16000]`. The old phrasing is arguably what made the tail feel unreachable even though the cap was always the only real limit.
+- **An offset past the end is an error, not an empty string** — it reports the real length so a bad guess can re-aim. A caller following `nextOffset` never hits it (the chain ends at `null`).
+
+**Back-compat:** `truncated` keeps its exact meaning ("there is more after this slice"), so a caller that ignores paging behaves as before. Both tool descriptions (planner-chat and MCP) now say longer files are paged rather than cut off — MCP's `tools/list` picks this up automatically since it derives from `definition.input_schema`.
+
+**Not done:** PDF text is re-extracted on every paged call. Correct but wasteful — bounded by the 10 MB read cap, and a 2-3 page contract is a couple of calls. If someone starts paging a 200-page document, cache the extraction; until then it's not worth the complexity.
+
+**Verification.** typecheck ✅, 802 tests ✅ (6 new — nextOffset chain, byte-exact reassembly, marker excluded from `returnedChars`, past-end error, PDF paging, and the unchanged short-file path), build ✅.
+
 ### 2026-07-20 · v2.10.0 — MCP planner capability tier: gated digest send, table name/shape, task pagination, wedding-settings surface, budget & seating batchables
 
 The next MCP planner tier, built on the v2.8.x–v2.9.x propose→apply machinery. One additive migration (`20260720100000_mcp_token_can_propose_send` — hand-authored SQL following the v2.8.0/v2.9.0 precedent since no local dev DB exists on this machine; DDL verified byte-identical against `prisma migrate diff --from-empty`). **Version note:** the task suggested v2.9.2 (and with v2.9.1 shipped, that's the literal next-free number), but the repo's versioning rules classify a new-feature tier carrying a schema migration as a **MINOR** (a PATCH is explicitly "no schema change"), so this is v2.10.0 — retag if you'd rather it sit in the 2.9.x line, nothing is pushed yet. **Rebased onto v2.9.1** (the 24 Sept date correction) before landing; the new cores' missing-bootstrap-row date fallback carries the corrected `2026-09-24` literal.

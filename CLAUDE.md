@@ -17,7 +17,7 @@ This file gives you (Claude Code) the context you need to work productively on t
 
 ## Where it runs
 
-- **Unraid box** (`Tower`, `192.168.50.98`) on a `br0` macvlan network
+- **Unraid box** (`Tower`, `192.168.50.110`) on a `br0` macvlan network
 - **Cloudflare Tunnel** in front: `wedding.spencer-net.com` → `192.168.50.25:80` (Caddy on br0) → `web:3000` (internal compose network)
 - **TLS terminated at Cloudflare's edge** — Caddy serves plain HTTP only (`auto_https off`)
 - **Stack manager:** Compose Manager Plus plugin. Stack lives at `/boot/config/plugins/compose.manager/projects/wedding-hub/` on the Unraid host.

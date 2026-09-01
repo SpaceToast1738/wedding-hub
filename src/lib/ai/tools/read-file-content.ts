@@ -9,9 +9,11 @@
 //     photo dump can't be pulled through the context window.
 //   - Extraction only for text/*, JSON, and PDF. Everything else
 //     (images, Office docs, zips) is refused by name — no binary soup.
-//   - Output capped at 16k chars with the registry-style truncation
-//     marker (the registry's own 24k cap still backstops the
-//     serialized result).
+//   - Output capped at 16k chars PER CALL with the registry-style
+//     truncation marker (the registry's own 24k cap still backstops the
+//     serialized result). v2.11.0: `offset` pages through the rest —
+//     follow page.nextOffset until null, mirroring read_tasks. Before
+//     that the tail of any file over 16k was simply unreachable.
 // Money caveat: unlike every other read tool, file text is returned
 // VERBATIM — there is no field-level redaction to apply to a contract
 // PDF. That's the agreed trade-off for file access (see the v2.8.0
@@ -22,6 +24,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { canView } from "@/lib/permissions";
 import { resolveStoredPath } from "@/lib/uploads";
+import { pastEndError, sliceText, slicePage } from "./slice-text";
 import type { AiTool } from "./types";
 
 const inputSchema = z.object({
@@ -30,6 +33,10 @@ const inputSchema = z.object({
     .min(1)
     .max(100)
     .describe("File id — get this from read_files, never invent one."),
+  // v2.11.0: character offset into the EXTRACTED text (post-PDF-extraction,
+  // post-NUL-strip), not a byte offset into the stored file — so the same
+  // offset means the same place for text and PDF alike.
+  offset: z.number().int().min(0).optional(),
 });
 
 /** Hard cap on bytes pulled off disk. Well under MAX_UPLOAD_BYTES
@@ -37,26 +44,10 @@ const inputSchema = z.object({
  *  a document worth text-extracting. */
 const MAX_READ_BYTES = 10 * 1024 * 1024;
 
-/** Cap on the extracted text handed back to the model. Below the
- *  registry's 24k serialized-result ceiling so the marker (not a blind
- *  mid-JSON chop) is what the model sees. */
-// Sits deliberately below the registry's 24,000-char cap on the
-// SERIALIZED tool result (registry.ts MAX_TOOL_RESULT_CHARS): once the
-// content is JSON-escaped and wrapped, 20k of raw text could push the
-// serialized form past 24k, and the registry would then re-truncate
-// with a blind mid-string chop — burying this tool's own friendly
-// marker. 16k leaves room for the JSON wrapper plus normal escaping.
-const MAX_CONTENT_CHARS = 16_000;
-
-function capContent(text: string): { content: string; truncated: boolean } {
-  if (text.length <= MAX_CONTENT_CHARS) return { content: text, truncated: false };
-  return {
-    content:
-      text.slice(0, MAX_CONTENT_CHARS) +
-      `\n…[truncated at ${MAX_CONTENT_CHARS} chars — open the full file on /files]`,
-    truncated: true,
-  };
-}
+// The per-call cap on extracted text is DEFAULT_SLICE_CHARS (16k), now
+// owned by ./slice-text along with the rest of the paging contract —
+// see the rationale there for why it sits below the registry's 24k
+// serialized-result ceiling.
 
 /** Null-byte strip. Uploaded "text" files occasionally arrive UTF-16
  *  or with embedded NULs (Excel CSV exports, Windows editors), and PDF
@@ -118,17 +109,23 @@ function isBundleLoadError(err: unknown): boolean {
 export const readFileContent: AiTool<typeof inputSchema> = {
   name: "read_file_content",
   description:
-    "Read the TEXT CONTENT of one uploaded file by id (get ids from read_files). Supported: plain text, CSV, JSON, and PDF (text extraction — scanned/image-only PDFs have no extractable text). Refused: images, Word/Excel/PowerPoint, zips, and anything over 10 MB. Content is returned verbatim and truncated at 16000 chars. NOTE: unlike other read tools there is no money redaction here — contract PDFs and similar files may contain real amounts; treat them with the same discretion as the rest of the couple's financial data. Never returns download paths.",
+    "Read the TEXT CONTENT of one uploaded file by id (get ids from read_files). Supported: plain text, CSV, JSON, and PDF (text extraction — scanned/image-only PDFs have no extractable text). Refused: images, Word/Excel/PowerPoint, zips, and anything over 10 MB. Each call returns at most 16000 chars, verbatim. Longer files are NOT cut off for good — page through them with `offset` (follow the returned page.nextOffset until it's null), which is how you read the later clauses of a long contract. NOTE: unlike other read tools there is no money redaction here — contract PDFs and similar files may contain real amounts; treat them with the same discretion as the rest of the couple's financial data. Never returns download paths.",
   inputSchema,
   progressLabel: "Reading file content…",
   definition: {
     name: "read_file_content",
     description:
-      "Read one uploaded file's text content by id (from read_files). Text/CSV/JSON/PDF only, 10 MB cap, output truncated at 16000 chars. Contents are verbatim — contract amounts may be visible.",
+      "Read one uploaded file's text content by id (from read_files). Text/CSV/JSON/PDF only, 10 MB cap. Returns up to 16000 chars per call — page through longer files with `offset`, following page.nextOffset until null. Contents are verbatim — contract amounts may be visible.",
     input_schema: {
       type: "object",
       properties: {
         fileId: { type: "string", description: "File id from read_files." },
+        offset: {
+          type: "integer",
+          minimum: 0,
+          description:
+            "Character offset to start reading from (default 0). Follow page.nextOffset to read the rest of a long file.",
+        },
       },
       required: ["fileId"],
     },
@@ -231,7 +228,16 @@ export const readFileContent: AiTool<typeof inputSchema> = {
       text = decodeText(bytes);
     }
 
-    const { content, truncated } = capContent(text);
+    const offset = input.offset ?? 0;
+    // Only a bad guess lands here — a caller following nextOffset stops
+    // at null. Erroring (rather than returning an empty string) tells it
+    // the real length so it can re-aim instead of concluding the file
+    // ended early.
+    if (offset > 0 && offset >= text.length) {
+      return { ok: false, error: pastEndError(`"${file.name}"`, offset, text.length) };
+    }
+
+    const slice = sliceText(text, offset, { toolName: "read_file_content" });
     return {
       ok: true,
       data: {
@@ -242,8 +248,10 @@ export const readFileContent: AiTool<typeof inputSchema> = {
         sizeBytes: file.sizeBytes,
         visibility: file.visibility,
         createdAt: file.createdAt.toISOString().slice(0, 10),
-        content,
-        ...(truncated ? { truncated: true, totalChars: text.length } : {}),
+        content: slice.content,
+        totalChars: text.length,
+        page: slicePage(offset, slice, text.length),
+        ...(slice.truncated ? { truncated: true } : {}),
       },
     };
   },
