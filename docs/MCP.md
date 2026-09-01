@@ -298,6 +298,11 @@ tokens are revoked from Settings without any restart.
   entity-decoded — `&amp;` comes back as `&`. Quote a read straight into
   a `propose_*` text field; the site escapes once at render. (Before
   this, doing so produced literal "&amp;" on the site.)
+- **`read_guests` pages (v2.13.4).** Takes `offset` (+ `limit` ≤ 50) and
+  returns `page: { offset, limit, total, nextOffset }` — follow
+  `nextOffset` until `null` to enumerate every guest past the 24k cap.
+  `query` is an alias of `nameContains`. Unknown parameters are rejected
+  with the key named (they used to be silently ignored).
 - **No API cost.** MCP tool calls run entirely against the local DB — the
   Anthropic API is never involved, so the AI budget/usage dashboards don't
   move. The *client* (Claude Code etc.) pays its own model costs.

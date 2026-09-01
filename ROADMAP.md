@@ -963,6 +963,14 @@ When wrapping up a meaningful iteration:
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
 
+### 2026-09-01 · v2.13.4 — `read_guests` pages past the cap; unknown parameters are loud
+
+**The bug (enhancement `cmtidwct`).** `read_guests` accepted `offset` and `query` without complaint and silently ignored both — neither was in its schema, and zod's default drops unrecognised keys. With 48 attending guests the full response hit the 24k result cap around 28 guests, so the tail of the alphabet (the Scotts, Spencers, Yates…) was unreachable by the obvious route; building the per-guest meal sheet for the Alveston final-details meeting on 1 Sept meant slicing on the `side` filter instead. Same silent-strip failure class as v2.13.2's `bodyText`.
+
+**Fix.** Real offset pagination on the `read_tasks` contract — `offset` + `limit` map to `skip` / `take`, the ordering gains `id` as a final tiebreaker (two guests can share a full name), and every response carries `page: { offset, limit, total, nextOffset }` where `total` is a count on the **same filter** (the existing `aggregate` block stays whole-list). Follow `nextOffset` until it's `null`. `query` is accepted as an alias of `nameContains` — the name callers reach for first. The schema is `.strict()` and the MCP `input_schema` says `additionalProperties: false`, so a misspelt or invented parameter is an error naming the key rather than a query that quietly returns the top of the list.
+
+**Verification.** typecheck ✅, 847 tests ✅ (8 new in `tests/unit/read-guests.test.ts`: skip/take + tiebreaker, `total` from the same `where`, `nextOffset` chain end, defaults, the `query` alias, and unknown-key rejection), lint ✅, build ✅.
+
 ### 2026-09-01 · v2.13.3 — Book reads return plain text: no more `&amp;` round-tripping onto the site
 
 **The bug (enhancement `cmsz2lj1`).** `read_book` and `read_book_card` each carried a local `stripHtml` that removed tags but never decoded entities. `bodyHtml` is legitimately entity-escaped (the markdown renderer and sanitiser write `&amp;`, `&lt;`, `&quot;`…), so the "plain text" the model got back still said `&amp;`. Quote that into any plain-text write — a rename, a notes edit, a supersede-with-tweak — and the site escapes it once more at render and shows a literal "&amp;". By 18 Aug 2026 two section titles ("Ceremony & Music", "Clothing & Accessories"), two card titles, two tasks' notes and a budget note on the live site read that way, every one traceable to a read quoted back into a write; seven cleanup proposals were needed. The propose_* side was never at fault — it expects plain text, and the site escapes exactly once at render. The asymmetry was on the read side.

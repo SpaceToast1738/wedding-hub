@@ -13,7 +13,17 @@ const inputSchema = z.object({
   nameContains: z.string().max(120).optional(),
   householdId: z.string().optional(),
   limit: z.number().int().min(1).max(50).optional(),
-});
+  // v2.13.4: offset pagination, same contract as read_tasks — follow
+  // page.nextOffset until null. Pre-fix `offset` (and `query`) were
+  // accepted and silently STRIPPED, so with 48 attending guests the
+  // response hit the 24k cap around 28 guests and the tail of the
+  // alphabet was unreachable by the obvious route.
+  offset: z.number().int().min(0).optional(),
+  // Alias of nameContains — the name callers reach for first.
+  query: z.string().max(120).optional(),
+})
+  // Unknown keys are an error that names the key, not a silent drop.
+  .strict();
 
 function trimNotes(notes: string | null): string | null {
   if (!notes) return null;
@@ -39,15 +49,16 @@ function resolveCustomFields(
 export const readGuests: AiTool<typeof inputSchema> = {
   name: "read_guests",
   description:
-    "Read guests matching the given filters. Also returns aggregate counts so you can answer 'how many are attending?' without listing everyone. Excludes archived guests. Each guest includes household (with id), contact details, group memberships, resolved custom fields, and — when populated — their meal choices (starter/main/dessert), reception seat (table + index), song requests, and lastNudgedAt. Use `nameContains` to find one guest, or `householdId` to list a whole household.",
+    "Read guests matching the given filters. Also returns aggregate counts so you can answer 'how many are attending?' without listing everyone. Excludes archived guests. Returns 20 by default; `limit` up to 50. To enumerate EVERY match (the full list overflows the 24k result cap), page with `offset` — follow the returned page.nextOffset until it's null. Each guest includes household (with id), contact details, group memberships, resolved custom fields, and — when populated — their meal choices (starter/main/dessert), reception seat (table + index), song requests, and lastNudgedAt. Use `nameContains` (alias `query`) to find one guest, or `householdId` to list a whole household. Unknown parameters are rejected.",
   inputSchema,
   progressLabel: "Reading guests…",
   definition: {
     name: "read_guests",
     description:
-      "Read guests matching the given filters, with aggregate RSVP counts. Excludes archived guests. Each guest includes household (with id), contact details, groups, custom fields, and — when set — meal choices, reception seat, song requests, and lastNudgedAt.",
+      "Read guests matching the given filters, with aggregate RSVP counts. Excludes archived guests. 20 by default, `limit` up to 50; page with `offset` and follow page.nextOffset until null to enumerate everyone. Each guest includes household (with id), contact details, groups, custom fields, and — when set — meal choices, reception seat, song requests, and lastNudgedAt. `nameContains` (alias `query`) finds one guest. Unknown parameters are rejected.",
     input_schema: {
       type: "object",
+      additionalProperties: false,
       properties: {
         rsvp: { type: "string", enum: [...RSVP] },
         side: { type: "string", enum: ["BRIDE", "GROOM", "BOTH"] },
@@ -59,6 +70,15 @@ export const readGuests: AiTool<typeof inputSchema> = {
         },
         householdId: { type: "string", description: "Only guests in this household." },
         limit: { type: "integer", minimum: 1, maximum: 50, description: "Default 20." },
+        offset: {
+          type: "integer",
+          minimum: 0,
+          description: "Skip this many matches (default 0). Follow page.nextOffset to paginate.",
+        },
+        query: {
+          type: "string",
+          description: "Alias of nameContains — case-insensitive substring on first OR last name.",
+        },
       },
     },
   },
@@ -74,18 +94,25 @@ export const readGuests: AiTool<typeof inputSchema> = {
     if (input.isChild != null) where.isChild = input.isChild;
     if (input.hasDietary) where.dietary = { isEmpty: false };
     if (input.householdId) where.householdId = input.householdId;
-    if (input.nameContains) {
+    const needle = input.nameContains ?? input.query;
+    if (needle) {
       where.OR = [
-        { firstName: { contains: input.nameContains, mode: "insensitive" } },
-        { lastName: { contains: input.nameContains, mode: "insensitive" } },
+        { firstName: { contains: needle, mode: "insensitive" } },
+        { lastName: { contains: needle, mode: "insensitive" } },
       ];
     }
 
-    const [guests, aggregate, fieldDefs] = await Promise.all([
+    const offset = input.offset ?? 0;
+    const limit = input.limit ?? 20;
+
+    const [guests, aggregate, fieldDefs, total] = await Promise.all([
       db.guest.findMany({
         where,
-        take: input.limit ?? 20,
-        orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
+        skip: offset,
+        take: limit,
+        // id is the final tiebreaker so offset pagination is stable
+        // across pages (two guests can share a full name).
+        orderBy: [{ lastName: "asc" }, { firstName: "asc" }, { id: "asc" }],
         select: {
           id: true,
           firstName: true,
@@ -126,7 +153,10 @@ export const readGuests: AiTool<typeof inputSchema> = {
         orderBy: { order: "asc" },
         select: { id: true, name: true },
       }),
+      db.guest.count({ where }),
     ]);
+
+    const nextOffset = offset + limit < total ? offset + limit : null;
 
     const counts = Object.fromEntries(
       aggregate.map((r) => [r.rsvp, r._count._all]),
@@ -143,6 +173,9 @@ export const readGuests: AiTool<typeof inputSchema> = {
           maybe: counts.MAYBE ?? 0,
         },
         count: guests.length,
+        // v2.13.4: `total` is the filtered match count (the aggregate
+        // above is always the whole list).
+        page: { offset, limit, total, nextOffset },
         guests: guests.map((g) => ({
           id: g.id,
           name: `${g.firstName} ${g.lastName}`.trim(),
