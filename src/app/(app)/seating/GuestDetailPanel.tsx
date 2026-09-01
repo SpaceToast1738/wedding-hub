@@ -5,6 +5,7 @@ import { Avatar } from "@/components/ui/Avatar";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { GuestGroupsControl, type GuestGroupSummary } from "@/components/ui/GuestGroupsControl";
 import type { AllGuest } from "./SeatingClient";
+import { HighChairIcon } from "./highchair";
 
 // v1.27.7: read-only summary panel for a focused seated guest.
 // Opens when the planner clicks (no drag movement) a seated guest
@@ -54,6 +55,13 @@ export function GuestDetailPanel({
               {guest.isChild && (
                 <span className="text-[10px] uppercase tracking-wider text-ink-tertiary bg-canvas border border-border-soft rounded-md px-1.5 py-0.5">
                   child
+                </span>
+              )}
+              {/* v2.10.0: high-chair marker, consistent with the seating plan. */}
+              {guest.needsHighchair && (
+                <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider text-marigold-700 bg-marigold-100 border border-marigold-700/30 rounded-md px-1.5 py-0.5">
+                  <HighChairIcon className="text-[12px]" title="Needs a high chair" />
+                  high chair
                 </span>
               )}
               {guest.currentTableName && (

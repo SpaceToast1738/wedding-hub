@@ -22,7 +22,17 @@ export default async function SeatingPage() {
             // v1.22.7: include rsvp so the canvas can color seat dots
             // by confirmation status (moss=attending, marigold=pending,
             // info=maybe, muted=declined).
-            guest: { select: { id: true, firstName: true, lastName: true, rsvp: true } },
+            // v2.10.0: needsHighchair drives the high-chair marker on the
+            // seating plan (canvas badge + list-view chip + table counts).
+            guest: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                rsvp: true,
+                needsHighchair: true,
+              },
+            },
           },
         },
       },
@@ -46,6 +56,7 @@ export default async function SeatingPage() {
         // the same columns it always has.
         email: true,
         isChild: true,
+        needsHighchair: true,
         dietary: true,
         plusOneAllowed: true,
         plusOneName: true,
@@ -77,6 +88,7 @@ export default async function SeatingPage() {
     // v1.27.7: extras for the guest detail panel.
     email: g.email,
     isChild: g.isChild,
+    needsHighchair: g.needsHighchair,
     dietary: g.dietary,
     plusOneAllowed: g.plusOneAllowed,
     plusOneName: g.plusOneName,
@@ -92,12 +104,22 @@ export default async function SeatingPage() {
   const attendingUnseated = allGuestsForClient.filter(
     (g) => g.rsvp === "ATTENDING" && !g.currentSeatId,
   ).length;
+  // v2.10.0: total high chairs needed across seated guests — a headline
+  // the caterer / venue asks for. Only surfaced when > 0.
+  const highChairCount = tables.reduce(
+    (n, t) => n + t.seats.filter((s) => s.guest?.needsHighchair).length,
+    0,
+  );
 
   return (
     <>
       <PageHeader
         title="Seating"
-        subtitle={`${tables.length} tables · ${seatedCount}/${totalCapacity} seats filled · ${attendingUnseated} attending unseated`}
+        subtitle={`${tables.length} tables · ${seatedCount}/${totalCapacity} seats filled · ${attendingUnseated} attending unseated${
+          highChairCount > 0
+            ? ` · ${highChairCount} high chair${highChairCount === 1 ? "" : "s"}`
+            : ""
+        }`}
         actions={editable ? <AddTableToggle /> : undefined}
       />
       {/* v1.23.1: tab bar for Reception ↔ Ceremony. */}

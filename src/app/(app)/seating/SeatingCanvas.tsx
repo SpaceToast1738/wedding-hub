@@ -8,6 +8,7 @@ import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { assignGuestToSeat, deleteTable, updateTableCapacity, updateTablePosition } from "./actions";
 import { CollapsiblePanel } from "./CollapsiblePanel";
 import { GuestDetailPanel } from "./GuestDetailPanel";
+import { HIGH_CHAIR_PATH } from "./highchair";
 import {
   ChecklistContent,
   NotesContent,
@@ -22,7 +23,8 @@ type Seat = {
   index: number;
   // v1.22.7: rsvp on the guest so the dot can be colored by
   // attendance confirmation (moss / marigold / info / muted).
-  guest: { id: string; firstName: string; lastName: string; rsvp: Rsvp } | null;
+  // v2.10.0: needsHighchair renders a high-chair badge beside the seat.
+  guest: { id: string; firstName: string; lastName: string; rsvp: Rsvp; needsHighchair: boolean } | null;
 };
 
 // Colors for the seat dots by RSVP. Mirrors the AllGuestsPanel tag
@@ -1111,6 +1113,51 @@ export function SeatingCanvas({
                             {label}
                           </text>
                         )}
+                        {/* v2.10.0: high-chair badge. Sits just inboard
+                            of the seat dot (toward the table body) so it
+                            never collides with the outboard name label.
+                            Inboard direction is shape-aware: radial for
+                            ROUND, straight into the edge for HEAD /
+                            RECTANGLE (a "toward-centre" vector would drift
+                            edge seats sideways onto their neighbours). */}
+                        {occupied && seat.guest?.needsHighchair && (() => {
+                          let inX: number;
+                          let inY: number;
+                          if (t.shape === "ROUND") {
+                            const len = Math.hypot(layout.cx, layout.cy) || 1;
+                            inX = -layout.cx / len;
+                            inY = -layout.cy / len;
+                          } else {
+                            // HEAD seats sit on the top edge → badge below.
+                            // RECTANGLE: toward the table body per side.
+                            inX = 0;
+                            inY = layout.cy < 0 ? 1 : -1;
+                          }
+                          const off = 3.5 * dotScale + 7 * dotScale;
+                          const bx = layout.cx + inX * off;
+                          const by = layout.cy + inY * off;
+                          return (
+                            <g transform={`translate(${bx} ${by})`} pointerEvents="none">
+                              <title>{`${seat.guest.firstName} needs a high chair`}</title>
+                              <circle
+                                r={6 * dotScale}
+                                fill="var(--color-surface)"
+                                stroke="var(--color-marigold-700)"
+                                strokeWidth={1}
+                              />
+                              <g
+                                transform={`scale(${dotScale}) translate(-0.65 0)`}
+                                fill="none"
+                                stroke="var(--color-marigold-700)"
+                                strokeWidth={1.1}
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                              >
+                                <path d={HIGH_CHAIR_PATH} />
+                              </g>
+                            </g>
+                          );
+                        })()}
                       </g>
                     );
                   });

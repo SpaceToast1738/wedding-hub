@@ -963,6 +963,18 @@ When wrapping up a meaningful iteration:
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
 
+### 2026-09-01 · v2.13.0 — High chairs on the table plan
+
+User: "add a feature to display high chairs on table plan." `Guest.needsHighchair` has existed since the guest form / CSV import, but the seating plan never surfaced it — so the one place the planner decides where a baby sits couldn't show which seats need a high chair. Display-only: no schema change, the flag is still set on the guest record.
+
+- **Canvas:** every seated guest flagged needs-high-chair gets a small marigold high-chair icon badge (`src/app/(app)/seating/highchair.tsx` — a hand-drawn side profile with tall splayed legs and a tray, so it reads as a *high* chair at ~14px) placed just inboard of the seat dot, toward the table body. Placement is shape-aware — radial for ROUND, straight into the edge for HEAD / RECTANGLE (a "toward-centre" vector would drift edge seats sideways onto their neighbours) — so it aligns with its seat and never collides with the outboard name label. Scales with the dot-size setting; an SVG `<title>` names the guest on hover.
+- **List view:** each table header shows a high-chair icon `×N` when N > 0, and each relevant seat row carries the icon (edit and read-only modes).
+- **Page subtitle:** the total across the plan ("… · 3 high chairs") — the number the caterer / venue asks for. Hidden when zero.
+- **Guest detail panel:** a "high chair" chip beside the existing "child" chip.
+- Plumbing: `needsHighchair` added to the seat→guest select on `/seating` and threaded through the `Seat` / `AllGuest` client types.
+
+**Verification.** typecheck ✅, 812 tests ✅, lint ✅, build ✅; icon and badge placement checked visually.
+
 ### 2026-09-01 · v2.12.0 — `read_task`: full task notes are readable, so they're finally safe to update
 
 **Found by using the thing (again).** `read_tasks` clips `notes` to 240 chars and flags `notesTruncated`, and `propose_task_update.notes` REPLACES the field. Together that made any notes edit on a long-notes task unsafe — the proposer would overwrite text it had never seen — so the only safe move was not to propose at all, and stale notes stayed stale. Real case, 2 Aug 2026: the cake plan changed from three tiers to three separate cakes; "Trial bake weekend" and "Test transport methods for cake" still described tier assembly in notes that were clipped. (Enhancement `cmsbqk9e`.)

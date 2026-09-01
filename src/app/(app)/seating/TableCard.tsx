@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/Button";
 import { notify } from "@/lib/notify";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 import { assignGuestToSeat, deleteTable, updateTableCapacity, swapSeats } from "./actions";
+import { HighChairIcon } from "./highchair";
 
 type Seat = {
   id: string;
@@ -14,6 +15,8 @@ type Seat = {
     firstName: string;
     lastName: string;
     rsvp: "PENDING" | "ATTENDING" | "DECLINED" | "MAYBE";
+    // v2.10.0: high-chair chip on the seat row + header count.
+    needsHighchair: boolean;
   } | null;
 };
 type ChecklistItem = { id: string; label: string; done: boolean };
@@ -56,6 +59,8 @@ export function TableCard({
   const [overSeatId, setOverSeatId] = useState<string | null>(null);
 
   const assigned = table.seats.filter((s) => s.guest).length;
+  // v2.10.0: how many seated guests at this table need a high chair.
+  const highChairs = table.seats.filter((s) => s.guest?.needsHighchair).length;
 
   async function onDelete() {
     if (!(await confirm({ title: `Delete table "${table.name}"?`, confirmLabel: "Delete", tone: "danger" }))) return;
@@ -111,8 +116,17 @@ export function TableCard({
         <div className="flex items-center justify-between gap-2">
           <div>
             <h2 className="text-sm font-semibold text-ink-primary">{table.name}</h2>
-            <div className="text-[11px] text-ink-tertiary">
-              {table.shape.toLowerCase()} · {assigned}/{table.capacity} seated
+            <div className="text-[11px] text-ink-tertiary flex items-center gap-1.5">
+              <span>{table.shape.toLowerCase()} · {assigned}/{table.capacity} seated</span>
+              {highChairs > 0 && (
+                <span
+                  className="inline-flex items-center gap-1 text-marigold-700"
+                  title={`${highChairs} high chair${highChairs === 1 ? "" : "s"} needed at this table`}
+                >
+                  <HighChairIcon className="text-[13px]" title="High chairs at this table" />
+                  ×{highChairs}
+                </span>
+              )}
             </div>
           </div>
           {canEdit && (
@@ -208,6 +222,15 @@ export function TableCard({
                     ? `${seat.guest.firstName} ${seat.guest.lastName}`
                     : <span className="text-ink-tertiary italic">empty</span>
                   }
+                </span>
+              )}
+              {/* v2.10.0: high-chair marker for this seat's guest. */}
+              {seat.guest?.needsHighchair && (
+                <span
+                  className="flex-shrink-0 text-marigold-700 text-base leading-none"
+                  title={`${seat.guest.firstName} needs a high chair`}
+                >
+                  <HighChairIcon title={`${seat.guest.firstName} needs a high chair`} />
                 </span>
               )}
             </li>

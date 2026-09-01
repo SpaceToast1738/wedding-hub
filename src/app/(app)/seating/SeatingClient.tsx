@@ -21,6 +21,8 @@ type Seat = {
     lastName: string;
     // v1.22.7: piped through to color seat dots on the canvas.
     rsvp: "PENDING" | "ATTENDING" | "DECLINED" | "MAYBE";
+    // v2.10.0: drives the high-chair marker on the seating plan.
+    needsHighchair: boolean;
   } | null;
 };
 
@@ -55,6 +57,8 @@ export type AllGuest = {
   currentTableName: string | null;
   email: string | null;
   isChild: boolean;
+  // v2.10.0: shown as a chip on the guest detail panel.
+  needsHighchair: boolean;
   dietary: string[];
   plusOneAllowed: boolean;
   plusOneName: string | null;
