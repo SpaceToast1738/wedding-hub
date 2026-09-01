@@ -963,6 +963,18 @@ When wrapping up a meaningful iteration:
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
 
+### 2026-09-01 · v2.13.1 — Host edits no longer overwrite a plus-one's explicit decline
+
+**The bug (enhancement `cmskr1r7`).** Any save of a host guest re-ran the +1 cascade, which re-stamps the host's RSVP onto the +1 row. So an edit that never touched RSVP — Luke Maple's email, phone and three meal courses on 5 Aug 2026 — flipped Hannah Salyer from her explicit DECLINED back to ATTENDING, and the headcount went 45/4 → 46/3 with nothing in the log to say why. A note on Luke's record already warned about it: the data had folklore for a bug.
+
+**Three fixes, matching the three suggestions on the ticket:**
+
+1. **Cascade only when it can matter.** `updateGuestCore` now runs `syncPlusOne` only if `rsvp`, `plusOneAllowed`, `plusOneName` or `side` is in the diff (`plusOneSyncNeeded` in `src/lib/plus-one.ts`, driven by the same `diffEditedFields` output that feeds the audit row, so gate and log can't disagree). Contact / meal / dietary / notes edits leave the +1 alone.
+2. **An explicit decline is sticky.** `decidePlusOneAction` keeps a +1's DECLINED when the host is ATTENDING or PENDING; a host who declines still takes the +1 with them. A +1 only ever becomes DECLINED by someone setting it, so that state is always deliberate. Trade-off, stated: a +1 that was declined *by an earlier host decline* stays DECLINED when the host later flips back and has to be re-set by hand — wrong-but-visible beats the pre-fix silently-wrong number going to the venue.
+3. **Cascades are visible.** `syncPlusOne` returns what it did; `update` and `rsvp` audit rows carry `plusOneCascade` (child id, plus `rsvpChanged: {from, to}` when the +1's RSVP moved), so a dependent record can no longer change without a trace. `setGuestRsvpCore` and `createGuestCore` are unchanged in behaviour — an RSVP set is by definition an RSVP change.
+
+**Verification.** typecheck ✅, 822 tests ✅ (10 new in `tests/unit/plus-one.test.ts`: sticky decline ×5 incl. host-declines and the create path, and the gate ×5 incl. the exact Hannah edit), lint ✅, build ✅.
+
 ### 2026-09-01 · v2.13.0 — High chairs on the table plan
 
 User: "add a feature to display high chairs on table plan." `Guest.needsHighchair` has existed since the guest form / CSV import, but the seating plan never surfaced it — so the one place the planner decides where a baby sits couldn't show which seats need a high chair. Display-only: no schema change, the flag is still set on the guest record.

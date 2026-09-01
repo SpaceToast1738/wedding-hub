@@ -3,11 +3,25 @@
 // (importing actions.ts from a test file pulls in next-auth + Prisma,
 // which Vitest's node env can't resolve cleanly).
 //
-// The DB-aware wrapper `syncPlusOne` in src/app/(app)/guests/actions.ts
-// reads + writes the DB based on these decisions.
+// The DB-aware wrapper `syncPlusOne` in src/lib/core/guests.ts reads +
+// writes the DB based on these decisions.
 
 import type { RsvpStatus, Side } from "@prisma/client";
 import { splitFullName } from "@/lib/csv";
+
+// v2.13.1: the host fields a +1 row is DERIVED from. updateGuestCore
+// only runs the cascade when one of these actually changed. Pre-fix it
+// ran on every host save — so editing a host's email, phone or meal
+// choices re-stamped the host's RSVP onto the +1 and silently flipped
+// an explicit decline back to ATTENDING (Hannah Salyer, 5 Aug 2026: 45/4
+// became 46/3 with nothing in the log to say why). `changedFields` here
+// is the diffEditedFields output that already feeds the audit row, so
+// the gate and the log can't disagree about what changed.
+export const PLUS_ONE_SYNC_FIELDS = ["rsvp", "plusOneAllowed", "plusOneName", "side"] as const;
+
+export function plusOneSyncNeeded(changedFields: readonly string[]): boolean {
+  return changedFields.some((f) => (PLUS_ONE_SYNC_FIELDS as readonly string[]).includes(f));
+}
 
 export type HostSnapshot = {
   id: string;
@@ -22,6 +36,8 @@ export type HostSnapshot = {
 export type ChildSnapshot = {
   id: string;
   archived: boolean;
+  // v2.13.1: needed for the sticky-decline rule in the update path.
+  rsvp: RsvpStatus;
 } | null;
 
 export type PlusOneAction =
@@ -91,6 +107,16 @@ export function decidePlusOneAction(
     };
   }
 
+  // v2.13.1: an explicit DECLINED on the +1 is sticky. A +1 starts
+  // PENDING and only ever becomes DECLINED by someone setting it, so
+  // "child says DECLINED, host doesn't" is always a deliberate answer —
+  // the host being (or becoming) ATTENDING must not overturn it. The
+  // host declining still takes the +1 with them (a +1 can't attend
+  // alone). Trade-off: a +1 that reached DECLINED via an earlier host
+  // decline stays DECLINED when the host later flips back to ATTENDING
+  // and has to be re-set by hand — wrong-but-visible beats the pre-fix
+  // silently-wrong headcount going to the venue.
+  const rsvp = child.rsvp === "DECLINED" && host.rsvp !== "DECLINED" ? child.rsvp : host.rsvp;
   return {
     kind: "update",
     childId: child.id,
@@ -99,7 +125,7 @@ export function decidePlusOneAction(
       firstName,
       lastName,
       side: host.side,
-      rsvp: host.rsvp,
+      rsvp,
     },
   };
 }

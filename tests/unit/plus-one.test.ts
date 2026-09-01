@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decidePlusOneAction } from "@/lib/plus-one";
+import { decidePlusOneAction, plusOneSyncNeeded } from "@/lib/plus-one";
 
 // The +1 sync logic is split into:
 //   - decidePlusOneAction (pure, in actions.ts) — tested here
@@ -23,6 +23,15 @@ const HOST_BASE = {
   plusOneAllowed: true,
   plusOneName: "Sarah Smith",
   parentGuestId: null,
+};
+
+// v2.13.1: ChildSnapshot now carries the +1's own rsvp (for the
+// sticky-decline rule). A +1 starts PENDING; ATTENDING here mirrors
+// the common already-cascaded state the older cases assumed.
+const CHILD_BASE = {
+  id: "child_1",
+  archived: false,
+  rsvp: "ATTENDING" as const,
 };
 
 describe("decidePlusOneAction — create path", () => {
@@ -77,7 +86,7 @@ describe("decidePlusOneAction — update path", () => {
   it("updates an existing +1's first/last from a renamed plusOneName", () => {
     const action = decidePlusOneAction(
       { ...HOST_BASE, plusOneName: "Sarah Smith-Jones" },
-      { id: "child_1", archived: false },
+      { ...CHILD_BASE },
     );
     expect(action.kind).toBe("update");
     if (action.kind !== "update") return;
@@ -94,7 +103,7 @@ describe("decidePlusOneAction — update path", () => {
         side: "BRIDE",
         rsvp: "DECLINED",
       },
-      { id: "child_1", archived: false },
+      { ...CHILD_BASE },
     );
     expect(action.kind).toBe("update");
     if (action.kind !== "update") return;
@@ -107,7 +116,7 @@ describe("decidePlusOneAction — update path", () => {
     // If +1 was previously archived (e.g. host disabled then re-enabled
     // it), the action is still "update" — caller decides whether to
     // un-archive separately. Default sync stays minimal.
-    const action = decidePlusOneAction(HOST_BASE, { id: "child_1", archived: true });
+    const action = decidePlusOneAction(HOST_BASE, { ...CHILD_BASE, archived: true });
     expect(action.kind).toBe("update");
   });
 });
@@ -116,7 +125,7 @@ describe("decidePlusOneAction — archive path", () => {
   it("archives the +1 when plusOneAllowed flips to false", () => {
     const action = decidePlusOneAction(
       { ...HOST_BASE, plusOneAllowed: false },
-      { id: "child_1", archived: false },
+      { ...CHILD_BASE },
     );
     expect(action.kind).toBe("archive");
     if (action.kind !== "archive") return;
@@ -126,7 +135,7 @@ describe("decidePlusOneAction — archive path", () => {
   it("archives the +1 when plusOneName is cleared", () => {
     const action = decidePlusOneAction(
       { ...HOST_BASE, plusOneName: "" },
-      { id: "child_1", archived: false },
+      { ...CHILD_BASE },
     );
     expect(action.kind).toBe("archive");
   });
@@ -134,7 +143,7 @@ describe("decidePlusOneAction — archive path", () => {
   it("no-ops when plusOne is already archived (idempotent)", () => {
     const action = decidePlusOneAction(
       { ...HOST_BASE, plusOneAllowed: false },
-      { id: "child_1", archived: true },
+      { ...CHILD_BASE, archived: true },
     );
     expect(action.kind).toBe("noop");
   });
@@ -157,5 +166,75 @@ describe("decidePlusOneAction — recursion guard", () => {
     expect(action.kind).toBe("noop");
     if (action.kind !== "noop") return;
     expect(action.reason).toBe("host_is_plus_one");
+  });
+});
+
+// v2.13.1: an explicit decline on the +1 is sticky, and the cascade
+// only runs when a field the +1 derives from actually changed.
+describe("decidePlusOneAction — sticky decline (v2.13.1)", () => {
+  it("keeps a +1's DECLINED when the host is ATTENDING", () => {
+    const action = decidePlusOneAction(HOST_BASE, { ...CHILD_BASE, rsvp: "DECLINED" });
+    expect(action.kind).toBe("update");
+    if (action.kind !== "update") return;
+    expect(action.data.rsvp).toBe("DECLINED");
+  });
+
+  it("keeps a +1's DECLINED when the host is PENDING", () => {
+    const action = decidePlusOneAction(
+      { ...HOST_BASE, rsvp: "PENDING" },
+      { ...CHILD_BASE, rsvp: "DECLINED" },
+    );
+    expect(action.kind).toBe("update");
+    if (action.kind !== "update") return;
+    expect(action.data.rsvp).toBe("DECLINED");
+  });
+
+  it("still takes the +1 down with a host who declines", () => {
+    const action = decidePlusOneAction(
+      { ...HOST_BASE, rsvp: "DECLINED" },
+      { ...CHILD_BASE, rsvp: "ATTENDING" },
+    );
+    expect(action.kind).toBe("update");
+    if (action.kind !== "update") return;
+    expect(action.data.rsvp).toBe("DECLINED");
+  });
+
+  it("still cascades ATTENDING onto a +1 that is merely PENDING", () => {
+    const action = decidePlusOneAction(HOST_BASE, { ...CHILD_BASE, rsvp: "PENDING" });
+    expect(action.kind).toBe("update");
+    if (action.kind !== "update") return;
+    expect(action.data.rsvp).toBe("ATTENDING");
+  });
+
+  it("does not let stickiness leak into the create path (no child yet)", () => {
+    const action = decidePlusOneAction(HOST_BASE, null);
+    expect(action.kind).toBe("create");
+    if (action.kind !== "create") return;
+    expect(action.data.rsvp).toBe("ATTENDING");
+  });
+});
+
+describe("plusOneSyncNeeded — cascade gate (v2.13.1)", () => {
+  it("is false for the Hannah Salyer edit: email + phone + meals only", () => {
+    expect(plusOneSyncNeeded(["email", "phone", "mealStarter", "mealMain", "mealDessert"])).toBe(
+      false,
+    );
+  });
+
+  it("is false for an empty diff", () => {
+    expect(plusOneSyncNeeded([])).toBe(false);
+  });
+
+  it.each(["rsvp", "plusOneAllowed", "plusOneName", "side"])(
+    "is true when %s changed",
+    (field) => {
+      expect(plusOneSyncNeeded(["notes", field])).toBe(true);
+    },
+  );
+
+  it("ignores unrelated fields that merely mention the +1", () => {
+    expect(plusOneSyncNeeded(["notes", "dietary", "isChild", "needsHighchair", "role"])).toBe(
+      false,
+    );
   });
 });

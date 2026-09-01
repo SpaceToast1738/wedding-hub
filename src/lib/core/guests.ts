@@ -28,7 +28,7 @@ import { db } from "@/lib/db";
 // @/auth (next-auth) module graph into every registry consumer.
 import type { SessionUser } from "@/lib/actions";
 import { logAudit } from "@/lib/audit";
-import { decidePlusOneAction } from "@/lib/plus-one";
+import { decidePlusOneAction, plusOneSyncNeeded } from "@/lib/plus-one";
 import {
   diffEditedFields,
   mergeEditedFields,
@@ -114,7 +114,21 @@ export function readDietary(s: string | null | undefined): string[] {
 // it — one implementation, shared from the only file that may legally
 // export a non-action.
 
-export async function syncPlusOne(hostId: string): Promise<void> {
+// v2.13.1: what the cascade actually did, so callers can put it in the
+// audit row — pre-fix a dependent record could change with nothing in
+// the log to say so. `rsvpChanged` is set only when the +1's RSVP
+// moved.
+export type PlusOneSyncOutcome =
+  | { kind: "noop" }
+  | { kind: "create"; childId: string; rsvp: RsvpStatus }
+  | {
+      kind: "update";
+      childId: string;
+      rsvpChanged: { from: RsvpStatus; to: RsvpStatus } | null;
+    }
+  | { kind: "archive"; childId: string };
+
+export async function syncPlusOne(hostId: string): Promise<PlusOneSyncOutcome> {
   const host = await db.guest.findUnique({
     where: { id: hostId },
     select: {
@@ -127,30 +141,39 @@ export async function syncPlusOne(hostId: string): Promise<void> {
       parentGuestId: true,
     },
   });
-  if (!host) return;
+  if (!host) return { kind: "noop" };
 
   const childRow = await db.guest.findFirst({
     where: { parentGuestId: host.id },
     orderBy: { createdAt: "asc" },
-    select: { id: true, archived: true },
+    // v2.13.1: rsvp feeds the sticky-decline rule in decidePlusOneAction.
+    select: { id: true, archived: true, rsvp: true },
   });
 
   const action = decidePlusOneAction(host, childRow);
   switch (action.kind) {
     case "noop":
-      return;
-    case "create":
-      await db.guest.create({ data: action.data });
-      return;
-    case "update":
+      return { kind: "noop" };
+    case "create": {
+      const created = await db.guest.create({ data: action.data, select: { id: true } });
+      return { kind: "create", childId: created.id, rsvp: action.data.rsvp };
+    }
+    case "update": {
       await db.guest.update({ where: { id: action.childId }, data: action.data });
-      return;
+      const from = childRow!.rsvp;
+      const to = action.data.rsvp;
+      return {
+        kind: "update",
+        childId: action.childId,
+        rsvpChanged: from === to ? null : { from, to },
+      };
+    }
     case "archive":
       await db.guest.update({
         where: { id: action.childId },
         data: { archived: true, tableSeatId: null },
       });
-      return;
+      return { kind: "archive", childId: action.childId };
   }
 }
 
@@ -324,10 +347,14 @@ export async function updateGuestCore(
     },
   });
 
-  // Cascade to the +1 if this is a host. syncPlusOne short-circuits if
-  // the row is itself a +1 (parentGuestId set), so it's safe to call
-  // unconditionally.
-  await syncPlusOne(id);
+  // Cascade to the +1 ONLY when a host field the +1 derives from
+  // actually changed (rsvp / plusOneAllowed / plusOneName / side).
+  // v2.13.1: pre-fix this ran on every save, so an email-or-meals-only
+  // edit re-stamped the host's RSVP onto the +1 and silently overwrote
+  // an explicit decline. `changed` is the same diff that feeds the audit
+  // row below, so the gate and the log agree. syncPlusOne still
+  // short-circuits if the row is itself a +1.
+  const plusOne = plusOneSyncNeeded(changed) ? await syncPlusOne(id) : null;
   // v1.39.0: enrich with name + the actual changed field names. The
   // diffEditedFields call above already computed `changed` for the
   // last-edited-fields stamp; reuse that list here so the audit row
@@ -341,6 +368,9 @@ export async function updateGuestCore(
       firstName: nextValues.firstName,
       lastName: nextValues.lastName,
       changedFields: changed,
+      // v2.13.1: surface a cascade that touched the +1 so the log says
+      // why a dependent record moved.
+      ...(plusOne && plusOne.kind !== "noop" ? { plusOneCascade: plusOne } : {}),
     },
   });
   revalidatePath("/guests");
@@ -363,9 +393,10 @@ export async function setGuestRsvpCore(
     },
   });
   // Cascade to any +1 — host RSVP is the source of truth for the +1's
-  // RSVP. (A +1's own RSVP can be set independently via this same
-  // action, but the next host RSVP change will overwrite it.)
-  await syncPlusOne(id);
+  // RSVP, with one exception (v2.13.1): a +1's explicit DECLINED is
+  // sticky and isn't overturned by the host attending. See
+  // decidePlusOneAction.
+  const plusOne = await syncPlusOne(id);
   // Add name to the RSVP audit so the log reads as "Set RSVP for
   // <name> to attending" rather than just an id.
   const guest = await db.guest.findUnique({
@@ -381,6 +412,7 @@ export async function setGuestRsvpCore(
       rsvp,
       firstName: guest?.firstName ?? null,
       lastName: guest?.lastName ?? null,
+      ...(plusOne.kind !== "noop" ? { plusOneCascade: plusOne } : {}),
     },
   });
   revalidatePath("/guests");
