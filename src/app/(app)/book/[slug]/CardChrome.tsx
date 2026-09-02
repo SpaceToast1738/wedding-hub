@@ -12,6 +12,7 @@ import {
   updateBookSubsection,
 } from "../actions";
 import { CardLinkedTasksPanel, type LinkedTaskRow } from "./CardLinkedTasksPanel";
+import { ShareCardMenu } from "./ShareCardMenu";
 import type { UserOpt } from "@/app/(app)/tasks/AddTaskToggle";
 
 // v1.26.0: shared chrome for the four new card kinds (FIELD, RECIPE,
@@ -283,9 +284,15 @@ export function CardChrome({
           primary job is "Edit". Collapsed into a single "⋯ Options"
           menu so the default footer reads as one primary action +
           one secondary options trigger. */}
-      {canEdit && (!hideHousekeeping || actions) && (
-        <div className="flex items-center justify-end gap-1 mt-3 pt-3 border-t border-border-soft">
-          {!hideHousekeeping && (
+      {/* v2.14.0: Share (copy for WhatsApp / plain text / print-PDF)
+          sits at the left of the footer for EVERY viewer — the people
+          who forward a brief are usually view-only — so the footer now
+          always renders; the edit-side controls keep their canEdit
+          gates. */}
+      <div className="flex items-center justify-between gap-1 mt-3 pt-3 border-t border-border-soft">
+        <ShareCardMenu subsectionId={subsectionId} title={title} />
+        <div className="flex items-center justify-end gap-1">
+          {canEdit && !hideHousekeeping && (
             <div ref={menuRef} className="relative inline-block">
               <Button
                 type="button"
@@ -328,9 +335,9 @@ export function CardChrome({
               )}
             </div>
           )}
-          {actions}
+          {canEdit && actions}
         </div>
-      )}
+      </div>
     </article>
   );
 }
