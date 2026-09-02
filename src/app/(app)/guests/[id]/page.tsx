@@ -136,6 +136,21 @@ export default async function GuestDetailPage({
         <Empty />
       ),
     },
+    {
+      // v2.15.0: when the CSV importer last created or merged this row.
+      // "Never" is the tell for a Say I Do response that isn't reaching
+      // the hub — distinct from a guest who simply hasn't answered.
+      label: "Last imported",
+      value: guest.lastImportedAt ? (
+        <span title={guest.lastImportedAt.toISOString()}>
+          {guest.lastImportedAt.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
+        </span>
+      ) : (
+        <span className="text-marigold-700" title="No CSV import has ever matched this guest — if they answered on Say I Do, the importer isn't reaching them.">
+          Never
+        </span>
+      ),
+    },
   ];
 
   const meals: Array<{ label: string; value: string | null }> = [

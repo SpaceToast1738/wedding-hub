@@ -7,6 +7,7 @@ import { AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { GUEST_FIELD_LABELS, MULTI_VALUE_FIELDS, type GuestField, inferMapping, parseCsv } from "@/lib/csv";
 import type { MergeableField } from "@/lib/csv-merge";
+import { MATCH_RULE_LABELS } from "@/lib/import-match";
 import { commitImport, previewImport, type ImportPreview } from "./actions";
 import { useConfirm } from "@/components/ui/ConfirmDialog";
 
@@ -117,7 +118,7 @@ export function ImportClient() {
       bodyParts.push(`${preview.rowErrors} row${preview.rowErrors === 1 ? "" : "s"} with errors will be skipped.`);
     }
     if (preview.duplicateEmails > 0) {
-      bodyParts.push(`${preview.duplicateEmails} row${preview.duplicateEmails === 1 ? "" : "s"} share an email with another Guest row but don't match by name — those will create a second guest row. (User sign-in accounts are stored separately and aren't checked here.)`);
+      bodyParts.push(`${preview.duplicateEmails} row${preview.duplicateEmails === 1 ? "" : "s"} look like an existing guest (same email, or a name two guests already share) but didn't match any merge rule — importing as-is will create a second guest row. Check the red warnings.`);
     }
     if (!(await confirm({
       title: "Run guest import?",
@@ -448,7 +449,7 @@ function PreviewPanel({
           {preview.newGuests > 0 && <span className="text-moss-700">{preview.newGuests} new</span>}
           {preview.updatedGuests > 0 && <span className="text-info">{preview.updatedGuests} merging into existing</span>}
           {preview.rowErrors > 0 && <span className="text-danger">{preview.rowErrors} with errors</span>}
-          {preview.duplicateEmails > 0 && <span className="text-marigold-700">{preview.duplicateEmails} duplicate email{preview.duplicateEmails === 1 ? "" : "s"}</span>}
+          {preview.duplicateEmails > 0 && <span className="text-danger">{preview.duplicateEmails} would duplicate existing guest{preview.duplicateEmails === 1 ? "" : "s"}</span>}
           {preview.newHouseholds.length > 0 && <span>{preview.newHouseholds.length} new household{preview.newHouseholds.length === 1 ? "" : "s"}</span>}
           {preview.newTables.length > 0 && <span>{preview.newTables.length} new table{preview.newTables.length === 1 ? "" : "s"}</span>}
         </div>
@@ -486,6 +487,14 @@ function PreviewPanel({
                     <div>
                       {r.firstName || <em className="text-danger">(missing)</em>}{" "}
                       {r.lastName || <em className="text-danger">(missing)</em>}
+                      {r.matchedBy && r.matchedBy !== "household+name" && (
+                        <span
+                          className="ml-1.5 text-[10px] text-info bg-[color:#eef4f5] dark:bg-muted border border-[color:#d0e4e8] dark:border-border-soft px-1 rounded"
+                          title="Matched an existing guest by a fallback rule — the household name in the file differs from the hub, so this row would previously have become a duplicate."
+                        >
+                          matched · {MATCH_RULE_LABELS[r.matchedBy]}
+                        </span>
+                      )}
                       {r.guestAction === "update" && !hasDiffs && (
                         <span
                           className="ml-1.5 text-[10px] text-ink-tertiary bg-canvas border border-border-soft px-1 rounded"
@@ -593,7 +602,13 @@ function PreviewPanel({
                       </div>
                     ))}
                     {r.warnings.map((w, i) => (
-                      <div key={`w${i}`} className="text-marigold-700">! {w}</div>
+                      <div
+                        key={`w${i}`}
+                        // v2.15.0: "would create a duplicate" is the loud one.
+                        className={w.startsWith("no match") ? "text-danger font-medium" : "text-marigold-700"}
+                      >
+                        ! {w}
+                      </div>
                     ))}
                     {r.errors.length === 0 && r.warnings.length === 0 && (
                       <span className="text-ink-tertiary">ok</span>

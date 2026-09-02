@@ -963,6 +963,18 @@ When wrapping up a meaningful iteration:
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
 
+### 2026-09-02 · v2.15.0 — Say I Do imports reach the right guest: rule-ordered matching, loud duplicates, "last imported"
+
+**The bug (enhancement `cmskqxsu`).** Ten attending guests had full starter/main/dessert choices in a Say I Do export and nothing in the hub (5 Aug 2026); six of them had emails and phones on the export the hub didn't hold; a plus-one sat as the placeholder "John Doe(KAT)" while the site had his real name. Nothing was "syncing" — there is no live integration, only the CSV importer — and the importer merged a row into an existing guest **only** when `household name + first + last` matched the hub exactly, looking only inside households named in the file. A party whose export name differed from the hub household ("Luke Maple and Guest"), or a plus-one still holding a placeholder name, never matched: the row was treated as a *new* guest, so its responses never touched the existing record, and the hub just looked blank — indistinguishable from "hasn't answered".
+
+**Fix 1 — rule-ordered matching** (`src/lib/import-match.ts`, pure, used identically by preview and commit so what you see is what merges): 1. household + name (the original rule); 2. **RSVP link + name** — the per-party Say I Do link identifies the party even after a rename, the name picks the person within it; 3. **email**, when exactly one guest holds it; 4. **name**, when exactly one non-archived guest has it at all. Ambiguous names (two Sam Smiths) never silently pick one. The index now covers every non-archived guest, not just households named in the CSV. The preview shows *which* rule merged a row ("matched · same RSVP link + name") whenever it wasn't the plain household match.
+
+**Fix 2 — duplicates are loud.** An unmatched row that still looks like someone we know (same email, or a name two guests already share) gets a red *"no match — importing will create a second guest row: Keith Spencer (The Spencers) already has this email"* warning and a red count in the summary, replacing the previous soft "shares an email" hint.
+
+**Fix 3 — "last imported".** New `Guest.lastImportedAt` (migration `20260902000000_guest_last_imported_at`), stamped on every import create and merge — even a no-op merge, because the question it answers is "did this record ever get a sync?". Shown on the guest page (**Never**, in marigold, is the tell) and returned by `read_guests` for the planner.
+
+**Verification.** typecheck ✅, 872 tests ✅ (12 new in `tests/unit/import-match.test.ts`: every rule, rule precedence, the placeholder-plus-one miss, ambiguous-name refusal, email + name collisions, and a mid-import row matching a guest created earlier in the same file), lint ✅, build ✅.
+
 ### 2026-09-01 · v2.14.0 — Share / export a single Book card: copy for WhatsApp, plain text, or print to PDF
 
 **The ask (enhancement `cmsz2h17`).** There was no way to get one card out of the Book to someone who doesn't use the app. Real case, 18 Aug 2026: the "Josh & Aimee — your ceremony brief" card had to be hand-retyped into a `.txt` with WhatsApp asterisks and forwarded — and the card and the copy then drifted apart. Most of the wedding party and every supplier will never log in; single-card export is how Book content reaches them.

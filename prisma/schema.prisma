@@ -189,6 +189,10 @@ model Guest {
   groups               GuestGroup[]  @relation("GuestGroupMembers")
   tags                 String[]      @default([])
   lastNudgedAt         DateTime?
+  // v2.15.0: stamped by the CSV importer on create + merge so a record
+  // that never received a Say I Do import is visibly stale rather than
+  // indistinguishable from "guest hasn't answered".
+  lastImportedAt       DateTime?
   // Self-relation for plus-ones. When a host has plusOneAllowed=true and
   // plusOneName set and rsvp=ATTENDING, we materialise a child Guest row
   // with parentGuestId pointing at the host. The child shows up in totals

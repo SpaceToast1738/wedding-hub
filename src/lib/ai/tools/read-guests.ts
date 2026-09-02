@@ -135,6 +135,7 @@ export const readGuests: AiTool<typeof inputSchema> = {
           mealMain: true,
           mealDessert: true,
           lastNudgedAt: true,
+          lastImportedAt: true,
           tableSeat: {
             select: { index: true, table: { select: { id: true, name: true } } },
           },
@@ -215,6 +216,10 @@ export const readGuests: AiTool<typeof inputSchema> = {
               }
             : undefined,
           lastNudgedAt: g.lastNudgedAt ? g.lastNudgedAt.toISOString() : undefined,
+          // v2.15.0: when the CSV importer last touched this guest — a
+          // missing value means they never came through a Say I Do
+          // import, which is a different thing from "hasn't answered".
+          lastImportedAt: g.lastImportedAt ? g.lastImportedAt.toISOString() : undefined,
           songRequests: g.songRequests.length ? g.songRequests : undefined,
           groups: g.groups.length ? g.groups : undefined,
           customFields: resolveCustomFields(fieldDefs, g.customFieldValues),

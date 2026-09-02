@@ -28,6 +28,13 @@ import {
   MERGEABLE_FIELDS,
 } from "@/lib/csv-merge";
 import { daysSinceEdited, type EditedFieldsMap } from "@/lib/last-edited-fields";
+import {
+  buildGuestIndex,
+  findCollision,
+  indexGuest,
+  resolveImportMatch,
+  type MatchRule,
+} from "@/lib/import-match";
 
 // C4: fields that map between MergeableField (CSV-side) and the
 // Guest column whose edit-timestamp we'd check. Only fields the
@@ -84,7 +91,13 @@ export type ImportRowPreview = {
   // "update" = matching guest exists (same household, same first+last,
   // case-insensitive) → merge into the existing row.
   guestAction: "create" | "update";
+  // v2.15.0: now "looks like an existing guest (email or ambiguous name)
+  // but did NOT match" — i.e. importing would create a duplicate.
   emailDuplicate: boolean;
+  // v2.15.0: which rule merged this row (null on create), and for an
+  // unmatched row, who it would duplicate.
+  matchedBy: MatchRule | null;
+  duplicateOf: string | null;
   // Populated only on update rows. Each diff shows what would change
   // if the merge applied. The UI renders these expandably with a
   // checkbox per row to opt out individual fields. Empty array means
@@ -155,7 +168,10 @@ function buildRowPreview(
   mapping: GuestField[],
   headers: string[],
   rowIndex: number,
-): Omit<ImportRowPreview, "householdAction" | "tableAction" | "emailDuplicate" | "guestAction" | "fieldDiffs"> {
+): Omit<
+  ImportRowPreview,
+  "householdAction" | "tableAction" | "emailDuplicate" | "guestAction" | "fieldDiffs" | "matchedBy" | "duplicateOf"
+> {
   const single = (field: GuestField): string => {
     const idx = findOne(mapping, field);
     if (idx === -1) return "";
@@ -325,20 +341,20 @@ export async function previewImport(input: {
   const tableNames = Array.from(
     new Set(previews.map((p) => p.tableName).filter((n): n is string => !!n)),
   );
-  const emails = previews.map((p) => p.email).filter((e): e is string => !!e);
-
-  const [existingHouseholdRows, existingTables, existingEmails, existingGuestsInTargetHouseholds] = await Promise.all([
+  const [existingHouseholdRows, existingTables, existingGuestsInTargetHouseholds] = await Promise.all([
     db.household.findMany({
       where: { name: { in: householdNames } },
       select: { id: true, name: true },
     }),
     db.table.findMany({ where: { name: { in: tableNames } }, select: { name: true } }),
-    db.guest.findMany({ where: { email: { in: emails } }, select: { email: true } }),
-    // Full snapshot for (household, firstName, lastName) dedupe at preview
-    // time AND for the per-field diff computed against `decideGuestMerge`.
+    // v2.15.0: snapshot of EVERY non-archived guest — matching is no
+    // longer confined to households named in the CSV (see
+    // src/lib/import-match.ts), and the per-field diff still needs the
+    // full row for `decideGuestMerge`.
     db.guest.findMany({
-      where: { household: { name: { in: householdNames } }, archived: false },
+      where: { archived: false },
       select: {
+        id: true,
         firstName: true,
         lastName: true,
         email: true,
@@ -368,25 +384,25 @@ export async function previewImport(input: {
   ]);
   const existingHouseholdSet = new Set(existingHouseholdRows.map((h) => h.name));
   const existingTableSet = new Set(existingTables.map((t) => t.name));
-  const existingEmailSet = new Set(
-    existingEmails.map((e) => e.email).filter((e): e is string => !!e),
-  );
-
-  // Key: "<householdName>|<firstNameLower>|<lastNameLower>"
-  function dedupeKey(householdName: string, first: string, last: string): string {
-    return `${householdName}|${first.trim().toLowerCase()}|${last.trim().toLowerCase()}`;
-  }
-  const existingGuestByKey = new Map(
-    existingGuestsInTargetHouseholds.map((g) => [
-      dedupeKey(g.household.name, g.firstName, g.lastName),
-      g,
-    ]),
+  // v2.15.0: rule-ordered matching (household+name → rsvpLink+name →
+  // email → unique name) so a renamed party or a placeholder plus-one
+  // still merges instead of quietly becoming a second guest row.
+  const guestIndex = buildGuestIndex(
+    existingGuestsInTargetHouseholds.map((g) => ({ ...g, householdName: g.household.name })),
   );
 
   const decorated: ImportRowPreview[] = previews.map((p) => {
-    const isDup = !!p.email && existingEmailSet.has(p.email);
-    const matchKey = p.householdName ? dedupeKey(p.householdName, p.firstName, p.lastName) : null;
-    const matchedGuest = matchKey ? existingGuestByKey.get(matchKey) ?? null : null;
+    const rowKey = {
+      firstName: p.firstName,
+      lastName: p.lastName,
+      email: p.email,
+      rsvpLink: p.rsvpLink,
+      householdName: p.householdName,
+    };
+    const match = resolveImportMatch(rowKey, guestIndex);
+    const matchedGuest = match?.guest ?? null;
+    const collision = matchedGuest ? null : findCollision(rowKey, guestIndex);
+    const isDup = collision !== null;
     const guestAction: "create" | "update" = matchedGuest ? "update" : "create";
 
     let fieldDiffs: FieldDiff[] = [];
@@ -455,16 +471,17 @@ export async function previewImport(input: {
       }
     }
 
-    const baseWarnings =
-      isDup && guestAction === "create"
-        ? [
-            ...p.warnings,
-            // Only show the duplicate-email warning when we're NOT already
-            // merging via the name+household match — otherwise the user has
-            // a clear merge path and the warning is noise.
-            `another Guest row already has this email — importing will create a second guest row`,
-          ]
-        : p.warnings;
+    // v2.15.0: an unmatched row that still looks like someone we know
+    // is the exact shape of the "silently dropped responses" bug —
+    // say who it would duplicate, loudly, instead of a soft email hint.
+    const duplicateOf = collision
+      ? collision.via === "email"
+        ? `${collision.guest.firstName} ${collision.guest.lastName} (${collision.guest.householdName}) already has this email`
+        : `${collision.guests.length} guests are already called ${p.firstName} ${p.lastName} (${collision.guests.map((g) => g.householdName).join(", ")})`
+      : null;
+    const baseWarnings = duplicateOf
+      ? [...p.warnings, `no match — importing will create a second guest row: ${duplicateOf}`]
+      : p.warnings;
     return {
       ...p,
       warnings: [...baseWarnings, ...editWarnings],
@@ -480,6 +497,8 @@ export async function previewImport(input: {
         : null,
       guestAction,
       emailDuplicate: isDup,
+      matchedBy: match?.rule ?? null,
+      duplicateOf,
       fieldDiffs,
     };
   });
@@ -553,14 +572,12 @@ export async function commitImport(input: {
   });
   const householdByName = new Map(existingHouseholds.map((h) => [h.name, h]));
 
-  // ── Existing-guest dedupe map: (householdName|first|last) → guest snapshot
-  // Used to drive the merge-update path for rows whose name+household match
-  // an existing row.
-  function dedupeKey(householdName: string, first: string, last: string): string {
-    return `${householdName}|${first.trim().toLowerCase()}|${last.trim().toLowerCase()}`;
-  }
+  // ── Existing-guest index — every non-archived guest, matched by the
+  // v2.15.0 rule-ordered resolver (src/lib/import-match.ts). Pre-fix
+  // this was a (householdName|first|last) map over households named in
+  // the CSV only, so a renamed party never merged.
   const existingGuestRows = await db.guest.findMany({
-    where: { household: { name: { in: householdNames } }, archived: false },
+    where: { archived: false },
     select: {
       id: true,
       firstName: true,
@@ -587,11 +604,8 @@ export async function commitImport(input: {
       songRequests: { select: { title: true } },
     },
   });
-  const guestByKey = new Map(
-    existingGuestRows.map((g) => [
-      dedupeKey(g.household.name, g.firstName, g.lastName),
-      g,
-    ]),
+  const guestIndex = buildGuestIndex(
+    existingGuestRows.map((g) => ({ ...g, householdName: g.household.name })),
   );
   const newlyCreatedHouseholds: string[] = [];
 
@@ -676,12 +690,20 @@ export async function commitImport(input: {
       householdId = fallback.id;
     }
 
-    // Decide create vs merge: only merge when the household was named in
-    // the import AND a guest with the same first+last already exists in it.
-    const matchKey = p.householdName
-      ? dedupeKey(p.householdName, p.firstName, p.lastName)
-      : null;
-    const existing = matchKey ? guestByKey.get(matchKey) ?? null : null;
+    // v2.15.0: same rule-ordered resolver the preview used, so what the
+    // user saw is what gets merged (household+name → rsvpLink+name →
+    // email → unique name).
+    const existing =
+      resolveImportMatch(
+        {
+          firstName: p.firstName,
+          lastName: p.lastName,
+          email: p.email,
+          rsvpLink: p.rsvpLink,
+          householdName: p.householdName,
+        },
+        guestIndex,
+      )?.guest ?? null;
 
     if (existing) {
       // ── Merge update ──────────────────────────────────────────────
@@ -748,7 +770,9 @@ export async function commitImport(input: {
       }
 
       if (Object.keys(data).length > 0) {
-        await db.guest.update({ where: { id: existing.id }, data });
+        // v2.15.0: stamp the import even when the merge is a no-op, so
+      // "last imported" answers "did this record ever get a sync?".
+      await db.guest.update({ where: { id: existing.id }, data: { ...data, lastImportedAt: new Date() } });
       }
 
       if (merge.songsToAdd.length > 0) {
@@ -798,6 +822,7 @@ export async function commitImport(input: {
         rsvpUniqueLink: p.rsvpLink,
         notes: p.notes,
         tableSeatId,
+        lastImportedAt: new Date(),
       },
     });
 
@@ -816,36 +841,35 @@ export async function commitImport(input: {
       songsCount += p.songs.length;
     }
 
-    // Add to map so a later row in the same import targeting the same
-    // (household, name) merges into this brand-new row instead of
-    // creating yet another duplicate.
-    if (matchKey) {
-      guestByKey.set(matchKey, {
-        id: guest.id,
-        firstName: guest.firstName,
-        lastName: guest.lastName,
-        email: guest.email,
-        phone: guest.phone,
-        side: guest.side,
-        rsvp: guest.rsvp,
-        isChild: guest.isChild,
-        needsHighchair: guest.needsHighchair,
-        childrenMeal: guest.childrenMeal,
-        plusOneAllowed: guest.plusOneAllowed,
-        plusOneName: guest.plusOneName,
-        role: guest.role,
-        dietary: guest.dietary,
-        tags: guest.tags,
-        mealStarter: guest.mealStarter,
-        mealMain: guest.mealMain,
-        mealDessert: guest.mealDessert,
-        rsvpUniqueLink: guest.rsvpUniqueLink,
-        notes: guest.notes,
-        tableSeatId: guest.tableSeatId,
-        household: { name: p.householdName ?? "" },
-        songRequests: p.songs.map((title) => ({ title })),
-      });
-    }
+    // Index the brand-new row so a later row in the same import (a
+    // household member listed twice, a plus-one after its host) merges
+    // into it instead of creating yet another duplicate.
+    indexGuest(guestIndex, {
+      id: guest.id,
+      firstName: guest.firstName,
+      lastName: guest.lastName,
+      email: guest.email,
+      phone: guest.phone,
+      side: guest.side,
+      rsvp: guest.rsvp,
+      isChild: guest.isChild,
+      needsHighchair: guest.needsHighchair,
+      childrenMeal: guest.childrenMeal,
+      plusOneAllowed: guest.plusOneAllowed,
+      plusOneName: guest.plusOneName,
+      role: guest.role,
+      dietary: guest.dietary,
+      tags: guest.tags,
+      mealStarter: guest.mealStarter,
+      mealMain: guest.mealMain,
+      mealDessert: guest.mealDessert,
+      rsvpUniqueLink: guest.rsvpUniqueLink,
+      notes: guest.notes,
+      tableSeatId: guest.tableSeatId,
+      household: { name: p.householdName ?? "" },
+      householdName: p.householdName ?? "",
+      songRequests: p.songs.map((title) => ({ title })),
+    });
 
     createdCount++;
   }
