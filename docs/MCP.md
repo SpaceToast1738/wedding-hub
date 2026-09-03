@@ -303,6 +303,13 @@ tokens are revoked from Settings without any restart.
   `nextOffset` until `null` to enumerate every guest past the 24k cap.
   `query` is an alias of `nameContains`. Unknown parameters are rejected
   with the key named (they used to be silently ignored).
+- **RUNSHEET cards (v2.16.0).** A time-ordered schedule: rows of
+  `{ time, event, owner, notes, done }`, time as free text. Create one
+  with `propose_book_card_create` kind `RUNSHEET`, then
+  `propose_book_runsheet_update` adds / updates / removes rows by
+  `rowId` (from `read_book_card`, same turn) and sets intro notes. New
+  rows append in the order given; the couple can re-sort by time in the
+  editor.
 - **No API cost.** MCP tool calls run entirely against the local DB — the
   Anthropic API is never involved, so the AI budget/usage dashboards don't
   move. The *client* (Claude Code etc.) pays its own model costs.

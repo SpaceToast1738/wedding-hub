@@ -36,6 +36,7 @@ export const PROPOSAL_KINDS = [
   "book.menu.update",
   "book.bar.update",
   "book.setup.update",
+  "book.runsheet.update",
   "book.stay.update",
   "book.lodging.update",
   "book.dresscode.update",
@@ -136,6 +137,7 @@ export const BOOK_KINDS = [
   "LODGING_GUIDE",
   "DRESS_CODE",
   "WEDDING_PARTY",
+  "RUNSHEET",
 ] as const;
 /** WeddingParty cell statuses — free strings in the DB, but the app's
  *  editor only ever writes these five (VALID_CELL_STATUSES in
@@ -631,6 +633,41 @@ export const bookSetupUpdateSchema = z.object({
   removeItemIds: z.array(cid).max(40).optional(),
 });
 export type BookSetupUpdatePayload = z.infer<typeof bookSetupUpdateSchema>;
+
+// v2.16.0: RUNSHEET rows {time, event, owner, notes, done}. Same
+// add / update / remove-by-id delta shape as the other child-row kinds.
+const runsheetRowFields = {
+  time: nullable(z.string().max(40)),
+  owner: nullable(z.string().max(120)),
+  notes: nullable(z.string().max(2000)),
+};
+export const bookRunsheetUpdateSchema = z.object({
+  subsectionId: cid,
+  notes: nullable(z.string().max(4000)),
+  addRows: z
+    .array(
+      z.object({
+        event: z.string().min(1).max(200),
+        done: z.boolean().default(false),
+        ...runsheetRowFields,
+      }),
+    )
+    .max(60)
+    .optional(),
+  updateRows: z
+    .array(
+      z.object({
+        rowId: cid,
+        event: z.string().min(1).max(200).optional(),
+        done: z.boolean().optional(),
+        ...runsheetRowFields,
+      }),
+    )
+    .max(60)
+    .optional(),
+  removeRowIds: z.array(cid).max(60).optional(),
+});
+export type BookRunsheetUpdatePayload = z.infer<typeof bookRunsheetUpdateSchema>;
 
 export const bookStayUpdateSchema = z.object({
   subsectionId: cid,
@@ -1345,6 +1382,8 @@ export function schemaForKind(kind: string): z.ZodTypeAny | null {
       return bookBarUpdateSchema;
     case "book.setup.update":
       return bookSetupUpdateSchema;
+    case "book.runsheet.update":
+      return bookRunsheetUpdateSchema;
     case "book.stay.update":
       return bookStayUpdateSchema;
     case "book.lodging.update":
@@ -1499,6 +1538,8 @@ export function humanLabel(kind: ProposalKind): string {
       return "Update bar card";
     case "book.setup.update":
       return "Update setup card";
+    case "book.runsheet.update":
+      return "Update runsheet";
     case "book.stay.update":
       return "Update stay card";
     case "book.lodging.update":
@@ -1820,6 +1861,16 @@ export function summariseProposal(kind: string, payload: unknown): string {
         ["addItems", "+items"],
         ["updateItems", "~items"],
         ["removeItemIds", "−items"],
+      ]),
+    );
+  }
+  if (kind === "book.runsheet.update") {
+    return joinBits(
+      headerBits(["notes"]),
+      deltaBits([
+        ["addRows", "+rows"],
+        ["updateRows", "~rows"],
+        ["removeRowIds", "−rows"],
       ]),
     );
   }

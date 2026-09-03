@@ -47,6 +47,7 @@ import {
   saveMenuCardCore,
   saveBarCardCore,
   saveSetupCardCore,
+  saveRunsheetCardCore,
   saveStayCardCore,
   saveLodgingCardCore,
   saveDressCodeCardCore,
@@ -60,6 +61,7 @@ import {
   type MenuSavePayload,
   type BarSavePayload,
   type SetupSavePayload,
+  type RunsheetSavePayload,
   type StaySavePayload,
   type LodgingSavePayload,
   type DressCodeSavePayload,
@@ -79,6 +81,7 @@ import {
   bookMenuUpdateSchema,
   bookBarUpdateSchema,
   bookSetupUpdateSchema,
+  bookRunsheetUpdateSchema,
   bookStayUpdateSchema,
   bookLodgingUpdateSchema,
   bookDressCodeUpdateSchema,
@@ -764,6 +767,52 @@ export async function applyBookProposal(
         items,
       };
       ensureOk(await saveSetupCardCore(user, p.subsectionId, full));
+      return { id: p.subsectionId };
+    }
+
+    case "book.runsheet.update": {
+      const p = bookRunsheetUpdateSchema.parse(payload);
+      await assertBookCardWritable(user, p.subsectionId);
+      const card = await db.bookRunsheetCard.findUnique({
+        where: { subsectionId: p.subsectionId },
+        include: { rows: { orderBy: { order: "asc" } } },
+      });
+      if (!card) {
+        throw new Error("This card has no runsheet data — is it a RUNSHEET card?");
+      }
+      const rows = mergeChildren(
+        card.rows.map((r) => ({
+          id: r.id,
+          time: r.time,
+          event: r.event,
+          owner: r.owner,
+          notes: r.notes,
+          done: r.done,
+        })),
+        {
+          add: (p.addRows ?? []).map((r) => ({
+            time: r.time ?? null,
+            event: r.event,
+            owner: r.owner ?? null,
+            notes: r.notes ?? null,
+            done: r.done,
+          })),
+          update: (p.updateRows ?? []).map((r) => ({
+            id: r.rowId,
+            time: r.time,
+            event: r.event,
+            owner: r.owner,
+            notes: r.notes,
+            done: r.done,
+          })),
+          removeIds: p.removeRowIds,
+        },
+      ) as unknown as RunsheetSavePayload["rows"];
+      const full: RunsheetSavePayload = {
+        notes: patchOrCurrent(p.notes, card.notes),
+        rows,
+      };
+      ensureOk(await saveRunsheetCardCore(user, p.subsectionId, full));
       return { id: p.subsectionId };
     }
 

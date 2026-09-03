@@ -769,6 +769,8 @@ model BookSubsection {
   // v1.33.0: SETUP card — per-space spatial walkthrough. One card
   // per physical space (Ceremony room / Reception room / etc.).
   setupCard        BookSetupCard?
+  // v2.16.0: time-ordered schedule rows.
+  runsheetCard     BookRunsheetCard?
   // v1.36.0: STAY card — one card per accommodation booking the couple
   // pays for (bridal suite, night-before rooms, etc.).
   stayCard         BookStayCard?
@@ -823,6 +825,10 @@ enum BookSubsectionKind {
   // members as columns; per-cell status (Need / Have / Already own
   // / N/A).
   WEDDING_PARTY
+  // v2.16.0: time-ordered schedule — ceremony running order, morning
+  // setup window, supplier arrivals, the day-of runsheet. Rows are
+  // {time, event, owner, notes, done}; time is free text.
+  RUNSHEET
 }
 
 // v1.26.0: FIELD card — list of typed fields. Values stored on
@@ -1226,6 +1232,33 @@ model BookSetupItem {
   packDownPlan String?
   notes        String?
   order        Int           @default(0)
+
+  @@index([cardId])
+}
+
+/// v2.16.0: RUNSHEET card — 1:1 with a BookSubsection of kind RUNSHEET.
+/// The card itself carries only intro notes; the schedule is the rows.
+model BookRunsheetCard {
+  id           String            @id @default(cuid())
+  subsectionId String            @unique
+  subsection   BookSubsection    @relation(fields: [subsectionId], references: [id], onDelete: Cascade)
+  notes        String?           @db.Text
+  rows         BookRunsheetRow[]
+}
+
+/// One schedule entry. `time` is deliberately free text ("12:45",
+/// "1:35/1:45", "after speeches"); `order` is the display order, with a
+/// one-click sort-by-time in the editor for rows that parse.
+model BookRunsheetRow {
+  id     String           @id @default(cuid())
+  cardId String
+  card   BookRunsheetCard @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  time   String?
+  event  String
+  owner  String?
+  notes  String?
+  done   Boolean          @default(false)
+  order  Int              @default(0)
 
   @@index([cardId])
 }

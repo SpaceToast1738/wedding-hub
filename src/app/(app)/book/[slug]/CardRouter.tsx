@@ -8,6 +8,7 @@ import { BookMenuCard } from "./BookMenuCard";
 import { BookOutfitCardEditor } from "./BookOutfitCard";
 import { BookRecipeCard } from "./BookRecipeCard";
 import { BookSetupCard } from "./BookSetupCard";
+import { BookRunsheetCard } from "./BookRunsheetCard";
 import { BookShotListCard } from "./BookShotListCard";
 import { BookStayCard } from "./BookStayCard";
 import { BookDressCodeCard } from "./BookDressCodeCard";
@@ -86,7 +87,21 @@ type Sub = {
   hiddenComponents: string[];
   fields: unknown;
   visibility: "EVERYONE" | "COUPLE_ONLY";
-  kind: "TEXT" | "FIELD" | "RECIPE" | "SHOT_LIST" | "OUTFIT" | "BUILD" | "MENU" | "BAR" | "SETUP" | "STAY" | "LODGING_GUIDE" | "DRESS_CODE" | "WEDDING_PARTY";
+  kind: "TEXT" | "FIELD" | "RECIPE" | "SHOT_LIST" | "OUTFIT" | "BUILD" | "MENU" | "BAR" | "SETUP" | "STAY" | "LODGING_GUIDE" | "DRESS_CODE" | "WEDDING_PARTY" | "RUNSHEET";
+  // v2.16.0: RUNSHEET card — time-ordered rows.
+  runsheetCard?: {
+    id: string;
+    notes: string | null;
+    rows: Array<{
+      id: string;
+      time: string | null;
+      event: string;
+      owner: string | null;
+      notes: string | null;
+      done: boolean;
+      order: number;
+    }>;
+  } | null;
   fieldDefs: Array<{
     id: string;
     label: string;
@@ -660,6 +675,20 @@ function renderCardBody(
             items: bc.items,
           }}
           confirmedAdults={bc.confirmedAdults}
+        />
+      );
+    }
+    case "RUNSHEET": {
+      const rc = sub.runsheetCard ?? { id: "", notes: null, rows: [] };
+      return (
+        <BookRunsheetCard
+          subsectionId={sub.id}
+          slug={sub.slug}
+          title={sub.title}
+          visibility={sub.visibility}
+          canEdit={canEdit}
+          isCouple={isCouple}
+          card={{ id: rc.id, notes: rc.notes, rows: rc.rows }}
         />
       );
     }

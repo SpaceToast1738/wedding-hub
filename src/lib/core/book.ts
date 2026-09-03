@@ -375,6 +375,8 @@ export async function createBookSubsectionCore(
     await db.bookBarCard.create({ data: { subsectionId: created.id } });
   } else if (parsed.kind === BookSubsectionKind.SETUP) {
     await db.bookSetupCard.create({ data: { subsectionId: created.id } });
+  } else if (parsed.kind === BookSubsectionKind.RUNSHEET) {
+    await db.bookRunsheetCard.create({ data: { subsectionId: created.id } });
   } else if (parsed.kind === BookSubsectionKind.STAY) {
     await db.bookStayCard.create({ data: { subsectionId: created.id } });
   } else if (parsed.kind === BookSubsectionKind.LODGING_GUIDE) {
@@ -1394,6 +1396,102 @@ export async function saveSetupCardCore(
     return { ok: true };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "Couldn't save setup card" };
+  }
+}
+
+// ─── RUNSHEET card single-bulk-save (v2.16.0) ─────────────────────
+//
+// Same shape as SETUP: header (notes) + a full row list; rows with a
+// `new-` id are created, missing ids deleted, the rest updated and
+// re-ordered to the list position. Times are free text on purpose —
+// see parseRunsheetTime in src/lib/book-cards.ts.
+
+const runsheetRowPayloadSchema = z.object({
+  id: z.string().min(1).max(50),
+  time: z.string().max(40).nullable(),
+  event: z.string().min(1).max(200),
+  owner: z.string().max(120).nullable(),
+  notes: z.string().max(2000).nullable(),
+  done: z.boolean(),
+});
+
+const runsheetSavePayloadSchema = z.object({
+  notes: z.string().max(4000).nullable(),
+  rows: z.array(runsheetRowPayloadSchema).max(200),
+});
+
+export type RunsheetSavePayload = z.infer<typeof runsheetSavePayloadSchema>;
+
+export async function saveRunsheetCardCore(
+  user: SessionUser,
+  subsectionId: string,
+  payload: RunsheetSavePayload,
+): Promise<BookActionResult> {
+  try {
+    const parsed = runsheetSavePayloadSchema.parse(payload);
+    const before = await db.bookRunsheetCard.findUnique({
+      where: { subsectionId },
+      include: { subsection: true, rows: true },
+    });
+    if (!before) return { ok: false, error: "Runsheet card not found" };
+
+    const beforeIds = new Set(before.rows.map((r) => r.id));
+    const incomingIds = new Set(parsed.rows.map((r) => r.id).filter((id) => !id.startsWith("new-")));
+    const toDelete = [...beforeIds].filter((id) => !incomingIds.has(id));
+    const toCreate = parsed.rows.filter((r) => r.id.startsWith("new-"));
+    const toUpdate = parsed.rows.filter((r) => !r.id.startsWith("new-"));
+    const doneBefore = before.rows.filter((r) => r.done).length;
+    const doneAfter = parsed.rows.filter((r) => r.done).length;
+
+    await db.$transaction(async (tx) => {
+      await tx.bookRunsheetCard.update({
+        where: { subsectionId },
+        data: { notes: parsed.notes },
+      });
+      if (toDelete.length > 0) {
+        await tx.bookRunsheetRow.deleteMany({ where: { id: { in: toDelete } } });
+      }
+      // Order is the list position for every row, new ones included —
+      // a runsheet's order IS its content, so "append at the end" (the
+      // SETUP convention) would put a newly inserted 1:15 entry after
+      // 2:28.
+      for (let idx = 0; idx < parsed.rows.length; idx++) {
+        const r = parsed.rows[idx]!;
+        const data = {
+          time: r.time,
+          event: r.event,
+          owner: r.owner,
+          notes: r.notes,
+          done: r.done,
+          order: idx,
+        };
+        if (r.id.startsWith("new-")) {
+          await tx.bookRunsheetRow.create({ data: { cardId: before.id, ...data } });
+        } else {
+          await tx.bookRunsheetRow.update({ where: { id: r.id }, data });
+        }
+      }
+    });
+
+    await logAudit({
+      userId: user.id,
+      action: "runsheet-save",
+      entity: "BookSubsection",
+      entityId: subsectionId,
+      metadata: {
+        cardTitle: before.subsection.title,
+        rowsAdded: toCreate.length,
+        rowsUpdated: toUpdate.length,
+        rowsRemoved: toDelete.length,
+        rowsTotal: parsed.rows.length,
+        done: `${doneBefore}→${doneAfter}`,
+        notesChanged: parsed.notes !== before.notes,
+      },
+    });
+    await revalidateBookSubsection(subsectionId);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Couldn't save runsheet" };
   }
 }
 

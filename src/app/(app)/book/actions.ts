@@ -24,6 +24,7 @@ import {
   saveMenuCardCore,
   saveBarCardCore,
   saveSetupCardCore,
+  saveRunsheetCardCore,
   saveOutfitCardCore,
   saveStayCardCore,
   saveLodgingCardCore,
@@ -44,6 +45,7 @@ import {
   type MenuSavePayload,
   type BarSavePayload,
   type SetupSavePayload,
+  type RunsheetSavePayload,
   type OutfitSavePayload,
   type StaySavePayload,
   type LodgingSavePayload,
@@ -58,6 +60,7 @@ export type {
   MenuSavePayload,
   BarSavePayload,
   SetupSavePayload,
+  RunsheetSavePayload,
   OutfitSavePayload,
   StaySavePayload,
   LodgingSavePayload,
@@ -2022,6 +2025,15 @@ export async function saveSetupCard(
 ): Promise<BookActionResult> {
   const user = await requireEdit("book");
   return saveSetupCardCore(user, subsectionId, payload);
+}
+
+// v2.16.0: RUNSHEET card — thin gate over saveRunsheetCardCore.
+export async function saveRunsheetCard(
+  subsectionId: string,
+  payload: RunsheetSavePayload,
+): Promise<BookActionResult> {
+  const user = await requireEdit("book");
+  return saveRunsheetCardCore(user, subsectionId, payload);
 }
 
 

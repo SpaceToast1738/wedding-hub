@@ -9,7 +9,8 @@
 // v1.31.0: + BUILD. v1.32.0: + MENU, BAR. v1.33.0: + SETUP.
 // v1.34.0: + LEGAL (dropped in v2.0.0 — UK-centric).
 // v1.36.0: + STAY, LODGING_GUIDE. v1.91.0: + DRESS_CODE. v1.92.0: + WEDDING_PARTY.
-export const BOOK_CARD_KINDS = ["TEXT", "FIELD", "RECIPE", "SHOT_LIST", "OUTFIT", "BUILD", "MENU", "BAR", "SETUP", "STAY", "LODGING_GUIDE", "DRESS_CODE", "WEDDING_PARTY"] as const;
+// v2.16.0: + RUNSHEET.
+export const BOOK_CARD_KINDS = ["TEXT", "FIELD", "RECIPE", "SHOT_LIST", "OUTFIT", "BUILD", "MENU", "BAR", "SETUP", "STAY", "LODGING_GUIDE", "DRESS_CODE", "WEDDING_PARTY", "RUNSHEET"] as const;
 export type BookCardKind = (typeof BOOK_CARD_KINDS)[number];
 
 // Display metadata for each card kind — used by the picker UI and
@@ -55,6 +56,10 @@ export const BOOK_CARD_KIND_META: Record<
   SETUP: {
     label: "Setup",
     description: "Per-space spatial walkthrough — items, location, packed/placed flags.",
+  },
+  RUNSHEET: {
+    label: "Runsheet",
+    description: "Time-ordered schedule — time, what happens, who owns it, tick as you go.",
   },
   STAY: {
     label: "Stay",
@@ -789,6 +794,66 @@ export function setupRollups(card: SetupCardShape): SetupRollups {
   const percentPacked = itemCount === 0 ? 0 : Math.round((packedCount / itemCount) * 100);
   const percentPlaced = itemCount === 0 ? 0 : Math.round((placedCount / itemCount) * 100);
   return { itemCount, packedCount, placedCount, percentPacked, percentPlaced };
+}
+
+// ─── RUNSHEET card (v2.16.0) ─────────────────────────────────────
+//
+// Time-ordered rows {time, event, owner, notes, done}. The ceremony
+// running order, the morning setup window and supplier arrival times
+// all want the same shape (enhancement cmsz2gxd). Times are FREE TEXT
+// — "12:45", "1:35/1:45", "after speeches" are all real entries — so
+// rows keep a manual order; `parseRunsheetTime` powers the one-click
+// "sort by time" for rows that do parse.
+
+export type RunsheetRowShape = {
+  time: string | null;
+  done: boolean;
+};
+
+export type RunsheetRollups = {
+  rowCount: number;
+  doneCount: number;
+  percentDone: number;
+};
+
+export function runsheetRollups(card: { rows: RunsheetRowShape[] }): RunsheetRollups {
+  const rowCount = card.rows.length;
+  const doneCount = card.rows.filter((r) => r.done).length;
+  const percentDone = rowCount === 0 ? 0 : Math.round((doneCount / rowCount) * 100);
+  return { rowCount, doneCount, percentDone };
+}
+
+/** Minutes since midnight for a free-text time, or null if it doesn't
+ *  parse. Wedding-day heuristic: a bare hour 1–7 with no am/pm is the
+ *  afternoon ("1:35" is 13:35 — a 2pm ceremony's world), 8–12 and
+ *  anything with am/pm is taken literally. "1:35/1:45" reads the first
+ *  time. */
+export function parseRunsheetTime(time: string | null | undefined): number | null {
+  if (!time) return null;
+  const m = /(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i.exec(time);
+  if (!m) return null;
+  let h = parseInt(m[1]!, 10);
+  const min = m[2] ? parseInt(m[2], 10) : 0;
+  const ap = m[3]?.toLowerCase();
+  if (h > 24 || min > 59) return null;
+  if (ap === "pm" && h < 12) h += 12;
+  else if (ap === "am" && h === 12) h = 0;
+  else if (!ap && h >= 1 && h <= 7) h += 12;
+  return h * 60 + min;
+}
+
+/** Stable sort by parsed time; rows that don't parse keep their
+ *  relative order and sink to the end. */
+export function sortRowsByTime<R extends { time: string | null }>(rows: readonly R[]): R[] {
+  return rows
+    .map((r, i) => ({ r, i, t: parseRunsheetTime(r.time) }))
+    .sort((a, b) => {
+      if (a.t === null && b.t === null) return a.i - b.i;
+      if (a.t === null) return 1;
+      if (b.t === null) return -1;
+      return a.t - b.t || a.i - b.i;
+    })
+    .map((x) => x.r);
 }
 
 // v2.0.0: LEGAL card kind dropped — was UK-marriage-law-centric

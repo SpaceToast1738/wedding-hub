@@ -296,6 +296,21 @@ export async function loadCardExport(subsectionId: string): Promise<CardExport |
       };
     }
 
+    case "RUNSHEET": {
+      const rs = await db.bookRunsheetCard.findUnique({
+        where: { subsectionId: card.id },
+        select: {
+          notes: true,
+          rows: {
+            orderBy: { order: "asc" },
+            take: CHILD_ROW_CAP,
+            select: { time: true, event: true, owner: true, notes: true, done: true },
+          },
+        },
+      });
+      return { ...base, kind: "RUNSHEET", notes: rs?.notes ?? null, rows: rs?.rows ?? [] };
+    }
+
     case "STAY": {
       const s = await db.bookStayCard.findUnique({
         where: { subsectionId: card.id },

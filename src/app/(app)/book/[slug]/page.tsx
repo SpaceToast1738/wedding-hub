@@ -88,6 +88,10 @@ export default async function BookSectionPage({ params }: { params: Promise<{ sl
           setupCard: {
             include: { items: { orderBy: { order: "asc" } } },
           },
+          // v2.16.0: RUNSHEET card — rows in display order.
+          runsheetCard: {
+            include: { rows: { orderBy: { order: "asc" } } },
+          },
           // v1.36.0: STAY + LODGING_GUIDE cards. v1.78.0: + budgetLine.
           stayCard: {
             include: {

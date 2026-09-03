@@ -963,6 +963,18 @@ When wrapping up a meaningful iteration:
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
 
+### 2026-09-02 · v2.16.0 — RUNSHEET card kind: a schedule you can tick through on the day
+
+**The ask (enhancement `cmsz2gxd`).** There was no card kind for time-ordered information, so the ceremony running order lived in a TEXT card where bullet prose did timeline work — "12:45 groomsmen chair sweep · 1:15 assembling music · 1:35/1:45 registrar interviews · …" — which the planner could only update by rewriting the whole body. The morning setup window, supplier arrival times and the day-of runsheet all want the same shape; it is not ceremony-specific.
+
+**The kind.** `RUNSHEET` = intro notes + rows of `{ time, event, owner, notes, done }` (migration `20260902100000_book_runsheet_card`: `BookRunsheetCard` 1:1 with the subsection, `BookRunsheetRow` per entry). **Time is free text** on purpose — "12:45", "1:35/1:45" and "after speeches" are all real entries — so rows keep a manual order, with a one-click **Sort by time** in the editor for rows that parse (`parseRunsheetTime`: bare hours 1–7 read as afternoon — a 2 pm ceremony's world — 8–12 and anything with am/pm literal; "1:35/1:45" takes the first). Unlike the other child-row kinds, row order is written from list position for *new rows too*: a runsheet's order is its content, so an inserted 1:15 entry must not land after 2:28.
+
+**On the phone.** View mode is a tight vertical timeline — fixed-width mono time column, event, owner chip, notes — with a **40 px tick per row that saves on tap** (no Edit mode on the day), a "n/N done · next up: …" header, and done rows dimmed and struck. Editing is the usual bulk save (rows add / remove / reorder, notes). `/today/day-of` now shows every runsheet read-only in one place, linking to the card.
+
+**For the planner.** `propose_book_runsheet_update` (add / update / remove rows by `rowId`, header notes — same delta shape as the other child-row tools; create the card first with `propose_book_card_create` kind `RUNSHEET`), `read_book_card` returns rows with ids, and the share / print export renders rows as `*12:45* — event (owner) · notes`, ticks included, so a forwarded copy mid-day shows progress.
+
+**Verification.** typecheck ✅, 888 tests ✅ (16 new in `tests/unit/runsheet.test.ts`: time parsing incl. the afternoon heuristic, sort stability with unparsable rows, rollups, the proposal schema, and the WhatsApp rendering), lint ✅, build ✅.
+
 ### 2026-09-02 · v2.15.0 — Say I Do imports reach the right guest: rule-ordered matching, loud duplicates, "last imported"
 
 **The bug (enhancement `cmskqxsu`).** Ten attending guests had full starter/main/dessert choices in a Say I Do export and nothing in the hub (5 Aug 2026); six of them had emails and phones on the export the hub didn't hold; a plus-one sat as the placeholder "John Doe(KAT)" while the site had his real name. Nothing was "syncing" — there is no live integration, only the CSV importer — and the importer merged a row into an existing guest **only** when `household name + first + last` matched the hub exactly, looking only inside households named in the file. A party whose export name differed from the hub household ("Luke Maple and Guest"), or a plus-one still holding a placeholder name, never matched: the row was treated as a *new* guest, so its responses never touched the existing record, and the hub just looked blank — indistinguishable from "hasn't answered".

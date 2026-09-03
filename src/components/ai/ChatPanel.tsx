@@ -82,6 +82,7 @@ const TOOL_LABELS: Record<string, string> = {
   propose_book_menu_update: "Proposed a menu update",
   propose_book_bar_update: "Proposed a bar update",
   propose_book_setup_update: "Proposed a setup update",
+  propose_book_runsheet_update: "Proposed a runsheet update",
   propose_book_stay_update: "Proposed a stay update",
   propose_book_lodging_update: "Proposed a lodging update",
   propose_book_dresscode_update: "Proposed a dress-code update",

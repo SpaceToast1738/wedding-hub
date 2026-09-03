@@ -497,6 +497,35 @@ export const readBookCard: AiTool<typeof inputSchema> = {
         };
       }
 
+      case "RUNSHEET": {
+        const rs = await db.bookRunsheetCard.findUnique({
+          where: { subsectionId: card.id },
+          select: {
+            notes: true,
+            rows: {
+              orderBy: { order: "asc" },
+              take: CHILD_ROW_CAP,
+              select: { id: true, time: true, event: true, owner: true, notes: true, done: true },
+            },
+          },
+        });
+        return {
+          ok: true,
+          data: {
+            ...base,
+            notes: clip(rs?.notes),
+            rows: (rs?.rows ?? []).map((r) => ({
+              rowId: r.id,
+              time: r.time,
+              event: r.event,
+              owner: r.owner,
+              notes: clip(r.notes),
+              done: r.done,
+            })),
+          },
+        };
+      }
+
       case "STAY": {
         const stay = await db.bookStayCard.findUnique({
           where: { subsectionId: card.id },

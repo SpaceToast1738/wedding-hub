@@ -59,6 +59,32 @@ export default async function DayOfPage() {
   const settings = await getWeddingSettings();
   const wedding = settings.weddingDate;
 
+  // v2.16.0: every RUNSHEET card, so the morning-of view is one place.
+  // Same visibility wall as /book: non-couple users don't see
+  // couple-only cards or cards in couple-only sections.
+  const runsheets = await db.bookSubsection.findMany({
+    where: {
+      kind: "RUNSHEET",
+      ...(user.isCouple ? {} : { visibility: "EVERYONE", section: { visibility: "EVERYONE" } }),
+    },
+    orderBy: [{ section: { order: "asc" } }, { order: "asc" }],
+    select: {
+      id: true,
+      title: true,
+      slug: true,
+      section: { select: { slug: true, title: true } },
+      runsheetCard: {
+        select: {
+          notes: true,
+          rows: {
+            orderBy: { order: "asc" },
+            select: { id: true, time: true, event: true, owner: true, done: true },
+          },
+        },
+      },
+    },
+  });
+
   // Window: same calendar day as the wedding date, in local time. We display
   // events that start between 00:00 and 23:59 of that day. Outside the window
   // we still render the page (preview / drill-day) but show a banner.
@@ -342,6 +368,56 @@ export default async function DayOfPage() {
               Full catering brief →
             </Link>
           </section>
+
+          {/* v2.16.0: runsheets — every RUNSHEET Book card, read-only
+              here; tick rows on the card itself (linked). */}
+          {runsheets.length > 0 && (
+            <section className="lg:col-span-3 bg-surface border border-border-soft rounded-md p-5">
+              <h2 className="text-sm font-semibold text-ink-primary mb-3">Runsheets</h2>
+              <div className="grid gap-4 md:grid-cols-2">
+                {runsheets.map((rs) => {
+                  const rows = rs.runsheetCard?.rows ?? [];
+                  const done = rows.filter((r) => r.done).length;
+                  return (
+                    <div key={rs.id} className="border border-border-soft rounded-md">
+                      <div className="flex items-baseline justify-between gap-2 px-3 py-2 border-b border-border-soft">
+                        <Link
+                          href={`/book/${rs.section.slug}#${rs.slug}`}
+                          className="text-sm font-semibold text-ink-primary hover:text-moss-700 hover:underline"
+                        >
+                          {rs.title}
+                        </Link>
+                        <span className="text-[11px] text-ink-tertiary tabular-nums">
+                          {done}/{rows.length} done
+                        </span>
+                      </div>
+                      {rows.length === 0 ? (
+                        <p className="px-3 py-2 text-xs text-ink-tertiary italic">No rows yet.</p>
+                      ) : (
+                        <ol className="divide-y divide-border-soft text-sm">
+                          {rows.map((r) => (
+                            <li
+                              key={r.id}
+                              className={`flex items-start gap-3 px-3 py-1.5 ${r.done ? "opacity-60" : ""}`}
+                            >
+                              <span className="w-14 flex-shrink-0 font-mono text-xs tabular-nums text-moss-700 font-semibold pt-0.5">
+                                {r.time ?? "—"}
+                              </span>
+                              <span className={`flex-1 min-w-0 ${r.done ? "line-through" : ""}`}>
+                                {r.event}
+                                {r.owner && <span className="text-ink-tertiary"> · {r.owner}</span>}
+                              </span>
+                              {r.done && <span className="text-moss-700">✓</span>}
+                            </li>
+                          ))}
+                        </ol>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          )}
 
           {/* Quick links */}
           <section className="bg-surface border border-border-soft rounded-md p-5">

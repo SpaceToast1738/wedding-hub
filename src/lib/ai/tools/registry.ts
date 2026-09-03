@@ -47,6 +47,7 @@ import { proposeBookBuildUpdate } from "./propose-book-build-update";
 import { proposeBookMenuUpdate } from "./propose-book-menu-update";
 import { proposeBookBarUpdate } from "./propose-book-bar-update";
 import { proposeBookSetupUpdate } from "./propose-book-setup-update";
+import { proposeBookRunsheetUpdate } from "./propose-book-runsheet-update";
 import { proposeBookStayUpdate } from "./propose-book-stay-update";
 import { proposeBookLodgingUpdate } from "./propose-book-lodging-update";
 import { proposeBookDresscodeUpdate } from "./propose-book-dresscode-update";
@@ -178,6 +179,7 @@ const WRITE_TOOLS: AiTool<any>[] = [
   proposeBookMenuUpdate,
   proposeBookBarUpdate,
   proposeBookSetupUpdate,
+  proposeBookRunsheetUpdate,
   proposeBookStayUpdate,
   proposeBookLodgingUpdate,
   proposeBookDresscodeUpdate,

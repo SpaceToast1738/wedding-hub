@@ -169,6 +169,17 @@ export type CardExport = Base &
         }>;
       }
     | {
+        kind: "RUNSHEET";
+        notes: string | null;
+        rows: Array<{
+          time: string | null;
+          event: string;
+          owner: string | null;
+          notes: string | null;
+          done: boolean;
+        }>;
+      }
+    | {
         kind: "STAY";
         propertyName: string | null;
         propertyContact: string | null;
@@ -538,6 +549,27 @@ export function cardToDoc(card: CardExport): Doc {
         ),
       );
       blocks.push(...notesBlocks(card.notes));
+      break;
+    }
+    case "RUNSHEET": {
+      // Intro notes come first — they're the "read this before the
+      // schedule" text. Rows: bold time, event, owner in brackets,
+      // notes after a dot; a done row keeps its tick so a forwarded
+      // copy mid-day shows progress.
+      blocks.push(...para(card.notes));
+      blocks.push(
+        ...listOf(
+          card.rows.map((r) => {
+            const spans: Span[] = [];
+            if (r.done) spans.push({ text: "☑ " });
+            if (r.time) spans.push({ text: r.time, bold: true }, { text: " — " });
+            spans.push({ text: r.event });
+            if (r.owner) spans.push({ text: ` (${r.owner})` });
+            if (r.notes) spans.push({ text: ` · ${r.notes}` });
+            return spans;
+          }),
+        ),
+      );
       break;
     }
     case "STAY": {
