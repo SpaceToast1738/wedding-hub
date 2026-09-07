@@ -9,6 +9,7 @@ import { assignGuestToSeat, deleteTable, updateTableCapacity, updateTablePositio
 import { CollapsiblePanel } from "./CollapsiblePanel";
 import { GuestDetailPanel } from "./GuestDetailPanel";
 import { HIGH_CHAIR_PATH } from "./highchair";
+import { wrapSeatLabel } from "./seat-label";
 import {
   ChecklistContent,
   NotesContent,
@@ -160,6 +161,10 @@ type SeatLayout = {
   labelX: number;
   labelY: number;
   labelAnchor: "start" | "middle" | "end";
+  // v2.16.1: which way a second label line may grow. Labels above a
+  // dot stack upward (first line rises), below stack downward, and
+  // side labels on a round table centre on the original baseline.
+  labelSide: "above" | "below" | "middle";
 };
 
 function computeSeatLayouts(
@@ -182,7 +187,9 @@ function computeSeatLayouts(
       const ly = labelOffset * Math.sin(angle) + 3 * labelScale;
       const labelAnchor: "start" | "middle" | "end" =
         lx < -2 ? "end" : lx > 2 ? "start" : "middle";
-      return { cx, cy, labelX: lx, labelY: ly, labelAnchor };
+      const labelSide: SeatLayout["labelSide"] =
+        labelAnchor !== "middle" ? "middle" : cy < 0 ? "above" : "below";
+      return { cx, cy, labelX: lx, labelY: ly, labelAnchor, labelSide };
     });
   }
   // v1.22.10: explicit dot-edge + padding label spacing for HEAD +
@@ -206,7 +213,7 @@ function computeSeatLayouts(
     return Array.from({ length: capacity }, (_, i) => {
       const cx = -size.w / 2 + ((i + 0.5) * size.w) / capacity;
       const cy = -size.h / 2 - 8 * dotScale;
-      return { cx, cy, labelX: cx, labelY: labelYAbove(cy), labelAnchor: "middle" };
+      return { cx, cy, labelX: cx, labelY: labelYAbove(cy), labelAnchor: "middle", labelSide: "above" };
     });
   }
   // RECTANGLE — split top/bottom edges, top takes the extra when odd.
@@ -219,7 +226,7 @@ function computeSeatLayouts(
     const cx = -size.w / 2 + ((localIdx + 0.5) * size.w) / localTotal;
     const cy = onTop ? -size.h / 2 - 8 * dotScale : size.h / 2 + 8 * dotScale;
     const labelY = onTop ? labelYAbove(cy) : labelYBelow(cy);
-    return { cx, cy, labelX: cx, labelY, labelAnchor: "middle" };
+    return { cx, cy, labelX: cx, labelY, labelAnchor: "middle", labelSide: onTop ? "above" : "below" };
   });
 }
 
@@ -547,7 +554,8 @@ export function SeatingCanvas({
       const size = tableSize(t.shape, t.capacity);
       const halfW = size.r > 0 ? size.r : size.w / 2;
       const halfH = size.r > 0 ? size.r : size.h / 2;
-      const seatExtent = 8 * dotScale + 3.5 * dotScale + 14 * labelScale;
+      // v2.16.1: + one extra line height so a wrapped label stays in frame.
+      const seatExtent = 8 * dotScale + 3.5 * dotScale + 14 * labelScale + 10 * labelScale;
       const reach = Math.max(halfW, halfH) + seatExtent;
       minX = Math.min(minX, pos.x - reach);
       minY = Math.min(minY, pos.y - reach);
@@ -865,9 +873,16 @@ export function SeatingCanvas({
                         ? dotStrokeForRsvp(guestRsvp!)
                         : "var(--color-border-strong)";
                     const firstName = seat.guest?.firstName ?? "";
-                    const label = firstName.length > maxChars
-                      ? `${firstName.slice(0, maxChars - 1)}…`
-                      : firstName;
+                    // v2.16.1: wrap at a space / hyphen onto a second
+                    // line before resorting to "…".
+                    const labelLines = wrapSeatLabel(firstName, maxChars);
+                    const lineHeight = 10 * labelScale;
+                    const labelShift =
+                      layout.labelSide === "above"
+                        ? -(labelLines.length - 1) * lineHeight
+                        : layout.labelSide === "middle"
+                          ? -((labelLines.length - 1) * lineHeight) / 2
+                          : 0;
                     return (
                       <g key={seat.id}>
                         {/* v1.22.9: pointer-event drag-source. Replaces
@@ -1101,16 +1116,20 @@ export function SeatingCanvas({
                             {seatGlyphForRsvp(guestRsvp!)}
                           </text>
                         )}
-                        {occupied && (
+                        {occupied && labelLines.length > 0 && (
                           <text
                             x={layout.labelX}
-                            y={layout.labelY}
+                            y={layout.labelY + labelShift}
                             textAnchor={layout.labelAnchor}
                             fontSize={9 * labelScale}
                             fill="var(--color-ink-secondary)"
                             pointerEvents="none"
                           >
-                            {label}
+                            {labelLines.map((line, li) => (
+                              <tspan key={li} x={layout.labelX} dy={li === 0 ? 0 : lineHeight}>
+                                {line}
+                              </tspan>
+                            ))}
                           </text>
                         )}
                         {/* v2.10.0: high-chair badge. Sits just inboard

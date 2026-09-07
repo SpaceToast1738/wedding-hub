@@ -963,6 +963,14 @@ When wrapping up a meaningful iteration:
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
 
+### 2026-09-07 · v2.16.1 — Seating canvas: long names wrap to a second line
+
+Seat labels on the table plan used to be cut off with "…" at the per-seat width budget, so "Katherine (Kat)" read as "Katherine (Ka…" and "Bryony-Olwyn" as "Bryony-O…". They now wrap onto a second line at a space or hyphen ("Katherine" / "(Kat)", "Bryony-" / "Olwyn") and only fall back to "…" when there is no natural break. Labels above a dot stack upward, below stack downward, and the side labels on a round table centre on their original baseline, so the extra line never runs into the seat dot. Auto-fit allows one extra line of height so wrapped names stay in frame.
+
+- `src/app/(app)/seating/seat-label.ts` — `wrapSeatLabel(name, maxChars)` (pure, max two lines) + `truncate`.
+- `SeatingCanvas.tsx` — `SeatLayout.labelSide`, `<tspan>` per line, shape-aware vertical shift.
+- Tests: `tests/unit/seat-label.test.ts` (10).
+
 ### 2026-09-02 · v2.16.0 — RUNSHEET card kind: a schedule you can tick through on the day
 
 **The ask (enhancement `cmsz2gxd`).** There was no card kind for time-ordered information, so the ceremony running order lived in a TEXT card where bullet prose did timeline work — "12:45 groomsmen chair sweep · 1:15 assembling music · 1:35/1:45 registrar interviews · …" — which the planner could only update by rewriting the whole body. The morning setup window, supplier arrival times and the day-of runsheet all want the same shape; it is not ceremony-specific.
