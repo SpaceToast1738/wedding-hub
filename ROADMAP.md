@@ -963,6 +963,10 @@ When wrapping up a meaningful iteration:
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
 
+### 2026-10-11 · Housekeeping — daily bug check retired
+
+The scheduled "Daily bug check" workflow (v1.54.1) had gone red every morning since late September because `prisma format --check` flagged an unformatted `schema.prisma`, and nobody acts on its output day to day. It is disabled on GitHub and the workflow file is removed. `build.yml` (typecheck, lint, tests, build, image) remains the CI gate on every push.
+
 ### 2026-09-07 · v2.16.1 — Seating canvas: long names wrap to a second line
 
 Seat labels on the table plan used to be cut off with "…" at the per-seat width budget, so "Katherine (Kat)" read as "Katherine (Ka…" and "Bryony-Olwyn" as "Bryony-O…". They now wrap onto a second line at a space or hyphen ("Katherine" / "(Kat)", "Bryony-" / "Olwyn") and only fall back to "…" when there is no natural break. Labels above a dot stack upward, below stack downward, and the side labels on a round table centre on their original baseline, so the extra line never runs into the seat dot. Auto-fit allows one extra line of height so wrapped names stay in frame.
