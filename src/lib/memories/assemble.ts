@@ -24,7 +24,6 @@ import type {
 
 const DATE_SHORT = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
 const DATE_LONG = new Intl.DateTimeFormat("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
-const TIME = new Intl.DateTimeFormat("en-GB", { hour: "numeric", minute: "2-digit", hour12: true, timeZone: "UTC" });
 
 export function fmtDate(iso: string | null | undefined): string {
   return iso ? DATE_SHORT.format(new Date(iso)) : "—";
@@ -32,8 +31,15 @@ export function fmtDate(iso: string | null | undefined): string {
 export function fmtDateLong(iso: string): string {
   return DATE_LONG.format(new Date(iso));
 }
+// Hand-rolled: Node's ICU renders en-GB 12-hour "12:30" as "0:30" on
+// Linux (h11 cycle), which CI caught. UTC on purpose: the app stores
+// wall-clock times as UTC.
 export function fmtTime(iso: string): string {
-  return TIME.format(new Date(iso)).toLowerCase().replace(" ", "");
+  const d = new Date(iso);
+  const h = d.getUTCHours();
+  const m = d.getUTCMinutes();
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return `${h12}:${String(m).padStart(2, "0")}${h < 12 ? "am" : "pm"}`;
 }
 function clip(s: string, n: number): string {
   const t = s.replace(/\s+/g, " ").trim();
