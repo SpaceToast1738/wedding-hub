@@ -10,6 +10,7 @@ import {
   Armchair,
   Music,
   BookOpen,
+  BookHeart,
   Scissors,
   Wallet,
   CreditCard,
@@ -74,6 +75,8 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/seating", label: "Seating",      icon: Armchair },
       { href: "/songs",   label: "Songs",        icon: Music },
       { href: "/book",    label: "Wedding Book", icon: BookOpen },
+      // v2.17.0: the Memory Book — couple-only retrospective.
+      { href: "/memories", label: "Memory Book", icon: BookHeart, coupleOnly: true },
       { href: "/diy",     label: "DIY",          icon: Scissors },
     ],
   },

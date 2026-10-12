@@ -18,6 +18,8 @@ export const SECTIONS = [
   // src/lib/group-defaults.ts (or the initial-permissions SQL when
   // that's how the row got there).
   "ai_chat", "ai_write",
+  // v2.17.0: the Memory Book. Couple-only hardwall like budget/payments.
+  "memories",
 ] as const;
 
 export type Section = (typeof SECTIONS)[number];
@@ -31,7 +33,7 @@ export type Section = (typeof SECTIONS)[number];
 // Default for non-couple is NONE → money values hidden. Couple can
 // promote a specific user (e.g. the planner) to VIEW via the
 // Settings matrix without unlocking /budget or /payments.
-export const COUPLE_ONLY_SECTIONS: Section[] = ["budget", "payments"];
+export const COUPLE_ONLY_SECTIONS: Section[] = ["budget", "payments", "memories"];
 
 // ─── Pure-decision helpers (unit-testable) ───────────────────────────
 //

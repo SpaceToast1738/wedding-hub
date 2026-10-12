@@ -40,6 +40,7 @@ const SECTION_LABELS: Record<Section, string> = {
   settings: "Settings",
   ai_chat: "AI chat",
   ai_write: "AI proposals",
+  memories: "Memory book",
 };
 
 // v2.5.0 (design pass #4): what a role actually grants, rendered

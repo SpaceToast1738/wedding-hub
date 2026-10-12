@@ -963,6 +963,19 @@ When wrapping up a meaningful iteration:
 
 Most recent entry on top. Add a new entry at the end of every meaningful iteration.
 
+### 2026-10-12 · v2.17.0 — The Memory Book: everything we planned, in three parts
+
+The wedding is over, so Wedding Hub gets its last chapter: `/memories`, a couple-only retrospective built from the live data. One long read in three parts. **Before:** by the numbers, a month-by-month journey (tasks created and finished, decisions, questions answered, suppliers booked, payments, guests, files, songs, Book sections started, planning events), the people, the team with contacts, contract dates and recent emails, and the Wedding Book absorbed chapter by chapter (clothing → the look, decor, food with the meal tally, games, legal; any unmapped section gets a chapter of its own). **The day:** the night before, the running order with notes at wall-clock times, the ceremony cards, the photographs with the shot-list tally, who sat where, and every playlist and guest request. **After:** the honeymoon (from the supplier and its payments), guestbook and gifts placeholders, "Planning with Claude" (the opening exchange of each AI planner thread), the paperwork, every decision and question with its answer, and what it cost.
+
+Money is built in and stripped by `redactMoney` unless the couple flips "Show what it cost" (remembered per browser). Dashed photo slots sit in every chapter, empty until v2.19.0 adds uploads and OneDrive links. A print stylesheet gives a usable A4 PDF now; the dedicated print view (A4 and square) is next.
+
+- `src/lib/memories/` — `types.ts`, `sources.ts`, `load.ts` (the only Prisma reader), `journey.ts` and `assemble.ts` (pure), `redact.ts`, `build.ts`. Book cards reuse `loadCardExport` + `cardToDoc`; budget totals mirror the read_budget maths.
+- `src/components/memories/MemoryBook.tsx` — hook-free tree styled by `public/memories.css` (one stylesheet for screen, print and the coming export; dark-mode and print token overrides).
+- `src/app/(app)/memories/` — server page + client shell (money switch, sticky chapter rail with the current chapter marked, print button).
+- Permissions: `memories` added to `SECTIONS` and `COUPLE_ONLY_SECTIONS`, middleware redirect, Settings label maps; sidebar entry under Wedding Book.
+- Tests: `memories-journey` (9), `memories-assemble` (12), `memories-redact` (3) over a shared fixture.
+- Known limits: the audit log is purged after 30 days, so journey dates from `updatedAt` are marked "~"; AI threads show their first exchange only; the guestbook, gifts and photo slots are placeholders until v2.19.0.
+
 ### 2026-10-11 · Housekeeping — daily bug check retired
 
 The scheduled "Daily bug check" workflow (v1.54.1) had gone red every morning since late September because `prisma format --check` flagged an unformatted `schema.prisma`, and nobody acts on its output day to day. It is disabled on GitHub and the workflow file is removed. `build.yml` (typecheck, lint, tests, build, image) remains the CI gate on every push.

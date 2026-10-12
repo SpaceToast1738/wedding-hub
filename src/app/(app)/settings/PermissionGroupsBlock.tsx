@@ -51,6 +51,7 @@ const SECTION_LABELS: Record<Section, string> = {
   settings: "Settings",
   ai_chat: "AI chat",
   ai_write: "AI proposals",
+  memories: "Memory book",
 };
 
 type UserRow = { id: string; name: string; email?: string };
